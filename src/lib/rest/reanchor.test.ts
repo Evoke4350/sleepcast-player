@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { shouldReanchor, nextInSpread, REANCHOR_WINDOW_MS } from "./reanchor";
-import type { LastNight } from "@/lib/store";
-import type { Episode } from "@/lib/engine";
+import type { LastNight } from "../store";
+import type { Episode } from "../engine";
 
 function ep(id: string): Episode {
   return { id, title: id, url: `https://x/${id}`, feedId: "f" } as Episode;

@@ -28,3 +28,11 @@ normal podcast app would have.
 
 This is the canonical home of the player. sleepcast.pro consumes it as a
 submodule; changes here flow there, not the other way around.
+
+## Imports are relative on purpose
+
+There is no `@/` alias. The player is mounted inside sleepcast.pro as a
+submodule, where `@/` resolves against the HOST app's `src/` — so an aliased
+import here would silently bind to the wrong file over there. Use relative
+paths. If you add an alias, you break the consumer and the break is invisible
+until runtime.

@@ -1,9 +1,9 @@
 import { useMemo } from "react";
-import { loadNights, rollup, setSelfLabel, loadParams, saveParams } from "@/lib/rest/ledger";
-import { tightenAfterFalsePositive } from "@/lib/rest/calibrate";
-import { fmtDuration, lastNight } from "@/lib/rest/surface";
-import { getPlays } from "@/lib/store";
-import { playsSince, playAtMoment } from "@/lib/plays";
+import { loadNights, rollup, setSelfLabel, loadParams, saveParams } from "../lib/rest/ledger";
+import { tightenAfterFalsePositive } from "../lib/rest/calibrate";
+import { fmtDuration, lastNight } from "../lib/rest/surface";
+import { getPlays } from "../lib/store";
+import { playsSince, playAtMoment } from "../lib/plays";
 
 export function RestView({ onClose }: { onClose: () => void }) {
   const nights = useMemo(() => loadNights(), []);

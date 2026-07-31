@@ -1,5 +1,5 @@
-import type { Episode } from "@/lib/engine";
-import type { LastNight } from "@/lib/store";
+import type { Episode } from "../engine";
+import type { LastNight } from "../store";
 
 // A faded night can offer a re-anchor for this long after it ended.
 export const REANCHOR_WINDOW_MS = 6 * 60 * 60 * 1000;

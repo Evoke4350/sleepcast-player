@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { AppState, FeedRef } from "@/lib/store";
-import { loadBlocked, loadPositions } from "@/lib/store";
-import { searchEpisodes } from "@/lib/episode-search";
+import type { AppState, FeedRef } from "../lib/store";
+import { loadBlocked, loadPositions } from "../lib/store";
+import { searchEpisodes } from "../lib/episode-search";
 import {
   loadState,
   saveState,
@@ -10,14 +10,14 @@ import {
   cacheFeedXml,
   getCachedFeedXml,
   loadLastEpisode,
-} from "@/lib/store";
-import { diverseByMeta, parseFeedXml, formatTime } from "@/lib/engine";
-import type { Episode } from "@/lib/engine";
-import { loadNights, setSelfLabel, loadParams, saveParams } from "@/lib/rest/ledger";
-import { tightenAfterFalsePositive } from "@/lib/rest/calibrate";
-import type { RestNight } from "@/lib/rest/types";
-import { diversePick } from "@/lib/semantic-math";
-import { FEEL_PRESETS } from "@/lib/timer-feel";
+} from "../lib/store";
+import { diverseByMeta, parseFeedXml, formatTime } from "../lib/engine";
+import type { Episode } from "../lib/engine";
+import { loadNights, setSelfLabel, loadParams, saveParams } from "../lib/rest/ledger";
+import { tightenAfterFalsePositive } from "../lib/rest/calibrate";
+import type { RestNight } from "../lib/rest/types";
+import { diversePick } from "../lib/semantic-math";
+import { FEEL_PRESETS } from "../lib/timer-feel";
 
 const VARIED_N = 8;
 const EMBED_CAP = 96; // max titles to embed per varied-night run (~10s cold on a phone)
@@ -354,7 +354,7 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
     const candidates = pool.length > EMBED_CAP ? diverseByMeta(pool, EMBED_CAP) : pool;
     let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
     try {
-      const { embedTexts } = await import("@/lib/semantic-model");
+      const { embedTexts } = await import("../lib/semantic-model");
       const work = (async () => {
         const vecs = await embedTexts(
           candidates.map((e) => e.title),

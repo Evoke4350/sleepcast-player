@@ -38,10 +38,5 @@ export default defineConfig({
   server: { port: 3000, host: true },
   vite: {
     plugins: [tailwindcss()],
-    resolve: {
-      alias: {
-        "@": new URL("./src", import.meta.url).pathname,
-      },
-    },
   },
 });

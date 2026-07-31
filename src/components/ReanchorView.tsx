@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import type { Episode } from "@/lib/engine";
+import type { Episode } from "../lib/engine";
 
 // No-PII aggregate beacon, same shape as SleepSetup's — a single allowlisted
 // name, GET + keepalive (Astro's CSRF guard forbids the POST form).

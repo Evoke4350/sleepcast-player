@@ -1,16 +1,16 @@
 import { useState, useEffect } from "react";
-import type { Episode } from "@/lib/engine";
-import { formatTime } from "@/lib/engine";
-import { loadLive, clearLive, clearLastNight, loadLastNight, type LiveSession, type LastNight, loadState } from "@/lib/store";
-import { shouldReanchor, nextInSpread } from "@/lib/rest/reanchor";
-import { DEFAULT_FEEL_MINUTES } from "@/lib/timer-feel";
+import type { Episode } from "../lib/engine";
+import { formatTime } from "../lib/engine";
+import { loadLive, clearLive, clearLastNight, loadLastNight, type LiveSession, type LastNight, loadState } from "../lib/store";
+import { shouldReanchor, nextInSpread } from "../lib/rest/reanchor";
+import { DEFAULT_FEEL_MINUTES } from "../lib/timer-feel";
 import { SleepSetup } from "./SleepSetup";
 import { Player } from "./Player";
 import { RestView } from "./RestView";
 import { ReanchorView } from "./ReanchorView";
-import { shouldGreetGoodbye, markGoodbyeSeen, fmtDuration } from "@/lib/rest/surface";
-import { loadNights, loadQuietUntil, saveQuietUntil, loadStepBackAsked, markStepBackAsked } from "@/lib/rest/ledger";
-import { qualifiesForStepBack, isQuiet, quietUntilFrom } from "@/lib/rest/stepback";
+import { shouldGreetGoodbye, markGoodbyeSeen, fmtDuration } from "../lib/rest/surface";
+import { loadNights, loadQuietUntil, saveQuietUntil, loadStepBackAsked, markStepBackAsked } from "../lib/rest/ledger";
+import { qualifiesForStepBack, isQuiet, quietUntilFrom } from "../lib/rest/stepback";
 
 interface ResumeDescriptor {
   episode: Episode;

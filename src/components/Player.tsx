@@ -3,15 +3,15 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 // The drift game (three.js) loads only when opened — the player's own
 // bundle stays featherweight.
 const DriftGame = lazy(() => import("./DriftGame"));
-import type { Episode } from "@/lib/engine";
-import { fadeVolume, formatTime } from "@/lib/engine";
-import { getPlays, recordHeardPlay, saveLive, clearLive, saveLastEpisode, saveLastNight, rememberPosition, forgetPosition, blockEpisode } from "@/lib/store";
-import { pickNextEpisode, HEARD_SEC } from "@/lib/plays";
-import { canExtend } from "@/lib/timer-feel";
-import { shouldSuggestGettingUp } from "@/lib/rest/quarterhour";
-import { RestSession } from "@/lib/rest/session";
-import { appendNight } from "@/lib/rest/ledger";
-import type { RestNight } from "@/lib/rest/types";
+import type { Episode } from "../lib/engine";
+import { fadeVolume, formatTime } from "../lib/engine";
+import { getPlays, recordHeardPlay, saveLive, clearLive, saveLastEpisode, saveLastNight, rememberPosition, forgetPosition, blockEpisode } from "../lib/store";
+import { pickNextEpisode, HEARD_SEC } from "../lib/plays";
+import { canExtend } from "../lib/timer-feel";
+import { shouldSuggestGettingUp } from "../lib/rest/quarterhour";
+import { RestSession } from "../lib/rest/session";
+import { appendNight } from "../lib/rest/ledger";
+import type { RestNight } from "../lib/rest/types";
 
 const FADE_SECONDS = 60;
 const IS_TOUCH = typeof matchMedia !== "undefined" && matchMedia("(pointer: coarse)").matches;
