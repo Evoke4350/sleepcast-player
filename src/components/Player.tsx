@@ -8,12 +8,16 @@ import { fadeVolume, formatTime } from "../lib/engine";
 import { getPlays, recordHeardPlay, saveLive, clearLive, saveLastEpisode, saveLastNight, rememberPosition, forgetPosition, blockEpisode } from "../lib/store";
 import { pickNextEpisode, HEARD_SEC } from "../lib/plays";
 import { canExtend } from "../lib/timer-feel";
+import { shouldTick } from "../lib/tick-gate";
 import { shouldSuggestGettingUp } from "../lib/rest/quarterhour";
 import { RestSession } from "../lib/rest/session";
 import { appendNight } from "../lib/rest/ledger";
 import type { RestNight } from "../lib/rest/types";
 
 const FADE_SECONDS = 60;
+// Just under a second, so a jittery 1s interval isn't swallowed by the gate it
+// shares with the ~4Hz timeupdate stream.
+const TICK_MIN_MS = 900;
 const IS_TOUCH = typeof matchMedia !== "undefined" && matchMedia("(pointer: coarse)").matches;
 // A pool this small is a curated lineup (varied night), not a whole archive:
 // show it, so the night's spread is something you can see.
@@ -51,6 +55,7 @@ export function Player({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artw
   const endTimeRef = useRef<number | null>(null);
   const pausedRemainingMsRef = useRef<number | null>(null);
   const tickHandleRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastTickRef = useRef(0);
   const poolRef = useRef(pool);
   const skipIntroRef = useRef(skipIntroByFeedId);
   const feedTitlesRef = useRef(feedTitles);
@@ -334,6 +339,24 @@ export function Player({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artw
     });
   }
 
+  // Every caller goes through here, never straight to tick().
+  //
+  // setInterval alone was not enough: browsers throttle background intervals
+  // to about once a minute, and the phone is locked for nearly all of a sleep
+  // timer, so the 60-second fade was sampled once or twice and the stop landed
+  // late — the fade decaying into the hard cut it exists to avoid, precisely
+  // when it mattered. "timeupdate" keeps firing while backgrounded, which is
+  // why the sleep detector and the play ledger were already driven from it;
+  // the fade and the stop were simply left behind.
+  function tickGuarded() {
+    const now = Date.now();
+    const sessionActive =
+      endTimeRef.current !== null || pausedRemainingMsRef.current !== null;
+    if (!shouldTick({ lastRunAt: lastTickRef.current, now, minIntervalMs: TICK_MIN_MS, sessionActive })) return;
+    lastTickRef.current = now;
+    tick();
+  }
+
   function tick() {
     const audio = audioRef.current;
     if (!audio) return;
@@ -480,6 +503,7 @@ export function Player({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artw
 
     audio.addEventListener("pause", onPause);
     audio.addEventListener("play", onPlay);
+    audio.addEventListener("timeupdate", tickGuarded); // fade + stop must survive a locked screen
     audio.addEventListener("timeupdate", restTick); // keeps the sleep detector fed while backgrounded
     audio.addEventListener("timeupdate", heardTick); // accumulates real playback for the play ledger
     audio.addEventListener("playing", onPlaying);
@@ -500,13 +524,14 @@ export function Player({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artw
     if (resume) playEpisode(resume.episode, resume.position);
     else if (leadEpisode) playEpisode(leadEpisode, leadPosition); // "the exact one again"
     else playNext();
-    tickHandleRef.current = setInterval(tick, 1000);
-    tick();
+    tickHandleRef.current = setInterval(tickGuarded, 1000);
+    tick(); // paint the first frame immediately; the gate would hold it back
 
     return () => {
       if (tickHandleRef.current !== null) clearInterval(tickHandleRef.current);
       audio.removeEventListener("pause", onPause);
       audio.removeEventListener("play", onPlay);
+      audio.removeEventListener("timeupdate", tickGuarded);
       audio.removeEventListener("timeupdate", restTick);
       audio.removeEventListener("timeupdate", heardTick);
       audio.removeEventListener("playing", onPlaying);
