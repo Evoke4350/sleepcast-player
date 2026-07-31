@@ -1,0 +1,15 @@
+---
+import PlayerLayout from "../layouts/PlayerLayout.astro";
+import { AppPlayer } from "../components/AppPlayer";
+---
+
+<!-- The PAGE owns the background: at 2am the whole screen is the product, so it
+     paints the near-black ground the player stands on rather than letting a
+     lighter frame surround a darker panel. -->
+<style is:global>
+  body { background: #050508; }
+</style>
+
+<PlayerLayout>
+  <AppPlayer client:only="react" />
+</PlayerLayout>
