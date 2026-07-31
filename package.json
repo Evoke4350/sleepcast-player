@@ -1,0 +1,45 @@
+{
+  "name": "sleepcast-player",
+  "version": "0.1.0",
+  "description": "A sleep podcast player that shuffles your own feeds until a timer fades to silence.",
+  "license": "MIT",
+  "repository": "github:Evoke4350/sleepcast-player",
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "start": "node ./dist/server/entry.mjs",
+    "astro": "astro",
+    "typecheck": "astro check",
+    "test": "vitest run --environment jsdom"
+  },
+  "dependencies": {
+    "@astrojs/node": "^10.0.6",
+    "@astrojs/react": "^5.0.4",
+    "@huggingface/transformers": "^4.2.0",
+    "@tailwindcss/vite": "^4.2.4",
+    "astro": "^6.1.9",
+    "clsx": "^2.1.1",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "tailwind-merge": "^3.5.0",
+    "three": "^0.185.1",
+    "undici": "^7.29.0"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.8",
+    "@astrojs/ts-plugin": "^1.10.7",
+    "@types/node": "^20.19.39",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@types/three": "^0.185.1",
+    "jsdom": "^29.1.1",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "vitest": "^4.1.8"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

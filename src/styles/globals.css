@@ -1,0 +1,227 @@
+@import "tailwindcss";
+
+:root {
+  /* deep night, warm-dim — a bedroom, not an arcade */
+  --background: #070a14;   /* deepest night */
+  --foreground: #e9e6df;   /* warm off-white, never pure */
+  --muted: #9a9fb2;        /* cool slate for secondary text */
+  --accent: #e7b483;       /* candlelight amber — the single accent */
+  --accent-2: #6a5a9e;     /* aurora violet — ambient only */
+  --surface: #0c1120;      /* raised surface */
+  --surface-2: #131a2e;    /* card */
+  --border: #1e263f;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-2: var(--accent-2);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+}
+
+html, body {
+  background: var(--background);
+  color: var(--foreground);
+}
+body {
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* dvh, not vh: 100vh includes iOS Safari's collapsing toolbar, so the layout
+     shifts as it hides. Visible as a jump on a page opened one-handed in bed. */
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+::selection {
+  background: color-mix(in oklab, var(--accent) 35%, transparent);
+}
+
+/* warm gradient text — the italic word in the hero headline */
+.warm-text {
+  background: linear-gradient(100deg, var(--accent), #f0d0a8 60%, #b98a5e);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  font-style: italic;
+}
+/* the display serif — bedtime-story warmth, not SaaS sans */
+.font-serif-display {
+  font-family: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua",
+               Georgia, ui-serif, serif;
+  font-weight: 500;
+}
+
+/* primary CTA: a soft warm glow, like a lamp — no hard neon ring */
+.cta-glow {
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--accent) 30%, transparent),
+    0 10px 34px -8px color-mix(in oklab, var(--accent) 45%, transparent);
+}
+.cta-glow:hover {
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--accent) 50%, transparent),
+    0 14px 44px -6px color-mix(in oklab, var(--accent) 60%, transparent);
+}
+
+/* ── ambient night: slow aurora + stars behind the page ──────────────── */
+.night-sky { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+.aurora {
+  position: absolute; border-radius: 50%;
+  filter: blur(90px); opacity: 0.5; mix-blend-mode: screen;
+  animation: aurora-drift 26s ease-in-out infinite alternate;
+}
+.aurora-1 { width: 60vw; height: 60vw; left: -10vw; top: -20vh;
+  background: radial-gradient(circle, var(--accent-2), transparent 60%); }
+.aurora-2 { width: 55vw; height: 55vw; right: -15vw; top: 5vh;
+  background: radial-gradient(circle, #35406e, transparent 60%);
+  animation-duration: 32s; animation-delay: -6s; }
+.aurora-3 { width: 40vw; height: 40vw; left: 25vw; bottom: -25vh;
+  background: radial-gradient(circle, #b98a5e, transparent 62%);
+  opacity: 0.2; animation-duration: 38s; animation-delay: -12s; }
+@keyframes aurora-drift {
+  0%   { transform: translate(0,0) scale(1); }
+  100% { transform: translate(4vw,3vh) scale(1.12); }
+}
+.night-stars { position: absolute; inset: 0; opacity: 0.5;
+  background-image:
+    radial-gradient(1px 1px at 20% 30%, #fff, transparent),
+    radial-gradient(1px 1px at 70% 20%, #cdd6f0, transparent),
+    radial-gradient(1px 1px at 40% 70%, #fff, transparent),
+    radial-gradient(1px 1px at 85% 60%, #b9c2e0, transparent),
+    radial-gradient(1px 1px at 55% 45%, #fff, transparent),
+    radial-gradient(1px 1px at 10% 80%, #cdd6f0, transparent);
+  animation: night-twinkle 7s ease-in-out infinite alternate; }
+@keyframes night-twinkle { 0%{opacity:.35} 100%{opacity:.6} }
+@media (prefers-reduced-motion: reduce) {
+  .aurora, .night-stars { animation: none; }
+}
+
+/* The player surface sinks toward sleep as the timer runs down; the opacity
+   value comes from React, this only makes the change gentle. */
+.dream-sink {
+  transition: opacity 3s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .dream-sink { transition: none; }
+}
+
+/* ── player transport ─────────────────────────────────────────────────── */
+
+/* Hold-to-End: a ring fills around the button while held (--hold 0..100);
+   accidental 2am taps do nothing, intent takes a full second. */
+.hold-ring {
+  position: relative;
+}
+.hold-ring::before {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: 9999px;
+  background: conic-gradient(#b48a6c calc(var(--hold, 0) * 1%), transparent 0);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
+  pointer-events: none;
+}
+
+/* Thin episode progress line under the title. */
+.ep-progress {
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+.ep-progress > span {
+  display: block;
+  height: 100%;
+  background: #7c6f5e;
+  border-radius: 2px;
+  transition: width 1s linear;
+}
+
+/* One-line toast ("skipped the 21 min intro"): rises, lingers, fades. */
+.player-toast {
+  animation: player-toast 4s ease forwards;
+}
+@keyframes player-toast {
+  0% { opacity: 0; transform: translateY(6px); }
+  10%, 75% { opacity: 0.8; transform: translateY(0); }
+  100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .player-toast { animation: none; opacity: 0.8; }
+  .ep-progress > span { transition: none; }
+}
+
+/* veiled sleep timer: the moon breathes where the number would count */
+.player-moon {
+  display: inline-block;
+  opacity: 0.5;
+  animation: player-moon-breathe 6s ease-in-out infinite;
+}
+@keyframes player-moon-breathe {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 0.28; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .player-moon { animation: none; }
+}
+
+/* ── the immersive player's own sky: calmer & darker than the homepage's,
+   so the whole 2am screen becomes the product — sound, then a slow fade ── */
+.player-ambient { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+.player-ambient .glow {
+  position: absolute; border-radius: 50%; filter: blur(100px);
+  opacity: 0.16; mix-blend-mode: screen;
+  animation: aurora-drift 44s ease-in-out infinite alternate;
+}
+.player-ambient .g1 { width: 74vw; height: 74vw; left: -22vw; top: -28vh;
+  background: radial-gradient(circle, #2a2f57, transparent 60%); }
+.player-ambient .g2 { width: 58vw; height: 58vw; right: -18vw; bottom: -22vh;
+  background: radial-gradient(circle, #3b2f4e, transparent 62%);
+  animation-duration: 56s; animation-delay: -12s; }
+/* soft halo behind the veiled moon — a little warmth in the dark */
+.player-moon-halo {
+  position: absolute; left: 50%; top: 50%; width: 210px; height: 210px;
+  transform: translate(-50%, -50%); border-radius: 50%; pointer-events: none;
+  background: radial-gradient(circle, rgba(217,201,168,0.15), transparent 68%);
+  filter: blur(6px);
+  animation: player-moon-breathe 6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .player-ambient .glow, .player-moon-halo { animation: none; }
+}
+
+/* The setup screen's moon — the same object as .player-moon above, at the
+   other end of the night: this one you tap to fall asleep, that one holds the
+   time you're not allowed to see. Brighter, because here it's the action;
+   there it's ambient. */
+.setup-moon,
+.setup-moon-glow { animation: setup-moon-breathe 6s ease-in-out infinite; }
+@keyframes setup-moon-breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.72; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .setup-moon, .setup-moon-glow { animation: none; }
+}
+
+/* ── home hero: the fading waveform + night narrative ─────────────────── */
+#hero-wave { display: block; width: 100%; max-width: 40rem; height: 84px; }
+
+.way { display: grid; grid-template-columns: 3.5rem 1fr; gap: 1.4rem;
+  padding: 1.8rem 0; border-top: 1px solid var(--border); align-items: start; }
+.way:last-child { border-bottom: 1px solid var(--border); }
+.way .num { font-size: 0.85rem; color: #b98a5e; font-variant-numeric: tabular-nums;
+  padding-top: 0.35rem; }
+.way .tag { display: inline-block; margin-top: 0.7rem; font-size: 0.72rem;
+  letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted);
+  border: 1px solid var(--border); border-radius: 999px; padding: 0.2rem 0.7rem; }
+@media (max-width: 640px) { .way { grid-template-columns: 2.4rem 1fr; gap: 1rem; } }
+
+.promise-box { background: linear-gradient(180deg, var(--surface), var(--background));
+  border: 1px solid var(--border); border-radius: 1.4rem; padding: 3rem; text-align: center; }
+@media (max-width: 640px) { .promise-box { padding: 2rem 1.4rem; } }

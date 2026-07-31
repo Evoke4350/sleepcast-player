@@ -1,0 +1,43 @@
+---
+import "@/styles/globals.css";
+
+export interface Props {
+  title?: string;
+}
+
+const { title = "sleepcast" } = Astro.props;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#050508" />
+    <title>{title}</title>
+    <meta name="robots" content="noindex" />
+
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <!-- Installed to a homescreen, this is opened in the dark and held at
+         arm's length. Standalone display and a translucent status bar keep the
+         browser chrome from lighting up the room. -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="sleepcast" />
+    <meta name="mobile-web-app-capable" content="yes" />
+  </head>
+  <body class="min-h-full flex flex-col">
+    <slot />
+    <script is:inline>
+      // Registered late and failure-tolerant: the player works without it, so
+      // a service worker that won't install must never block a night.
+      if ("serviceWorker" in navigator) {
+        window.addEventListener("load", () => {
+          navigator.serviceWorker.register("/sw.js").catch(() => {});
+        });
+      }
+    </script>
+  </body>
+</html>
