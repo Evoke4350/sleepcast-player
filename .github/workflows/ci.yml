@@ -1,0 +1,29 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Typecheck is enforced from the first commit, while the count is zero.
+      # In the repo this was extracted from, `astro check` was never wired into
+      # the build, drifted to 44 errors, and a crash shipped that it would have
+      # caught. Starting clean is the only cheap moment to start.
+      - run: npm run typecheck
+
+      - run: npm test
+
+      - run: npm run build

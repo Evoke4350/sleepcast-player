@@ -2,7 +2,8 @@
 
 A sleep podcast player. Add your own feeds, it shuffles episodes, and a sleep
 timer fades the audio to silence and stops. No account, no database, no
-tracking, no AI. Everything you add lives in your browser's `localStorage`.
+tracking, no server-side anything. Everything you add lives in your browser's
+`localStorage`.
 
 This is the player from [sleepcast.pro](https://sleepcast.pro), extracted so it
 can be self-hosted and modified. MIT.
@@ -12,8 +13,29 @@ npm install
 npm run dev        # http://localhost:3000
 ```
 
-Node 22+ required (it uses `node:sqlite`-era built-ins and the standalone Astro
-adapter). No env vars are needed to run it.
+Node 22+ required (Astro 6). No env vars are needed to run it.
+
+## One optional feature downloads a model
+
+"Varied mix" picks episodes that are semantically unlike each other, which
+means embedding their titles. That runs **MiniLM-L6-v2 (~23MB, quantized) in
+your browser** via transformers.js, fetched from Hugging Face's CDN the first
+time you use it and cached by the browser afterwards. Title vectors are cached
+in `localStorage` so a feed is embedded once.
+
+Two things follow, and neither is hidden:
+
+- **It is the only request that leaves for a third party** other than your own
+  podcast hosts. If that matters to you, don't press varied mix — every other
+  path (shuffle, the spread, resume) is entirely local and the model is never
+  fetched. It is a dynamic `import()` behind a button, not part of the bundle.
+- **It is genuinely a model.** Nothing here *generates* audio or text, but
+  calling this app "no AI" would be false, so it doesn't.
+
+If the download fails, is blocked, or takes longer than 25 seconds, the app
+falls back to a feed-and-year spread and starts the night anyway
+(`SleepSetup.tsx`). iOS Lockdown Mode blocks the WASM it needs, so that
+fallback is a real path, not a theoretical one.
 
 ## Why it works this way
 
@@ -82,7 +104,18 @@ npm run build
 node ./dist/server/entry.mjs      # honours PORT and HOST
 ```
 
+Or with the included Dockerfile:
+
+```bash
+docker build -t sleepcast-player .
+docker run -p 3000:3000 sleepcast-player
+```
+
 Set `PUBLIC_SITE_URL` to your own origin so the canonical URL is right.
+
+**Read `SECURITY.md` before putting this on the public internet.** The rate
+limiter identifies callers by proxy headers, and on a host that sets none of
+them every visitor shares one bucket.
 
 ## Tests
 
