@@ -253,6 +253,10 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
     setCustomMinutes("");
   }
 
+  function setLeveling(leveling: boolean) {
+    updateAndSave({ ...appState, settings: { ...appState.settings, leveling } });
+  }
+
   function setNoise(patch: Partial<NoiseSettings>) {
     updateAndSave({
       ...appState,
@@ -476,6 +480,12 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
   }
 
   const isPreset = FEEL_PRESETS.some((p) => p.minutes === timerMinutes);
+  // Offered as a disabled control with a reason rather than hidden: someone
+  // who has read about the feature should find out why it isn't here, not
+  // wonder whether they imagined it.
+  const levelingUnavailable = typeof navigator !== "undefined" &&
+    (/iPad|iPhone|iPod/.test(navigator.userAgent) ||
+      (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1));
 
   const poolNote = pool.length > 0 ? `${pool.length} episodes ready` : "gathering episodes…";
 
@@ -852,6 +862,28 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
             </div>
           </section>
         )}
+
+        <section className="space-y-3">
+          <h2 className="text-xs uppercase tracking-widest text-[#6e5d44]">Loudness</h2>
+          <div className="flex items-center gap-3">
+            <input
+              type="checkbox"
+              id="leveling-on"
+              checked={appState.settings.leveling}
+              disabled={levelingUnavailable}
+              onChange={(e) => setLeveling(e.target.checked)}
+              className="h-5 w-5 rounded accent-[#6e5d44] cursor-pointer disabled:opacity-40"
+            />
+            <label htmlFor="leveling-on" className="text-sm cursor-pointer">
+              even out loudness between shows
+            </label>
+          </div>
+          <p className="text-xs text-[#6e5d44]">
+            {levelingUnavailable
+              ? "Not available on iPhone or iPad: the compressor routes audio through Web Audio, which this device suspends when the screen locks — the night would play in silence. Per-show volume trim works here and everywhere."
+              : "Costs an extra load on each show's first episode. Per-show volume trim works either way."}
+          </p>
+        </section>
 
         {/* A custom timer is the long tail of the one decision the field
             already offers, so it lives down here with the other fiddling. */}

@@ -56,6 +56,7 @@ export function AppPlayer() {
   const [mode, setMode] = useState<PlayMode>({ kind: "minutes", minutes: 45 });
   const [feedTrim, setFeedTrim] = useState<Record<string, number>>({});
   const [noise, setNoise] = useState<NoiseSettings>({ on: false, level: 0.15 });
+  const [leveling, setLeveling] = useState(false);
 
   const [goodbye] = useState(() => (isQuiet(loadQuietUntil(), Date.now()) ? null : shouldGreetGoodbye(Date.now())));
 
@@ -152,6 +153,7 @@ export function AppPlayer() {
     setMode(settings.mode);
     setFeedTrim(settings.feedTrim);
     setNoise(settings.noise);
+    setLeveling(settings.leveling);
     clearLastNight(); // a new night supersedes any prior faded one
     setSession({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artworkByFeedId, leadEpisode, wasVaried, leadPosition });
   }
@@ -221,6 +223,7 @@ export function AppPlayer() {
         mode={mode}
         feedTrim={feedTrim}
         noise={noise}
+        leveling={leveling}
         wasVaried={session.wasVaried ?? false}
       />
     );

@@ -11,6 +11,7 @@ import { canExtend } from "../lib/timer-feel";
 import { recordSessionEnd } from "../lib/store";
 import type { NoiseSettings } from "../lib/store";
 import { BrownNoise, noiseGain } from "../lib/noise";
+import { Leveler } from "../lib/leveler";
 import { shouldTick } from "../lib/tick-gate";
 import { shouldSuggestGettingUp } from "../lib/rest/quarterhour";
 import { RestSession } from "../lib/rest/session";
@@ -21,6 +22,34 @@ const FADE_SECONDS = 60;
 // Just under a second, so a jittery 1s interval isn't swallowed by the gate it
 // shares with the ~4Hz timeupdate stream.
 const TICK_MIN_MS = 900;
+
+// Feeds whose enclosures rejected CORS playback this session — don't retry.
+// Module-level and intentionally outliving a Player mount: a new mount on the
+// next episode shouldn't rediscover a feed's CORS support from scratch.
+const corsBadFeeds = new Set<string>();
+// Feeds that have proven a successful CORS playback this session. The
+// compressor only attaches once EVERY feed in the pool is known-good, because
+// createMediaElementSource is a one-way door: a feed that turns out to lack
+// CORS headers afterwards produces silence rather than an error event, and
+// cannot be detected at runtime.
+const corsGoodFeeds = new Set<string>();
+
+// iOS suspends AudioContext the moment the screen locks, and
+// createMediaElementSource permanently rewires the element's output through
+// that context — there is no way back once attached. So on iOS an attached
+// compressor means: lock the phone, the context suspends, and the night plays
+// in silence while currentTime advances, the fade runs and the timer completes
+// normally. Nothing reports a failure; the listener just gets nothing.
+//
+// Detected rather than inferred where possible: iPadOS reports itself as Mac,
+// so the touch-point check is the standard way to catch it.
+function suspendsWebAudioOnLock(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent;
+  const iOSLike = /iPad|iPhone|iPod/.test(ua) ||
+    (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+  return iOSLike;
+}
 const IS_TOUCH = typeof matchMedia !== "undefined" && matchMedia("(pointer: coarse)").matches;
 // A pool this small is a curated lineup (varied night), not a whole archive:
 // show it, so the night's spread is something you can see.
@@ -33,6 +62,8 @@ export interface PlayerProps {
   /** feedId → 0.5..1.5 gain trim; absent means 1.0. */
   feedTrim: Record<string, number>;
   noise: NoiseSettings;
+  /** Opt-in loudness compressor. Ignored where Web Audio dies on lock. */
+  leveling: boolean;
   skipIntroByFeedId: Record<string, number>;
   feedTitles: Record<string, string>;
   artworkByFeedId: Record<string, string>;
@@ -57,7 +88,7 @@ export interface PlayerProps {
   wasVaried?: boolean;
 }
 
-export function Player({ pool, timerMinutes, mode, feedTrim, noise, skipIntroByFeedId, feedTitles, artworkByFeedId, onEnd, resume = null, leadEpisode = null, leadPosition = 0, quarterHourRule = false, wasVaried = false }: PlayerProps) {
+export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, skipIntroByFeedId, feedTitles, artworkByFeedId, onEnd, resume = null, leadEpisode = null, leadPosition = 0, quarterHourRule = false, wasVaried = false }: PlayerProps) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const endTimeRef = useRef<number | null>(null);
   const pausedRemainingMsRef = useRef<number | null>(null);
@@ -97,6 +128,11 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, skipIntroByF
   const currentFeedRef = useRef<string | null>(null);
   const feedTrimRef = useRef<Record<string, number>>(feedTrim);
   const brownRef = useRef<BrownNoise | null>(null);
+  const levelerRef = useRef<Leveler | null>(null);
+  // Whether the compressor has captured the element. Per-mount, unlike the
+  // CORS sets: the AudioContext it guards doesn't survive a mount either.
+  const attachedRef = useRef(false);
+  const levelingRef = useRef(leveling);
 
   const [nowPlaying, setNowPlaying] = useState<{ id: string; title: string; feedId: string } | null>(null);
   const [playedIds, setPlayedIds] = useState<ReadonlySet<string>>(new Set());
@@ -131,6 +167,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, skipIntroByF
   useEffect(() => { wasVariedRef.current = wasVaried; }, [wasVaried]);
   useEffect(() => { modeRef.current = mode; }, [mode]);
   useEffect(() => { feedTrimRef.current = feedTrim; }, [feedTrim]);
+  useEffect(() => { levelingRef.current = leveling; }, [leveling]);
 
   function playEpisode(ep: Episode, seekTo = 0) {
     const audio = audioRef.current;
@@ -142,6 +179,16 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, skipIntroByF
 
     setNowPlaying({ id: ep.id, title: ep.title, feedId: ep.feedId });
     setPlayedIds((prev) => new Set(prev).add(ep.id));
+    currentFeedRef.current = ep.feedId;
+    // crossOrigin is required before the compressor can ever capture the
+    // element, but it also makes playback fail outright on a host that serves
+    // no CORS headers — so it is only requested for feeds not already known
+    // bad, and onError retries plain before condemning one.
+    if (levelingRef.current && !corsBadFeeds.has(ep.feedId)) {
+      audio.crossOrigin = "anonymous";
+    } else {
+      audio.removeAttribute("crossorigin");
+    }
     audio.src = ep.url;
     currentEpRef.current = ep;
     // Snapshot the new episode to storage promptly, not up to 10s later.
@@ -244,11 +291,23 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, skipIntroByF
     // Exclude what is playing now. The ledger only records an episode after
     // HEARD_SEC, so on a fresh varied mix every episode is still a candidate
     // and Next had a real chance of restarting the same story from 0:00.
+    let available = poolRef.current;
+    if (attachedRef.current) {
+      // Past the one-way door: an episode from a feed that turned out CORS-bad
+      // plays silent through the captured element and reports nothing. Skip
+      // the whole feed, and end rather than fake-play silence all night.
+      const playable = available.filter((e) => !corsBadFeeds.has(e.feedId));
+      if (playable.length === 0) {
+        endSession("ended");
+        return;
+      }
+      available = playable;
+    }
     const current = currentEpRef.current;
     const choices = current
-      ? poolRef.current.filter((e) => e.id !== current.id)
-      : poolRef.current;
-    const ep = pickNextEpisode(choices.length ? choices : poolRef.current, getPlays());
+      ? available.filter((e) => e.id !== current.id)
+      : available;
+    const ep = pickNextEpisode(choices.length ? choices : available, getPlays());
     if (ep) playEpisode(ep);
   }
 
@@ -581,9 +640,60 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, skipIntroByF
     const onPlaying = () => {
       watchRef.current = null;
       failsRef.current = 0;
+      const feedId = currentFeedRef.current;
+      if (feedId && audio.crossOrigin === "anonymous") corsGoodFeeds.add(feedId);
+      // Conservative gate: attach only once every feed in the pool has already
+      // played successfully under CORS, because the capture cannot be undone.
+      if (
+        levelingRef.current &&
+        !suspendsWebAudioOnLock() &&
+        audio.crossOrigin === "anonymous" &&
+        poolRef.current.every((e) => corsGoodFeeds.has(e.feedId))
+      ) {
+        levelerRef.current ??= new Leveler(audio);
+        if (levelerRef.current.attach()) attachedRef.current = true;
+      }
     };
 
     const onError = () => {
+      // A crossOrigin element failing may only mean "this enclosure serves no
+      // CORS headers" — retry the same source plain before skipping the track.
+      const feedId = currentFeedRef.current;
+      if (levelingRef.current && audio.crossOrigin === "anonymous" && audio.getAttribute("src")) {
+        // A feed already proven good this session serves CORS headers, so this
+        // is a dead enclosure or a signal drop, not a CORS failure. Don't
+        // condemn the whole feed over one bad episode.
+        if (feedId && !corsGoodFeeds.has(feedId)) corsBadFeeds.add(feedId);
+        // Once attached, the element is captured and a plain retry would play
+        // into a silenced node — fall through to the ordinary skip instead.
+        if (!attachedRef.current) {
+          const src = audio.getAttribute("src")!;
+          const pos = audio.currentTime;
+          audio.removeAttribute("crossorigin");
+          audio.src = src;
+          if (pos > 0) {
+            // Registered through seekCleanupRef, which playEpisode tears down
+            // first thing. A bare listener here would outlive a retry that
+            // itself errors before metadata, and then force-seek the *next*
+            // episode to this stale position — the same leak fixed on the
+            // main seek path.
+            const onRetryMetadata = () => {
+              if (seekCleanupRef.current === cleanupRetry) seekCleanupRef.current = null;
+              try { audio.currentTime = pos; } catch { /* not seekable */ }
+            };
+            const cleanupRetry = () => {
+              audio.removeEventListener("loadedmetadata", onRetryMetadata);
+              if (seekCleanupRef.current === cleanupRetry) seekCleanupRef.current = null;
+            };
+            seekCleanupRef.current?.();
+            audio.addEventListener("loadedmetadata", onRetryMetadata, { once: true });
+            seekCleanupRef.current = cleanupRetry;
+          }
+          watchRef.current = { src, at: Date.now() };
+          void audio.play().catch(() => {});
+          return;
+        }
+      }
       if (tickHandleRef.current !== null && audio.getAttribute("src")) playNext();
     };
 
@@ -622,6 +732,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, skipIntroByF
       if (tickHandleRef.current !== null) clearInterval(tickHandleRef.current);
       clearStopFade();
       brownRef.current?.stop();
+      levelerRef.current?.dispose();
       audio.removeEventListener("pause", onPause);
       audio.removeEventListener("play", onPlay);
       audio.removeEventListener("timeupdate", tickGuarded);
