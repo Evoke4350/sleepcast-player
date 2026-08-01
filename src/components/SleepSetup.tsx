@@ -3,10 +3,13 @@ import type { AppState, FeedRef } from "../lib/store";
 import { loadBlocked, loadPositions } from "../lib/store";
 import { searchEpisodes } from "../lib/episode-search";
 import { parseOpml, buildOpml } from "../lib/opml";
+import { rearmMinutes } from "../lib/engine";
+import type { PlayMode } from "../lib/engine";
 import { BrownNoise } from "../lib/noise";
 import type { NoiseSettings } from "../lib/store";
 import {
   loadState,
+  REARM_WINDOW_MS,
   saveState,
   addCustomFeed,
   removeCustomFeed,
@@ -341,6 +344,31 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
   // enabling a feed / setting the timer only lands on the next render, and the
   // pool may still be fetching — so the effect below starts playback once both
   // the saved state and the pool are ready.
+  // Set just before a re-arm triggers its own start, so beginNight can tell
+  // "this start came from the offer, leave the stamp alone" from "an ordinary
+  // start, clear it".
+  const rearmStartRef = useRef(false);
+
+  // One tap back to sleep: half the previous dose, no setup steps.
+  function handleRearm() {
+    if (!rearmable || goldenPending) return;
+    rearmStartRef.current = true;
+    const nextMode: PlayMode =
+      rearmable.modeKind === "one-episode"
+        ? { kind: "one-episode" }
+        : { kind: "minutes", minutes: rearmM };
+    updateAndSave({
+      ...appState,
+      settings: {
+        ...appState.settings,
+        mode: nextMode,
+        ...(nextMode.kind === "minutes" ? { timerMinutes: rearmM } : {}),
+      },
+    });
+    setTimerTouched(true);
+    beginNight(null);
+  }
+
   function beginNight(lead: Episode | null, leadPosition = 0) {
     if (goldenPending) return;
     // Nothing to play means nothing to wait for. Without this the pending flag
@@ -363,6 +391,12 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
       next = { ...next, settings: { ...next.settings, timerMinutes: 45 } };
       setCustomMinutes("");
     }
+    if (!rearmStartRef.current && next.settings.lastSession !== null) {
+      // Any ordinary start dismisses the offer for the rest of the window —
+      // it should appear once, when it might help, and never nag.
+      next = { ...next, settings: { ...next.settings, lastSession: null } };
+    }
+    rearmStartRef.current = false;
     if (next !== appState) updateAndSave(next);
     setGoldenPending(true);
   }
@@ -479,6 +513,15 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
     return "";
   }
 
+  // A natural fade-out inside the last six hours means someone may have woken
+  // back up. Offer half the previous dose, one tap, no setup.
+  const lastSession = appState.settings.lastSession;
+  const rearmable =
+    lastSession !== null && Date.now() - lastSession.endedAt < REARM_WINDOW_MS
+      ? lastSession
+      : null;
+  const rearmM = rearmable ? rearmMinutes(rearmable.timerMinutes) : 0;
+
   const isPreset = FEEL_PRESETS.some((p) => p.minutes === timerMinutes);
   // Offered as a disabled control with a reason rather than hidden: someone
   // who has read about the feature should find out why it isn't here, not
@@ -575,6 +618,18 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
             </div>
           )}
           <p className="text-xs text-[#6e5d44] tracking-wide">{poolNote}</p>
+
+          {rearmable && !goldenPending && (
+            <button
+              onClick={handleRearm}
+              className="w-full max-w-xs rounded-xl border border-[#2a1d1a] bg-[#140f0e] px-4 py-3 text-sm text-[#8a6a55] transition-colors hover:text-[#b59a76]"
+            >
+              still awake?{" "}
+              {rearmable.modeKind === "one-episode"
+                ? "one more episode"
+                : `resume · ${rearmM} min`}
+            </button>
+          )}
 
           <button
             onClick={handleGolden}
