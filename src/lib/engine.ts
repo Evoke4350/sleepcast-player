@@ -1,6 +1,11 @@
 export interface Episode { id: string; title: string; url: string; feedId: string; date: string; }
 export interface Feed { id: string; title: string; episodes: Episode[]; artwork?: string; }
 
+export type PlayMode =
+  | { kind: "minutes"; minutes: number }
+  | { kind: "one-episode" }
+  | { kind: "all-night" };
+
 export function fadeVolume(remainingSeconds: number, fadeSeconds: number): number {
   if (remainingSeconds >= fadeSeconds) return 1;
   if (remainingSeconds <= 0) return 0;
@@ -75,4 +80,30 @@ export function diverseByMeta(episodes: Episode[], n: number, rand: () => number
     i++;
   }
   return picks;
+}
+
+// Fade × per-feed trim, clamped to what an <audio> element accepts.
+export function effectiveVolume(
+  remainingSeconds: number,
+  fadeSeconds: number,
+  trim: number
+): number {
+  const v = fadeVolume(remainingSeconds, fadeSeconds) * trim;
+  return Math.min(1, Math.max(0, v));
+}
+
+// Half the previous timer, rounded to 5, never under 10 — the 3am dose.
+export function rearmMinutes(previousMinutes: number): number {
+  return Math.max(10, Math.round(previousMinutes / 2 / 5) * 5);
+}
+
+// Seconds driving the fade this tick. Infinity means "no fade underway".
+export function fadeDriverSeconds(
+  mode: PlayMode["kind"],
+  timerRemaining: number,
+  episodeRemaining: number | null
+): number {
+  if (mode === "minutes") return timerRemaining;
+  if (mode === "one-episode") return episodeRemaining ?? Infinity;
+  return Infinity;
 }
