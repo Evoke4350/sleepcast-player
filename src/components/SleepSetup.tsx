@@ -3,6 +3,8 @@ import type { AppState, FeedRef } from "../lib/store";
 import { loadBlocked, loadPositions } from "../lib/store";
 import { searchEpisodes } from "../lib/episode-search";
 import { parseOpml, buildOpml } from "../lib/opml";
+import { BrownNoise } from "../lib/noise";
+import type { NoiseSettings } from "../lib/store";
 import {
   loadState,
   saveState,
@@ -194,7 +196,14 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
     setTimerTouched(true);
     const next: AppState = {
       ...appState,
-      settings: { ...appState.settings, timerMinutes: minutes },
+      settings: {
+        ...appState.settings,
+        timerMinutes: minutes,
+        // Picking a duration is picking minutes mode. Without this, choosing a
+        // preset after "all night" would leave the mode timerless and the
+        // number the listener just tapped would be quietly ignored.
+        mode: { kind: "minutes", minutes },
+      },
     };
     updateAndSave(next);
     setCustomMinutes("");
@@ -207,7 +216,11 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
     if (n >= 1) {
       const next: AppState = {
         ...appState,
-        settings: { ...appState.settings, timerMinutes: n },
+        settings: {
+          ...appState.settings,
+          timerMinutes: n,
+          mode: { kind: "minutes", minutes: n },
+        },
       };
       updateAndSave(next);
     }
@@ -228,6 +241,26 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
   function handleRemoveFeed(id: string) {
     const next = removeCustomFeed(appState, id);
     updateAndSave(next);
+  }
+
+  const mode = appState.settings.mode;
+
+  function selectEpisodeMode(kind: "one-episode" | "all-night") {
+    updateAndSave({
+      ...appState,
+      settings: { ...appState.settings, mode: { kind } },
+    });
+    setCustomMinutes("");
+  }
+
+  function setNoise(patch: Partial<NoiseSettings>) {
+    updateAndSave({
+      ...appState,
+      settings: {
+        ...appState.settings,
+        noise: { ...appState.settings.noise, ...patch },
+      },
+    });
   }
 
   function handleOpmlImport(file: File) {
@@ -574,6 +607,33 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
             ))}
           </div>
 
+          {/* Two ways to not set a timer at all. One episode fades when the
+              episode ends; all night never fades and is stopped by hand. */}
+          <div className="flex gap-4 text-xs">
+            <button
+              onClick={() => selectEpisodeMode("one-episode")}
+              aria-pressed={mode.kind === "one-episode"}
+              className={`underline-offset-4 transition-colors ${
+                mode.kind === "one-episode"
+                  ? "text-[#f0dcb8] underline decoration-[#6e5d44]"
+                  : "text-[#6e5d44] underline decoration-[#241f30] hover:text-[#b59a76]"
+              }`}
+            >
+              one episode
+            </button>
+            <button
+              onClick={() => selectEpisodeMode("all-night")}
+              aria-pressed={mode.kind === "all-night"}
+              className={`underline-offset-4 transition-colors ${
+                mode.kind === "all-night"
+                  ? "text-[#f0dcb8] underline decoration-[#6e5d44]"
+                  : "text-[#6e5d44] underline decoration-[#241f30] hover:text-[#b59a76]"
+              }`}
+            >
+              all night
+            </button>
+          </div>
+
           {/* The mix: a clear second way to start, one step down from the moon.
               A real button now, not a whispered link — people reach for it. */}
           <button
@@ -761,6 +821,37 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
             {opmlNote && <p className="text-xs text-[#6e5d44]">{opmlNote}</p>}
           </div>
         </section>
+
+        {/* Feature-detected rather than assumed: no AudioWorklet, no section,
+            because a dead toggle is worse than an absent one. */}
+        {BrownNoise.supported() && (
+          <section className="space-y-3">
+            <h2 className="text-xs uppercase tracking-widest text-[#6e5d44]">Noise bed</h2>
+            <div className="flex items-center gap-3">
+              <input
+                type="checkbox"
+                id="noise-on"
+                checked={appState.settings.noise.on}
+                onChange={(e) => setNoise({ on: e.target.checked })}
+                className="h-5 w-5 rounded accent-[#6e5d44] cursor-pointer"
+              />
+              <label htmlFor="noise-on" className="text-sm cursor-pointer">
+                brown noise under the voices
+              </label>
+              <input
+                type="range"
+                min={0}
+                max={0.3}
+                step={0.05}
+                value={appState.settings.noise.level}
+                disabled={!appState.settings.noise.on}
+                onChange={(e) => setNoise({ level: Number(e.target.value) })}
+                className="flex-1 accent-[#6e5d44] disabled:opacity-40"
+                aria-label="Noise level"
+              />
+            </div>
+          </section>
+        )}
 
         {/* A custom timer is the long tail of the one decision the field
             already offers, so it lives down here with the other fiddling. */}
