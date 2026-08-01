@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { AppState, FeedRef } from "../lib/store";
 import { loadBlocked, loadPositions } from "../lib/store";
 import { searchEpisodes } from "../lib/episode-search";
+import { parseOpml, buildOpml } from "../lib/opml";
 import {
   loadState,
   saveState,
@@ -54,6 +55,7 @@ function beacon(name: string) {
 
 export function SleepSetup({ onStart }: SleepSetupProps) {
   const [appState, setAppState] = useState<AppState>(() => loadState());
+  const [opmlNote, setOpmlNote] = useState<string | null>(null);
   const [feedStatuses, setFeedStatuses] = useState<Record<string, FeedStatus>>({});
   const [customUrl, setCustomUrl] = useState("");
   const [customTitle, setCustomTitle] = useState("");
@@ -226,6 +228,56 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
   function handleRemoveFeed(id: string) {
     const next = removeCustomFeed(appState, id);
     updateAndSave(next);
+  }
+
+  function handleOpmlImport(file: File) {
+    setOpmlNote(null);
+    file.text().then((xml) => {
+      let entries;
+      try {
+        entries = parseOpml(xml);
+      } catch {
+        setOpmlNote("that file doesn't look like OPML");
+        return;
+      }
+      // Re-read the persisted state rather than closing over the appState
+      // captured when this handler started: file.text() above awaited, and
+      // building from that stale snapshot would silently discard any toggle
+      // made while the file was being read. loadState() is the source of
+      // truth here.
+      let next = loadState();
+      let added = 0;
+      let skipped = 0;
+      for (const entry of entries) {
+        const before = next.feeds.length;
+        try {
+          // Imported feeds start disabled — a 40-feed OPML would otherwise
+          // fetch every one of them through /api/relay at once (feeds run
+          // 0.6-8.8MB each).
+          next = addCustomFeed(next, entry.url, entry.title ?? undefined, false);
+        } catch {
+          skipped++; // invalid / non-https URL
+          continue;
+        }
+        if (next.feeds.length > before) added++;
+        else skipped++; // duplicate URL
+      }
+      if (added > 0) updateAndSave(next);
+      setOpmlNote(`added ${added} · skipped ${skipped} — enable the ones you want`);
+    });
+  }
+
+  function handleOpmlExport() {
+    const xml = buildOpml(appState.feeds.map((f) => ({ url: f.url, title: f.title })));
+    const blob = new Blob([xml], { type: "text/x-opml" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "sleepcast-feeds.opml";
+    a.click();
+    // Revoking in the same tick as click() can race the browser's own
+    // download handoff and cancel it — hold the URL alive a beat longer.
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   function startWith(chosen: Episode[], wasVaried = false) {
@@ -685,6 +737,28 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
             >
               Add feed
             </button>
+            <div className="flex items-center justify-between pt-1 text-xs text-[#6e5d44]">
+              <label className="cursor-pointer underline decoration-[#241f30] underline-offset-4 hover:text-[#b59a76]">
+                import OPML
+                <input
+                  type="file"
+                  accept=".opml,.xml,text/xml,text/x-opml"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) handleOpmlImport(f);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+              <button
+                onClick={handleOpmlExport}
+                className="underline decoration-[#241f30] underline-offset-4 hover:text-[#b59a76]"
+              >
+                export OPML
+              </button>
+            </div>
+            {opmlNote && <p className="text-xs text-[#6e5d44]">{opmlNote}</p>}
           </div>
         </section>
 
