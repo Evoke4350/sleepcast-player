@@ -3,11 +3,12 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 // The drift game (three.js) loads only when opened — the player's own
 // bundle stays featherweight.
 const DriftGame = lazy(() => import("./DriftGame"));
-import type { Episode } from "../lib/engine";
-import { fadeVolume, formatTime } from "../lib/engine";
+import type { Episode, PlayMode } from "../lib/engine";
+import { fadeVolume, formatTime, effectiveVolume, fadeDriverSeconds } from "../lib/engine";
 import { getPlays, recordHeardPlay, saveLive, clearLive, saveLastEpisode, saveLastNight, rememberPosition, forgetPosition, blockEpisode } from "../lib/store";
 import { pickNextEpisode, HEARD_SEC } from "../lib/plays";
 import { canExtend } from "../lib/timer-feel";
+import { recordSessionEnd } from "../lib/store";
 import { shouldTick } from "../lib/tick-gate";
 import { shouldSuggestGettingUp } from "../lib/rest/quarterhour";
 import { RestSession } from "../lib/rest/session";
@@ -26,6 +27,9 @@ const LINEUP_MAX = 12;
 export interface PlayerProps {
   pool: Episode[];
   timerMinutes: number;
+  mode: PlayMode;
+  /** feedId → 0.5..1.5 gain trim; absent means 1.0. */
+  feedTrim: Record<string, number>;
   skipIntroByFeedId: Record<string, number>;
   feedTitles: Record<string, string>;
   artworkByFeedId: Record<string, string>;
@@ -50,7 +54,7 @@ export interface PlayerProps {
   wasVaried?: boolean;
 }
 
-export function Player({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artworkByFeedId, onEnd, resume = null, leadEpisode = null, leadPosition = 0, quarterHourRule = false, wasVaried = false }: PlayerProps) {
+export function Player({ pool, timerMinutes, mode, feedTrim, skipIntroByFeedId, feedTitles, artworkByFeedId, onEnd, resume = null, leadEpisode = null, leadPosition = 0, quarterHourRule = false, wasVaried = false }: PlayerProps) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const endTimeRef = useRef<number | null>(null);
   const pausedRemainingMsRef = useRef<number | null>(null);
@@ -83,6 +87,12 @@ export function Player({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artw
   const epStartedAtRef = useRef(0); // epoch ms this episode began
   const playedIdsRef = useRef<ReadonlySet<string>>(new Set());
   const wasVariedRef = useRef(wasVaried);
+  const modeRef = useRef(mode);
+  // The user asked to stop and a short courtesy fade is running. While it is,
+  // it owns audio.volume — see tick().
+  const stopFadeRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const currentFeedRef = useRef<string | null>(null);
+  const feedTrimRef = useRef<Record<string, number>>(feedTrim);
 
   const [nowPlaying, setNowPlaying] = useState<{ id: string; title: string; feedId: string } | null>(null);
   const [playedIds, setPlayedIds] = useState<ReadonlySet<string>>(new Set());
@@ -115,6 +125,8 @@ export function Player({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artw
   useEffect(() => { onEndRef.current = onEnd; }, [onEnd]);
   useEffect(() => { playedIdsRef.current = playedIds; }, [playedIds]);
   useEffect(() => { wasVariedRef.current = wasVaried; }, [wasVaried]);
+  useEffect(() => { modeRef.current = mode; }, [mode]);
+  useEffect(() => { feedTrimRef.current = feedTrim; }, [feedTrim]);
 
   function playEpisode(ep: Episode, seekTo = 0) {
     const audio = audioRef.current;
@@ -304,9 +316,14 @@ export function Player({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artw
   function persistLive() {
     const audio = audioRef.current;
     const ep = currentEpRef.current;
-    if (!audio || !ep || endTimeRef.current === null) return;
-    const remainingMs = pausedRemainingMsRef.current ?? endTimeRef.current - Date.now();
-    if (remainingMs <= 0) return;
+    if (!audio || !ep || tickHandleRef.current === null) return;
+    // Timerless modes have no remaining time to restore; 0 records "revive the
+    // night, there is no clock to resume".
+    const remainingMs =
+      endTimeRef.current === null
+        ? 0
+        : pausedRemainingMsRef.current ?? endTimeRef.current - Date.now();
+    if (endTimeRef.current !== null && remainingMs <= 0) return;
     saveLive({
       savedAt: Date.now(),
       remainingMs,
@@ -328,14 +345,34 @@ export function Player({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artw
   // otherwise never arrive). The lastRestTickRef guard dedupes the two sources.
   function restTick() {
     const r = restRef.current;
-    if (!r || pausedRemainingMsRef.current !== null || endTimeRef.current === null) return;
+    if (!r || pausedRemainingMsRef.current !== null || tickHandleRef.current === null) return;
     if (Date.now() - lastRestTickRef.current < 15_000) return;
     lastRestTickRef.current = Date.now();
-    const remaining = (endTimeRef.current - Date.now()) / 1000;
+    // The detector's gate is an unattended fade, so it has to watch whichever
+    // clock is actually driving the fade in this mode — the timer in minutes
+    // mode, the episode in one-episode mode. Keyed to the timer alone, the
+    // detector would never see a fade in one-episode mode and could never
+    // conclude.
+    //
+    // In all-night there is no fade by design, so no night can be scored. That
+    // is a consequence of the gated model (docs/gated-model.md), not an
+    // oversight: precision comes from the fade, and without one there is no
+    // evidence that separates asleep from awake-and-resting.
+    const audio = audioRef.current;
+    const kind = modeRef.current.kind;
+    const timerRemaining =
+      kind === "minutes" && endTimeRef.current !== null
+        ? (endTimeRef.current - Date.now()) / 1000
+        : Infinity;
+    const epRemaining =
+      audio && Number.isFinite(audio.duration) && audio.duration > 0
+        ? audio.duration - audio.currentTime
+        : null;
+    const driver = fadeDriverSeconds(kind, timerRemaining, epRemaining);
     r.tick({
       now: Date.now(),
       hidden: typeof document !== "undefined" && document.hidden,
-      fadingOrDone: remaining <= FADE_SECONDS,
+      fadingOrDone: driver <= FADE_SECONDS,
     });
   }
 
@@ -350,8 +387,7 @@ export function Player({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artw
   // the fade and the stop were simply left behind.
   function tickGuarded() {
     const now = Date.now();
-    const sessionActive =
-      endTimeRef.current !== null || pausedRemainingMsRef.current !== null;
+    const sessionActive = tickHandleRef.current !== null;
     if (!shouldTick({ lastRunAt: lastTickRef.current, now, minIntervalMs: TICK_MIN_MS, sessionActive })) return;
     lastTickRef.current = now;
     tick();
@@ -361,8 +397,14 @@ export function Player({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artw
     const audio = audioRef.current;
     if (!audio) return;
 
+    // In one-episode and all-night modes there is no timer to run down, so the
+    // countdown is Infinity and the fade is driven by the episode instead —
+    // see fadeDriverSeconds.
+    const kind = modeRef.current.kind;
     const remaining =
-      (pausedRemainingMsRef.current ?? endTimeRef.current! - Date.now()) / 1000;
+      kind === "minutes"
+        ? (pausedRemainingMsRef.current ?? endTimeRef.current! - Date.now()) / 1000
+        : Infinity;
 
     restTick();
 
@@ -386,8 +428,22 @@ export function Player({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artw
       return;
     }
 
-    audio.volume = fadeVolume(remaining, FADE_SECONDS);
-    setCountdown(remaining);
+    const epRemaining =
+      Number.isFinite(audio.duration) && audio.duration > 0
+        ? audio.duration - audio.currentTime
+        : null;
+    const driver = fadeDriverSeconds(kind, remaining, epRemaining);
+
+    // The courtesy fade owns audio.volume while it runs. Without this guard
+    // tick() would reassign full volume from the mode driver (Infinity in
+    // all-night) on every pass, fighting the fade back up and producing
+    // audible stabs on the way out.
+    if (stopFadeRef.current === null) {
+      audio.volume = Number.isFinite(driver)
+        ? effectiveVolume(driver, FADE_SECONDS, feedTrimRef.current[currentFeedRef.current ?? ""] ?? 1.0)
+        : 1;
+    }
+    setCountdown(kind === "minutes" ? remaining : 0);
     setEpPos(
       Number.isFinite(audio.duration) && audio.duration > 0
         ? { cur: audio.currentTime, dur: audio.duration }
@@ -398,7 +454,7 @@ export function Player({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artw
     if (w && Date.now() - w.at > 25_000) {
       watchRef.current = null;
       failsRef.current++;
-      if (failsRef.current <= 6 && endTimeRef.current !== null) {
+      if (failsRef.current <= 6 && tickHandleRef.current !== null) {
         playNext(); // stuck track: move on
       } else {
         audio.pause(); // whole pool looks broken — stop skipping in silence
@@ -412,7 +468,19 @@ export function Player({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artw
     }
   }
 
+  function clearStopFade() {
+    if (stopFadeRef.current !== null) {
+      clearInterval(stopFadeRef.current);
+      stopFadeRef.current = null;
+    }
+  }
+
   function endSession(reason: RestNight["endedVia"] = "faded") {
+    // "faded" is the natural end — the timer ran out untouched. Stamp it so
+    // the setup screen can offer a smaller re-arm to someone who wakes back
+    // up inside the window. A manual stop is not an invitation to resume.
+    if (reason === "faded") recordSessionEnd(timerMinutes, modeRef.current.kind);
+    clearStopFade();
     clearLive(); // the night is over — nothing to revive
     saveLastNight({
       pool: poolRef.current,
@@ -455,7 +523,10 @@ export function Player({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artw
   // Start session on mount
   useEffect(() => {
     pausedRemainingMsRef.current = null;
-    endTimeRef.current = Date.now() + (resume ? resume.remainingMs : timerMinutes * 60 * 1000);
+    endTimeRef.current =
+      mode.kind === "minutes"
+        ? Date.now() + (resume ? resume.remainingMs : timerMinutes * 60 * 1000)
+        : null; // timerless modes: the fade is driven by the episode, not a clock
     restRef.current = new RestSession(Date.now(), timerMinutes);
     if (resume) {
       totalSecondsRef.current = resume.totalSeconds;
@@ -488,7 +559,7 @@ export function Player({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artw
     const onEnded = () => {
       const done = currentEpRef.current;
       if (done) forgetPosition(done.id); // played out: nothing left to resume
-      if (endTimeRef.current !== null) playNext();
+      if (tickHandleRef.current !== null) playNext();
     };
 
     // Playback genuinely started: stand the watchdog down.
@@ -498,7 +569,7 @@ export function Player({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artw
     };
 
     const onError = () => {
-      if (endTimeRef.current !== null && audio.getAttribute("src")) playNext();
+      if (tickHandleRef.current !== null && audio.getAttribute("src")) playNext();
     };
 
     audio.addEventListener("pause", onPause);
