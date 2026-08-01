@@ -909,16 +909,33 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
             <div className="player-moon-halo" aria-hidden="true"></div>
             <button
               onClick={() => setPeekUntil(Date.now() + 4000)}
-              aria-label={`time left ${countdownStr} — tap to peek`}
+              aria-label={
+                mode.kind === "minutes"
+                  ? `time left ${countdownStr} — tap to peek`
+                  : mode.kind === "one-episode"
+                    ? "playing one episode"
+                    : "playing all night"
+              }
               className="relative font-mono font-light tabular-nums text-[#c8c0b0] transition-opacity duration-500"
             >
-              {peeking
+              {/* Only minutes mode has a countdown to reveal. In the timerless
+                  modes the moon stays the moon, because a peek showing 0:00
+                  would read as "about to stop" — the opposite of the truth. */}
+              {mode.kind === "minutes" && peeking
                 ? <span className="text-6xl">{countdownStr}</span>
                 : <span className="player-moon text-5xl">☾</span>}
             </button>
           </div>
           <div className="mt-2 flex items-center justify-center gap-3 text-xs text-[#6b6558] uppercase tracking-widest">
-            <span>{peeking ? "remaining" : "sleeping"}</span>
+            <span>
+              {mode.kind === "one-episode"
+                ? "one episode"
+                : mode.kind === "all-night"
+                  ? "all night"
+                  : peeking
+                    ? "remaining"
+                    : "sleeping"}
+            </span>
             {canExtend(extensions) ? (
               <button
                 onClick={() => extendTimer(15)}
