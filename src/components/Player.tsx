@@ -559,6 +559,13 @@ export function Player({ pool, timerMinutes, mode, feedTrim, skipIntroByFeedId, 
     const onEnded = () => {
       const done = currentEpRef.current;
       if (done) forgetPosition(done.id); // played out: nothing left to resume
+      if (stopFadeRef.current !== null) {
+        // A courtesy fade is in flight: the listener asked to stop and the
+        // episode happened to end underneath it. Starting another would
+        // resurrect the night they just ended.
+        endSession("ended");
+        return;
+      }
       if (tickHandleRef.current !== null) playNext();
     };
 
@@ -656,7 +663,38 @@ export function Player({ pool, timerMinutes, mode, feedTrim, skipIntroByFeedId, 
       setHoldPct(pct);
       if (pct >= 100) {
         holdEndCancel();
-        endSession("ended");
+        if (modeRef.current.kind === "minutes") {
+          // A timer night already ends on a fade of its own; cutting it here
+          // is what the listener asked for.
+          endSession("ended");
+        } else if (stopFadeRef.current !== null) {
+          // Already mid-courtesy-fade: a second hold means "out now" — don't
+          // make them sit through the rest of it.
+          endSession("ended");
+        } else {
+          // Timerless modes have had no fade at all, so stopping would be a
+          // hard cut in a dark room. Five seconds of ramp costs nothing and is
+          // the whole difference between "ended" and "yanked".
+          const audio = audioRef.current;
+          if (audio && !audio.paused) {
+            const t0 = Date.now();
+            stopFadeRef.current = setInterval(() => {
+              const left = 5000 - (Date.now() - t0);
+              if (left <= 0 || !audioRef.current) {
+                clearStopFade();
+                endSession("ended");
+                return;
+              }
+              audio.volume = effectiveVolume(
+                left / 1000,
+                5,
+                feedTrimRef.current[currentFeedRef.current ?? ""] ?? 1.0
+              );
+            }, 100);
+          } else {
+            endSession("ended");
+          }
+        }
       }
     }, 80);
   }
