@@ -9,6 +9,8 @@ import { getPlays, recordHeardPlay, saveLive, clearLive, saveLastEpisode, saveLa
 import { pickNextEpisode, HEARD_SEC } from "../lib/plays";
 import { canExtend } from "../lib/timer-feel";
 import { recordSessionEnd } from "../lib/store";
+import type { NoiseSettings } from "../lib/store";
+import { BrownNoise, noiseGain } from "../lib/noise";
 import { shouldTick } from "../lib/tick-gate";
 import { shouldSuggestGettingUp } from "../lib/rest/quarterhour";
 import { RestSession } from "../lib/rest/session";
@@ -30,6 +32,7 @@ export interface PlayerProps {
   mode: PlayMode;
   /** feedId → 0.5..1.5 gain trim; absent means 1.0. */
   feedTrim: Record<string, number>;
+  noise: NoiseSettings;
   skipIntroByFeedId: Record<string, number>;
   feedTitles: Record<string, string>;
   artworkByFeedId: Record<string, string>;
@@ -54,7 +57,7 @@ export interface PlayerProps {
   wasVaried?: boolean;
 }
 
-export function Player({ pool, timerMinutes, mode, feedTrim, skipIntroByFeedId, feedTitles, artworkByFeedId, onEnd, resume = null, leadEpisode = null, leadPosition = 0, quarterHourRule = false, wasVaried = false }: PlayerProps) {
+export function Player({ pool, timerMinutes, mode, feedTrim, noise, skipIntroByFeedId, feedTitles, artworkByFeedId, onEnd, resume = null, leadEpisode = null, leadPosition = 0, quarterHourRule = false, wasVaried = false }: PlayerProps) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const endTimeRef = useRef<number | null>(null);
   const pausedRemainingMsRef = useRef<number | null>(null);
@@ -93,6 +96,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, skipIntroByFeedId, 
   const stopFadeRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const currentFeedRef = useRef<string | null>(null);
   const feedTrimRef = useRef<Record<string, number>>(feedTrim);
+  const brownRef = useRef<BrownNoise | null>(null);
 
   const [nowPlaying, setNowPlaying] = useState<{ id: string; title: string; feedId: string } | null>(null);
   const [playedIds, setPlayedIds] = useState<ReadonlySet<string>>(new Set());
@@ -442,6 +446,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, skipIntroByFeedId, 
       audio.volume = Number.isFinite(driver)
         ? effectiveVolume(driver, FADE_SECONDS, feedTrimRef.current[currentFeedRef.current ?? ""] ?? 1.0)
         : 1;
+      // The underlay rides the same driver, so voices and noise fade together
+      // rather than leaving a bed of noise behind after the words stop.
+      brownRef.current?.setGain(noiseGain(noise.on ? noise.level : 0, driver, FADE_SECONDS));
     }
     setCountdown(kind === "minutes" ? remaining : 0);
     setEpPos(
@@ -498,6 +505,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, skipIntroByFeedId, 
       clearInterval(tickHandleRef.current);
       tickHandleRef.current = null;
     }
+    brownRef.current?.stop();
     endTimeRef.current = null;
     pausedRemainingMsRef.current = null;
 
@@ -603,10 +611,17 @@ export function Player({ pool, timerMinutes, mode, feedTrim, skipIntroByFeedId, 
     else if (leadEpisode) playEpisode(leadEpisode, leadPosition); // "the exact one again"
     else playNext();
     tickHandleRef.current = setInterval(tickGuarded, 1000);
+    if (noise.on) {
+      const bn = new BrownNoise();
+      brownRef.current = bn;
+      void bn.start(); // resolves false on failure; setGain then no-ops
+    }
     tick(); // paint the first frame immediately; the gate would hold it back
 
     return () => {
       if (tickHandleRef.current !== null) clearInterval(tickHandleRef.current);
+      clearStopFade();
+      brownRef.current?.stop();
       audio.removeEventListener("pause", onPause);
       audio.removeEventListener("play", onPlay);
       audio.removeEventListener("timeupdate", tickGuarded);
@@ -690,6 +705,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, skipIntroByFeedId, 
                 5,
                 feedTrimRef.current[currentFeedRef.current ?? ""] ?? 1.0
               );
+              brownRef.current?.setGain(noiseGain(noise.on ? noise.level : 0, left / 1000, 5));
             }, 100);
           } else {
             endSession("ended");

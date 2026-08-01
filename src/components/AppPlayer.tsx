@@ -3,6 +3,7 @@ import type { Episode } from "../lib/engine";
 import { formatTime } from "../lib/engine";
 import { loadLive, clearLive, clearLastNight, loadLastNight, type LiveSession, type LastNight, loadState } from "../lib/store";
 import type { PlayMode } from "../lib/engine";
+import type { NoiseSettings } from "../lib/store";
 import { shouldReanchor, nextInSpread } from "../lib/rest/reanchor";
 import { DEFAULT_FEEL_MINUTES } from "../lib/timer-feel";
 import { SleepSetup } from "./SleepSetup";
@@ -54,6 +55,7 @@ export function AppPlayer() {
   // apply to the night about to begin.
   const [mode, setMode] = useState<PlayMode>({ kind: "minutes", minutes: 45 });
   const [feedTrim, setFeedTrim] = useState<Record<string, number>>({});
+  const [noise, setNoise] = useState<NoiseSettings>({ on: false, level: 0.15 });
 
   const [goodbye] = useState(() => (isQuiet(loadQuietUntil(), Date.now()) ? null : shouldGreetGoodbye(Date.now())));
 
@@ -149,6 +151,7 @@ export function AppPlayer() {
     setQuarterHourRule(settings.quarterHourRule);
     setMode(settings.mode);
     setFeedTrim(settings.feedTrim);
+    setNoise(settings.noise);
     clearLastNight(); // a new night supersedes any prior faded one
     setSession({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artworkByFeedId, leadEpisode, wasVaried, leadPosition });
   }
@@ -217,6 +220,7 @@ export function AppPlayer() {
         quarterHourRule={quarterHourRule}
         mode={mode}
         feedTrim={feedTrim}
+        noise={noise}
         wasVaried={session.wasVaried ?? false}
       />
     );
