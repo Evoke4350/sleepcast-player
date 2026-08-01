@@ -2,8 +2,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { AppState, FeedRef } from "../lib/store";
 import { loadBlocked, loadPositions } from "../lib/store";
 import { searchEpisodes } from "../lib/episode-search";
+import { parseOpml, buildOpml } from "../lib/opml";
+import { rearmMinutes } from "../lib/engine";
+import type { PlayMode } from "../lib/engine";
+import { BrownNoise } from "../lib/noise";
+import type { NoiseSettings } from "../lib/store";
 import {
   loadState,
+  REARM_WINDOW_MS,
   saveState,
   addCustomFeed,
   removeCustomFeed,
@@ -54,6 +60,7 @@ function beacon(name: string) {
 
 export function SleepSetup({ onStart }: SleepSetupProps) {
   const [appState, setAppState] = useState<AppState>(() => loadState());
+  const [opmlNote, setOpmlNote] = useState<string | null>(null);
   const [feedStatuses, setFeedStatuses] = useState<Record<string, FeedStatus>>({});
   const [customUrl, setCustomUrl] = useState("");
   const [customTitle, setCustomTitle] = useState("");
@@ -192,7 +199,14 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
     setTimerTouched(true);
     const next: AppState = {
       ...appState,
-      settings: { ...appState.settings, timerMinutes: minutes },
+      settings: {
+        ...appState.settings,
+        timerMinutes: minutes,
+        // Picking a duration is picking minutes mode. Without this, choosing a
+        // preset after "all night" would leave the mode timerless and the
+        // number the listener just tapped would be quietly ignored.
+        mode: { kind: "minutes", minutes },
+      },
     };
     updateAndSave(next);
     setCustomMinutes("");
@@ -205,7 +219,11 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
     if (n >= 1) {
       const next: AppState = {
         ...appState,
-        settings: { ...appState.settings, timerMinutes: n },
+        settings: {
+          ...appState.settings,
+          timerMinutes: n,
+          mode: { kind: "minutes", minutes: n },
+        },
       };
       updateAndSave(next);
     }
@@ -226,6 +244,80 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
   function handleRemoveFeed(id: string) {
     const next = removeCustomFeed(appState, id);
     updateAndSave(next);
+  }
+
+  const mode = appState.settings.mode;
+
+  function selectEpisodeMode(kind: "one-episode" | "all-night") {
+    updateAndSave({
+      ...appState,
+      settings: { ...appState.settings, mode: { kind } },
+    });
+    setCustomMinutes("");
+  }
+
+  function setLeveling(leveling: boolean) {
+    updateAndSave({ ...appState, settings: { ...appState.settings, leveling } });
+  }
+
+  function setNoise(patch: Partial<NoiseSettings>) {
+    updateAndSave({
+      ...appState,
+      settings: {
+        ...appState.settings,
+        noise: { ...appState.settings.noise, ...patch },
+      },
+    });
+  }
+
+  function handleOpmlImport(file: File) {
+    setOpmlNote(null);
+    file.text().then((xml) => {
+      let entries;
+      try {
+        entries = parseOpml(xml);
+      } catch {
+        setOpmlNote("that file doesn't look like OPML");
+        return;
+      }
+      // Re-read the persisted state rather than closing over the appState
+      // captured when this handler started: file.text() above awaited, and
+      // building from that stale snapshot would silently discard any toggle
+      // made while the file was being read. loadState() is the source of
+      // truth here.
+      let next = loadState();
+      let added = 0;
+      let skipped = 0;
+      for (const entry of entries) {
+        const before = next.feeds.length;
+        try {
+          // Imported feeds start disabled — a 40-feed OPML would otherwise
+          // fetch every one of them through /api/relay at once (feeds run
+          // 0.6-8.8MB each).
+          next = addCustomFeed(next, entry.url, entry.title ?? undefined, false);
+        } catch {
+          skipped++; // invalid / non-https URL
+          continue;
+        }
+        if (next.feeds.length > before) added++;
+        else skipped++; // duplicate URL
+      }
+      if (added > 0) updateAndSave(next);
+      setOpmlNote(`added ${added} · skipped ${skipped} — enable the ones you want`);
+    });
+  }
+
+  function handleOpmlExport() {
+    const xml = buildOpml(appState.feeds.map((f) => ({ url: f.url, title: f.title })));
+    const blob = new Blob([xml], { type: "text/x-opml" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "sleepcast-feeds.opml";
+    a.click();
+    // Revoking in the same tick as click() can race the browser's own
+    // download handoff and cancel it — hold the URL alive a beat longer.
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   function startWith(chosen: Episode[], wasVaried = false) {
@@ -252,6 +344,31 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
   // enabling a feed / setting the timer only lands on the next render, and the
   // pool may still be fetching — so the effect below starts playback once both
   // the saved state and the pool are ready.
+  // Set just before a re-arm triggers its own start, so beginNight can tell
+  // "this start came from the offer, leave the stamp alone" from "an ordinary
+  // start, clear it".
+  const rearmStartRef = useRef(false);
+
+  // One tap back to sleep: half the previous dose, no setup steps.
+  function handleRearm() {
+    if (!rearmable || goldenPending) return;
+    rearmStartRef.current = true;
+    const nextMode: PlayMode =
+      rearmable.modeKind === "one-episode"
+        ? { kind: "one-episode" }
+        : { kind: "minutes", minutes: rearmM };
+    updateAndSave({
+      ...appState,
+      settings: {
+        ...appState.settings,
+        mode: nextMode,
+        ...(nextMode.kind === "minutes" ? { timerMinutes: rearmM } : {}),
+      },
+    });
+    setTimerTouched(true);
+    beginNight(null);
+  }
+
   function beginNight(lead: Episode | null, leadPosition = 0) {
     if (goldenPending) return;
     // Nothing to play means nothing to wait for. Without this the pending flag
@@ -274,6 +391,12 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
       next = { ...next, settings: { ...next.settings, timerMinutes: 45 } };
       setCustomMinutes("");
     }
+    if (!rearmStartRef.current && next.settings.lastSession !== null) {
+      // Any ordinary start dismisses the offer for the rest of the window —
+      // it should appear once, when it might help, and never nag.
+      next = { ...next, settings: { ...next.settings, lastSession: null } };
+    }
+    rearmStartRef.current = false;
     if (next !== appState) updateAndSave(next);
     setGoldenPending(true);
   }
@@ -390,7 +513,22 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
     return "";
   }
 
+  // A natural fade-out inside the last six hours means someone may have woken
+  // back up. Offer half the previous dose, one tap, no setup.
+  const lastSession = appState.settings.lastSession;
+  const rearmable =
+    lastSession !== null && Date.now() - lastSession.endedAt < REARM_WINDOW_MS
+      ? lastSession
+      : null;
+  const rearmM = rearmable ? rearmMinutes(rearmable.timerMinutes) : 0;
+
   const isPreset = FEEL_PRESETS.some((p) => p.minutes === timerMinutes);
+  // Offered as a disabled control with a reason rather than hidden: someone
+  // who has read about the feature should find out why it isn't here, not
+  // wonder whether they imagined it.
+  const levelingUnavailable = typeof navigator !== "undefined" &&
+    (/iPad|iPhone|iPod/.test(navigator.userAgent) ||
+      (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1));
 
   const poolNote = pool.length > 0 ? `${pool.length} episodes ready` : "gathering episodes…";
 
@@ -481,6 +619,18 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
           )}
           <p className="text-xs text-[#6e5d44] tracking-wide">{poolNote}</p>
 
+          {rearmable && !goldenPending && (
+            <button
+              onClick={handleRearm}
+              className="w-full max-w-xs rounded-xl border border-[#2a1d1a] bg-[#140f0e] px-4 py-3 text-sm text-[#8a6a55] transition-colors hover:text-[#b59a76]"
+            >
+              still awake?{" "}
+              {rearmable.modeKind === "one-episode"
+                ? "one more episode"
+                : `resume · ${rearmM} min`}
+            </button>
+          )}
+
           <button
             onClick={handleGolden}
             disabled={goldenPending}
@@ -520,6 +670,33 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
                 {preset.label}
               </button>
             ))}
+          </div>
+
+          {/* Two ways to not set a timer at all. One episode fades when the
+              episode ends; all night never fades and is stopped by hand. */}
+          <div className="flex gap-4 text-xs">
+            <button
+              onClick={() => selectEpisodeMode("one-episode")}
+              aria-pressed={mode.kind === "one-episode"}
+              className={`underline-offset-4 transition-colors ${
+                mode.kind === "one-episode"
+                  ? "text-[#f0dcb8] underline decoration-[#6e5d44]"
+                  : "text-[#6e5d44] underline decoration-[#241f30] hover:text-[#b59a76]"
+              }`}
+            >
+              one episode
+            </button>
+            <button
+              onClick={() => selectEpisodeMode("all-night")}
+              aria-pressed={mode.kind === "all-night"}
+              className={`underline-offset-4 transition-colors ${
+                mode.kind === "all-night"
+                  ? "text-[#f0dcb8] underline decoration-[#6e5d44]"
+                  : "text-[#6e5d44] underline decoration-[#241f30] hover:text-[#b59a76]"
+              }`}
+            >
+              all night
+            </button>
           </div>
 
           {/* The mix: a clear second way to start, one step down from the moon.
@@ -685,7 +862,82 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
             >
               Add feed
             </button>
+            <div className="flex items-center justify-between pt-1 text-xs text-[#6e5d44]">
+              <label className="cursor-pointer underline decoration-[#241f30] underline-offset-4 hover:text-[#b59a76]">
+                import OPML
+                <input
+                  type="file"
+                  accept=".opml,.xml,text/xml,text/x-opml"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) handleOpmlImport(f);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+              <button
+                onClick={handleOpmlExport}
+                className="underline decoration-[#241f30] underline-offset-4 hover:text-[#b59a76]"
+              >
+                export OPML
+              </button>
+            </div>
+            {opmlNote && <p className="text-xs text-[#6e5d44]">{opmlNote}</p>}
           </div>
+        </section>
+
+        {/* Feature-detected rather than assumed: no AudioWorklet, no section,
+            because a dead toggle is worse than an absent one. */}
+        {BrownNoise.supported() && (
+          <section className="space-y-3">
+            <h2 className="text-xs uppercase tracking-widest text-[#6e5d44]">Noise bed</h2>
+            <div className="flex items-center gap-3">
+              <input
+                type="checkbox"
+                id="noise-on"
+                checked={appState.settings.noise.on}
+                onChange={(e) => setNoise({ on: e.target.checked })}
+                className="h-5 w-5 rounded accent-[#6e5d44] cursor-pointer"
+              />
+              <label htmlFor="noise-on" className="text-sm cursor-pointer">
+                brown noise under the voices
+              </label>
+              <input
+                type="range"
+                min={0}
+                max={0.3}
+                step={0.05}
+                value={appState.settings.noise.level}
+                disabled={!appState.settings.noise.on}
+                onChange={(e) => setNoise({ level: Number(e.target.value) })}
+                className="flex-1 accent-[#6e5d44] disabled:opacity-40"
+                aria-label="Noise level"
+              />
+            </div>
+          </section>
+        )}
+
+        <section className="space-y-3">
+          <h2 className="text-xs uppercase tracking-widest text-[#6e5d44]">Loudness</h2>
+          <div className="flex items-center gap-3">
+            <input
+              type="checkbox"
+              id="leveling-on"
+              checked={appState.settings.leveling}
+              disabled={levelingUnavailable}
+              onChange={(e) => setLeveling(e.target.checked)}
+              className="h-5 w-5 rounded accent-[#6e5d44] cursor-pointer disabled:opacity-40"
+            />
+            <label htmlFor="leveling-on" className="text-sm cursor-pointer">
+              even out loudness between shows
+            </label>
+          </div>
+          <p className="text-xs text-[#6e5d44]">
+            {levelingUnavailable
+              ? "Not available on iPhone or iPad: the compressor routes audio through Web Audio, which this device suspends when the screen locks — the night would play in silence. Per-show volume trim works here and everywhere."
+              : "Costs an extra load on each show's first episode. Per-show volume trim works either way."}
+          </p>
         </section>
 
         {/* A custom timer is the long tail of the one decision the field

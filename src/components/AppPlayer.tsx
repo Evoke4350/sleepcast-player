@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import type { Episode } from "../lib/engine";
 import { formatTime } from "../lib/engine";
 import { loadLive, clearLive, clearLastNight, loadLastNight, type LiveSession, type LastNight, loadState } from "../lib/store";
+import type { PlayMode } from "../lib/engine";
+import type { NoiseSettings } from "../lib/store";
 import { shouldReanchor, nextInSpread } from "../lib/rest/reanchor";
 import { DEFAULT_FEEL_MINUTES } from "../lib/timer-feel";
 import { SleepSetup } from "./SleepSetup";
@@ -49,6 +51,12 @@ export function AppPlayer() {
   // ticking the box in the drawer had no effect until a full reload — the
   // whole feature silently did nothing.
   const [quarterHourRule, setQuarterHourRule] = useState(false);
+  // Read at start, not at mount: settings changed on the setup screen must
+  // apply to the night about to begin.
+  const [mode, setMode] = useState<PlayMode>({ kind: "minutes", minutes: 45 });
+  const [feedTrim, setFeedTrim] = useState<Record<string, number>>({});
+  const [noise, setNoise] = useState<NoiseSettings>({ on: false, level: 0.15 });
+  const [leveling, setLeveling] = useState(false);
 
   const [goodbye] = useState(() => (isQuiet(loadQuietUntil(), Date.now()) ? null : shouldGreetGoodbye(Date.now())));
 
@@ -140,7 +148,12 @@ export function AppPlayer() {
   ) {
     setResume(null); // a fresh night, not a revival
     setLive(null);
-    setQuarterHourRule(loadState().settings.quarterHourRule);
+    const settings = loadState().settings;
+    setQuarterHourRule(settings.quarterHourRule);
+    setMode(settings.mode);
+    setFeedTrim(settings.feedTrim);
+    setNoise(settings.noise);
+    setLeveling(settings.leveling);
     clearLastNight(); // a new night supersedes any prior faded one
     setSession({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artworkByFeedId, leadEpisode, wasVaried, leadPosition });
   }
@@ -207,6 +220,10 @@ export function AppPlayer() {
         leadEpisode={session.leadEpisode}
         leadPosition={session.leadPosition ?? 0}
         quarterHourRule={quarterHourRule}
+        mode={mode}
+        feedTrim={feedTrim}
+        noise={noise}
+        leveling={leveling}
         wasVaried={session.wasVaried ?? false}
       />
     );

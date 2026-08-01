@@ -3,11 +3,15 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 // The drift game (three.js) loads only when opened — the player's own
 // bundle stays featherweight.
 const DriftGame = lazy(() => import("./DriftGame"));
-import type { Episode } from "../lib/engine";
-import { fadeVolume, formatTime } from "../lib/engine";
+import type { Episode, PlayMode } from "../lib/engine";
+import { fadeVolume, formatTime, effectiveVolume, fadeDriverSeconds } from "../lib/engine";
 import { getPlays, recordHeardPlay, saveLive, clearLive, saveLastEpisode, saveLastNight, rememberPosition, forgetPosition, blockEpisode } from "../lib/store";
 import { pickNextEpisode, HEARD_SEC } from "../lib/plays";
 import { canExtend } from "../lib/timer-feel";
+import { recordSessionEnd } from "../lib/store";
+import type { NoiseSettings } from "../lib/store";
+import { BrownNoise, noiseGain } from "../lib/noise";
+import { Leveler } from "../lib/leveler";
 import { shouldTick } from "../lib/tick-gate";
 import { shouldSuggestGettingUp } from "../lib/rest/quarterhour";
 import { RestSession } from "../lib/rest/session";
@@ -18,6 +22,34 @@ const FADE_SECONDS = 60;
 // Just under a second, so a jittery 1s interval isn't swallowed by the gate it
 // shares with the ~4Hz timeupdate stream.
 const TICK_MIN_MS = 900;
+
+// Feeds whose enclosures rejected CORS playback this session — don't retry.
+// Module-level and intentionally outliving a Player mount: a new mount on the
+// next episode shouldn't rediscover a feed's CORS support from scratch.
+const corsBadFeeds = new Set<string>();
+// Feeds that have proven a successful CORS playback this session. The
+// compressor only attaches once EVERY feed in the pool is known-good, because
+// createMediaElementSource is a one-way door: a feed that turns out to lack
+// CORS headers afterwards produces silence rather than an error event, and
+// cannot be detected at runtime.
+const corsGoodFeeds = new Set<string>();
+
+// iOS suspends AudioContext the moment the screen locks, and
+// createMediaElementSource permanently rewires the element's output through
+// that context — there is no way back once attached. So on iOS an attached
+// compressor means: lock the phone, the context suspends, and the night plays
+// in silence while currentTime advances, the fade runs and the timer completes
+// normally. Nothing reports a failure; the listener just gets nothing.
+//
+// Detected rather than inferred where possible: iPadOS reports itself as Mac,
+// so the touch-point check is the standard way to catch it.
+function suspendsWebAudioOnLock(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent;
+  const iOSLike = /iPad|iPhone|iPod/.test(ua) ||
+    (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+  return iOSLike;
+}
 const IS_TOUCH = typeof matchMedia !== "undefined" && matchMedia("(pointer: coarse)").matches;
 // A pool this small is a curated lineup (varied night), not a whole archive:
 // show it, so the night's spread is something you can see.
@@ -26,6 +58,12 @@ const LINEUP_MAX = 12;
 export interface PlayerProps {
   pool: Episode[];
   timerMinutes: number;
+  mode: PlayMode;
+  /** feedId → 0.5..1.5 gain trim; absent means 1.0. */
+  feedTrim: Record<string, number>;
+  noise: NoiseSettings;
+  /** Opt-in loudness compressor. Ignored where Web Audio dies on lock. */
+  leveling: boolean;
   skipIntroByFeedId: Record<string, number>;
   feedTitles: Record<string, string>;
   artworkByFeedId: Record<string, string>;
@@ -50,7 +88,7 @@ export interface PlayerProps {
   wasVaried?: boolean;
 }
 
-export function Player({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artworkByFeedId, onEnd, resume = null, leadEpisode = null, leadPosition = 0, quarterHourRule = false, wasVaried = false }: PlayerProps) {
+export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, skipIntroByFeedId, feedTitles, artworkByFeedId, onEnd, resume = null, leadEpisode = null, leadPosition = 0, quarterHourRule = false, wasVaried = false }: PlayerProps) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const endTimeRef = useRef<number | null>(null);
   const pausedRemainingMsRef = useRef<number | null>(null);
@@ -83,6 +121,18 @@ export function Player({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artw
   const epStartedAtRef = useRef(0); // epoch ms this episode began
   const playedIdsRef = useRef<ReadonlySet<string>>(new Set());
   const wasVariedRef = useRef(wasVaried);
+  const modeRef = useRef(mode);
+  // The user asked to stop and a short courtesy fade is running. While it is,
+  // it owns audio.volume — see tick().
+  const stopFadeRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const currentFeedRef = useRef<string | null>(null);
+  const feedTrimRef = useRef<Record<string, number>>(feedTrim);
+  const brownRef = useRef<BrownNoise | null>(null);
+  const levelerRef = useRef<Leveler | null>(null);
+  // Whether the compressor has captured the element. Per-mount, unlike the
+  // CORS sets: the AudioContext it guards doesn't survive a mount either.
+  const attachedRef = useRef(false);
+  const levelingRef = useRef(leveling);
 
   const [nowPlaying, setNowPlaying] = useState<{ id: string; title: string; feedId: string } | null>(null);
   const [playedIds, setPlayedIds] = useState<ReadonlySet<string>>(new Set());
@@ -115,6 +165,9 @@ export function Player({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artw
   useEffect(() => { onEndRef.current = onEnd; }, [onEnd]);
   useEffect(() => { playedIdsRef.current = playedIds; }, [playedIds]);
   useEffect(() => { wasVariedRef.current = wasVaried; }, [wasVaried]);
+  useEffect(() => { modeRef.current = mode; }, [mode]);
+  useEffect(() => { feedTrimRef.current = feedTrim; }, [feedTrim]);
+  useEffect(() => { levelingRef.current = leveling; }, [leveling]);
 
   function playEpisode(ep: Episode, seekTo = 0) {
     const audio = audioRef.current;
@@ -126,6 +179,16 @@ export function Player({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artw
 
     setNowPlaying({ id: ep.id, title: ep.title, feedId: ep.feedId });
     setPlayedIds((prev) => new Set(prev).add(ep.id));
+    currentFeedRef.current = ep.feedId;
+    // crossOrigin is required before the compressor can ever capture the
+    // element, but it also makes playback fail outright on a host that serves
+    // no CORS headers — so it is only requested for feeds not already known
+    // bad, and onError retries plain before condemning one.
+    if (levelingRef.current && !corsBadFeeds.has(ep.feedId)) {
+      audio.crossOrigin = "anonymous";
+    } else {
+      audio.removeAttribute("crossorigin");
+    }
     audio.src = ep.url;
     currentEpRef.current = ep;
     // Snapshot the new episode to storage promptly, not up to 10s later.
@@ -228,11 +291,23 @@ export function Player({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artw
     // Exclude what is playing now. The ledger only records an episode after
     // HEARD_SEC, so on a fresh varied mix every episode is still a candidate
     // and Next had a real chance of restarting the same story from 0:00.
+    let available = poolRef.current;
+    if (attachedRef.current) {
+      // Past the one-way door: an episode from a feed that turned out CORS-bad
+      // plays silent through the captured element and reports nothing. Skip
+      // the whole feed, and end rather than fake-play silence all night.
+      const playable = available.filter((e) => !corsBadFeeds.has(e.feedId));
+      if (playable.length === 0) {
+        endSession("ended");
+        return;
+      }
+      available = playable;
+    }
     const current = currentEpRef.current;
     const choices = current
-      ? poolRef.current.filter((e) => e.id !== current.id)
-      : poolRef.current;
-    const ep = pickNextEpisode(choices.length ? choices : poolRef.current, getPlays());
+      ? available.filter((e) => e.id !== current.id)
+      : available;
+    const ep = pickNextEpisode(choices.length ? choices : available, getPlays());
     if (ep) playEpisode(ep);
   }
 
@@ -304,9 +379,14 @@ export function Player({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artw
   function persistLive() {
     const audio = audioRef.current;
     const ep = currentEpRef.current;
-    if (!audio || !ep || endTimeRef.current === null) return;
-    const remainingMs = pausedRemainingMsRef.current ?? endTimeRef.current - Date.now();
-    if (remainingMs <= 0) return;
+    if (!audio || !ep || tickHandleRef.current === null) return;
+    // Timerless modes have no remaining time to restore; 0 records "revive the
+    // night, there is no clock to resume".
+    const remainingMs =
+      endTimeRef.current === null
+        ? 0
+        : pausedRemainingMsRef.current ?? endTimeRef.current - Date.now();
+    if (endTimeRef.current !== null && remainingMs <= 0) return;
     saveLive({
       savedAt: Date.now(),
       remainingMs,
@@ -328,14 +408,34 @@ export function Player({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artw
   // otherwise never arrive). The lastRestTickRef guard dedupes the two sources.
   function restTick() {
     const r = restRef.current;
-    if (!r || pausedRemainingMsRef.current !== null || endTimeRef.current === null) return;
+    if (!r || pausedRemainingMsRef.current !== null || tickHandleRef.current === null) return;
     if (Date.now() - lastRestTickRef.current < 15_000) return;
     lastRestTickRef.current = Date.now();
-    const remaining = (endTimeRef.current - Date.now()) / 1000;
+    // The detector's gate is an unattended fade, so it has to watch whichever
+    // clock is actually driving the fade in this mode — the timer in minutes
+    // mode, the episode in one-episode mode. Keyed to the timer alone, the
+    // detector would never see a fade in one-episode mode and could never
+    // conclude.
+    //
+    // In all-night there is no fade by design, so no night can be scored. That
+    // is a consequence of the gated model (docs/gated-model.md), not an
+    // oversight: precision comes from the fade, and without one there is no
+    // evidence that separates asleep from awake-and-resting.
+    const audio = audioRef.current;
+    const kind = modeRef.current.kind;
+    const timerRemaining =
+      kind === "minutes" && endTimeRef.current !== null
+        ? (endTimeRef.current - Date.now()) / 1000
+        : Infinity;
+    const epRemaining =
+      audio && Number.isFinite(audio.duration) && audio.duration > 0
+        ? audio.duration - audio.currentTime
+        : null;
+    const driver = fadeDriverSeconds(kind, timerRemaining, epRemaining);
     r.tick({
       now: Date.now(),
       hidden: typeof document !== "undefined" && document.hidden,
-      fadingOrDone: remaining <= FADE_SECONDS,
+      fadingOrDone: driver <= FADE_SECONDS,
     });
   }
 
@@ -350,8 +450,7 @@ export function Player({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artw
   // the fade and the stop were simply left behind.
   function tickGuarded() {
     const now = Date.now();
-    const sessionActive =
-      endTimeRef.current !== null || pausedRemainingMsRef.current !== null;
+    const sessionActive = tickHandleRef.current !== null;
     if (!shouldTick({ lastRunAt: lastTickRef.current, now, minIntervalMs: TICK_MIN_MS, sessionActive })) return;
     lastTickRef.current = now;
     tick();
@@ -361,8 +460,14 @@ export function Player({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artw
     const audio = audioRef.current;
     if (!audio) return;
 
+    // In one-episode and all-night modes there is no timer to run down, so the
+    // countdown is Infinity and the fade is driven by the episode instead —
+    // see fadeDriverSeconds.
+    const kind = modeRef.current.kind;
     const remaining =
-      (pausedRemainingMsRef.current ?? endTimeRef.current! - Date.now()) / 1000;
+      kind === "minutes"
+        ? (pausedRemainingMsRef.current ?? endTimeRef.current! - Date.now()) / 1000
+        : Infinity;
 
     restTick();
 
@@ -386,8 +491,25 @@ export function Player({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artw
       return;
     }
 
-    audio.volume = fadeVolume(remaining, FADE_SECONDS);
-    setCountdown(remaining);
+    const epRemaining =
+      Number.isFinite(audio.duration) && audio.duration > 0
+        ? audio.duration - audio.currentTime
+        : null;
+    const driver = fadeDriverSeconds(kind, remaining, epRemaining);
+
+    // The courtesy fade owns audio.volume while it runs. Without this guard
+    // tick() would reassign full volume from the mode driver (Infinity in
+    // all-night) on every pass, fighting the fade back up and producing
+    // audible stabs on the way out.
+    if (stopFadeRef.current === null) {
+      audio.volume = Number.isFinite(driver)
+        ? effectiveVolume(driver, FADE_SECONDS, feedTrimRef.current[currentFeedRef.current ?? ""] ?? 1.0)
+        : 1;
+      // The underlay rides the same driver, so voices and noise fade together
+      // rather than leaving a bed of noise behind after the words stop.
+      brownRef.current?.setGain(noiseGain(noise.on ? noise.level : 0, driver, FADE_SECONDS));
+    }
+    setCountdown(kind === "minutes" ? remaining : 0);
     setEpPos(
       Number.isFinite(audio.duration) && audio.duration > 0
         ? { cur: audio.currentTime, dur: audio.duration }
@@ -398,7 +520,7 @@ export function Player({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artw
     if (w && Date.now() - w.at > 25_000) {
       watchRef.current = null;
       failsRef.current++;
-      if (failsRef.current <= 6 && endTimeRef.current !== null) {
+      if (failsRef.current <= 6 && tickHandleRef.current !== null) {
         playNext(); // stuck track: move on
       } else {
         audio.pause(); // whole pool looks broken — stop skipping in silence
@@ -412,7 +534,19 @@ export function Player({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artw
     }
   }
 
+  function clearStopFade() {
+    if (stopFadeRef.current !== null) {
+      clearInterval(stopFadeRef.current);
+      stopFadeRef.current = null;
+    }
+  }
+
   function endSession(reason: RestNight["endedVia"] = "faded") {
+    // "faded" is the natural end — the timer ran out untouched. Stamp it so
+    // the setup screen can offer a smaller re-arm to someone who wakes back
+    // up inside the window. A manual stop is not an invitation to resume.
+    if (reason === "faded") recordSessionEnd(timerMinutes, modeRef.current.kind);
+    clearStopFade();
     clearLive(); // the night is over — nothing to revive
     saveLastNight({
       pool: poolRef.current,
@@ -430,6 +564,7 @@ export function Player({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artw
       clearInterval(tickHandleRef.current);
       tickHandleRef.current = null;
     }
+    brownRef.current?.stop();
     endTimeRef.current = null;
     pausedRemainingMsRef.current = null;
 
@@ -455,7 +590,10 @@ export function Player({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artw
   // Start session on mount
   useEffect(() => {
     pausedRemainingMsRef.current = null;
-    endTimeRef.current = Date.now() + (resume ? resume.remainingMs : timerMinutes * 60 * 1000);
+    endTimeRef.current =
+      mode.kind === "minutes"
+        ? Date.now() + (resume ? resume.remainingMs : timerMinutes * 60 * 1000)
+        : null; // timerless modes: the fade is driven by the episode, not a clock
     restRef.current = new RestSession(Date.now(), timerMinutes);
     if (resume) {
       totalSecondsRef.current = resume.totalSeconds;
@@ -488,17 +626,75 @@ export function Player({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artw
     const onEnded = () => {
       const done = currentEpRef.current;
       if (done) forgetPosition(done.id); // played out: nothing left to resume
-      if (endTimeRef.current !== null) playNext();
+      if (stopFadeRef.current !== null) {
+        // A courtesy fade is in flight: the listener asked to stop and the
+        // episode happened to end underneath it. Starting another would
+        // resurrect the night they just ended.
+        endSession("ended");
+        return;
+      }
+      if (tickHandleRef.current !== null) playNext();
     };
 
     // Playback genuinely started: stand the watchdog down.
     const onPlaying = () => {
       watchRef.current = null;
       failsRef.current = 0;
+      const feedId = currentFeedRef.current;
+      if (feedId && audio.crossOrigin === "anonymous") corsGoodFeeds.add(feedId);
+      // Conservative gate: attach only once every feed in the pool has already
+      // played successfully under CORS, because the capture cannot be undone.
+      if (
+        levelingRef.current &&
+        !suspendsWebAudioOnLock() &&
+        audio.crossOrigin === "anonymous" &&
+        poolRef.current.every((e) => corsGoodFeeds.has(e.feedId))
+      ) {
+        levelerRef.current ??= new Leveler(audio);
+        if (levelerRef.current.attach()) attachedRef.current = true;
+      }
     };
 
     const onError = () => {
-      if (endTimeRef.current !== null && audio.getAttribute("src")) playNext();
+      // A crossOrigin element failing may only mean "this enclosure serves no
+      // CORS headers" — retry the same source plain before skipping the track.
+      const feedId = currentFeedRef.current;
+      if (levelingRef.current && audio.crossOrigin === "anonymous" && audio.getAttribute("src")) {
+        // A feed already proven good this session serves CORS headers, so this
+        // is a dead enclosure or a signal drop, not a CORS failure. Don't
+        // condemn the whole feed over one bad episode.
+        if (feedId && !corsGoodFeeds.has(feedId)) corsBadFeeds.add(feedId);
+        // Once attached, the element is captured and a plain retry would play
+        // into a silenced node — fall through to the ordinary skip instead.
+        if (!attachedRef.current) {
+          const src = audio.getAttribute("src")!;
+          const pos = audio.currentTime;
+          audio.removeAttribute("crossorigin");
+          audio.src = src;
+          if (pos > 0) {
+            // Registered through seekCleanupRef, which playEpisode tears down
+            // first thing. A bare listener here would outlive a retry that
+            // itself errors before metadata, and then force-seek the *next*
+            // episode to this stale position — the same leak fixed on the
+            // main seek path.
+            const onRetryMetadata = () => {
+              if (seekCleanupRef.current === cleanupRetry) seekCleanupRef.current = null;
+              try { audio.currentTime = pos; } catch { /* not seekable */ }
+            };
+            const cleanupRetry = () => {
+              audio.removeEventListener("loadedmetadata", onRetryMetadata);
+              if (seekCleanupRef.current === cleanupRetry) seekCleanupRef.current = null;
+            };
+            seekCleanupRef.current?.();
+            audio.addEventListener("loadedmetadata", onRetryMetadata, { once: true });
+            seekCleanupRef.current = cleanupRetry;
+          }
+          watchRef.current = { src, at: Date.now() };
+          void audio.play().catch(() => {});
+          return;
+        }
+      }
+      if (tickHandleRef.current !== null && audio.getAttribute("src")) playNext();
     };
 
     audio.addEventListener("pause", onPause);
@@ -525,10 +721,18 @@ export function Player({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artw
     else if (leadEpisode) playEpisode(leadEpisode, leadPosition); // "the exact one again"
     else playNext();
     tickHandleRef.current = setInterval(tickGuarded, 1000);
+    if (noise.on) {
+      const bn = new BrownNoise();
+      brownRef.current = bn;
+      void bn.start(); // resolves false on failure; setGain then no-ops
+    }
     tick(); // paint the first frame immediately; the gate would hold it back
 
     return () => {
       if (tickHandleRef.current !== null) clearInterval(tickHandleRef.current);
+      clearStopFade();
+      brownRef.current?.stop();
+      levelerRef.current?.dispose();
       audio.removeEventListener("pause", onPause);
       audio.removeEventListener("play", onPlay);
       audio.removeEventListener("timeupdate", tickGuarded);
@@ -585,7 +789,39 @@ export function Player({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artw
       setHoldPct(pct);
       if (pct >= 100) {
         holdEndCancel();
-        endSession("ended");
+        if (modeRef.current.kind === "minutes") {
+          // A timer night already ends on a fade of its own; cutting it here
+          // is what the listener asked for.
+          endSession("ended");
+        } else if (stopFadeRef.current !== null) {
+          // Already mid-courtesy-fade: a second hold means "out now" — don't
+          // make them sit through the rest of it.
+          endSession("ended");
+        } else {
+          // Timerless modes have had no fade at all, so stopping would be a
+          // hard cut in a dark room. Five seconds of ramp costs nothing and is
+          // the whole difference between "ended" and "yanked".
+          const audio = audioRef.current;
+          if (audio && !audio.paused) {
+            const t0 = Date.now();
+            stopFadeRef.current = setInterval(() => {
+              const left = 5000 - (Date.now() - t0);
+              if (left <= 0 || !audioRef.current) {
+                clearStopFade();
+                endSession("ended");
+                return;
+              }
+              audio.volume = effectiveVolume(
+                left / 1000,
+                5,
+                feedTrimRef.current[currentFeedRef.current ?? ""] ?? 1.0
+              );
+              brownRef.current?.setGain(noiseGain(noise.on ? noise.level : 0, left / 1000, 5));
+            }, 100);
+          } else {
+            endSession("ended");
+          }
+        }
       }
     }, 80);
   }
@@ -673,16 +909,33 @@ export function Player({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artw
             <div className="player-moon-halo" aria-hidden="true"></div>
             <button
               onClick={() => setPeekUntil(Date.now() + 4000)}
-              aria-label={`time left ${countdownStr} — tap to peek`}
+              aria-label={
+                mode.kind === "minutes"
+                  ? `time left ${countdownStr} — tap to peek`
+                  : mode.kind === "one-episode"
+                    ? "playing one episode"
+                    : "playing all night"
+              }
               className="relative font-mono font-light tabular-nums text-[#c8c0b0] transition-opacity duration-500"
             >
-              {peeking
+              {/* Only minutes mode has a countdown to reveal. In the timerless
+                  modes the moon stays the moon, because a peek showing 0:00
+                  would read as "about to stop" — the opposite of the truth. */}
+              {mode.kind === "minutes" && peeking
                 ? <span className="text-6xl">{countdownStr}</span>
                 : <span className="player-moon text-5xl">☾</span>}
             </button>
           </div>
           <div className="mt-2 flex items-center justify-center gap-3 text-xs text-[#6b6558] uppercase tracking-widest">
-            <span>{peeking ? "remaining" : "sleeping"}</span>
+            <span>
+              {mode.kind === "one-episode"
+                ? "one episode"
+                : mode.kind === "all-night"
+                  ? "all night"
+                  : peeking
+                    ? "remaining"
+                    : "sleeping"}
+            </span>
             {canExtend(extensions) ? (
               <button
                 onClick={() => extendTimer(15)}
