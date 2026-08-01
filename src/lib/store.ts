@@ -1,4 +1,4 @@
-import type { Episode } from "./engine";
+import type { Episode, PlayMode } from "./engine";
 import { recordHeard, migrateLegacyHistory, type Play } from "./plays";
 import { shouldRemember, putPosition, type Positions } from "./positions";
 
@@ -15,11 +15,27 @@ export interface FeedRef {
   skipIntroMin: number;
 }
 
+export interface NoiseSettings {
+  on: boolean;
+  level: number; // gain 0..0.3
+}
+
+export interface LastSession {
+  endedAt: number; // epoch ms
+  timerMinutes: number;
+  modeKind: PlayMode["kind"];
+}
+
 export interface Settings {
   timerMinutes: number;
   /** Opt-in stimulus control: stop and suggest getting up after a restless
    *  stretch. Off unless the listener asks for it — see rest/quarterhour.ts. */
   quarterHourRule: boolean;
+  feedTrim: Record<string, number>; // feedId -> 0.5..1.5; absent = 1.0
+  noise: NoiseSettings;
+  leveling: boolean; // opt-in auto-compressor probe (§1b) — off avoids the double load
+  mode: PlayMode;
+  lastSession: LastSession | null;
 }
 
 export interface AppState {
@@ -95,10 +111,77 @@ function defaultFeedRef(f: Omit<FeedRef, "enabled">): FeedRef {
   return { ...f, enabled: f.id === "swm" };
 }
 
+const NOISE_DEFAULT: NoiseSettings = { on: false, level: 0.15 };
+
+function defaultSettings(): Settings {
+  return {
+    timerMinutes: 45,
+    quarterHourRule: false,
+    feedTrim: {},
+    noise: { ...NOISE_DEFAULT },
+    leveling: false,
+    mode: { kind: "minutes", minutes: 45 },
+    lastSession: null,
+  };
+}
+
+function sanitizeMode(raw: unknown, timerMinutes: number): PlayMode {
+  if (raw && typeof raw === "object" && "kind" in raw) {
+    const kind = (raw as { kind: unknown }).kind;
+    if (kind === "one-episode") return { kind: "one-episode" };
+    if (kind === "all-night") return { kind: "all-night" };
+    if (kind === "minutes") {
+      const m = (raw as { minutes?: unknown }).minutes;
+      if (typeof m === "number" && m >= 1) return { kind: "minutes", minutes: m };
+    }
+  }
+  return { kind: "minutes", minutes: timerMinutes };
+}
+
+function sanitizeNoise(raw: unknown): NoiseSettings {
+  // Per-field, like sanitizeTrim: a range input can emit values like
+  // 0.30000000000000004, which used to fail a combined `level <= 0.3` check
+  // and silently reset `on` to false too. Judge each field on its own.
+  const out: NoiseSettings = { ...NOISE_DEFAULT };
+  if (raw && typeof raw === "object") {
+    const on = (raw as { on?: unknown }).on;
+    const level = (raw as { level?: unknown }).level;
+    if (typeof on === "boolean") out.on = on;
+    if (typeof level === "number" && Number.isFinite(level)) {
+      out.level = Math.min(0.3, Math.max(0, level));
+    }
+  }
+  return out;
+}
+
+function sanitizeTrim(raw: unknown): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (raw && typeof raw === "object") {
+    for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+      if (typeof v === "number" && v >= 0.5 && v <= 1.5) out[k] = v;
+    }
+  }
+  return out;
+}
+
+function sanitizeLastSession(raw: unknown): LastSession | null {
+  if (raw && typeof raw === "object") {
+    const { endedAt, timerMinutes, modeKind } = raw as Record<string, unknown>;
+    if (
+      typeof endedAt === "number" &&
+      typeof timerMinutes === "number" &&
+      (modeKind === "minutes" || modeKind === "one-episode" || modeKind === "all-night")
+    ) {
+      return { endedAt, timerMinutes, modeKind };
+    }
+  }
+  return null;
+}
+
 function defaultState(): AppState {
   return {
     feeds: BUILTIN_FEEDS.map(defaultFeedRef),
-    settings: { timerMinutes: 45, quarterHourRule: false },
+    settings: defaultSettings(),
   };
 }
 
@@ -146,12 +229,19 @@ export function loadState(): AppState {
     }
   }
 
+  const timerMinutes =
+    typeof saved.settings?.timerMinutes === "number"
+      ? saved.settings.timerMinutes
+      : 60;
+  const rawSettings = (saved.settings ?? {}) as Record<string, unknown>;
   const settings: Settings = {
-    timerMinutes:
-      typeof saved.settings?.timerMinutes === "number"
-        ? saved.settings.timerMinutes
-        : 45,
-    quarterHourRule: saved.settings?.quarterHourRule === true,
+    timerMinutes,
+    feedTrim: sanitizeTrim(rawSettings.feedTrim),
+    noise: sanitizeNoise(rawSettings.noise),
+    leveling: typeof rawSettings.leveling === "boolean" ? rawSettings.leveling : false,
+    mode: sanitizeMode(rawSettings.mode, timerMinutes),
+    lastSession: sanitizeLastSession(rawSettings.lastSession),
+    quarterHourRule: rawSettings.quarterHourRule === true,
   };
 
   return { feeds: mergedFeeds, settings };
@@ -297,7 +387,8 @@ export function clearLastNight(): void {
 export function addCustomFeed(
   s: AppState,
   url: string,
-  title?: string
+  title?: string,
+  enabled = true
 ): AppState {
   // Validate: must be a valid https URL
   let parsed: URL;
@@ -321,7 +412,7 @@ export function addCustomFeed(
     url,
     title: title ?? url,
     builtin: false,
-    enabled: true,
+    enabled,
     skipIntroMin: 0,
   };
 
@@ -606,4 +697,28 @@ export function getCachedFeedXml(feedId: string): string | null {
   } catch {
     return null;
   }
+}
+
+// ---------------------------------------------------------------------------
+// 3am re-arm — remember the last natural fade-out so the setup screen can
+// offer a quick smaller resume
+// ---------------------------------------------------------------------------
+
+export const REARM_WINDOW_MS = 6 * 60 * 60 * 1000;
+
+// Stamp the natural end of a session so the setup screen can offer a
+// smaller re-arm to someone who wakes back up.
+//
+// This load-modify-save is only safe because SleepApp renders Player and
+// SleepSetup mutually exclusively: when Player unmounts and SleepSetup
+// mounts, SleepSetup re-reads state fresh, so it always sees this write. A
+// layout where both were mounted at once could race SleepSetup's own
+// in-memory state against this write and lose it.
+export function recordSessionEnd(
+  timerMinutes: number,
+  modeKind: PlayMode["kind"]
+): void {
+  const s = loadState();
+  s.settings.lastSession = { endedAt: Date.now(), timerMinutes, modeKind };
+  saveState(s);
 }

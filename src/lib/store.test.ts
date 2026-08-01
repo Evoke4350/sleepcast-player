@@ -461,3 +461,119 @@ describe("quarter-hour rule opt-in", () => {
     expect(loadState().settings.quarterHourRule).toBe(true);
   });
 });
+
+import { recordSessionEnd, REARM_WINDOW_MS } from "./store";
+
+describe("settings migration", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("defaults new fields on fresh state", () => {
+    const s = loadState();
+    expect(s.settings.feedTrim).toEqual({});
+    expect(s.settings.noise).toEqual({ on: false, level: 0.15 });
+    // 45, not the 60 this test was written against: the default timer was
+    // deliberately shortened on the branch this merged into, and the default
+    // mode has to follow the default timer or a fresh install disagrees with
+    // itself.
+    expect(s.settings.mode).toEqual({ kind: "minutes", minutes: 45 });
+    expect(s.settings.lastSession).toBeNull();
+  });
+
+  it("migrates legacy saved state (timerMinutes only) without losing it", () => {
+    localStorage.setItem(
+      "sleepcast2.state",
+      JSON.stringify({ feeds: [], settings: { timerMinutes: 90 } })
+    );
+    const s = loadState();
+    expect(s.settings.timerMinutes).toBe(90);
+    expect(s.settings.mode).toEqual({ kind: "minutes", minutes: 90 });
+    expect(s.settings.feedTrim).toEqual({});
+  });
+
+  it("round-trips extended settings", () => {
+    const s = loadState();
+    s.settings.feedTrim = { swm: 0.75 };
+    s.settings.noise = { on: true, level: 0.2 };
+    s.settings.mode = { kind: "all-night" };
+    s.settings.lastSession = { endedAt: 123, timerMinutes: 40, modeKind: "minutes" };
+    saveState(s);
+    const back = loadState();
+    expect(back.settings.feedTrim).toEqual({ swm: 0.75 });
+    expect(back.settings.noise).toEqual({ on: true, level: 0.2 });
+    expect(back.settings.mode).toEqual({ kind: "all-night" });
+    expect(back.settings.lastSession).toEqual({ endedAt: 123, timerMinutes: 40, modeKind: "minutes" });
+  });
+
+  it("sanitizes garbage mode/noise/trim values to defaults", () => {
+    localStorage.setItem(
+      "sleepcast2.state",
+      JSON.stringify({
+        feeds: [],
+        settings: {
+          timerMinutes: 60,
+          mode: { kind: "nonsense" },
+          noise: { on: "yes", level: 9 },
+          feedTrim: { swm: 99 },
+        },
+      })
+    );
+    const s = loadState();
+    // 60 here, unlike the fresh-state default: sanitizeMode falls back to the
+    // *saved* timerMinutes, which this fixture sets to 60.
+    expect(s.settings.mode).toEqual({ kind: "minutes", minutes: 60 });
+    // Per-field sanitizing: `on: "yes"` isn't a boolean so it defaults, but
+    // `level: 9` is a finite number so it clamps rather than defaulting.
+    expect(s.settings.noise).toEqual({ on: false, level: 0.3 });
+    expect(s.settings.feedTrim).toEqual({}); // out-of-range trim dropped
+  });
+
+  it("leveling defaults to false, round-trips when true, sanitizes non-boolean to false", () => {
+    expect(loadState().settings.leveling).toBe(false);
+
+    const s = loadState();
+    s.settings.leveling = true;
+    saveState(s);
+    expect(loadState().settings.leveling).toBe(true);
+
+    localStorage.setItem(
+      "sleepcast2.state",
+      JSON.stringify({ feeds: [], settings: { timerMinutes: 60, leveling: "yes" } })
+    );
+    expect(loadState().settings.leveling).toBe(false);
+  });
+
+  it("keeps `on` when level has floating-point noise (range input precision)", () => {
+    localStorage.setItem(
+      "sleepcast2.state",
+      JSON.stringify({
+        feeds: [],
+        settings: {
+          timerMinutes: 60,
+          noise: { on: true, level: 0.30000000000000004 },
+        },
+      })
+    );
+    const s = loadState();
+    expect(s.settings.noise).toEqual({ on: true, level: 0.3 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// recordSessionEnd
+// ---------------------------------------------------------------------------
+describe("recordSessionEnd", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("stamps lastSession into saved settings", () => {
+    recordSessionEnd(50, "minutes");
+    const s = loadState();
+    expect(s.settings.lastSession).not.toBeNull();
+    expect(s.settings.lastSession!.timerMinutes).toBe(50);
+    expect(s.settings.lastSession!.modeKind).toBe("minutes");
+    expect(Math.abs(Date.now() - s.settings.lastSession!.endedAt)).toBeLessThan(2000);
+  });
+
+  it("window constant is six hours", () => {
+    expect(REARM_WINDOW_MS).toBe(6 * 60 * 60 * 1000);
+  });
+});
