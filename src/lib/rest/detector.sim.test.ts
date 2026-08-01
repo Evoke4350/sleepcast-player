@@ -68,7 +68,7 @@ describe("detector — simulated error rates (gated model, alpha = 0.02)", () =>
 
   // Note: a quiet, resting-but-awake listener who *does* let the full timer
   // fade untouched is counted as "slept" by design (the human's decision —
-  // see gated-model.md) — that is not a false positive under this
+  // see docs/gated-model.md) — that is not a false positive under this
   // definition. This scenario never fades, so it must stay a true negative.
   it("false-positive rate on quiet-but-awake nights (phone down, resting, no fade) stays low (< 5%)", () => {
     const N = 1000;

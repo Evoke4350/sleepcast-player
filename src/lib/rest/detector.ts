@@ -4,7 +4,7 @@ export const DEFAULT_PARAMS: DetectorParams = {
   lambdaAwake: 0.12,   // ~1 interaction per ~2 min while awake
   // pHiddenAwake/pHiddenAsleep: reserved for Phase 2 (HR-fused signal). Unused
   // by tickLogLR today — simulation proved `hidden` alone can't separate an
-  // awake-but-resting listener from a sleeper (see gated-model.md). Precision
+  // awake-but-resting listener from a sleeper (see docs/gated-model.md). Precision
   // now comes from the fade gate in `observe`, not from this signal or `alpha`.
   pHiddenAwake: 0.25,
   pHiddenAsleep: 0.9,
@@ -54,7 +54,7 @@ export class SleepDetector {
     // night is the more misleading error for someone tracking their sleep.
     if (this.S >= this.A && this.crossedAt === null) this.crossedAt = s.t;
     // Fade gate: evidence alone never emits. Only a night that reaches the
-    // sleep-timer fade *unattended* counts as slept (see gated-model.md) —
+    // sleep-timer fade *unattended* counts as slept (see docs/gated-model.md) —
     // that's the one behavioral signal that separates awake (stops/extends
     // the audio) from asleep (lets it fade).
     if (this.S >= this.A && s.fadingOrDone) {
