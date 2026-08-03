@@ -1,4 +1,14 @@
-export interface Episode { id: string; title: string; url: string; feedId: string; date: string; }
+export interface Episode {
+  id: string;
+  title: string;
+  url: string;
+  feedId: string;
+  date: string;
+  /** Present only for YouTube episodes, where `url` is a watch page rather
+   *  than anything an <audio> element can stream. Its presence is what tells
+   *  the player to use the embedded backend instead. See youtube.ts. */
+  youtubeId?: string;
+}
 export interface Feed { id: string; title: string; episodes: Episode[]; artwork?: string; }
 
 export type PlayMode =
