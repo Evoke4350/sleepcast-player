@@ -13,6 +13,67 @@ import { classifyYouTubeError } from "./youtube-errors";
 /** Retries allowed for one episode before it is skipped. */
 export const MAX_RETRIES = 1;
 
+/** YT.Player's own state codes, from getPlayerState(). */
+export const YT_STATE = {
+  UNSTARTED: -1,
+  ENDED: 0,
+  PLAYING: 1,
+  PAUSED: 2,
+  BUFFERING: 3,
+  CUED: 5,
+} as const;
+
+/** What the transport should show. Four outcomes, not a boolean: "not
+ *  playing" and "paused" are different things, and conflating them is what
+ *  made a video that had never started render a Pause button over silence. */
+export type Transport = "playing" | "paused" | "buffering" | "awaiting-start";
+
+export function transportFor(state: number): Transport {
+  switch (state) {
+    case YT_STATE.PLAYING:
+      return "playing";
+    case YT_STATE.PAUSED:
+      return "paused";
+    // Loaded and waiting to be told to go. On a phone this is the normal
+    // outcome of an autoplay attempt, not a fault.
+    case YT_STATE.UNSTARTED:
+    case YT_STATE.CUED:
+      return "awaiting-start";
+    default:
+      // Buffering, ended, and anything undocumented. Deliberately not
+      // "playing": a wrong "playing" is a Pause button over silence, while a
+      // wrong "buffering" is a spinner that resolves itself in a moment.
+      return "buffering";
+  }
+}
+
+export interface GiveUpArgs {
+  state: number;
+  /** Whether anything at all has played this session. */
+  hasEverPlayed: boolean;
+  elapsedMs: number;
+  limitMs: number;
+}
+
+/**
+ * Whether a video that has not started is a dead video.
+ *
+ * The distinction that matters is autoplay. Before anything has played,
+ * "unstarted" almost always means the browser is refusing to begin playback
+ * without a tap — every video in the lineup would refuse identically, so
+ * skipping burns through the whole spread in a couple of minutes and ends a
+ * night having played nothing. That case needs a tap, not a funeral.
+ *
+ * Once something HAS played, playback is clearly permitted, so a video still
+ * sitting at unstarted is this video's problem and the night should move on.
+ */
+export function shouldGiveUp({ state, hasEverPlayed, elapsedMs, limitMs }: GiveUpArgs): boolean {
+  if (elapsedMs <= limitMs) return false;
+  if (state === YT_STATE.PLAYING || state === YT_STATE.PAUSED) return false;
+  if (!hasEverPlayed && (state === YT_STATE.UNSTARTED || state === YT_STATE.CUED)) return false;
+  return true;
+}
+
 /**
  * The next video to try, or null when there is nothing left.
  *

@@ -58,7 +58,14 @@ import {
   type CreatePlayerArgs,
 } from "../lib/youtube-media";
 import { loadYouTubeApi, type YTNamespace } from "../lib/youtube-api";
-import { nextPlayable, decideAfterError } from "../lib/youtube-night";
+import {
+  nextPlayable,
+  decideAfterError,
+  transportFor,
+  shouldGiveUp,
+  YT_STATE,
+  type Transport,
+} from "../lib/youtube-night";
 import { classifyYouTubeError } from "../lib/youtube-errors";
 import { browserScreenLock, type ScreenLock } from "../lib/wake-lock";
 
@@ -69,6 +76,10 @@ const LINEUP_MAX = 12;
 // reported no error, a stalled load, a region lock. Move on rather than sit in
 // silence while the countdown runs down.
 const WATCHDOG_MS = 25_000;
+// How long a video may sit unstarted before the tap prompt appears. Long
+// enough that a player still coming up doesn't flash it, short enough that
+// nobody stares at a still frame wondering.
+const START_PROMPT_MS = 2_500;
 
 export interface YouTubeNightProps {
   pool: Episode[];
@@ -91,11 +102,6 @@ export interface YouTubeNightProps {
   leadPosition?: number;
   wasVaried?: boolean;
 }
-
-/** YT.Player's onStateChange codes. Only two are acted on. */
-const YT_ENDED = 0;
-const YT_PLAYING = 1;
-const YT_PAUSED = 2;
 
 export function YouTubeNight({
   pool,
@@ -161,7 +167,19 @@ export function YouTubeNight({
   const [countdown, setCountdown] = useState(timerMinutes * 60);
   const [totalSeconds, setTotalSeconds] = useState(timerMinutes * 60);
   const [peekUntil, setPeekUntil] = useState(0);
-  const [paused, setPaused] = useState(false);
+  // What the player is doing, read from it rather than mirrored. The first
+  // version kept a `paused` boolean updated on the three state codes it
+  // handled; the other three (unstarted, cued, buffering) left it saying
+  // "playing" while nothing played, so a video waiting for a tap rendered a
+  // Pause button over silence.
+  const [transport, setTransport] = useState<Transport>("buffering");
+  // Whether anything has played at all this night. Autoplay refusals look
+  // exactly like a dead video until you know the answer to this.
+  const hasEverPlayedRef = useRef(false);
+  // The prompt waits a beat before appearing. A player that is simply still
+  // coming up also reads as "unstarted", and flashing "tap to begin" at
+  // someone half a second before it starts on its own is worse than silence.
+  const [showStartPrompt, setShowStartPrompt] = useState(false);
   const [epPos, setEpPos] = useState<{ cur: number; dur: number } | null>(null);
   const [toast, setToast] = useState("");
   const [holdPct, setHoldPct] = useState(0);
@@ -186,6 +204,22 @@ export function YouTubeNight({
   function flash(message: string) {
     setToast(message);
     setTimeout(() => setToast(""), 4200);
+  }
+
+  // The countdown is held by parking the remaining time, exactly as a pause
+  // does — so "waiting for a tap" and "paused" cost the listener the same
+  // nothing, and neither burns the night's minutes over silence.
+  function freezeClock() {
+    if (endTimeRef.current !== null && pausedRemainingMsRef.current === null) {
+      pausedRemainingMsRef.current = endTimeRef.current - Date.now();
+    }
+  }
+
+  function unfreezeClock() {
+    if (pausedRemainingMsRef.current !== null) {
+      endTimeRef.current = Date.now() + pausedRemainingMsRef.current;
+      pausedRemainingMsRef.current = null;
+    }
   }
 
   // YT.Player REPLACES the element it is handed with an iframe. So it is given
@@ -217,24 +251,27 @@ export function YouTubeNight({
       events: {
         onReady: (e: { target: YTPlayerLike }) => {
           args.onReady();
-          // Starting a night IS a user gesture, but the API script has to load
-          // first and that gap can outlive the gesture's grace. Ask anyway;
-          // the watchdog covers a refusal.
+          // Starting a night IS a user gesture, but Google's script has to
+          // load first and that gap routinely outlives the gesture's grace on
+          // a phone. Ask anyway — and when the answer is no, the video sits at
+          // "unstarted" and the tap prompt takes over. It is not an error and
+          // must not be treated as one.
           e.target.playVideo();
         },
         onStateChange: (e: { data: number }) => {
-          if (e.data === YT_PLAYING) {
+          setTransport(transportFor(e.data));
+          if (e.data === YT_STATE.PLAYING) {
             watchRef.current = null;
             failsRef.current = 0;
             retriesRef.current = 0;
-            setPaused(false);
-            restRef.current?.noteInteraction();
-          } else if (e.data === YT_PAUSED) {
-            setPaused(true);
-            if (endTimeRef.current !== null && pausedRemainingMsRef.current === null) {
-              pausedRemainingMsRef.current = endTimeRef.current - Date.now();
-            }
-          } else if (e.data === YT_ENDED) {
+            hasEverPlayedRef.current = true;
+            // The clock starts here, not at mount. It is held frozen until
+            // something actually plays, so a night that never got its tap does
+            // not run its timer down over silence.
+            unfreezeClock();
+          } else if (e.data === YT_STATE.PAUSED) {
+            freezeClock();
+          } else if (e.data === YT_STATE.ENDED) {
             args.onEnded();
           }
         },
@@ -252,6 +289,10 @@ export function YouTubeNight({
     currentEpRef.current = ep;
     currentFeedRef.current = ep.feedId;
     retriesRef.current = 0;
+    // Nothing is known about the new video yet. Carrying the last one's state
+    // across would label a loading video "playing".
+    setTransport("buffering");
+    setShowStartPrompt(false);
 
     // A saved position is already past any intro, so it wins over skip-intro.
     const skipSec = (skipIntroRef.current[ep.feedId] ?? 0) * 60;
@@ -420,6 +461,18 @@ export function YouTubeNight({
       return;
     }
 
+    // Reconcile with what the player says it is doing. onStateChange is the
+    // fast path, but a state that changed while this component was mid-render
+    // — or an event that simply never arrived — would otherwise leave the
+    // transport asserting something stale for the rest of the night.
+    const ytState = media.state();
+    const t = transportFor(ytState);
+    setTransport(t);
+    // watchRef.at is when this episode was asked to play, and it is cleared
+    // the moment it does — so this is exactly "how long it has refused for".
+    const waitedMs = watchRef.current ? Date.now() - watchRef.current.at : 0;
+    setShowStartPrompt(t === "awaiting-start" && waitedMs > START_PROMPT_MS);
+
     const cur = media.currentTime();
     const dur = media.duration();
     const epRemaining = dur > 0 ? dur - cur : null;
@@ -443,7 +496,15 @@ export function YouTubeNight({
     setEpPos(dur > 0 ? { cur, dur } : null);
 
     const w = watchRef.current;
-    if (w && Date.now() - w.at > WATCHDOG_MS) {
+    if (
+      w &&
+      shouldGiveUp({
+        state: ytState,
+        hasEverPlayed: hasEverPlayedRef.current,
+        elapsedMs: Date.now() - w.at,
+        limitMs: WATCHDOG_MS,
+      })
+    ) {
       watchRef.current = null;
       failsRef.current++;
       // Stuck without an error code: a blocked embed that reported nothing, a
@@ -509,11 +570,15 @@ export function YouTubeNight({
 
   useEffect(() => {
     let cancelled = false;
-    pausedRemainingMsRef.current = null;
     endTimeRef.current =
       mode.kind === "minutes"
         ? Date.now() + (resume ? resume.remainingMs : timerMinutes * 60 * 1000)
         : null;
+    // Held from the start and released by the first PLAYING. A YouTube night
+    // frequently cannot begin without a tap, and a timer that runs during that
+    // wait spends the listener's minutes on a still frame.
+    pausedRemainingMsRef.current =
+      endTimeRef.current === null ? null : endTimeRef.current - Date.now();
     restRef.current = new RestSession(Date.now(), timerMinutes);
     deadRef.current = new Set(loadBlocked());
     if (resume) {
@@ -588,19 +653,19 @@ export function YouTubeNight({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // One handler for "start it" and "resume it": both are a tap asking for
+  // sound, and the browser treats this tap as the gesture that permits it.
+  // Only a video that is genuinely playing gets paused.
   function handleTogglePause() {
     restRef.current?.noteInteraction();
     const media = mediaRef.current;
     if (!media) return;
-    if (paused) {
-      if (pausedRemainingMsRef.current !== null) {
-        endTimeRef.current = Date.now() + pausedRemainingMsRef.current;
-        pausedRemainingMsRef.current = null;
-      }
-      media.play();
-    } else {
+    if (transport === "playing") {
       media.pause();
+      return;
     }
+    unfreezeClock();
+    media.play();
   }
 
   function handleNext() {
@@ -690,11 +755,31 @@ export function YouTubeNight({
             player is against the terms this feature depends on. Dimming it is
             not hiding it — it is the same thing as turning the brightness
             down, and a bright rectangle at 1am defeats the point. */}
-        <div
-          ref={hostRef}
-          className="aspect-video w-full overflow-hidden rounded-xl border border-[#241f30] bg-black [&_iframe]:h-full [&_iframe]:w-full"
-          style={{ filter: `brightness(${(0.35 + 0.4 * dim).toFixed(2)})` }}
-        />
+        <div className="relative">
+          <div
+            ref={hostRef}
+            className="aspect-video w-full overflow-hidden rounded-xl border border-[#241f30] bg-black [&_iframe]:h-full [&_iframe]:w-full"
+            style={{ filter: `brightness(${(0.35 + 0.4 * dim).toFixed(2)})` }}
+          />
+          {/* Browsers will not start a video without a gesture, and starting a
+              night is not close enough to one by the time Google's script has
+              loaded. So the video sits loaded and waiting, and this is the
+              gesture. Over the frame rather than below it, because the frame
+              is what the eye is already on. */}
+          {status === "playing" && showStartPrompt && (
+            <button
+              onClick={handleTogglePause}
+              className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-xl bg-black/70 text-[#f0dcb8]"
+            >
+              <span className="text-4xl leading-none">▶</span>
+              <span className="text-sm">tap to begin</span>
+              <span className="max-w-[16rem] text-[11px] leading-snug text-[#8a7a5c]">
+                your browser won&apos;t start a video on its own. the timer
+                hasn&apos;t started either — it waits for this.
+              </span>
+            </button>
+          )}
+        </div>
 
         {status === "loading" && (
           <p className="text-sm text-[#6e5d44]">bringing up the player…</p>
@@ -810,9 +895,21 @@ export function YouTubeNight({
                 <button
                   onClick={handleTogglePause}
                   className="h-24 w-24 rounded-full border border-[#2e2d3a] bg-[#1a1b26] text-sm font-medium text-[#c8c0b0] transition-transform active:scale-95"
-                  aria-label={paused ? "Resume" : "Pause"}
+                  aria-label={
+                    transport === "playing"
+                      ? "Pause"
+                      : transport === "awaiting-start"
+                        ? "Start"
+                        : "Resume"
+                  }
                 >
-                  {paused ? "Resume" : "Pause"}
+                  {transport === "playing"
+                    ? "Pause"
+                    : transport === "paused"
+                      ? "Resume"
+                      : transport === "awaiting-start"
+                        ? "Play"
+                        : "…"}
                 </button>
               </div>
               <div className="flex items-center justify-center gap-6">
