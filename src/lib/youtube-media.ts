@@ -30,12 +30,14 @@ export interface YTPlayerLike {
   setVolume(percent: number): void;
   getCurrentTime(): number;
   getDuration(): number;
-  loadVideoById(videoId: string): void;
+  loadVideoById(videoId: string, startSeconds?: number): void;
   destroy(): void;
 }
 
 export interface CreatePlayerArgs {
   videoId: string;
+  /** Where to begin. Non-zero when a snapshotted night is being revived. */
+  startSeconds?: number;
   onReady: () => void;
   onEnded: () => void;
   onError: (code: number) => void;
@@ -56,15 +58,18 @@ export class YouTubeMedia {
     } = {},
   ) {}
 
-  /** Start, or switch to, a video. Safe before the player exists. */
-  load(videoId: string): void {
+  /** Start, or switch to, a video. Safe before the player exists.
+   *  startSeconds revives a snapshotted night at the second it stopped rather
+   *  than at 0:00 of a four-hour video. */
+  load(videoId: string, startSeconds = 0): void {
     if (this.dead) return;
     if (this.player) {
-      this.run((p) => p.loadVideoById(videoId));
+      this.run((p) => p.loadVideoById(videoId, startSeconds));
       return;
     }
     this.player = this.createPlayer({
       videoId,
+      startSeconds,
       onReady: () => {
         // The iframe can finish loading after the user already ended the
         // night. Flushing then would start audio with nothing left to stop it.

@@ -1,5 +1,11 @@
 import { describe, expect, test } from "vitest";
-import { nextPlayable, decideAfterError, MAX_RETRIES } from "./youtube-night";
+import {
+  nextPlayable,
+  decideAfterError,
+  isYouTubeLineup,
+  isMixedLineup,
+  MAX_RETRIES,
+} from "./youtube-night";
 import type { Episode } from "./engine";
 
 const ep = (id: string): Episode => ({
@@ -85,5 +91,33 @@ describe("what a failed video means for the night", () => {
     // We do not know it is broken, only that it did not start this time — so
     // it moves on tonight and is eligible again tomorrow.
     expect(decideAfterError(999, 0)).toEqual({ action: "skip", permanent: false });
+  });
+});
+
+describe("telling a YouTube lineup from a podcast one", () => {
+  const pod: Episode = { id: "p", title: "p", url: "https://x/a.mp3", feedId: "f", date: "" };
+
+  test("all videos is a YouTube night", () => {
+    expect(isYouTubeLineup(POOL)).toBe(true);
+  });
+
+  test("all podcasts is not", () => {
+    expect(isYouTubeLineup([pod])).toBe(false);
+  });
+
+  test("an empty lineup is not a YouTube night", () => {
+    // [].every() is true, so the obvious one-liner routes an empty pool to the
+    // video player, which then renders a black rectangle and no explanation.
+    expect(isYouTubeLineup([])).toBe(false);
+  });
+
+  test("a mix is neither, and has to be caught before a night starts", () => {
+    // The video path cannot play an enclosure and the audio path cannot play a
+    // videoId. Whichever one ran would silently drop half the lineup.
+    expect(isYouTubeLineup([...POOL, pod])).toBe(false);
+    expect(isMixedLineup([...POOL, pod])).toBe(true);
+    expect(isMixedLineup(POOL)).toBe(false);
+    expect(isMixedLineup([pod])).toBe(false);
+    expect(isMixedLineup([])).toBe(false);
   });
 });

@@ -35,6 +35,28 @@ export function nextPlayable(
   return pickNextEpisode(others.length ? others : alive, plays, rand);
 }
 
+/**
+ * True when every episode is a video, so the night belongs to the embed rather
+ * than to the audio element.
+ *
+ * Empty is deliberately false: `[].every()` is true, and the one-line version
+ * routes an empty lineup to the video player, which renders a black rectangle
+ * and no explanation.
+ */
+export function isYouTubeLineup(pool: readonly Episode[]): boolean {
+  return pool.length > 0 && pool.every((e) => !!e.youtubeId);
+}
+
+/**
+ * True when a lineup holds both kinds. Neither player can carry it — the embed
+ * cannot play an enclosure and the audio element cannot play a videoId — so
+ * whichever one ran would silently drop half of it. The caller refuses the
+ * night instead, which is a sentence the listener can act on.
+ */
+export function isMixedLineup(pool: readonly Episode[]): boolean {
+  return pool.some((e) => !!e.youtubeId) && pool.some((e) => !e.youtubeId);
+}
+
 export interface ErrorDecision {
   action: "skip" | "retry";
   /** True when the video should be remembered as dead beyond tonight. */

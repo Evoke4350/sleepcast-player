@@ -17,7 +17,9 @@ import {
   getCachedFeedXml,
   loadLastEpisode,
 } from "../lib/store";
-import { diverseByMeta, parseFeedXml, formatTime } from "../lib/engine";
+import { diverseByMeta, formatTime } from "../lib/engine";
+import { parseFeedFor, youtubeFeedUrl } from "../lib/youtube";
+import { isMixedLineup } from "../lib/youtube-night";
 import type { Episode } from "../lib/engine";
 import { loadNights, setSelfLabel, loadParams, saveParams } from "../lib/rest/ledger";
 import { tightenAfterFalsePositive } from "../lib/rest/calibrate";
@@ -131,7 +133,9 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
           if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
           const xml = await resp.text();
           cacheFeedXml(feed.id, xml);
-          const parsed = parseFeedXml(xml, feed.id);
+          // Parser chosen by the feed's URL, not by whether the document is
+          // Atom or RSS — plenty of real podcasts publish Atom.
+          const parsed = parseFeedFor(xml, feed.id, feed.url);
           setFeedStatuses((prev) => ({
             ...prev,
             [feed.id]: {
@@ -146,7 +150,7 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
           // Try cache fallback
           const cached = getCachedFeedXml(feed.id);
           if (cached) {
-            const parsed = parseFeedXml(cached, feed.id);
+            const parsed = parseFeedFor(cached, feed.id, feed.url);
             setFeedStatuses((prev) => ({
               ...prev,
               [feed.id]: {
@@ -231,8 +235,23 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
 
   function handleAddCustomFeed() {
     setCustomError(null);
+    const raw = customUrl.trim();
+    // A YouTube channel is not a feed URL, but it has one. Resolve what we can
+    // and say something useful about what we can't, rather than handing the
+    // whole thing to addCustomFeed and letting it fail as "not a feed".
+    const yt = youtubeFeedUrl(raw);
+    if (yt?.kind === "handle") {
+      setCustomError(
+        `a @${yt.handle} link doesn't carry the channel id — open the channel, tap its name, and copy the /channel/UC… address instead`,
+      );
+      return;
+    }
+    if (yt?.kind === "unsupported") {
+      setCustomError("that's a single video. paste the channel or playlist it belongs to.");
+      return;
+    }
     try {
-      const next = addCustomFeed(appState, customUrl.trim(), customTitle.trim() || undefined);
+      const next = addCustomFeed(appState, yt?.url ?? raw, customTitle.trim() || undefined);
       updateAndSave(next);
       setCustomUrl("");
       setCustomTitle("");
@@ -376,6 +395,14 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
     // in…" and is disabled, and so is every other way to start a night.
     if (pool.length === 0) {
       setFeedError("couldn't reach your feeds — check your connection and try again");
+      return;
+    }
+    // YouTube plays through an embedded video player and podcasts play through
+    // the audio element; neither can carry the other's episodes. Shuffling
+    // them together would silently drop half the lineup, so the night is
+    // refused with a sentence you can act on instead.
+    if (isMixedLineup(pool)) {
+      setFeedError("a YouTube night can't shuffle with podcast feeds yet — turn one kind off");
       return;
     }
     leadRef.current = lead;
@@ -838,11 +865,48 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
               </div>
             </details>
 
+            {/* YouTube is a different animal from a podcast feed and the
+                differences all bite at 2am, so they are stated before you add
+                one rather than discovered while trying to sleep. */}
+            <details className="text-xs">
+              <summary className="cursor-pointer list-none text-[#8a7a5c] transition-colors hover:text-[#b59a76] [&::-webkit-details-marker]:hidden">
+                Can I use a YouTube channel? →
+              </summary>
+              <div className="mt-2 space-y-2 leading-relaxed text-[#8a7a5c]">
+                <p>
+                  Yes — paste a channel or playlist address. A{" "}
+                  <code>/channel/UC…</code> link works directly; an{" "}
+                  <code>@name</code> link doesn&apos;t carry the channel id, so open
+                  the channel, tap its name, and copy the address you land on.
+                </p>
+                <ul className="list-disc space-y-1.5 pl-4">
+                  <li>
+                    <span className="text-[#b59a76]">Ads can play.</span> It goes
+                    through Google&apos;s player and we can&apos;t mute or skip them.
+                  </li>
+                  <li>
+                    <span className="text-[#b59a76]">The screen must stay on.</span>{" "}
+                    Video stops when a phone locks. We hold the screen awake where
+                    the browser allows it.
+                  </li>
+                  <li>
+                    <span className="text-[#b59a76]">Fifteen videos, no archive.</span>{" "}
+                    That&apos;s all YouTube publishes. Fine for shows where one
+                    video runs hours.
+                  </li>
+                  <li>
+                    <span className="text-[#b59a76]">One kind per night.</span> A
+                    YouTube night can&apos;t shuffle with podcast feeds yet.
+                  </li>
+                </ul>
+              </div>
+            </details>
+
             <input
               type="url"
               value={customUrl}
               onChange={(e) => setCustomUrl(e.target.value)}
-              placeholder="Paste your private feed link (https://…)"
+              placeholder="Paste a feed link, or a YouTube channel"
               className="w-full rounded bg-[#12101a] border border-[#241f30] px-3 py-2 text-sm text-[#b59a76] placeholder:text-[#6e5d44] focus:outline-none focus:border-[#6e5d44]"
             />
             <input

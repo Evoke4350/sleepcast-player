@@ -8,6 +8,8 @@ import { shouldReanchor, nextInSpread } from "../lib/rest/reanchor";
 import { DEFAULT_FEEL_MINUTES } from "../lib/timer-feel";
 import { SleepSetup } from "./SleepSetup";
 import { Player } from "./Player";
+import { YouTubeNight } from "./YouTubeNight";
+import { isYouTubeLineup } from "../lib/youtube-night";
 import { RestView } from "./RestView";
 import { ReanchorView } from "./ReanchorView";
 import { shouldGreetGoodbye, markGoodbyeSeen, fmtDuration } from "../lib/rest/surface";
@@ -208,6 +210,30 @@ export function AppPlayer() {
   }
 
   if (session) {
+    // A lineup of videos goes to the embed, everything else to the audio
+    // element. Decided on the lineup rather than on a flag because a revived
+    // night arrives from localStorage with no flag to read — the episodes
+    // themselves are the only thing that survives a reload. SleepSetup refuses
+    // a mixed lineup before it ever gets here, so this is a clean either/or.
+    if (isYouTubeLineup(session.pool)) {
+      return (
+        <YouTubeNight
+          pool={session.pool}
+          timerMinutes={session.timerMinutes}
+          skipIntroByFeedId={session.skipIntroByFeedId}
+          feedTitles={session.feedTitles}
+          artworkByFeedId={session.artworkByFeedId}
+          onEnd={handleEnd}
+          resume={resume}
+          leadEpisode={session.leadEpisode}
+          leadPosition={session.leadPosition ?? 0}
+          mode={mode}
+          feedTrim={feedTrim}
+          noise={noise}
+          wasVaried={session.wasVaried ?? false}
+        />
+      );
+    }
     return (
       <Player
         pool={session.pool}

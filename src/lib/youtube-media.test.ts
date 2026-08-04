@@ -15,7 +15,7 @@ function fakePlayer() {
     setVolume: (n) => void calls.push(`volume:${n}`),
     getCurrentTime: () => 42.5,
     getDuration: () => 7200,
-    loadVideoById: (id) => void calls.push(`load:${id}`),
+    loadVideoById: (id, start) => void calls.push(`load:${id}@${start ?? 0}`),
     destroy: () => void calls.push("destroy"),
   };
 
@@ -25,7 +25,7 @@ function fakePlayer() {
     create: (a: CreatePlayerArgs) => {
       created++;
       args = a;
-      calls.push(`create:${a.videoId}`);
+      calls.push(`create:${a.videoId}@${a.startSeconds ?? 0}`);
       return player;
     },
     ready: () => args!.onReady(),
@@ -45,7 +45,7 @@ describe("commands issued before the player is ready", () => {
     media.setVolume(1);
     media.play();
 
-    expect(f.calls).toEqual(["create:AAAAAAAAAAA"]);
+    expect(f.calls).toEqual(["create:AAAAAAAAAAA@0"]);
   });
 
   test("and replay in the order they were issued once it fires", () => {
@@ -57,7 +57,7 @@ describe("commands issued before the player is ready", () => {
     media.play();
     f.ready();
 
-    expect(f.calls).toEqual(["create:AAAAAAAAAAA", "volume:50", "play"]);
+    expect(f.calls).toEqual(["create:AAAAAAAAAAA@0", "volume:50", "play"]);
   });
 
   test("a second load before ready does not build a second player", () => {
@@ -69,7 +69,7 @@ describe("commands issued before the player is ready", () => {
     f.ready();
 
     expect(f.created()).toBe(1);
-    expect(f.calls).toEqual(["create:AAAAAAAAAAA", "load:BBBBBBBBBBB"]);
+    expect(f.calls).toEqual(["create:AAAAAAAAAAA@0", "load:BBBBBBBBBBB@0"]);
   });
 });
 
@@ -175,7 +175,7 @@ describe("after the night ends", () => {
     media.play();
     media.destroy();
     f.ready();
-    expect(f.calls).toEqual(["create:A", "destroy"]);
+    expect(f.calls).toEqual(["create:A@0", "destroy"]);
   });
 });
 
@@ -198,5 +198,34 @@ describe("events the night depends on", () => {
     f.ready();
     f.error(150); // "embedding disabled by the uploader" — a real, common case
     expect(onError).toHaveBeenCalledWith(150);
+  });
+});
+
+describe("picking up where a reload left off", () => {
+  test("passes the start position through to the player", async () => {
+    // A night snapshotted before a refresh revives at the second it stopped.
+    // Without this the listener is dropped back at 0:00 of a four-hour video.
+    const { create, calls } = fakePlayer();
+    const media = new YouTubeMedia(create);
+    media.load("abc", 1830);
+    expect(calls).toContain("create:abc@1830");
+  });
+
+  test("a later video starts at the top unless told otherwise", () => {
+    const { create, calls, ready } = fakePlayer();
+    const media = new YouTubeMedia(create);
+    media.load("abc");
+    ready();
+    media.load("def");
+    expect(calls).toContain("load:def@0");
+  });
+
+  test("switching videos can also start mid-way", () => {
+    const { create, calls, ready } = fakePlayer();
+    const media = new YouTubeMedia(create);
+    media.load("abc");
+    ready();
+    media.load("def", 42);
+    expect(calls).toContain("load:def@42");
   });
 });
