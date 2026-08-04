@@ -25,6 +25,9 @@
 
 /** The slice of YT.Player this uses. */
 export interface YTPlayerLike {
+  /** YT's own state: -1 unstarted, 0 ended, 1 playing, 2 paused, 3 buffering,
+   *  5 cued. Asked for rather than mirrored — see state(). */
+  getPlayerState(): number;
   playVideo(): void;
   pauseVideo(): void;
   setVolume(percent: number): void;
@@ -108,6 +111,22 @@ export class YouTubeMedia {
   duration(): number {
     if (!this.ready || !this.player) return 0;
     return this.player.getDuration() || 0;
+  }
+
+  /**
+   * What the player is doing, asked rather than remembered.
+   *
+   * The first version of the caller mirrored this into a boolean, updated on
+   * the three state codes it handled. The other three — unstarted, cued,
+   * buffering — left the boolean saying "playing" while nothing played, which
+   * is exactly the class of lie this app cannot afford. There is an API for
+   * the truth; use it.
+   *
+   * Unstarted before ready and after destroy, so a caller never has to guard.
+   */
+  state(): number {
+    if (!this.ready || !this.player) return -1;
+    return this.player.getPlayerState();
   }
 
   destroy(): void {

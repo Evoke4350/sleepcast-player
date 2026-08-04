@@ -4,6 +4,9 @@ import {
   decideAfterError,
   isYouTubeLineup,
   isMixedLineup,
+  transportFor,
+  shouldGiveUp,
+  YT_STATE,
   MAX_RETRIES,
 } from "./youtube-night";
 import type { Episode } from "./engine";
@@ -119,5 +122,70 @@ describe("telling a YouTube lineup from a podcast one", () => {
     expect(isMixedLineup(POOL)).toBe(false);
     expect(isMixedLineup([pod])).toBe(false);
     expect(isMixedLineup([])).toBe(false);
+  });
+});
+
+describe("what the player's state means for the transport", () => {
+  test("playing and paused are what they look like", () => {
+    expect(transportFor(YT_STATE.PLAYING)).toBe("playing");
+    expect(transportFor(YT_STATE.PAUSED)).toBe("paused");
+  });
+
+  test("buffering is not paused", () => {
+    // Showing "Resume" mid-buffer invites a tap that pauses a video which was
+    // about to start on its own.
+    expect(transportFor(YT_STATE.BUFFERING)).toBe("buffering");
+  });
+
+  test("unstarted and cued mean it is waiting to be told to go", () => {
+    // This is the case that was being rendered as "playing". A loaded video
+    // that has never started is not paused and not playing — it needs a tap,
+    // and the UI has to say so rather than show a Pause button for silence.
+    expect(transportFor(YT_STATE.UNSTARTED)).toBe("awaiting-start");
+    expect(transportFor(YT_STATE.CUED)).toBe("awaiting-start");
+  });
+
+  test("ended is not a state to draw a transport from", () => {
+    expect(transportFor(YT_STATE.ENDED)).toBe("buffering");
+  });
+
+  test("a state nobody documented does not become 'playing'", () => {
+    expect(transportFor(99)).toBe("buffering");
+  });
+});
+
+describe("when a stalled video should be given up on", () => {
+  const base = { elapsedMs: 60_000, limitMs: 25_000, hasEverPlayed: true };
+
+  test("a video stuck buffering past the limit is skipped", () => {
+    expect(shouldGiveUp({ ...base, state: YT_STATE.BUFFERING })).toBe(true);
+  });
+
+  test("not before the limit", () => {
+    expect(shouldGiveUp({ ...base, state: YT_STATE.BUFFERING, elapsedMs: 1000 })).toBe(false);
+  });
+
+  test("a video that is playing is never given up on", () => {
+    expect(shouldGiveUp({ ...base, state: YT_STATE.PLAYING })).toBe(false);
+  });
+
+  test("nor one the listener paused", () => {
+    // Sitting at 0:00 for an hour because someone paused it is a choice, not
+    // a stall.
+    expect(shouldGiveUp({ ...base, state: YT_STATE.PAUSED })).toBe(false);
+  });
+
+  test("an unstarted video before anything has ever played is NOT a dead video", () => {
+    // This is the autoplay case, and getting it wrong is expensive: the
+    // browser is refusing to start any video without a tap, so skipping burns
+    // through the entire lineup in under three minutes and ends the night
+    // having played nothing. It needs a tap, not a funeral.
+    expect(shouldGiveUp({ ...base, state: YT_STATE.UNSTARTED, hasEverPlayed: false })).toBe(false);
+    expect(shouldGiveUp({ ...base, state: YT_STATE.CUED, hasEverPlayed: false })).toBe(false);
+  });
+
+  test("but once something has played, autoplay works and a stall is real", () => {
+    // Playback is permitted — this video specifically is not starting.
+    expect(shouldGiveUp({ ...base, state: YT_STATE.UNSTARTED, hasEverPlayed: true })).toBe(true);
   });
 });

@@ -9,7 +9,9 @@ function fakePlayer() {
   let args: CreatePlayerArgs | null = null;
   let created = 0;
 
+  let state = -1;
   const player: YTPlayerLike = {
+    getPlayerState: () => state,
     playVideo: () => void calls.push("play"),
     pauseVideo: () => void calls.push("pause"),
     setVolume: (n) => void calls.push(`volume:${n}`),
@@ -29,6 +31,7 @@ function fakePlayer() {
       return player;
     },
     ready: () => args!.onReady(),
+    setState: (s: number) => { state = s; },
     ended: () => args!.onEnded(),
     error: (code: number) => args!.onError(code),
   };
@@ -227,5 +230,38 @@ describe("picking up where a reload left off", () => {
     ready();
     media.load("def", 42);
     expect(calls).toContain("load:def@42");
+  });
+});
+
+describe("asking the player what it is actually doing", () => {
+  test("reports unstarted before it is ready", () => {
+    // The whole reason this exists: mirroring state into a boolean on the
+    // events we happened to handle means the ones we didn't (unstarted, cued,
+    // buffering) leave the UI asserting something false.
+    const { create } = fakePlayer();
+    const media = new YouTubeMedia(create);
+    media.load("abc");
+    expect(media.state()).toBe(-1);
+  });
+
+  test("reports the player's own state once ready", () => {
+    const { create, ready, setState } = fakePlayer();
+    const media = new YouTubeMedia(create);
+    media.load("abc");
+    ready();
+    setState(1);
+    expect(media.state()).toBe(1);
+    setState(5);
+    expect(media.state()).toBe(5);
+  });
+
+  test("reports unstarted after destroy rather than throwing", () => {
+    const { create, ready, setState } = fakePlayer();
+    const media = new YouTubeMedia(create);
+    media.load("abc");
+    ready();
+    setState(1);
+    media.destroy();
+    expect(media.state()).toBe(-1);
   });
 });
