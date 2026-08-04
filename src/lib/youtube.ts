@@ -16,7 +16,7 @@
 //     can mute or skip them; suppressing them would be circumvention, not a
 //     feature.
 
-import type { Episode, Feed } from "./engine";
+import { parseFeedXml, type Episode, type Feed } from "./engine";
 
 /** Hosts whose /channel and /playlist URLs we will turn into a feed. Matched
  *  as whole hostnames — a substring test would accept youtube.com.evil.test. */
@@ -146,4 +146,18 @@ export function parseYouTubeFeed(xmlText: string, feedId: string): Feed {
     .find(Boolean);
 
   return { id: feedId, title, episodes, artwork };
+}
+
+/**
+ * Parse a feed with whichever parser its source URL calls for.
+ *
+ * Dispatch is on the URL, deliberately, not on whether the document is Atom or
+ * RSS. Plenty of legitimate podcasts publish Atom with real enclosures, and
+ * routing every <feed> to the YouTube parser would drop every one of their
+ * episodes — none of them carry a videoId.
+ */
+export function parseFeedFor(xmlText: string, feedId: string, feedUrl: string): Feed {
+  return isYouTubeFeedUrl(feedUrl)
+    ? parseYouTubeFeed(xmlText, feedId)
+    : parseFeedXml(xmlText, feedId);
 }
