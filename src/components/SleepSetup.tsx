@@ -67,6 +67,8 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
   const [customUrl, setCustomUrl] = useState("");
   const [customTitle, setCustomTitle] = useState("");
   const [customError, setCustomError] = useState<string | null>(null);
+  // A pasted @handle needs a server round trip before it is a feed.
+  const [resolving, setResolving] = useState(false);
   const [customMinutes, setCustomMinutes] = useState<string>("");
   const [variedBusy, setVariedBusy] = useState(false);
   const [variedNote, setVariedNote] = useState<string | null>(null);
@@ -233,31 +235,54 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
     }
   }
 
-  function handleAddCustomFeed() {
-    setCustomError(null);
-    const raw = customUrl.trim();
-    // A YouTube channel is not a feed URL, but it has one. Resolve what we can
-    // and say something useful about what we can't, rather than handing the
-    // whole thing to addCustomFeed and letting it fail as "not a feed".
-    const yt = youtubeFeedUrl(raw);
-    if (yt?.kind === "handle") {
-      setCustomError(
-        `a @${yt.handle} link doesn't carry the channel id — open the channel, tap its name, and copy the /channel/UC… address instead`,
-      );
-      return;
-    }
-    if (yt?.kind === "unsupported") {
-      setCustomError("that's a single video. paste the channel or playlist it belongs to.");
-      return;
-    }
+  function addResolvedFeed(url: string) {
     try {
-      const next = addCustomFeed(appState, yt?.url ?? raw, customTitle.trim() || undefined);
+      const next = addCustomFeed(appState, url, customTitle.trim() || undefined);
       updateAndSave(next);
       setCustomUrl("");
       setCustomTitle("");
     } catch (err) {
       setCustomError(err instanceof Error ? err.message : String(err));
     }
+  }
+
+  async function handleAddCustomFeed() {
+    setCustomError(null);
+    const raw = customUrl.trim();
+    // A YouTube channel is not a feed URL, but it has one. Resolve what we can
+    // rather than handing the whole thing to addCustomFeed and letting it fail
+    // as "not a feed".
+    const yt = youtubeFeedUrl(raw);
+    if (yt?.kind === "unsupported") {
+      setCustomError("that's a single video. paste the channel or playlist it belongs to.");
+      return;
+    }
+    if (yt?.kind === "handle") {
+      // A handle carries no channel id — it only appears in the page's HTML.
+      // This used to say so and ask the listener to go and find the
+      // /channel/UC… address, which on a phone is asking for something
+      // YouTube's own UI mostly won't give them. The server looks it up.
+      setResolving(true);
+      try {
+        const resp = await fetch(`/api/youtube-channel?handle=${encodeURIComponent(yt.handle)}`);
+        const body = (await resp.json().catch(() => null)) as { channelId?: string } | null;
+        if (!resp.ok || !body?.channelId) {
+          setCustomError(
+            resp.status === 404
+              ? `couldn't find a channel at @${yt.handle} — check the spelling`
+              : "couldn't reach YouTube to look that channel up — try again in a moment",
+          );
+          return;
+        }
+        addResolvedFeed(`https://www.youtube.com/feeds/videos.xml?channel_id=${body.channelId}`);
+      } catch {
+        setCustomError("couldn't reach YouTube to look that channel up — try again in a moment");
+      } finally {
+        setResolving(false);
+      }
+      return;
+    }
+    addResolvedFeed(yt?.url ?? raw);
   }
 
   function handleRemoveFeed(id: string) {
@@ -874,10 +899,10 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
               </summary>
               <div className="mt-2 space-y-2 leading-relaxed text-[#8a7a5c]">
                 <p>
-                  Yes — paste a channel or playlist address. A{" "}
-                  <code>/channel/UC…</code> link works directly; an{" "}
-                  <code>@name</code> link doesn&apos;t carry the channel id, so open
-                  the channel, tap its name, and copy the address you land on.
+                  Yes — paste the channel address, however YouTube gave it to you.
+                  An <code>@name</code> link, a <code>/channel/UC…</code> link and
+                  a playlist all work. A link to one video doesn&apos;t: paste the
+                  channel it came from.
                 </p>
                 <ul className="list-disc space-y-1.5 pl-4">
                   <li>
@@ -920,11 +945,11 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
               <p className="text-xs text-red-400/70">{customError}</p>
             )}
             <button
-              onClick={handleAddCustomFeed}
-              disabled={!customUrl.trim()}
+              onClick={() => { void handleAddCustomFeed(); }}
+              disabled={!customUrl.trim() || resolving}
               className="w-full rounded bg-[#12101a] border border-[#241f30] py-2 text-sm text-[#b59a76] disabled:opacity-40 hover:border-[#6e5d44] transition-colors"
             >
-              Add feed
+              {resolving ? "looking up that channel…" : "Add feed"}
             </button>
             <div className="flex items-center justify-between pt-1 text-xs text-[#6e5d44]">
               <label className="cursor-pointer underline decoration-[#241f30] underline-offset-4 hover:text-[#b59a76]">
