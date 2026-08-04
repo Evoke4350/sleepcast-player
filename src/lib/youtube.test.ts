@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { youtubeFeedUrl, parseYouTubeFeed } from "./youtube";
+import { youtubeFeedUrl, parseYouTubeFeed, parseFeedFor } from "./youtube";
 
 describe("turning what someone pastes into a feed URL", () => {
   test("a channel URL", () => {
@@ -140,5 +140,31 @@ describe("parsing a YouTube Atom feed into episodes", () => {
   test("a podcast RSS feed handed here yields nothing, not garbage", () => {
     const rss = `<rss><channel><title>Show</title><item><title>Ep</title></item></channel></rss>`;
     expect(parseYouTubeFeed(rss, "f1").episodes).toEqual([]);
+  });
+});
+
+describe("choosing a parser for a feed", () => {
+  test("a YouTube feed URL gets the YouTube parser", () => {
+    const feed = parseFeedFor(ATOM, "f1", "https://www.youtube.com/feeds/videos.xml?channel_id=UCabc");
+    expect(feed.title).toBe("Bub Explains");
+    expect(feed.episodes[0].youtubeId).toBe("AAAAAAAAAAA");
+  });
+
+  test("a podcast URL gets the podcast parser", () => {
+    const rss = `<rss><channel><title>Show</title><item><title>Ep1</title><guid>g1</guid><enclosure url="https://x/a.mp3"/></item></channel></rss>`;
+    const feed = parseFeedFor(rss, "f1", "https://example.com/feed.xml");
+    expect(feed.title).toBe("Show");
+    expect(feed.episodes[0].url).toBe("https://x/a.mp3");
+    expect(feed.episodes[0].youtubeId).toBeUndefined();
+  });
+
+  test("dispatch is on the URL, not on Atom-vs-RSS", () => {
+    // Legitimate podcasts publish Atom with real enclosures. Sniffing the
+    // document and sending every <feed> to the YouTube parser would drop every
+    // one of their episodes, since none carry a videoId.
+    const atomPodcast = `<feed xmlns="http://www.w3.org/2005/Atom"><title>Atom Show</title><entry><title>Ep</title><id>tag:1</id></entry></feed>`;
+    const feed = parseFeedFor(atomPodcast, "f1", "https://example.com/atom.xml");
+    expect(feed.episodes).toEqual([]);
+    expect(feed.title).not.toBe("YouTube channel");
   });
 });
