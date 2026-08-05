@@ -1,0 +1,93 @@
+// Which feeds actually put this listener under.
+//
+// Ported from sleepscore.py in the private engine (~/Projects/sleepcast), whose
+// insight is that manual actions prove wakefulness: if the timer outlived the
+// listener, whatever was playing at the moment the detector concluded earns the
+// credit, whatever auto-advanced afterwards earns a little, and whatever they
+// reached over and skipped earns a penalty.
+//
+// Feed-level, not episode-level, and that is not a simplification. Sleep With Me
+// alone has 1,600 episodes and pickNextEpisode actively prefers unheard ones, so
+// per-episode credit would be one observation per episode forever and would
+// never converge on anything. Feeds accumulate dozens of nights.
+
+import type { RestNight } from "./types";
+
+export const CREDIT_ONSET = 2;
+export const CREDIT_SLEPT = 1;
+export const PENALTY_SKIP = -1;
+
+/** Never zero a feed out. A feed that scored badly twice has not been
+ *  disproved, and a scorer that eliminates its own exploration converges on
+ *  whatever it happened to try first. */
+export const WEIGHT_FLOOR = 0.25;
+
+/** Below this many nights a feed is not ranked and not suggested — with one
+ *  night's evidence the app would state a preference it does not have. */
+export const MIN_NIGHTS = 3;
+
+// Not one of the five load-bearing constants (those are exported); this is
+// the slope that makes the "never zeroes a feed out" test land exactly on
+// WEIGHT_FLOOR at a mean credit of -1, matching the ported Python's curve.
+const WEIGHT_SLOPE = 0.75;
+
+export interface FeedScore {
+  feedId: string;
+  /** Sum of credits across every night this feed appeared in. */
+  score: number;
+  /** Nights this feed appeared in — not nights in the ledger. */
+  nights: number;
+  /** max(WEIGHT_FLOOR, 1 + slope × mean credit). Ranks the suggestion and
+   *  nothing else: the shuffle is deliberately untouched (see the spec, §8). */
+  weight: number;
+  onsetNights: number;
+  skipNights: number;
+}
+
+export function scoreFeeds(nights: readonly RestNight[]): FeedScore[] {
+  const acc = new Map<string, { score: number; nights: number; onset: number; skips: number }>();
+  const bump = (feedId: string, delta: number, kind?: "onset" | "skip") => {
+    const e = acc.get(feedId) ?? { score: 0, nights: 0, onset: 0, skips: 0 };
+    e.score += delta;
+    if (kind === "onset") e.onset++;
+    if (kind === "skip") e.skips++;
+    acc.set(feedId, e);
+  };
+
+  for (const n of nights) {
+    // Count each feed once per night, so a feed appearing twice in one night's
+    // records does not inflate its night count and dilute its mean.
+    const seen = new Set<string>();
+    if (n.onsetFeedId) {
+      bump(n.onsetFeedId, CREDIT_ONSET, "onset");
+      seen.add(n.onsetFeedId);
+    }
+    for (const f of n.sleptThrough ?? []) {
+      bump(f, CREDIT_SLEPT);
+      seen.add(f);
+    }
+    for (const f of n.skipped ?? []) {
+      bump(f, PENALTY_SKIP, "skip");
+      seen.add(f);
+    }
+    for (const f of seen) acc.get(f)!.nights++;
+  }
+
+  return [...acc.entries()]
+    .map(([feedId, e]) => ({
+      feedId,
+      score: e.score,
+      nights: e.nights,
+      weight: Math.max(WEIGHT_FLOOR, 1 + WEIGHT_SLOPE * (e.score / e.nights)),
+      onsetNights: e.onset,
+      skipNights: e.skips,
+    }))
+    // feedId is the tiebreak so the suggestion does not flicker between renders
+    // on feeds with identical evidence.
+    .sort((a, b) => b.weight - a.weight || a.feedId.localeCompare(b.feedId));
+}
+
+/** Scored feeds with enough evidence to say anything about. */
+export function rankedFeeds(nights: readonly RestNight[]): FeedScore[] {
+  return scoreFeeds(nights).filter((f) => f.nights >= MIN_NIGHTS);
+}
