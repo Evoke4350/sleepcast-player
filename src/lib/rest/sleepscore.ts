@@ -99,3 +99,49 @@ export function scoreFeeds(nights: readonly RestNight[]): FeedScore[] {
 export function rankedFeeds(nights: readonly RestNight[]): FeedScore[] {
   return scoreFeeds(nights).filter((f) => f.nights >= MIN_NIGHTS);
 }
+
+/** Times to sleep (ms) for nights this feed was playing at onset, unsorted.
+ *  Shared by medianTimeToSleep and evidenceFor so the count named in the
+ *  evidence sentence can never drift from the set the median was computed
+ *  over — see evidenceFor's comment on why that drift is possible at all. */
+function onsetTimesFor(nights: readonly RestNight[], feedId: string): number[] {
+  return nights
+    .filter((n) => n.onsetFeedId === feedId && n.timeToSleepMs !== null)
+    .map((n) => n.timeToSleepMs as number);
+}
+
+/** Median time-to-sleep across nights this feed was playing at onset, or null
+ *  if it never led one. Median rather than mean: one 3am night that ran the
+ *  whole timer would drag an average and misdescribe every other night. */
+export function medianTimeToSleep(
+  nights: readonly RestNight[],
+  feedId: string,
+): number | null {
+  const times = onsetTimesFor(nights, feedId).sort((a, b) => a - b);
+  if (!times.length) return null;
+  const mid = Math.floor(times.length / 2);
+  return times.length % 2 ? times[mid] : Math.round((times[mid - 1] + times[mid]) / 2);
+}
+
+/**
+ * The sentence that appears beside the pick. Every claim in it is checkable
+ * against the panel in the rest view — that is the point of showing it rather
+ * than just picking.
+ */
+export function evidenceFor(nights: readonly RestNight[], f: FeedScore): string {
+  const median = medianTimeToSleep(nights, f.feedId);
+  if (median === null) {
+    return f.skipNights > 0
+      ? `You've skipped it on ${f.skipNights} of ${f.nights} nights.`
+      : `It's played on ${f.nights} nights.`;
+  }
+  const mins = Math.round(median / 60_000);
+  // f.onsetNights counts every night onsetFeedId matched this feed, including
+  // one where timeToSleepMs is null — this module doesn't trust its producer
+  // (see scoreFeeds' de-dup comments) so that combination isn't ruled out.
+  // The median above can only be built from nights with a real time, so "N
+  // times" must be counted the same way, or it would name a night the
+  // minutes figure never saw.
+  const led = onsetTimesFor(nights, f.feedId).length;
+  return `Gone in ${mins} min the last ${led} time${led === 1 ? "" : "s"} it led.`;
+}

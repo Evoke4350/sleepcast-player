@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { scoreFeeds, rankedFeeds, WEIGHT_FLOOR, MIN_NIGHTS } from "./sleepscore";
+import {
+  scoreFeeds,
+  rankedFeeds,
+  medianTimeToSleep,
+  evidenceFor,
+  WEIGHT_FLOOR,
+  MIN_NIGHTS,
+} from "./sleepscore";
 import type { RestNight } from "./types";
 
 const night = (over: Partial<RestNight>): RestNight => ({
@@ -137,5 +144,95 @@ describe("ranking, and the confidence gate", () => {
     const b = rankedFeeds(nights).map((f) => f.feedId);
     expect(a).toEqual(b);
     expect(a).toEqual(["aaa", "bbb"]);
+  });
+});
+
+describe("the evidence beside the pick", () => {
+  it("takes the median time-to-sleep over nights this feed led", () => {
+    const nights = [
+      night({ onsetFeedId: "swm", timeToSleepMs: 600_000 }),
+      night({ onsetFeedId: "swm", timeToSleepMs: 900_000 }),
+      night({ onsetFeedId: "swm", timeToSleepMs: 1_800_000 }),
+      night({ onsetFeedId: "boring", timeToSleepMs: 60_000 }),
+    ];
+    expect(medianTimeToSleep(nights, "swm")).toBe(900_000);
+  });
+
+  it("is null when the feed never led a night", () => {
+    expect(medianTimeToSleep([onset("boring")], "swm")).toBeNull();
+  });
+
+  it("states the count and the median, both of which are checkable", () => {
+    const nights = Array.from({ length: 3 }, () =>
+      night({ onsetFeedId: "swm", timeToSleepMs: 840_000 }),
+    );
+    const [f] = rankedFeeds(nights);
+    const line = evidenceFor(nights, f);
+    expect(line).toMatch(/14 min/);
+    expect(line).toMatch(/3/);
+  });
+
+  it("says something true when the feed has only ever been skipped", () => {
+    // No onset nights means no median. The line must not claim a time.
+    const nights = Array.from({ length: 3 }, () =>
+      night({ sleptAtMs: null, detector: "none", skipped: ["swm"] }),
+    );
+    const [f] = scoreFeeds(nights);
+    const line = evidenceFor(nights, f);
+    expect(line).not.toMatch(/\bmin\b/);
+    expect(line).toMatch(/skipped/i);
+  });
+
+  it("says something true when the feed only ever slept through, never led or skipped", () => {
+    // Reachability check for the "no median, no skips" branch: FeedScore
+    // exists for any feed that appeared in a night at all, and sleptThrough
+    // credit doesn't touch onset or skip counts. So a feed can have nights
+    // > 0 with no median and no skips — this is live data, not dead code —
+    // and the line must not fabricate a time or a skip that never happened.
+    const nights = Array.from({ length: 3 }, () =>
+      night({ onsetFeedId: "other", timeToSleepMs: 500_000, sleptThrough: ["swm"] }),
+    );
+    const f = scoreFeeds(nights).find((s) => s.feedId === "swm")!;
+    expect(f.skipNights).toBe(0);
+    expect(medianTimeToSleep(nights, "swm")).toBeNull();
+    const line = evidenceFor(nights, f);
+    expect(line).not.toMatch(/\bmin\b/);
+    expect(line).not.toMatch(/skipped/i);
+    expect(line).toMatch(/3/);
+  });
+
+  it("counts only nights with a recorded time, not every night the feed led", () => {
+    // f.onsetNights counts every night onsetFeedId matched this feed, even
+    // one where timeToSleepMs is null (this module doesn't trust its
+    // producer — see scoreFeeds' de-dup comments — so that combination isn't
+    // ruled out). The median can only be built from nights with a real time,
+    // so the "N times" claim must be counted the same way, or it names a
+    // night the minutes figure never saw.
+    const nights = [
+      night({ onsetFeedId: "swm", timeToSleepMs: 600_000 }),
+      night({ onsetFeedId: "swm", timeToSleepMs: 1_200_000 }),
+      night({ onsetFeedId: "swm", timeToSleepMs: null }),
+    ];
+    const [f] = scoreFeeds(nights);
+    expect(f.onsetNights).toBe(3);
+    const line = evidenceFor(nights, f);
+    expect(line).toMatch(/15 min/);
+    expect(line).toMatch(/2 times/);
+    expect(line).not.toMatch(/3 times/);
+  });
+
+  it("leads with the median even when the feed has also been skipped", () => {
+    // Branch order matters: once a median exists it must win. A feed that
+    // led three nights and was skipped once still has a true lead time —
+    // the skip count doesn't retroactively make it false.
+    const nights = [
+      ...Array.from({ length: 3 }, () => night({ onsetFeedId: "swm", timeToSleepMs: 600_000 })),
+      night({ sleptAtMs: null, detector: "none", skipped: ["swm"] }),
+    ];
+    const f = scoreFeeds(nights).find((s) => s.feedId === "swm")!;
+    expect(f.skipNights).toBe(1);
+    const line = evidenceFor(nights, f);
+    expect(line).toMatch(/min/);
+    expect(line).not.toMatch(/skipped/i);
   });
 });
