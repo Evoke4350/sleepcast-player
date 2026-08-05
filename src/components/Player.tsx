@@ -715,7 +715,11 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     if ("mediaSession" in navigator) {
       navigator.mediaSession.setActionHandler("play", () => { restRef.current?.noteInteraction(); audio.play(); });
       navigator.mediaSession.setActionHandler("pause", () => { restRef.current?.noteInteraction(); audio.pause(); });
-      navigator.mediaSession.setActionHandler("nexttrack", () => { restRef.current?.noteInteraction(); playNext(); });
+      // Routed through handleNext, not playNext directly: a lock-screen or
+      // Bluetooth skip is still a rejection of the feed being left, and for
+      // someone already in bed with the phone locked, this is most skips —
+      // splitting the path here would mean the model never sees them.
+      navigator.mediaSession.setActionHandler("nexttrack", () => handleNext());
       // Lock-screen / headphone scrubbing.
       try {
         navigator.mediaSession.setActionHandler("seekbackward", () => skipBy(-30));
