@@ -145,6 +145,70 @@ describe("ranking, and the confidence gate", () => {
     expect(a).toEqual(b);
     expect(a).toEqual(["aaa", "bbb"]);
   });
+
+  it("never ranks a feed that has only ever failed (Finding 1)", () => {
+    // Three nights of nothing but skips clears MIN_NIGHTS on count alone —
+    // the gate must also require having led at least once and net positive,
+    // or the suggestion card recommends the exact feed the evidence damns.
+    const nights = Array.from({ length: 3 }, () =>
+      night({ sleptAtMs: null, detector: "none", skipped: ["aaa"] }),
+    );
+    expect(rankedFeeds(nights)).toEqual([]);
+    // The audit panel is ungated by design and must still show it.
+    expect(scoreFeeds(nights).map((f) => f.feedId)).toEqual(["aaa"]);
+  });
+
+  it("does not rank a feed that led once but was skipped enough to go negative", () => {
+    const nights = [
+      onset("swm"),
+      ...Array.from({ length: 5 }, () => night({ sleptAtMs: null, detector: "none", skipped: ["swm"] })),
+    ];
+    const [f] = scoreFeeds(nights);
+    expect(f.onsetNights).toBe(1);
+    expect(f.score).toBeLessThan(0);
+    expect(rankedFeeds(nights)).toEqual([]);
+  });
+
+  it("still ranks a feed with three onset nights, unchanged by the new gate", () => {
+    const nights = Array.from({ length: 3 }, () => onset("swm"));
+    expect(rankedFeeds(nights).map((f) => f.feedId)).toEqual(["swm"]);
+  });
+});
+
+describe("nights the listener said they were awake (Finding 2)", () => {
+  it("does not credit an onset on a night self-labelled awake", () => {
+    // selfLabel: "awake" means the listener told the app the detector was
+    // wrong. stepback.ts already honours this; scoreFeeds must too, or a
+    // false-positive onset still earns a feed +2.
+    const nights = [night({ onsetFeedId: "swm", onsetEpisodeId: "swm-ep", selfLabel: "awake" })];
+    expect(scoreFeeds(nights)).toEqual([]);
+  });
+
+  it("still credits sleptThrough and skipped feeds normally on an awake night", () => {
+    // The whole night is thrown out, not just the onset credit — every claim
+    // it carries (what auto-advanced, what was skipped) rests on the same
+    // discredited detector call.
+    const nights = [
+      night({
+        onsetFeedId: "swm",
+        onsetEpisodeId: "swm-ep",
+        sleptThrough: ["boring"],
+        skipped: ["other"],
+        selfLabel: "awake",
+      }),
+    ];
+    expect(scoreFeeds(nights)).toEqual([]);
+  });
+
+  it("still scores an ordinary night with no selfLabel at all", () => {
+    const nights = [onset("swm")];
+    expect(scoreFeeds(nights)[0].feedId).toBe("swm");
+  });
+
+  it("still scores a night explicitly self-labelled slept", () => {
+    const nights = [night({ onsetFeedId: "swm", onsetEpisodeId: "swm-ep", selfLabel: "slept" })];
+    expect(scoreFeeds(nights)[0].feedId).toBe("swm");
+  });
 });
 
 describe("the evidence beside the pick", () => {

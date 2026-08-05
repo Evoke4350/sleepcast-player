@@ -59,6 +59,13 @@ export function scoreFeeds(nights: readonly RestNight[]): FeedScore[] {
   };
 
   for (const n of nights) {
+    // "awake" means the listener told the app the detector was wrong — the
+    // onset, whatever slept through, and whatever got skipped all rest on
+    // that same discredited call, so the whole night is thrown out rather
+    // than just the onset credit. stepback.ts has honoured this for its own
+    // question since the beginning; this scorer had not.
+    if (n.selfLabel === "awake") continue;
+
     // Count each feed once per night, so a feed appearing twice in one night's
     // records does not inflate its night count and dilute its mean.
     const seen = new Set<string>();
@@ -95,9 +102,24 @@ export function scoreFeeds(nights: readonly RestNight[]): FeedScore[] {
     .sort((a, b) => b.weight - a.weight || a.feedId.localeCompare(b.feedId));
 }
 
+/** Whether a scored feed clears the bar to be suggested or ranked: enough
+ *  nights to say anything, at least one of them actually led (a feed that
+ *  has only ever been skipped or slept through has never been chosen, only
+ *  reacted to), and a net-positive record. A count alone is not enough —
+ *  three nights of nothing but skips clears MIN_NIGHTS and nets a negative
+ *  score, and a scorer that gates on the count without the sign recommends
+ *  the exact feed its own evidence damns.
+ *
+ *  Exported so the audit panel (RestView) can split its listing along the
+ *  same line rankedFeeds uses to pick the suggestion — the two must never be
+ *  able to disagree about which feeds have "enough" behind them. */
+export function meetsSuggestionGate(f: FeedScore): boolean {
+  return f.nights >= MIN_NIGHTS && f.onsetNights >= 1 && f.score > 0;
+}
+
 /** Scored feeds with enough evidence to say anything about. */
 export function rankedFeeds(nights: readonly RestNight[]): FeedScore[] {
-  return scoreFeeds(nights).filter((f) => f.nights >= MIN_NIGHTS);
+  return scoreFeeds(nights).filter(meetsSuggestionGate);
 }
 
 /** Times to sleep (ms) for nights this feed was playing at onset, unsorted.

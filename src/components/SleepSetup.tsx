@@ -502,6 +502,15 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
     return null;
   }, [appState.feeds]);
 
+  // The card renders as soon as the suggested feed is known, but its
+  // episodes may still be in flight — pool fills in per-feed as each fetch
+  // resolves. If "start" fires before they arrive, leadFromFeed returns null
+  // and beginNight(null) quietly shuffles: a user who tapped a button naming
+  // one feed gets a different one with no indication anything changed.
+  const suggestionReady = suggestion
+    ? pool.some((e) => e.feedId === suggestion.feed.id)
+    : false;
+
   function handleSearchPick(ep: Episode) {
     // Resume where they drifted off in that episode, exactly as "the exact one
     // again" does — finding a story you half-finished is the main reason to
@@ -719,7 +728,8 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
               <div className="mt-3 flex justify-center gap-3 text-sm">
                 <button
                   onClick={() => beginNight(leadFromFeed(suggestion.feed.id))}
-                  disabled={goldenPending}
+                  disabled={goldenPending || !suggestionReady}
+                  title={suggestionReady ? undefined : "still loading that feed's episodes…"}
                   className="rounded-full border border-[#6e5d44] px-4 py-1.5 text-[#f0dcb8] transition-colors hover:border-[#8a7a5c] disabled:opacity-50"
                 >
                   start
