@@ -15,6 +15,14 @@ export interface RestNight {
   interactions: number;
   detector: "inference" | "hr" | "fused" | "none";
   selfLabel?: "slept" | "awake";
+  /** Feed playing when sleep was inferred. Absent when no onset was detected,
+   *  or for any night recorded before this shipped. */
+  onsetFeedId?: string;
+  onsetEpisodeId?: string;
+  /** Feeds that auto-advanced after onset — they played while you stayed under. */
+  sleptThrough?: string[];
+  /** Feeds you manually skipped or blocked during the night. */
+  skipped?: string[];
 }
 export interface RestRollup {
   nights: number;

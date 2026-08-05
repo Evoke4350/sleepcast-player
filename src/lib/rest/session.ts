@@ -8,6 +8,12 @@ export class RestSession {
   private onset: SleepOnset | null = null;
   private interactions = 0;
   private pendingInteraction = false;
+  /** Episode starts, t relative to night start so it compares directly with
+   *  SleepOnset.atMs. This is why attribution is a comparison and not a join
+   *  against the play ledger, which de-duplicates by episode id and so cannot
+   *  answer "what was playing then" for any night but the most recent. */
+  private timeline: { t: number; feedId: string; episodeId: string }[] = [];
+  private skipped = new Set<string>();
 
   constructor(private startedAt: number, private timerMinutes: number) {
     const params = loadParams() ?? paramsFromHistory(loadNights()) ?? DEFAULT_PARAMS;
@@ -34,6 +40,16 @@ export class RestSession {
     };
   }
 
+  /** Called whenever an episode starts playing. */
+  noteEpisode(feedId: string, episodeId: string, now: number = Date.now()): void {
+    this.timeline.push({ t: now - this.startedAt, feedId, episodeId });
+  }
+
+  /** Called on Next and on "never again" — both mean this one didn't work. */
+  noteSkip(feedId: string): void {
+    this.skipped.add(feedId);
+  }
+
   tick(s: Omit<SleepSignal, "t" | "interacted"> & { now: number; interacted?: boolean }): void {
     if (this.onset) return;
     const sig: SleepSignal = {
@@ -48,14 +64,24 @@ export class RestSession {
   }
 
   finish(endedVia: RestNight["endedVia"], now: number): RestNight {
+    const atMs = this.onset ? this.onset.atMs : null;
+    const at = atMs === null ? null : this.timeline.filter((e) => e.t <= atMs).at(-1);
+    const after = atMs === null ? [] : this.timeline.filter((e) => e.t > atMs);
+    const sleptThrough = [...new Set(after.map((e) => e.feedId))];
+
     return {
       startedAt: this.startedAt,
       timerMinutes: this.timerMinutes,
       endedVia,
-      sleptAtMs: this.onset ? this.onset.atMs : null,
-      timeToSleepMs: this.onset ? this.onset.atMs : null,
+      sleptAtMs: atMs,
+      timeToSleepMs: atMs,
       interactions: this.interactions,
       detector: this.onset ? "inference" : "none",
+      // Spread rather than assign: an absent field and an empty array must not
+      // become two shapes in a ledger that already holds 90 nights without them.
+      ...(at ? { onsetFeedId: at.feedId, onsetEpisodeId: at.episodeId } : {}),
+      ...(sleptThrough.length ? { sleptThrough } : {}),
+      ...(this.skipped.size ? { skipped: [...this.skipped] } : {}),
     };
   }
 }
