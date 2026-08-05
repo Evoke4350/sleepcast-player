@@ -16,6 +16,7 @@ import {
   cacheFeedXml,
   getCachedFeedXml,
   loadLastEpisode,
+  getPlays,
 } from "../lib/store";
 import { diverseByMeta, formatTime } from "../lib/engine";
 import { parseFeedFor, youtubeFeedUrl } from "../lib/youtube";
@@ -23,9 +24,11 @@ import { isMixedLineup } from "../lib/youtube-night";
 import type { Episode } from "../lib/engine";
 import { loadNights, setSelfLabel, loadParams, saveParams } from "../lib/rest/ledger";
 import { tightenAfterFalsePositive } from "../lib/rest/calibrate";
+import { rankedFeeds, evidenceFor } from "../lib/rest/sleepscore";
 import type { RestNight } from "../lib/rest/types";
 import { diversePick } from "../lib/semantic-math";
 import { FEEL_PRESETS } from "../lib/timer-feel";
+import { pickNextEpisode } from "../lib/plays";
 
 const VARIED_N = 8;
 const EMBED_CAP = 96; // max titles to embed per varied-night run (~10s cold on a phone)
@@ -456,6 +459,16 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
     if (lastEpisode) beacon("ritual_same_shows");           // (only a "ritual" for returners)
     beginNight(null);
   }
+
+  /** An episode from the suggested feed, chosen by the ordinary freshness
+   *  rule. Returns null if the feed's episodes have not loaded yet, in which
+   *  case beginNight(null) starts the night shuffled — the same as tapping
+   *  the moon. */
+  function leadFromFeed(feedId: string): Episode | null {
+    const fromFeed = pool.filter((e) => e.feedId === feedId);
+    return fromFeed.length ? pickNextEpisode(fromFeed, getPlays()) : null;
+  }
+
   // Where the listener drifted off in that episode, if it is worth returning
   // to. Read once: this screen is not live while a night runs.
   const lastEpisodePosition = useMemo(
@@ -477,6 +490,17 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
     () => (query.trim() ? searchEpisodes(pool, query, 8) : []),
     [query, pool],
   );
+
+  // Read once. This screen is not live while a night runs, and re-ranking on
+  // every render would let the suggestion change under the user's thumb.
+  const suggestion = useMemo(() => {
+    const nights = loadNights();
+    for (const f of rankedFeeds(nights)) {
+      const feed = appState.feeds.find((x) => x.id === f.feedId && x.enabled);
+      if (feed) return { feed, line: evidenceFor(nights, f) };
+    }
+    return null;
+  }, [appState.feeds]);
 
   function handleSearchPick(ep: Episode) {
     // Resume where they drifted off in that episode, exactly as "the exact one
@@ -681,6 +705,34 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
                 ? "one more episode"
                 : `resume · ${rearmM} min`}
             </button>
+          )}
+
+          {/* Names one feed and the reason, so the pick is never asserted
+              without the evidence beside it — and never without a one-tap
+              refusal, since a suggestion that can't be waved off is a nag. */}
+          {suggestion && (
+            <div className="w-full max-w-xs rounded-xl border border-[#3a3325] bg-[#171310] p-4 text-center">
+              <p className="text-sm text-[#d9c9a8]">
+                {suggestion.feed.title} leads tonight.
+              </p>
+              <p className="mt-1 text-xs text-[#8a7a5c]">{suggestion.line}</p>
+              <div className="mt-3 flex justify-center gap-3 text-sm">
+                <button
+                  onClick={() => beginNight(leadFromFeed(suggestion.feed.id))}
+                  disabled={goldenPending}
+                  className="rounded-full border border-[#6e5d44] px-4 py-1.5 text-[#f0dcb8] transition-colors hover:border-[#8a7a5c] disabled:opacity-50"
+                >
+                  start
+                </button>
+                <button
+                  onClick={() => beginNight(null)}
+                  disabled={goldenPending}
+                  className="rounded-full border border-[#3a3325] px-4 py-1.5 text-[#8a7a5c] transition-colors hover:border-[#6e5d44] disabled:opacity-50"
+                >
+                  something else
+                </button>
+              </div>
+            </div>
           )}
 
           <button
