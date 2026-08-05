@@ -65,8 +65,13 @@ export class RestSession {
 
   finish(endedVia: RestNight["endedVia"], now: number): RestNight {
     const atMs = this.onset ? this.onset.atMs : null;
-    const at = atMs === null ? null : this.timeline.filter((e) => e.t <= atMs).at(-1);
-    const after = atMs === null ? [] : this.timeline.filter((e) => e.t > atMs);
+    // noteEpisode takes an explicit `now`, so a clock adjustment or a resumed
+    // night can append an earlier t after a later one. .at(-1) means "latest
+    // by time" only if entries arrived in time order, so sort a copy — this
+    // must not mutate state a caller might still read — before trusting it.
+    const sorted = [...this.timeline].sort((a, b) => a.t - b.t);
+    const at = atMs === null ? null : sorted.filter((e) => e.t <= atMs).at(-1);
+    const after = atMs === null ? [] : sorted.filter((e) => e.t > atMs);
     const sleptThrough = [...new Set(after.map((e) => e.feedId))];
 
     return {

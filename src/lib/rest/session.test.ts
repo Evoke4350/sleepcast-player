@@ -26,10 +26,14 @@ describe("RestSession", () => {
 });
 
 describe("attributing sleep onset to what was playing", () => {
+  beforeEach(() => localStorage.clear());
+
   /** Drive a session to a detected onset. Copied from the existing passing
    *  test at the top of this file — the detector only concludes once the fade
    *  is under way, which is why fadingOrDone turns on at tick 34 rather than
-   *  at the start. Onset therefore lands somewhere after 34 * 15s = 510_000ms. */
+   *  at the start. Measured onset is 435_000ms, not the 34 * 15s = 510_000ms
+   *  the tick count suggests: the detector backdates onset to behind the tick
+   *  that detected it, rather than to the tick doing the detecting. */
   function sessionWithOnset(start: number) {
     const s = new RestSession(start, 60);
     for (let i = 0; i < 40; i++) {
@@ -60,7 +64,7 @@ describe("attributing sleep onset to what was playing", () => {
     expect(night.sleptThrough).toEqual(["boring"]);
   });
 
-  it("does not list the onset feed as slept-through as well", () => {
+  it("credits a feed with both onset and slept-through when it led and later auto-advanced", () => {
     // A feed that led AND auto-advanced later earns onset credit once and
     // slept-through credit once, but must not be double-counted as one night's
     // worth of two different things in the same array.
@@ -97,6 +101,55 @@ describe("attributing sleep onset to what was playing", () => {
     const night = s.finish("faded", 1_900_000);
     expect(night.onsetFeedId).toBeUndefined();
     expect(night.sleptThrough).toBeUndefined();
+  });
+
+  it("credits an entry starting exactly on the onset millisecond to onset, not slept-through", () => {
+    // The partition is e.t <= atMs for onset and e.t > atMs for slept-through,
+    // so a tie on the boundary millisecond belongs to onset. Pinning this
+    // because it's the kind of off-by-one that's easy to flip by accident.
+    const start = 1_000_000;
+    const s = sessionWithOnset(start);
+    s.noteEpisode("before", "e0", start + 100_000);
+    s.noteEpisode("boundary", "e1", start + 435_000); // exactly onset.atMs
+    const night = s.finish("faded", start + 900_000);
+    expect(night.onsetFeedId).toBe("boundary");
+    expect(night.onsetEpisodeId).toBe("e1");
+    expect(night.sleptThrough).toBeUndefined();
+  });
+
+  it("leaves onset absent and puts every entry in slept-through when onset precedes all of them", () => {
+    // Distinct from the empty-timeline case above: entries exist, but the
+    // listener was already asleep before any of them started.
+    const start = 1_000_000;
+    const s = sessionWithOnset(start);
+    s.noteEpisode("a", "e1", start + 500_000); // after onset (435_000)
+    s.noteEpisode("b", "e2", start + 600_000); // after onset
+    const night = s.finish("faded", start + 900_000);
+    expect(night.onsetFeedId).toBeUndefined();
+    expect(night.sleptThrough).toEqual(["a", "b"]);
+  });
+
+  it("credits the only episode of a single-episode night with onset", () => {
+    const start = 1_000_000;
+    const s = sessionWithOnset(start);
+    s.noteEpisode("only", "e1", start);
+    const night = s.finish("faded", start + 900_000);
+    expect(night.onsetFeedId).toBe("only");
+    expect(night.onsetEpisodeId).toBe("e1");
+    expect(night.sleptThrough).toBeUndefined();
+  });
+
+  it("credits the entry with the latest t before onset even when appended out of order", () => {
+    // noteEpisode takes an explicit `now`, so a clock adjustment or a resumed
+    // night can append an earlier t after a later one. Attribution must go by
+    // t, not by append order.
+    const start = 1_000_000;
+    const s = sessionWithOnset(start);
+    s.noteEpisode("late", "e2", start + 400_000);
+    s.noteEpisode("early", "e1", start + 100_000);
+    const night = s.finish("faded", start + 900_000);
+    expect(night.onsetFeedId).toBe("late");
+    expect(night.onsetEpisodeId).toBe("e2");
   });
 
   it("omits the fields entirely rather than writing empty arrays", () => {
