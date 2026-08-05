@@ -1,14 +1,28 @@
 import { useMemo } from "react";
 import { loadNights, rollup, setSelfLabel, loadParams, saveParams } from "../lib/rest/ledger";
 import { tightenAfterFalsePositive } from "../lib/rest/calibrate";
+import { scoreFeeds, medianTimeToSleep } from "../lib/rest/sleepscore";
 import { fmtDuration, lastNight } from "../lib/rest/surface";
-import { getPlays } from "../lib/store";
+import { getPlays, loadState } from "../lib/store";
 import { playsSince, playAtMoment } from "../lib/plays";
 
 export function RestView({ onClose }: { onClose: () => void }) {
   const nights = useMemo(() => loadNights(), []);
   const r = useMemo(() => rollup(nights), [nights]);
   const last = lastNight();
+
+  // Only custom feeds can go missing from here — loadState always re-merges
+  // every BUILTIN_FEEDS entry regardless of what's saved, and removeCustomFeed
+  // no-ops on builtins. So a lookup miss below is always a removed custom feed.
+  const feedTitles = useMemo(() => {
+    const s = loadState();
+    return Object.fromEntries(s.feeds.map((f) => [f.id, f.title]));
+  }, []);
+
+  // scoreFeeds, not rankedFeeds: the panel shows everything including feeds
+  // below the suggestion threshold. Its whole job is to be auditable, and
+  // hiding the thin evidence would defeat that.
+  const scored = useMemo(() => scoreFeeds(nights), [nights]);
 
   // What actually played last night, from the play ledger. Entries only exist
   // once an episode ran past HEARD_SEC, so a track skipped in the first breath
@@ -83,6 +97,40 @@ export function RestView({ onClose }: { onClose: () => void }) {
             <button onClick={() => label("awake")} className="rounded-full border border-[#241f30] px-4 py-1.5 hover:border-[#6e5d44]">no</button>
           </div>
         </div>
+      )}
+      {scored.length > 0 && (
+        <section className="mt-8">
+          <h2 className="text-xs uppercase tracking-widest text-[#4a4540]">
+            what puts you under
+          </h2>
+          <ul className="mt-2 space-y-1.5">
+            {scored.map((f) => {
+              const median = medianTimeToSleep(nights, f.feedId);
+              return (
+                <li key={f.feedId} className="flex items-baseline gap-2 text-sm">
+                  <span className="flex-1 truncate text-[#b0a898]">
+                    {/* Raw ids for builtins ("swm") are readable enough to ship;
+                        a removed custom feed's id ("custom-1699999999-ab3f2")
+                        is not, so a title-less feed gets a plain label instead
+                        of leaking that internal id into the UI. */}
+                    {feedTitles[f.feedId] ?? "a feed you removed"}
+                  </span>
+                  <span className="shrink-0 text-xs text-[#8a7a5c]">
+                    {median === null ? "—" : `${Math.round(median / 60_000)} min`}
+                  </span>
+                  <span className="shrink-0 text-[10px] text-[#4a4540]">
+                    {f.nights} night{f.nights === 1 ? "" : "s"}
+                    {f.skipNights > 0 ? ` · ${f.skipNights} skipped` : ""}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+          <p className="mt-2 text-[11px] leading-snug text-[#4a4540]">
+            Ranked by what was playing when you went under. Feeds with fewer
+            than three nights are listed but never suggested.
+          </p>
+        </section>
       )}
       <p className="text-xs text-[#4a4540]">
         counted only on this device. no account, nothing sent anywhere. we're
