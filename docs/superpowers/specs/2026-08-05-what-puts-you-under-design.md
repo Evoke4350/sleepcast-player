@@ -159,9 +159,12 @@ does not have.
 
 The user's own phrasing — *"after midnight"* — suggests the same show does not
 work equally at every hour. Nights carry `startedAt`, so bucketing by local
-start hour is free. But it splits already-thin evidence, so v1 computes it and
-**only mentions it when a bucket independently clears the 3-night gate**. It
-never drives the top-line suggestion.
+start hour is free.
+
+**Deferred out of v1, and not built.** It splits already-thin evidence and
+needs a bucket-level confidence gate of its own, which there is no data to tune
+against until the feature has run for some weeks. Recorded here rather than
+left as a claim the code does not honour.
 
 ## 7. Surface
 
@@ -227,6 +230,13 @@ alongside the pick, since the guarantee is that the pick never appears alone.
    again") already removes an episode permanently. Should it also cost the feed
    a point, or is blocking about the episode and not the show? v1 records both
    and counts them the same; revisit once real data exists.
+
+1a. **Tapping a title in the spread is not a skip, deliberately.** Pressing Next
+   means "anything but this"; tapping a specific title means "give me *that*",
+   and the show displaced is incidental. The spread only renders for short
+   lineups, on an unlocked screen, and requires reading titles — the opposite of
+   the tired-reflex signal a skip models. Decided during review; recorded so it
+   is not re-litigated.
 2. **The onset detector's own accuracy.** Everything here inherits
    `sleptAtMs`. If the detector is systematically early or late, every credit is
    attributed to the wrong episode. `selfLabel` exists and could validate it;
