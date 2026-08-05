@@ -37,6 +37,30 @@ describe("scoring a feed by what it did", () => {
     expect(f.skipNights).toBe(1);
   });
 
+  it("credits a feed once per night even if an array repeats it", () => {
+    // RestNight's type permits duplicates and ledger.ts JSON.parses stored
+    // nights with no validation, so this module cannot rely on its producer
+    // having de-duplicated. Double credit here would silently inflate a feed
+    // above one that genuinely did better.
+    const dupes = night({ sleptAtMs: null, detector: "none", skipped: ["swm", "swm", "swm"] });
+    const [f] = scoreFeeds([dupes]);
+    expect(f.score).toBe(-1);
+    expect(f.nights).toBe(1);
+    expect(f.skipNights).toBe(1);
+  });
+
+  it("stacks onset and slept-through credit for the same feed in one night", () => {
+    // A feed can lead the night and still be what's playing when the timer
+    // fades — legitimately earning +2 (onset) + 1 (slept through) against a
+    // single night. This path existed only in a probe script deleted before
+    // commit.
+    const stacked = night({ onsetFeedId: "swm", onsetEpisodeId: "swm-ep", sleptThrough: ["swm"] });
+    const [f] = scoreFeeds([stacked]);
+    expect(f.score).toBe(3);
+    expect(f.nights).toBe(1);
+    expect(f.onsetNights).toBe(1);
+  });
+
   it("counts nights the feed appeared in, not nights in the ledger", () => {
     // A feed on 2 of 50 nights is judged on those 2.
     const nights = [onset("swm"), onset("swm"), ...Array.from({ length: 48 }, () => onset("boring"))];

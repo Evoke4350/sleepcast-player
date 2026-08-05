@@ -21,14 +21,11 @@ export const PENALTY_SKIP = -1;
  *  disproved, and a scorer that eliminates its own exploration converges on
  *  whatever it happened to try first.
  *
- *  Unreachable with the current per-night credit scheme, though: a feed
- *  earns at most +3 a night (led, then auto-advanced back to) and at worst
- *  -1 (skipped once — sleptThrough/skipped are de-duplicated and onsetFeedId
- *  is a single field, so each can land only once per night). Mean credit is
- *  therefore in [-1, 3], so weight = 1 + WEIGHT_SLOPE * mean is in
- *  [0.75, 1.75] and never reaches this floor. Kept anyway as cheap insurance
- *  against the credit scheme changing, and documented here so the dead
- *  branch does not get "fixed" or the slope tuned to make it bite. */
+ *  With sleptThrough/skipped de-duplicated per night (see scoreFeeds), the
+ *  pre-clamp weight cannot reach this floor: per-night credit is bounded to
+ *  [-1, 3], so weight = 1 + WEIGHT_SLOPE * mean is in [0.75, 1.75]. The
+ *  clamp stays anyway — the credit scheme could change, and the test below
+ *  pins the relationship so a change that breaks it gets caught. */
 export const WEIGHT_FLOOR = 0.25;
 
 /** Below this many nights a feed is not ranked and not suggested — with one
@@ -69,11 +66,15 @@ export function scoreFeeds(nights: readonly RestNight[]): FeedScore[] {
       bump(n.onsetFeedId, CREDIT_ONSET, "onset");
       seen.add(n.onsetFeedId);
     }
-    for (const f of n.sleptThrough ?? []) {
+    // De-duplicated here, not trusted from the producer: RestNight's type
+    // permits repeats in these arrays and ledger.ts JSON.parses stored
+    // nights with no runtime validation, so a duplicate feedId must not
+    // collect credit twice.
+    for (const f of new Set(n.sleptThrough ?? [])) {
       bump(f, CREDIT_SLEPT);
       seen.add(f);
     }
-    for (const f of n.skipped ?? []) {
+    for (const f of new Set(n.skipped ?? [])) {
       bump(f, PENALTY_SKIP, "skip");
       seen.add(f);
     }
