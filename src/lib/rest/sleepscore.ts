@@ -123,6 +123,13 @@ export function medianTimeToSleep(
   return times.length % 2 ? times[mid] : Math.round((times[mid - 1] + times[mid]) / 2);
 }
 
+/** "1 night" / "3 nights" — singularises the unit the count names, not
+ *  just the number, so a feed with one recorded night doesn't read as a
+ *  typo ("1 nights"). */
+function pluralNights(n: number): string {
+  return `${n} night${n === 1 ? "" : "s"}`;
+}
+
 /**
  * The sentence that appears beside the pick. Every claim in it is checkable
  * against the panel in the rest view — that is the point of showing it rather
@@ -132,10 +139,14 @@ export function evidenceFor(nights: readonly RestNight[], f: FeedScore): string 
   const median = medianTimeToSleep(nights, f.feedId);
   if (median === null) {
     return f.skipNights > 0
-      ? `You've skipped it on ${f.skipNights} of ${f.nights} nights.`
-      : `It's played on ${f.nights} nights.`;
+      ? `You've skipped it on ${f.skipNights} of ${pluralNights(f.nights)}.`
+      : `It's played on ${pluralNights(f.nights)}.`;
   }
   const mins = Math.round(median / 60_000);
+  // A round-trip through Math.round already collapses anything under 30
+  // seconds to 0 — "Gone in 0 min" is technically the true minute count but
+  // reads like the detector glitched, not like a fast, real result.
+  const minsPhrase = mins === 0 ? "under a minute" : `${mins} min`;
   // f.onsetNights counts every night onsetFeedId matched this feed, including
   // one where timeToSleepMs is null — this module doesn't trust its producer
   // (see scoreFeeds' de-dup comments) so that combination isn't ruled out.
@@ -143,5 +154,12 @@ export function evidenceFor(nights: readonly RestNight[], f: FeedScore): string 
   // times" must be counted the same way, or it would name a night the
   // minutes figure never saw.
   const led = onsetTimesFor(nights, f.feedId).length;
-  return `Gone in ${mins} min the last ${led} time${led === 1 ? "" : "s"} it led.`;
+  const sentence = `Gone in ${minsPhrase} the last ${led} time${led === 1 ? "" : "s"} it led.`;
+  // A median only describes the nights the feed got picked to lead. A feed
+  // can look flawless there and still fail most of the nights it was
+  // offered — the median winning unconditionally let that failure rate go
+  // unmentioned even though it's exactly what would change a reader's mind.
+  return f.skipNights > 0
+    ? `${sentence} Skipped on ${f.skipNights} of ${pluralNights(f.nights)}.`
+    : sentence;
 }

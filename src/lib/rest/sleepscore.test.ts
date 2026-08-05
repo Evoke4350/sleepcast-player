@@ -221,10 +221,11 @@ describe("the evidence beside the pick", () => {
     expect(line).not.toMatch(/3 times/);
   });
 
-  it("leads with the median even when the feed has also been skipped", () => {
-    // Branch order matters: once a median exists it must win. A feed that
-    // led three nights and was skipped once still has a true lead time —
-    // the skip count doesn't retroactively make it false.
+  it("still leads with the median when the feed has also been skipped", () => {
+    // The median clause still comes first and is still true on its own —
+    // a feed that led three nights genuinely does have that lead time.
+    // What changed (Finding 1) is that the median no longer gets to be the
+    // *whole* sentence: see the next test for why.
     const nights = [
       ...Array.from({ length: 3 }, () => night({ onsetFeedId: "swm", timeToSleepMs: 600_000 })),
       night({ sleptAtMs: null, detector: "none", skipped: ["swm"] }),
@@ -232,7 +233,61 @@ describe("the evidence beside the pick", () => {
     const f = scoreFeeds(nights).find((s) => s.feedId === "swm")!;
     expect(f.skipNights).toBe(1);
     const line = evidenceFor(nights, f);
-    expect(line).toMatch(/min/);
-    expect(line).not.toMatch(/skipped/i);
+    expect(line).toMatch(/^Gone in 10 min the last 3 times it led\./);
+  });
+
+  it("also states the skip count when a median coexists with skips", () => {
+    // Previously the median won unconditionally and skips were never
+    // mentioned once a feed had led at least one night. A feed that led 3
+    // times with a clean 10-minute median but was skipped on 5 of its 8
+    // nights rendered as flawless — every word true, and the one fact that
+    // would change a reader's mind left out. This is the reviewer's exact
+    // scenario.
+    const nights = [
+      ...Array.from({ length: 3 }, () => night({ onsetFeedId: "swm", timeToSleepMs: 600_000 })),
+      ...Array.from({ length: 5 }, () => night({ sleptAtMs: null, detector: "none", skipped: ["swm"] })),
+    ];
+    const f = scoreFeeds(nights).find((s) => s.feedId === "swm")!;
+    expect(f.nights).toBe(8);
+    expect(f.skipNights).toBe(5);
+    const line = evidenceFor(nights, f);
+    expect(line).toBe("Gone in 10 min the last 3 times it led. Skipped on 5 of 8 nights.");
+  });
+
+  it("does not mention skipping when a median exists and there isn't any", () => {
+    // A sentence that always carried "skipped on 0 of N nights" would be
+    // harder to read than one that only shows up when it has something to
+    // say — the zero case stays silent on purpose.
+    const nights = Array.from({ length: 3 }, () =>
+      night({ onsetFeedId: "swm", timeToSleepMs: 840_000 }),
+    );
+    const [f] = rankedFeeds(nights);
+    expect(f.skipNights).toBe(0);
+    const line = evidenceFor(nights, f);
+    expect(line).not.toMatch(/skip/i);
+  });
+
+  it("says 'night', not 'nights', when the feed has only played once", () => {
+    const nights = [night({ onsetFeedId: "other", timeToSleepMs: 500_000, sleptThrough: ["swm"] })];
+    const f = scoreFeeds(nights).find((s) => s.feedId === "swm")!;
+    expect(f.nights).toBe(1);
+    const line = evidenceFor(nights, f);
+    expect(line).toBe("It's played on 1 night.");
+  });
+
+  it("says 'night', not 'nights', in the skip-only branch with one night", () => {
+    const nights = [night({ sleptAtMs: null, detector: "none", skipped: ["swm"] })];
+    const f = scoreFeeds(nights).find((s) => s.feedId === "swm")!;
+    expect(f.nights).toBe(1);
+    expect(f.skipNights).toBe(1);
+    const line = evidenceFor(nights, f);
+    expect(line).toBe("You've skipped it on 1 of 1 night.");
+  });
+
+  it("renders a sub-minute median as 'under a minute', not '0 min'", () => {
+    const nights = [night({ onsetFeedId: "swm", timeToSleepMs: 29_000 })];
+    const f = scoreFeeds(nights).find((s) => s.feedId === "swm")!;
+    const line = evidenceFor(nights, f);
+    expect(line).toBe("Gone in under a minute the last 1 time it led.");
   });
 });
