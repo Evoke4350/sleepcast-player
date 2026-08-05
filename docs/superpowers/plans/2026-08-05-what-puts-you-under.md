@@ -80,7 +80,8 @@ describe("attributing sleep onset to what was playing", () => {
   /** Drive a session to a detected onset. Copied from the existing passing
    *  test at the top of this file — the detector only concludes once the fade
    *  is under way, which is why fadingOrDone turns on at tick 34 rather than
-   *  at the start. Onset therefore lands somewhere after 34 * 15s = 510_000ms. */
+   *  at the start. Onset lands at 435_000ms — the detector backdates behind the tick that
+   *  detected it, so the naive 34 * 15s = 510_000 is the wrong guess. */
   function sessionWithOnset(start: number) {
     const s = new RestSession(start, 60);
     for (let i = 0; i < 40; i++) {
