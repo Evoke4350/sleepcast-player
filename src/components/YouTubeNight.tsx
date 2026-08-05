@@ -288,6 +288,11 @@ export function YouTubeNight({
     setPlayedIds((prev) => new Set(prev).add(ep.id));
     currentEpRef.current = ep;
     currentFeedRef.current = ep.feedId;
+    // The rest session infers WHEN sleep began; only the player knows WHAT was
+    // playing. Told here rather than reconstructed later, because the play
+    // ledger de-duplicates by episode id and cannot answer this for any night
+    // but the most recent.
+    restRef.current?.noteEpisode(ep.feedId, ep.id);
     retriesRef.current = 0;
     // Nothing is known about the new video yet. Carrying the last one's state
     // across would label a loading video "playing".
@@ -670,6 +675,8 @@ export function YouTubeNight({
 
   function handleNext() {
     restRef.current?.noteInteraction();
+    const leaving = currentEpRef.current;
+    if (leaving) restRef.current?.noteSkip(leaving.feedId);
     playNext();
   }
 
@@ -677,6 +684,7 @@ export function YouTubeNight({
     const ep = currentEpRef.current;
     if (!ep) return;
     blockEpisode(ep.id);
+    restRef.current?.noteSkip(ep.feedId);
     forgetPosition(ep.id);
     deadRef.current.add(ep.id);
     setBlockedTonight((prev) => new Set(prev).add(ep.id));
