@@ -19,17 +19,24 @@ export const PENALTY_SKIP = -1;
 
 /** Never zero a feed out. A feed that scored badly twice has not been
  *  disproved, and a scorer that eliminates its own exploration converges on
- *  whatever it happened to try first. */
+ *  whatever it happened to try first.
+ *
+ *  Unreachable with the current per-night credit scheme, though: a feed
+ *  earns at most +3 a night (led, then auto-advanced back to) and at worst
+ *  -1 (skipped once — sleptThrough/skipped are de-duplicated and onsetFeedId
+ *  is a single field, so each can land only once per night). Mean credit is
+ *  therefore in [-1, 3], so weight = 1 + WEIGHT_SLOPE * mean is in
+ *  [0.75, 1.75] and never reaches this floor. Kept anyway as cheap insurance
+ *  against the credit scheme changing, and documented here so the dead
+ *  branch does not get "fixed" or the slope tuned to make it bite. */
 export const WEIGHT_FLOOR = 0.25;
 
 /** Below this many nights a feed is not ranked and not suggested — with one
  *  night's evidence the app would state a preference it does not have. */
 export const MIN_NIGHTS = 3;
 
-// Not one of the five load-bearing constants (those are exported); this is
-// the slope that makes the "never zeroes a feed out" test land exactly on
-// WEIGHT_FLOOR at a mean credit of -1, matching the ported Python's curve.
-const WEIGHT_SLOPE = 0.75;
+// Matches the ported Python's curve exactly (sleepscore.py's WEIGHT_SLOPE).
+const WEIGHT_SLOPE = 0.25;
 
 export interface FeedScore {
   feedId: string;

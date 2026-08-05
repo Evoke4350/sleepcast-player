@@ -45,15 +45,28 @@ describe("scoring a feed by what it did", () => {
   });
 
   it("never zeroes a feed out, however badly it scored", () => {
-    // WEIGHT_FLOOR is load-bearing: a scorer that eliminates its own
-    // exploration converges on whatever it happened to try first.
+    // A feed skipped every night still lands at 1 + WEIGHT_SLOPE * -1 = 0.75,
+    // well above zero. The property that matters is the last assertion —
+    // WEIGHT_FLOOR exists so a scorer never eliminates its own exploration —
+    // not the exact value, which is pinned separately below.
     const bad = Array.from({ length: 9 }, () =>
       night({ sleptAtMs: null, detector: "none", skipped: ["swm"] }),
     );
     const [f] = scoreFeeds(bad);
     expect(f.score).toBe(-9);
-    expect(f.weight).toBe(WEIGHT_FLOOR);
+    expect(f.weight).toBe(0.75);
     expect(f.weight).toBeGreaterThan(0);
+  });
+
+  it("cannot score low enough for the floor to bind", () => {
+    // Per night a feed earns at most +3 (led, then auto-advanced) and at worst
+    // −1 (skipped once — the arrays are de-duplicated). So weight lives in
+    // [0.75, 1.75] and WEIGHT_FLOOR is unreachable insurance, not live logic.
+    // If this ever fails, the credit scheme changed and the floor is in play.
+    const worst = Array.from({ length: 20 }, () =>
+      night({ sleptAtMs: null, detector: "none", skipped: ["swm"] }),
+    );
+    expect(scoreFeeds(worst)[0].weight).toBeGreaterThan(WEIGHT_FLOOR);
   });
 
   it("a feed that always works scores above one", () => {
