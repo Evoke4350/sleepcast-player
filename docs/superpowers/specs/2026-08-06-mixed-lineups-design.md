@@ -197,8 +197,11 @@ only if the pool turns out to contain no playable YouTube episode.
 | No playable episode of either kind | End the night; do not spin in silence |
 
 A lineup the listener deliberately mixed can therefore quietly become
-podcast-only. That is recorded in the night's ledger entry rather than hidden,
-so the morning can show it.
+podcast-only. **Nothing currently records that**, and the plan written from
+this spec adds no field for it — the existing `skipped` array means "the
+listener rejected this", which a watchdog condemnation is not. Listed as open
+(§12.4) rather than promised, because a spec that claims a behaviour no task
+delivers is the failure this document keeps warning about elsewhere.
 
 ## 11. Testing
 
@@ -228,3 +231,8 @@ so the morning can show it.
 3. **When the other two components get deleted.** Not now. The trigger is
    `Night.tsx` running enough real nights without incident, which is a judgement
    call to be made with evidence.
+4. **How a night reports that it fell back to podcast-only.** A mixed lineup
+   whose videos all fail plays on as podcasts and says nothing. `skipped` is
+   the wrong place — it means the listener rejected something. This wants its
+   own field, and it is not worth adding until a real night has actually done
+   it.
