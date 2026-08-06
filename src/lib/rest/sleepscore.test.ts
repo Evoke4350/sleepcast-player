@@ -354,4 +354,40 @@ describe("the evidence beside the pick", () => {
     const line = evidenceFor(nights, f);
     expect(line).toBe("Gone in under a minute the last 1 time it led.");
   });
+
+  it("reads onsetAfterMs for the median, not timeToSleepMs", () => {
+    // timeToSleepMs is the night-level figure (from night start); onsetAfterMs
+    // is how long the feed itself had been playing. Set them apart so a
+    // regression that reads the wrong field is caught rather than coincidentally
+    // passing.
+    const nights = [night({ onsetFeedId: "swm", timeToSleepMs: 900_000, onsetAfterMs: 120_000 })];
+    expect(medianTimeToSleep(nights, "swm")).toBe(120_000);
+  });
+
+  it("excludes a night with onsetFeedId but no onsetAfterMs from the median, rather than falling back", () => {
+    // A wrong number is worse than a smaller sample — this combination
+    // shouldn't occur once shipped (session.ts sets both together), but the
+    // median must not trust that and fall back to timeToSleepMs anyway.
+    const nights = [
+      night({ onsetFeedId: "swm", timeToSleepMs: 600_000, onsetAfterMs: 60_000 }),
+      night({ onsetFeedId: "swm", timeToSleepMs: 900_000 }), // no onsetAfterMs
+    ];
+    expect(medianTimeToSleep(nights, "swm")).toBe(60_000);
+  });
+
+  it("keeps evidenceFor's 'N times it led' in step with the median's sample, not onsetNights", () => {
+    // 3 nights carry onsetFeedId, but only 2 carry onsetAfterMs. The sentence
+    // must say "2 times" — the count the median was actually built from — not
+    // 3, or it would name a night the minutes figure never saw.
+    const nights = [
+      night({ onsetFeedId: "swm", timeToSleepMs: 600_000, onsetAfterMs: 100_000 }),
+      night({ onsetFeedId: "swm", timeToSleepMs: 700_000, onsetAfterMs: 140_000 }),
+      night({ onsetFeedId: "swm", timeToSleepMs: 800_000 }), // no onsetAfterMs
+    ];
+    const [f] = scoreFeeds(nights);
+    expect(f.onsetNights).toBe(3);
+    const line = evidenceFor(nights, f);
+    expect(line).toMatch(/2 times/);
+    expect(line).not.toMatch(/3 times/);
+  });
 });

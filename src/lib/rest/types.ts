@@ -19,6 +19,10 @@ export interface RestNight {
    *  or for any night recorded before this shipped. */
   onsetFeedId?: string;
   onsetEpisodeId?: string;
+  /** How long the onset feed had been playing when sleep was inferred, as
+   *  distinct from how long the night had been running. Absent when no onset
+   *  was attributed. */
+  onsetAfterMs?: number;
   /** Feeds that auto-advanced after onset — they played while you stayed under. */
   sleptThrough?: string[];
   /** Feeds you manually skipped or blocked during the night. */

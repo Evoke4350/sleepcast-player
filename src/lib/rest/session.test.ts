@@ -160,4 +160,36 @@ describe("attributing sleep onset to what was playing", () => {
     expect("skipped" in night).toBe(false);
     expect("sleptThrough" in night).toBe(false);
   });
+
+  it("credits onsetAfterMs equal to timeToSleepMs when the onset feed played since night start", () => {
+    const start = 1_000_000;
+    const s = sessionWithOnset(start);
+    s.noteEpisode("swm", "ep1", start);
+    const night = s.finish("faded", start + 900_000);
+    expect(night.onsetAfterMs).toBe(435_000);
+    expect(night.timeToSleepMs).toBe(435_000);
+  });
+
+  it("distinguishes onsetAfterMs from timeToSleepMs on a skip-heavy night — the bug's own scenario", () => {
+    // Boring Books only started playing at start+400_000, 35s before onset
+    // (435_000). timeToSleepMs still reads 435_000 — how long the *night* ran
+    // — but onsetAfterMs must read 35_000 — how long *that feed* had been
+    // playing. Collapsing these back into one number is exactly the bug.
+    const start = 1_000_000;
+    const s = sessionWithOnset(start);
+    s.noteEpisode("swm", "ep1", start);
+    s.noteEpisode("boring", "ep2", start + 400_000);
+    const night = s.finish("faded", start + 900_000);
+    expect(night.onsetFeedId).toBe("boring");
+    expect(night.onsetAfterMs).toBe(35_000);
+    expect(night.timeToSleepMs).toBe(435_000);
+  });
+
+  it("leaves onsetAfterMs absent when no onset was detected", () => {
+    const s = new RestSession(1_000_000, 45);
+    s.noteEpisode("swm", "ep1", 1_000_000);
+    const night = s.finish("ended", 1_100_000);
+    expect(night.onsetAfterMs).toBeUndefined();
+    expect("onsetAfterMs" in night).toBe(false);
+  });
 });

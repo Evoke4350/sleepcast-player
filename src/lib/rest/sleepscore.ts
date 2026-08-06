@@ -122,19 +122,27 @@ export function rankedFeeds(nights: readonly RestNight[]): FeedScore[] {
   return scoreFeeds(nights).filter(meetsSuggestionGate);
 }
 
-/** Times to sleep (ms) for nights this feed was playing at onset, unsorted.
- *  Shared by medianTimeToSleep and evidenceFor so the count named in the
- *  evidence sentence can never drift from the set the median was computed
- *  over — see evidenceFor's comment on why that drift is possible at all. */
+/** Times the onset feed had been playing (ms) for nights this feed was
+ *  playing at onset, unsorted. Shared by medianTimeToSleep and evidenceFor so
+ *  the count named in the evidence sentence can never drift from the set the
+ *  median was computed over — see evidenceFor's comment on why that drift is
+ *  possible at all.
+ *
+ *  Reads onsetAfterMs, not timeToSleepMs: the latter is measured from night
+ *  start, so a skip-heavy night would credit the feed with time it spent
+ *  skipping through everything else. A night with onsetFeedId but no
+ *  onsetAfterMs is excluded rather than falling back — a wrong number is
+ *  worse than a smaller sample. */
 function onsetTimesFor(nights: readonly RestNight[], feedId: string): number[] {
   return nights
-    .filter((n) => n.onsetFeedId === feedId && n.timeToSleepMs !== null)
-    .map((n) => n.timeToSleepMs as number);
+    .filter((n) => n.onsetFeedId === feedId && n.onsetAfterMs !== undefined)
+    .map((n) => n.onsetAfterMs as number);
 }
 
-/** Median time-to-sleep across nights this feed was playing at onset, or null
- *  if it never led one. Median rather than mean: one 3am night that ran the
- *  whole timer would drag an average and misdescribe every other night. */
+/** Median time the onset feed had been playing, across nights this feed was
+ *  playing at onset, or null if it never led one (or led only nights without
+ *  onsetAfterMs). Median rather than mean: one 3am night that ran the whole
+ *  timer would drag an average and misdescribe every other night. */
 export function medianTimeToSleep(
   nights: readonly RestNight[],
   feedId: string,
@@ -170,7 +178,7 @@ export function evidenceFor(nights: readonly RestNight[], f: FeedScore): string 
   // reads like the detector glitched, not like a fast, real result.
   const minsPhrase = mins === 0 ? "under a minute" : `${mins} min`;
   // f.onsetNights counts every night onsetFeedId matched this feed, including
-  // one where timeToSleepMs is null — this module doesn't trust its producer
+  // one where onsetAfterMs is absent — this module doesn't trust its producer
   // (see scoreFeeds' de-dup comments) so that combination isn't ruled out.
   // The median above can only be built from nights with a real time, so "N
   // times" must be counted the same way, or it would name a night the

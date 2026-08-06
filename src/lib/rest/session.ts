@@ -84,7 +84,12 @@ export class RestSession {
       detector: this.onset ? "inference" : "none",
       // Spread rather than assign: an absent field and an empty array must not
       // become two shapes in a ledger that already holds 90 nights without them.
-      ...(at ? { onsetFeedId: at.feedId, onsetEpisodeId: at.episodeId } : {}),
+      // at.t is when the credited feed itself started, so atMs - at.t is how
+      // long *it* had been playing — not the timeToSleepMs above, which is
+      // measured from night start regardless of how much got skipped first.
+      ...(at
+        ? { onsetFeedId: at.feedId, onsetEpisodeId: at.episodeId, onsetAfterMs: (atMs as number) - at.t }
+        : {}),
       ...(sleptThrough.length ? { sleptThrough } : {}),
       ...(this.skipped.size ? { skipped: [...this.skipped] } : {}),
     };
