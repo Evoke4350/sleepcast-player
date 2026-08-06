@@ -214,9 +214,9 @@ describe("nights the listener said they were awake (Finding 2)", () => {
 describe("the evidence beside the pick", () => {
   it("takes the median time-to-sleep over nights this feed led", () => {
     const nights = [
-      night({ onsetFeedId: "swm", timeToSleepMs: 600_000 }),
-      night({ onsetFeedId: "swm", timeToSleepMs: 900_000 }),
-      night({ onsetFeedId: "swm", timeToSleepMs: 1_800_000 }),
+      night({ onsetFeedId: "swm", timeToSleepMs: 600_000, onsetAfterMs: 600_000 }),
+      night({ onsetFeedId: "swm", timeToSleepMs: 900_000, onsetAfterMs: 900_000 }),
+      night({ onsetFeedId: "swm", timeToSleepMs: 1_800_000, onsetAfterMs: 1_800_000 }),
       night({ onsetFeedId: "boring", timeToSleepMs: 60_000 }),
     ];
     expect(medianTimeToSleep(nights, "swm")).toBe(900_000);
@@ -228,7 +228,7 @@ describe("the evidence beside the pick", () => {
 
   it("states the count and the median, both of which are checkable", () => {
     const nights = Array.from({ length: 3 }, () =>
-      night({ onsetFeedId: "swm", timeToSleepMs: 840_000 }),
+      night({ onsetFeedId: "swm", timeToSleepMs: 840_000, onsetAfterMs: 840_000 }),
     );
     const [f] = rankedFeeds(nights);
     const line = evidenceFor(nights, f);
@@ -273,8 +273,8 @@ describe("the evidence beside the pick", () => {
     // so the "N times" claim must be counted the same way, or it names a
     // night the minutes figure never saw.
     const nights = [
-      night({ onsetFeedId: "swm", timeToSleepMs: 600_000 }),
-      night({ onsetFeedId: "swm", timeToSleepMs: 1_200_000 }),
+      night({ onsetFeedId: "swm", timeToSleepMs: 600_000, onsetAfterMs: 600_000 }),
+      night({ onsetFeedId: "swm", timeToSleepMs: 1_200_000, onsetAfterMs: 1_200_000 }),
       night({ onsetFeedId: "swm", timeToSleepMs: null }),
     ];
     const [f] = scoreFeeds(nights);
@@ -291,7 +291,7 @@ describe("the evidence beside the pick", () => {
     // What changed (Finding 1) is that the median no longer gets to be the
     // *whole* sentence: see the next test for why.
     const nights = [
-      ...Array.from({ length: 3 }, () => night({ onsetFeedId: "swm", timeToSleepMs: 600_000 })),
+      ...Array.from({ length: 3 }, () => night({ onsetFeedId: "swm", timeToSleepMs: 600_000, onsetAfterMs: 600_000 })),
       night({ sleptAtMs: null, detector: "none", skipped: ["swm"] }),
     ];
     const f = scoreFeeds(nights).find((s) => s.feedId === "swm")!;
@@ -308,7 +308,7 @@ describe("the evidence beside the pick", () => {
     // would change a reader's mind left out. This is the reviewer's exact
     // scenario.
     const nights = [
-      ...Array.from({ length: 3 }, () => night({ onsetFeedId: "swm", timeToSleepMs: 600_000 })),
+      ...Array.from({ length: 3 }, () => night({ onsetFeedId: "swm", timeToSleepMs: 600_000, onsetAfterMs: 600_000 })),
       ...Array.from({ length: 5 }, () => night({ sleptAtMs: null, detector: "none", skipped: ["swm"] })),
     ];
     const f = scoreFeeds(nights).find((s) => s.feedId === "swm")!;
@@ -349,7 +349,7 @@ describe("the evidence beside the pick", () => {
   });
 
   it("renders a sub-minute median as 'under a minute', not '0 min'", () => {
-    const nights = [night({ onsetFeedId: "swm", timeToSleepMs: 29_000 })];
+    const nights = [night({ onsetFeedId: "swm", timeToSleepMs: 29_000, onsetAfterMs: 29_000 })];
     const f = scoreFeeds(nights).find((s) => s.feedId === "swm")!;
     const line = evidenceFor(nights, f);
     expect(line).toBe("Gone in under a minute the last 1 time it led.");
