@@ -21,6 +21,7 @@ import {
 import { diverseByMeta, formatTime } from "../lib/engine";
 import { parseFeedFor, youtubeFeedUrl } from "../lib/youtube";
 import { isMixedLineup } from "../lib/youtube-night";
+import { beacon } from "../lib/beacon";
 import type { Episode } from "../lib/engine";
 import { loadNights, setSelfLabel, loadParams, saveParams } from "../lib/rest/ledger";
 import { tightenAfterFalsePositive } from "../lib/rest/calibrate";
@@ -52,15 +53,6 @@ export interface SleepSetupProps {
     wasVaried?: boolean,
     leadPosition?: number
   ) => void;
-}
-
-// No-PII aggregate beacon: a single allowlisted event name, fire-and-forget.
-// The server (middleware) tallies whole numbers only — no identity, no payload.
-// GET + keepalive rather than sendBeacon: Astro's CSRF guard forbids the POST.
-function beacon(name: string) {
-  try {
-    fetch(`/api/_event?e=${encodeURIComponent(name)}`, { method: "GET", keepalive: true, cache: "no-store" });
-  } catch { /* ignore */ }
 }
 
 export function SleepSetup({ onStart }: SleepSetupProps) {
@@ -277,6 +269,7 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
           );
           return;
         }
+        beacon("youtube_added");
         addResolvedFeed(`https://www.youtube.com/feeds/videos.xml?channel_id=${body.channelId}`);
       } catch {
         setCustomError("couldn't reach YouTube to look that channel up — try again in a moment");
@@ -285,6 +278,8 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
       }
       return;
     }
+    // A /channel/UC… or playlist link needs no lookup, but it is the same act.
+    if (yt?.kind === "feed") beacon("youtube_added");
     addResolvedFeed(yt?.url ?? raw);
   }
 

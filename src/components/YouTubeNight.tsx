@@ -68,6 +68,7 @@ import {
 } from "../lib/youtube-night";
 import { classifyYouTubeError } from "../lib/youtube-errors";
 import { browserScreenLock, type ScreenLock } from "../lib/wake-lock";
+import { beacon } from "../lib/beacon";
 
 const FADE_SECONDS = 60;
 const TICK_MIN_MS = 900;
@@ -180,6 +181,7 @@ export function YouTubeNight({
   // coming up also reads as "unstarted", and flashing "tap to begin" at
   // someone half a second before it starts on its own is worse than silence.
   const [showStartPrompt, setShowStartPrompt] = useState(false);
+  const tapCountedRef = useRef(false);
   const [epPos, setEpPos] = useState<{ cur: number; dur: number } | null>(null);
   const [toast, setToast] = useState("");
   const [holdPct, setHoldPct] = useState(0);
@@ -476,7 +478,15 @@ export function YouTubeNight({
     // watchRef.at is when this episode was asked to play, and it is cleared
     // the moment it does — so this is exactly "how long it has refused for".
     const waitedMs = watchRef.current ? Date.now() - watchRef.current.at : 0;
-    setShowStartPrompt(t === "awaiting-start" && waitedMs > START_PROMPT_MS);
+    const needsTap = t === "awaiting-start" && waitedMs > START_PROMPT_MS;
+    // Counted once per night. Whether the embed ever autoplays is the open
+    // question this feature shipped with, and it cannot be answered from
+    // outside the device.
+    if (needsTap && !tapCountedRef.current) {
+      tapCountedRef.current = true;
+      beacon("youtube_tap_start");
+    }
+    setShowStartPrompt(needsTap);
 
     const cur = media.currentTime();
     const dur = media.duration();
@@ -625,6 +635,9 @@ export function YouTubeNight({
           return;
         }
         setStatus("playing");
+        // Once per night, here rather than in startEpisode, which also runs on
+        // every Next and would count a lineup instead of a night.
+        beacon("youtube_night");
         startEpisode(first, resume ? resume.position : leadEpisode ? leadPosition : 0);
         tickHandleRef.current = setInterval(tickGuarded, 1000);
         if (noise.on) {
