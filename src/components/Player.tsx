@@ -180,6 +180,11 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     setNowPlaying({ id: ep.id, title: ep.title, feedId: ep.feedId });
     setPlayedIds((prev) => new Set(prev).add(ep.id));
     currentFeedRef.current = ep.feedId;
+    // The rest session infers WHEN sleep began; only the player knows WHAT was
+    // playing. Told here rather than reconstructed later, because the play
+    // ledger de-duplicates by episode id and cannot answer this for any night
+    // but the most recent.
+    restRef.current?.noteEpisode(ep.feedId, ep.id);
     // crossOrigin is required before the compressor can ever capture the
     // element, but it also makes playback fail outright on a host that serves
     // no CORS headers — so it is only requested for feeds not already known
@@ -365,6 +370,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     const ep = currentEpRef.current;
     if (!ep) return;
     blockEpisode(ep.id);
+    restRef.current?.noteSkip(ep.feedId);
     forgetPosition(ep.id);
     poolRef.current = poolRef.current.filter((e) => e.id !== ep.id);
     // The spread renders the pool PROP, so it also has to be told — otherwise
@@ -709,7 +715,11 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     if ("mediaSession" in navigator) {
       navigator.mediaSession.setActionHandler("play", () => { restRef.current?.noteInteraction(); audio.play(); });
       navigator.mediaSession.setActionHandler("pause", () => { restRef.current?.noteInteraction(); audio.pause(); });
-      navigator.mediaSession.setActionHandler("nexttrack", () => { restRef.current?.noteInteraction(); playNext(); });
+      // Routed through handleNext, not playNext directly: a lock-screen or
+      // Bluetooth skip is still a rejection of the feed being left, and for
+      // someone already in bed with the phone locked, this is most skips —
+      // splitting the path here would mean the model never sees them.
+      navigator.mediaSession.setActionHandler("nexttrack", () => handleNext());
       // Lock-screen / headphone scrubbing.
       try {
         navigator.mediaSession.setActionHandler("seekbackward", () => skipBy(-30));
@@ -854,6 +864,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
 
   function handleNext() {
     restRef.current?.noteInteraction();
+    const leaving = currentEpRef.current;
+    if (leaving) restRef.current?.noteSkip(leaving.feedId);
     playNext();
   }
 
