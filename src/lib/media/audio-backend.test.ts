@@ -5,13 +5,18 @@ import { AudioBackend } from "./audio-backend";
  *  readonly-in-the-DOM properties, and a way to fire events by hand. */
 function fakeAudio() {
   const listeners = new Map<string, Set<EventListener>>();
+  let nextPlayResult: (() => Promise<void>) | null = null;
   const el = {
     src: "",
     currentTime: 0,
     duration: 0,
     volume: 1,
     paused: true,
-    play: vi.fn(() => Promise.resolve()),
+    play: vi.fn(() => {
+      const result = nextPlayResult;
+      nextPlayResult = null;
+      return result ? result() : Promise.resolve();
+    }),
     pause: vi.fn(),
     removeAttribute: vi.fn(),
     addEventListener: (t: string, cb: EventListener) => {
@@ -26,6 +31,11 @@ function fakeAudio() {
     el,
     fire: (t: string) => listeners.get(t)?.forEach((cb) => cb(new Event(t))),
     count: (t: string) => listeners.get(t)?.size ?? 0,
+    /** The next (and only the next) call to play() rejects with this error
+     *  instead of resolving. */
+    rejectNextPlay: (err: unknown) => {
+      nextPlayResult = () => Promise.reject(err);
+    },
   };
 }
 
@@ -142,5 +152,55 @@ describe("driving an audio element through the backend interface", () => {
     const b = new AudioBackend(el);
     b.destroy();
     expect(() => b.destroy()).not.toThrow();
+  });
+
+  it("a seek armed before destroy does not land on metadata that arrives after", () => {
+    // destroy() tears down the seek handler, but if it didn't, a metadata
+    // event firing on a dead element would seek an <audio> nobody is
+    // listening to anymore — harmless today, but only because destroy is
+    // careful, not because nothing is armed.
+    const { el, fire } = fakeAudio();
+    const b = new AudioBackend(el);
+    b.load("https://x.test/a.mp3", 1830);
+    b.destroy();
+    expect(() => fire("loadedmetadata")).not.toThrow();
+    expect(el.currentTime).toBe(0);
+  });
+
+  it("transport reports dead, not awaiting-start, once destroyed", () => {
+    // A caller renders a tap-to-begin prompt for "awaiting-start" — but a
+    // destroyed backend's play() is a permanent no-op, so that prompt would
+    // do nothing when tapped.
+    const { el } = fakeAudio();
+    const b = new AudioBackend(el);
+    b.destroy();
+    expect(b.transport()).toBe("dead");
+  });
+
+  it("a blocked autoplay is reported, not swallowed", async () => {
+    // NotAllowedError is a rejected promise, not an "error" event, and the
+    // spec reverts `paused` to true when it happens — indistinguishable from
+    // a deliberate pause unless something reports it.
+    const { el, rejectNextPlay } = fakeAudio();
+    const b = new AudioBackend(el);
+    const errored = vi.fn();
+    b.onError(errored);
+    rejectNextPlay(new DOMException("blocked", "NotAllowedError"));
+    b.play();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(errored).toHaveBeenCalledWith("autoplay-blocked");
+  });
+
+  it("a play() rejection that isn't autoplay is reported as play-failed", async () => {
+    const { el, rejectNextPlay } = fakeAudio();
+    const b = new AudioBackend(el);
+    const errored = vi.fn();
+    b.onError(errored);
+    rejectNextPlay(new Error("network blew up"));
+    b.play();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(errored).toHaveBeenCalledWith("play-failed");
   });
 });

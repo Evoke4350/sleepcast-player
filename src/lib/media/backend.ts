@@ -4,10 +4,13 @@
 // orchestrator talks only to this and never learns which it got — which is the
 // whole point, because a mixed night switches between them mid-flight.
 
-/** What the source is actually doing. Four values, not a boolean: "hasn't
+/** What the source is actually doing. Five values, not a boolean: "hasn't
  *  started" and "paused" are different, and conflating them is what once
- *  rendered a Pause button over silence. */
-export type Transport = "playing" | "paused" | "buffering" | "awaiting-start";
+ *  rendered a Pause button over silence. "dead" exists for the same reason
+ *  one level up: a destroyed backend is not "hasn't started yet" — a tap
+ *  will not help it, because its play() is a permanent no-op — and a caller
+ *  that cannot tell the two apart renders a tap prompt over nothing. */
+export type Transport = "playing" | "paused" | "buffering" | "awaiting-start" | "dead";
 
 export interface MediaBackend {
   /** An enclosure URL for audio, a videoId for YouTube. The orchestrator picks

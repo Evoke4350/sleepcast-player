@@ -15,6 +15,9 @@ export class AudioBackend implements MediaBackend {
    *  episode seeks the NEXT one to this one's position. */
   private seekCleanup: (() => void) | null = null;
   private detach: Array<() => void> = [];
+  /** A rejected play() is not a DOM event, so it cannot ride the "error"
+   *  listener subscribe() sets up. These are called directly instead. */
+  private errorCallbacks = new Set<(code: number | string) => void>();
 
   constructor(private readonly el: HTMLAudioElement) {}
 
@@ -42,14 +45,12 @@ export class AudioBackend implements MediaBackend {
       this.el.addEventListener("loadedmetadata", onMeta);
     }
 
-    void this.el.play().catch(() => {
-      /* the orchestrator's watchdog moves the night on */
-    });
+    void this.el.play().catch((err: unknown) => this.reportPlayFailure(err));
   }
 
   play(): void {
     if (this.dead) return;
-    void this.el.play().catch(() => {});
+    void this.el.play().catch((err: unknown) => this.reportPlayFailure(err));
   }
 
   pause(): void {
@@ -71,7 +72,7 @@ export class AudioBackend implements MediaBackend {
   }
 
   transport(): Transport {
-    if (this.dead) return "awaiting-start";
+    if (this.dead) return "dead";
     return this.el.paused ? "paused" : "playing";
   }
 
@@ -84,7 +85,12 @@ export class AudioBackend implements MediaBackend {
   }
 
   onError(cb: (code: number | string) => void): () => void {
-    return this.subscribe("error", () => cb("media-error"));
+    this.errorCallbacks.add(cb);
+    const offDom = this.subscribe("error", () => cb("media-error"));
+    return () => {
+      this.errorCallbacks.delete(cb);
+      offDom();
+    };
   }
 
   destroy(): void {
@@ -93,6 +99,7 @@ export class AudioBackend implements MediaBackend {
     this.seekCleanup?.();
     this.seekCleanup = null;
     for (const off of this.detach.splice(0)) off();
+    this.errorCallbacks.clear();
     this.el.pause();
     this.el.removeAttribute("src");
   }
@@ -104,5 +111,18 @@ export class AudioBackend implements MediaBackend {
     const off = () => this.el.removeEventListener(type, handler);
     this.detach.push(off);
     return off;
+  }
+
+  /** A rejected play() reverts `paused` to true — the same state a deliberate
+   *  pause leaves behind, and no "error" event follows it. Left unswallowed,
+   *  a blocked autoplay is indistinguishable from a listener who paused on
+   *  purpose, and the night stalls silently and forever. Reported instead,
+   *  with a code the caller can tell apart from a dead enclosure: a blocked
+   *  autoplay wants a tap and a frozen clock, a dead enclosure wants the next
+   *  episode. */
+  private reportPlayFailure(err: unknown): void {
+    if (this.dead) return;
+    const code = err instanceof DOMException && err.name === "NotAllowedError" ? "autoplay-blocked" : "play-failed";
+    for (const cb of this.errorCallbacks) cb(code);
   }
 }
