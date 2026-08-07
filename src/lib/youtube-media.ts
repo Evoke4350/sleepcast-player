@@ -148,10 +148,10 @@ export class YouTubeMedia implements MediaBackend {
     return this.player.getPlayerState();
   }
 
-  /** An iframe emits no timeupdate, so this is the clock. One interval
-   *  however many subscribers, started on the first and stopped with the
-   *  last — PROGRESS_MS matches Player.tsx's own tick, and the orchestrator's
-   *  shouldTick gate dedupes anything faster. */
+  /** An iframe emits no timeupdate, so this polls once a second — the clock.
+   *  One interval however many subscribers, started on the first and stopped
+   *  with the last. The orchestrator's shouldTick gate dedupes anything that
+   *  arrives faster than it wants. */
   onProgress(cb: () => void): () => void {
     if (this.dead) return () => {};
     this.progressSubs.add(cb);
@@ -168,11 +168,13 @@ export class YouTubeMedia implements MediaBackend {
   }
 
   onEnded(cb: () => void): () => void {
+    if (this.dead) return () => {};
     this.endedSubs.add(cb);
     return () => void this.endedSubs.delete(cb);
   }
 
   onError(cb: (code: number | string) => void): () => void {
+    if (this.dead) return () => {};
     this.errorSubs.add(cb);
     return () => void this.errorSubs.delete(cb);
   }

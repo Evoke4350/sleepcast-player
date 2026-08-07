@@ -321,6 +321,61 @@ describe("conforming to the shared backend interface", () => {
     }
   });
 
+  it("resubscribe restarts the clock after the last unsubscribe", () => {
+    // One interval serves every subscriber, started on the first and cleared
+    // with the last. A version that nulled the timer without allowing restart
+    // would pass all existing tests and silently stop progress for the second
+    // episode of a night.
+    vi.useFakeTimers();
+    try {
+      const { create, ready } = fakePlayer();
+      const media = new YouTubeMedia(create);
+      media.load("abc");
+      ready();
+      const cb1 = vi.fn();
+      const off1 = media.onProgress(cb1);
+      vi.advanceTimersByTime(1500);
+      expect(cb1.mock.calls.length).toBeGreaterThan(0);
+      off1(); // Clears the interval
+      cb1.mockClear();
+      vi.advanceTimersByTime(2000);
+      expect(cb1).not.toHaveBeenCalled(); // Still not called
+      const cb2 = vi.fn();
+      media.onProgress(cb2); // Restart the clock
+      vi.advanceTimersByTime(1500);
+      expect(cb2.mock.calls.length).toBeGreaterThan(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("partial unsubscribe leaves the clock running for the other subscriber", () => {
+    // A version that cleared the interval on any unsubscribe would kill the
+    // fade for whoever was still listening.
+    vi.useFakeTimers();
+    try {
+      const { create, ready } = fakePlayer();
+      const media = new YouTubeMedia(create);
+      media.load("abc");
+      ready();
+      const cb1 = vi.fn();
+      const cb2 = vi.fn();
+      const off1 = media.onProgress(cb1);
+      media.onProgress(cb2);
+      vi.advanceTimersByTime(1500);
+      expect(cb1.mock.calls.length).toBeGreaterThan(0);
+      expect(cb2.mock.calls.length).toBeGreaterThan(0);
+      cb1.mockClear();
+      cb2.mockClear();
+      off1(); // Remove only the first subscriber
+      vi.advanceTimersByTime(1500);
+      expect(cb2.mock.calls.length).toBeGreaterThan(0); // Second still fires
+      expect(cb1).not.toHaveBeenCalled(); // First does not
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("subscribed ended and error fire alongside the constructor handlers", () => {
     // YouTubeNight.tsx passes handlers to the constructor and must keep
     // working — this is additive, not a replacement.
