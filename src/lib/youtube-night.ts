@@ -7,6 +7,7 @@
 // on; a night with nothing left to play must end rather than spin.
 
 import type { Episode } from "./engine";
+import type { Transport as BackendTransport } from "./media/backend";
 import { pickNextEpisode, type Play } from "./plays";
 import { classifyYouTubeError } from "./youtube-errors";
 
@@ -23,10 +24,18 @@ export const YT_STATE = {
   CUED: 5,
 } as const;
 
-/** What the transport should show. Four outcomes, not a boolean: "not
- *  playing" and "paused" are different things, and conflating them is what
- *  made a video that had never started render a Pause button over silence. */
-export type Transport = "playing" | "paused" | "buffering" | "awaiting-start";
+/** What the transport should show. Not a boolean: "not playing" and "paused"
+ *  are different things, and conflating them is what made a video that had
+ *  never started render a Pause button over silence.
+ *
+ *  Derived from the backend interface's Transport rather than spelled out
+ *  again, so the two cannot drift. The exclusion is the whole difference: a
+ *  YT.Player that exists always reports one of its own state codes, and there
+ *  is no code for "this player has been destroyed" — that outcome belongs to
+ *  the backend layer, which can hand back a torn-down backend. Two independent
+ *  unions would let a member added there fall silently through every render
+ *  ternary written against this one. */
+export type Transport = Exclude<BackendTransport, "dead">;
 
 export function transportFor(state: number): Transport {
   switch (state) {
@@ -109,10 +118,13 @@ export function isYouTubeLineup(pool: readonly Episode[]): boolean {
 }
 
 /**
- * True when a lineup holds both kinds. Neither player can carry it — the embed
- * cannot play an enclosure and the audio element cannot play a videoId — so
- * whichever one ran would silently drop half of it. The caller refuses the
- * night instead, which is a sentence the listener can act on.
+ * True when a lineup holds both kinds, which is how the caller knows to route
+ * it to the orchestrator that can carry one.
+ *
+ * Neither single-source player can: the embed cannot play an enclosure and the
+ * audio element cannot play a videoId, so whichever one ran would silently
+ * drop half the night. Night.tsx holds both backends and switches per episode,
+ * so this predicate now selects a player rather than refusing a night.
  */
 export function isMixedLineup(pool: readonly Episode[]): boolean {
   return pool.some((e) => !!e.youtubeId) && pool.some((e) => !e.youtubeId);

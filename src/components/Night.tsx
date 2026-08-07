@@ -67,7 +67,7 @@ import {
 import { loadYouTubeApi, type YTNamespace } from "../lib/youtube-api";
 import type { MediaBackend, Transport } from "../lib/media/backend";
 import { AudioBackend } from "../lib/media/audio-backend";
-import { chooseLead } from "../lib/mixed-night";
+import { preferVideoLead } from "../lib/mixed-night";
 import {
   nextPlayable,
   decideAfterError,
@@ -187,7 +187,6 @@ export function Night({
   const deadRef = useRef<Set<string>>(new Set());
   const retriesRef = useRef(0);
   const watchRef = useRef<{ id: string; at: number } | null>(null);
-  const failsRef = useRef(0);
 
   const heardSecRef = useRef(0);
   const lastPosRef = useRef(0);
@@ -331,7 +330,6 @@ export function Night({
           setTransport(transportFor(e.data));
           if (e.data === YT_STATE.PLAYING) {
             watchRef.current = null;
-            failsRef.current = 0;
             retriesRef.current = 0;
             hasEverPlayedRef.current = true;
             // The clock starts here, not at mount. It is held frozen until
@@ -654,7 +652,6 @@ export function Night({
       // still waiting for its tap does not spend its minutes on silence. The
       // embed also does this from onStateChange; both are idempotent.
       watchRef.current = null;
-      failsRef.current = 0;
       retriesRef.current = 0;
       hasEverPlayedRef.current = true;
       unfreezeClock();
@@ -703,6 +700,17 @@ export function Night({
     setEpPos(dur > 0 ? { cur, dur } : null);
 
     const w = watchRef.current;
+    // Known limitation, deliberately not fixed here: shouldGiveUp exempts an
+    // unstarted episode while nothing has played yet, because that is what an
+    // autoplay refusal looks like and every episode would refuse identically.
+    // On a mixed night the lead is a video by design, so an embed that neither
+    // plays nor reports an error code is exempt forever — the night holds at
+    // "tap to begin" with the clock frozen and never reaches a podcast that
+    // would have played. No timer minutes are lost and an awake listener
+    // recovers it in two taps (tap to begin, then Next), which is why it is
+    // written down rather than traded for the far worse failure the exemption
+    // prevents: burning the whole spread in a couple of minutes over a refusal
+    // that one tap would have cleared.
     if (
       w &&
       shouldGiveUp({
@@ -713,13 +721,21 @@ export function Night({
       })
     ) {
       watchRef.current = null;
-      failsRef.current++;
       // Stuck without an error code: a blocked embed that reported nothing, a
       // region lock, a load that never finished. Dead for tonight only — we do
       // not know enough to condemn it forever.
       deadRef.current.add(w.id);
-      if (failsRef.current <= 6) playNext();
-      else endSession("ended"); // the whole lineup looks broken
+      // No failure count decides anything here. On an all-video night a run of
+      // failures is evidence about the whole lineup; on a mixed one it is
+      // evidence about one kind of episode, and the run is close to guaranteed:
+      // a condemned video never records a play, so it stays unheard and
+      // pickNextEpisode keeps preferring it over podcasts already in the
+      // ledger. Counting those and ending the night would throw away the half
+      // of the lineup that still works. Termination does not need a counter —
+      // every kill adds to deadRef, nextPlayable filters on it, so the alive
+      // pool shrinks with each failure and playNext ends the night the moment
+      // nothing playable is left.
+      playNext();
     }
 
     if (++persistCounterRef.current >= 10) {
@@ -858,12 +874,28 @@ export function Night({
         // every switch away from video and fire against a backend that is no
         // longer the one making sound.
         ytRef.current = new YouTubeMedia((args) => buildPlayer(YT, args));
-        // A resumed night carries its own episode; an explicit lead overrides.
-        // Otherwise chooseLead, which spends the video autoplay tap while the
-        // listener is still awake to answer it.
+        // A resumed night carries its own episode and keeps it: reviving a
+        // night is a deliberate tap, and that tap is itself the gesture the
+        // video lead exists to buy.
+        //
+        // Everything else goes through preferVideoLead, including a supplied
+        // one. A lead can arrive from the 3am re-anchor, which picks the first
+        // unplayed episode in array order and knows nothing about kinds — take
+        // it as given and the night opens on a podcast, the waking gesture is
+        // spent on something that never needed it, and the first video switch
+        // lands mid-sleep at "awaiting-start" with the autoplay exemption no
+        // longer covering it.
         const first =
-          resume?.episode ?? leadEpisode ?? chooseLead(pool, deadRef.current, getPlays());
-        beginNight(first, resume ? resume.position : leadEpisode ? leadPosition : 0);
+          resume?.episode ??
+          preferVideoLead(leadEpisode, pool, deadRef.current, getPlays());
+        // leadPosition is a saved position in the supplied lead and in nothing
+        // else, so it only travels with it. When preferVideoLead swapped a
+        // video in, the night starts that video from its own beginning rather
+        // than dropping into it at a timestamp that belongs to another episode.
+        beginNight(
+          first,
+          resume ? resume.position : first && first.id === leadEpisode?.id ? leadPosition : 0,
+        );
       })
       .catch(() => {
         // No IFrame API — offline, blocked, or Google is down. Run the night

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { chooseLead } from "./mixed-night";
+import { chooseLead, preferVideoLead } from "./mixed-night";
 import type { Episode } from "./engine";
 
 const yt = (id: string): Episode => ({
@@ -49,5 +49,43 @@ describe("what a mixed night opens on", () => {
     // chooseLead is only called for mixed lineups, but a pool can lose its
     // last video to blocking between the check and the start.
     expect(chooseLead([pod("p1")], none, [], () => 0)?.id).toBe("p1");
+  });
+});
+
+describe("a lead somebody else supplied", () => {
+  const mixed = [pod("p1"), yt("v1"), yt("v2"), pod("p2")];
+
+  it("keeps a video lead exactly as given", () => {
+    // It already buys what the rule is for, and the listener may have picked
+    // this one specifically.
+    expect(preferVideoLead(yt("v2"), mixed, none, [], () => 0)?.id).toBe("v2");
+  });
+
+  it("replaces a podcast lead with a video", () => {
+    // The 3am re-anchor picks in array order and knows nothing about kinds, so
+    // its lead is a podcast half the time and the waking gesture is wasted.
+    const lead = preferVideoLead(pod("p1"), mixed, none, [], () => 0);
+    expect(lead?.youtubeId).toBeTruthy();
+  });
+
+  it("keeps a podcast lead when every video is dead", () => {
+    // A podcast the listener may have chosen beats overriding it with a
+    // different podcast they did not.
+    const dead = new Set(["v1", "v2"]);
+    expect(preferVideoLead(pod("p2"), mixed, dead, [], () => 0)?.id).toBe("p2");
+  });
+
+  it("keeps a podcast lead on an all-podcast pool", () => {
+    expect(preferVideoLead(pod("p1"), [pod("p1"), pod("p2")], none, [], () => 0)?.id).toBe("p1");
+  });
+
+  it("behaves like chooseLead when no lead was supplied", () => {
+    for (const empty of [null, undefined]) {
+      expect(preferVideoLead(empty, mixed, none, [], () => 0)?.id).toBe(
+        chooseLead(mixed, none, [], () => 0)?.id,
+      );
+    }
+    expect(preferVideoLead(null, [], none, [], () => 0)).toBeNull();
+    expect(preferVideoLead(undefined, [yt("v1")], new Set(["v1"]), [], () => 0)).toBeNull();
   });
 });

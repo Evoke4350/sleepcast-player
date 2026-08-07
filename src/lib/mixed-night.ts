@@ -29,3 +29,30 @@ export function chooseLead(
   // empty-array guard returns null. No extra guard needed here.
   return pickNextEpisode(videos.length ? videos : alive, plays, rand);
 }
+
+/**
+ * The lead a mixed night should actually open on, given one somebody supplied.
+ *
+ * chooseLead alone only covers the night nobody had an opinion about. Leads
+ * arrive from three other places — the 3am re-anchor, a search result or
+ * suggestion in setup, and a resumed night — and the re-anchor's is picked in
+ * array order with no idea that kinds exist. Letting any of them through
+ * unexamined spends the night's one waking gesture on a podcast and leaves the
+ * first video to land mid-sleep, which is exactly the failure leading with
+ * video exists to prevent.
+ *
+ * A supplied podcast lead is only overridden by a video, never by another
+ * podcast: the listener may have chosen this one, and swapping it for a
+ * different podcast buys nothing and ignores them.
+ */
+export function preferVideoLead(
+  lead: Episode | null | undefined,
+  pool: readonly Episode[],
+  dead: ReadonlySet<string>,
+  plays: Play[],
+  rand: () => number = Math.random,
+): Episode | null {
+  if (lead?.youtubeId) return lead;
+  const video = chooseLead(pool, dead, plays, rand);
+  return video?.youtubeId ? video : lead ?? null;
+}
