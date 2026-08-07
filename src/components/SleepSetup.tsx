@@ -20,7 +20,6 @@ import {
 } from "../lib/store";
 import { diverseByMeta, formatTime } from "../lib/engine";
 import { parseFeedFor, youtubeFeedUrl } from "../lib/youtube";
-import { isMixedLineup } from "../lib/youtube-night";
 import { beacon } from "../lib/beacon";
 import type { Episode } from "../lib/engine";
 import { loadNights, setSelfLabel, loadParams, saveParams } from "../lib/rest/ledger";
@@ -418,14 +417,6 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
     // in…" and is disabled, and so is every other way to start a night.
     if (pool.length === 0) {
       setFeedError("couldn't reach your feeds — check your connection and try again");
-      return;
-    }
-    // YouTube plays through an embedded video player and podcasts play through
-    // the audio element; neither can carry the other's episodes. Shuffling
-    // them together would silently drop half the lineup, so the night is
-    // refused with a sentence you can act on instead.
-    if (isMixedLineup(pool)) {
-      setFeedError("a YouTube night can't shuffle with podcast feeds yet — turn one kind off");
       return;
     }
     leadRef.current = lead;
@@ -977,8 +968,9 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
                     video runs hours.
                   </li>
                   <li>
-                    <span className="text-[#b59a76]">One kind per night.</span> A
-                    YouTube night can&apos;t shuffle with podcast feeds yet.
+                    <span className="text-[#b59a76]">Mixed nights start on a video.</span>{" "}
+                    Your browser may want one tap before it will play one, and
+                    it is better to give it while you are awake.
                   </li>
                 </ul>
               </div>
