@@ -112,8 +112,10 @@ export interface MediaBackend {
   duration(): number;
   /** What it is actually doing, asked rather than mirrored — the same lesson
    *  YouTubeNight learned when a boolean it updated on three of six state
-   *  codes rendered a Pause button over silence. */
-  transport(): "playing" | "paused" | "buffering" | "awaiting-start";
+   *  codes rendered a Pause button over silence. "dead" is separate from
+   *  "awaiting-start" for the same reason one level up: a caller must be able
+   *  to tell "a tap will help" from "this backend is gone". */
+  transport(): "playing" | "paused" | "buffering" | "awaiting-start" | "dead";
   destroy(): void;
   /** Fires often enough to drive a 60-second fade. See §7. */
   onProgress(cb: () => void): () => void;
