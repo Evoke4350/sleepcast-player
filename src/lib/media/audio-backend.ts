@@ -119,9 +119,19 @@ export class AudioBackend implements MediaBackend {
    *  purpose, and the night stalls silently and forever. Reported instead,
    *  with a code the caller can tell apart from a dead enclosure: a blocked
    *  autoplay wants a tap and a frozen clock, a dead enclosure wants the next
-   *  episode. */
+   *  episode.
+   *
+   *  Except an abort, which is not a verdict on anything. AbortError is what
+   *  the caller's own next move produces — a new src, or a pause on something
+   *  still buffering — and it lands a microtask later, by which time the
+   *  subscriber is whoever is live NOW rather than the episode that caused it.
+   *  Reported, it condemns an innocent episode, whose load aborts the next
+   *  one's play, and one hung enclosure ends the night in milliseconds. The
+   *  element's "error" event and the caller's watchdog already cover the
+   *  failures that are real. Player.tsx ignores aborts for the same reason. */
   private reportPlayFailure(err: unknown): void {
     if (this.dead) return;
+    if (err instanceof DOMException && err.name === "AbortError") return;
     const code = err instanceof DOMException && err.name === "NotAllowedError" ? "autoplay-blocked" : "play-failed";
     for (const cb of this.errorCallbacks) cb(code);
   }

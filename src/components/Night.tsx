@@ -191,9 +191,13 @@ export function Night({
 
   const heardSecRef = useRef(0);
   const lastPosRef = useRef(0);
-  // Where the current episode was told to begin. The watchdog compares the
-  // live position against it to tell "playing" from "claims to be playing".
-  const startPosRef = useRef(0);
+  // The position seen at the previous tick, and whether this episode's has
+  // ever advanced. The watchdog needs to tell "playing" from "claims to be
+  // playing", and movement is the only honest signal: where the episode was
+  // ASKED to start is not where it necessarily is, because the start seek can
+  // silently fail to land.
+  const lastSeenPosRef = useRef(0);
+  const hasMovedRef = useRef(false);
   const heardSavedAtRef = useRef(-1e9);
   const epStartedAtRef = useRef(0);
   const persistCounterRef = useRef(0);
@@ -310,16 +314,20 @@ export function Night({
           //
           // Unless the night already moved on: a Next tapped during the gap
           // leaves a podcast playing, and playVideo() here would start a
-          // second sound over it.
-          if (liveRef.current === ytRef.current) e.target.playVideo();
+          // second sound over it. The null check is not redundant —
+          // releaseBackends() sets both refs to null, and "equal" would then
+          // be true of nothing at all, so a late onReady would drive a player
+          // that has been destroyed.
+          if (ytRef.current !== null && liveRef.current === ytRef.current) e.target.playVideo();
         },
         onStateChange: (e: { data: number }) => {
           // The player is not destroyed between episodes — it is hidden and
           // paused behind a podcast, and it keeps emitting state changes from
           // there. Acting on them while audio is live would report the video's
           // transport over the podcast's and freeze the countdown over sound
-          // that is actually playing.
-          if (liveRef.current !== ytRef.current) return;
+          // that is actually playing. Once both refs are null the player is
+          // gone, and "equal" must not read as "still live".
+          if (ytRef.current === null || liveRef.current !== ytRef.current) return;
           setTransport(transportFor(e.data));
           if (e.data === YT_STATE.PLAYING) {
             watchRef.current = null;
@@ -351,10 +359,14 @@ export function Night({
   function startEpisode(ep: Episode, seekTo = 0) {
     const next = backendFor(ep);
     // No backend for this kind of episode — the IFrame API never loaded and
-    // this is a video. Return before anything is detached, so whatever is
-    // playing keeps playing rather than the night going quiet.
+    // this is a video. Retire it and move on rather than returning: the mount
+    // path marks every video dead when the API fails, but relying on that made
+    // this function's "a night never stalls" depend on somebody else having
+    // been thorough, and playNext()/handleEnded arrive here with nothing
+    // playing and nothing that will start. Nothing is detached before this
+    // point, so whatever is playing keeps playing until its replacement does.
     if (!next) {
-      flash("that one can't be played here");
+      skipDead(ep, "that one can't be played here", false);
       return;
     }
 
@@ -396,7 +408,10 @@ export function Night({
     watchRef.current = { id: ep.id, at: Date.now() };
     heardSecRef.current = 0;
     lastPosRef.current = start; // so the jump to `start` is not counted as listening
-    startPosRef.current = start;
+    // Seeded with the requested start rather than 0: if the seek does land,
+    // arriving at `start` is not movement and must not read as proof of sound.
+    lastSeenPosRef.current = start;
+    hasMovedRef.current = false;
     heardSavedAtRef.current = -1e9;
     epStartedAtRef.current = Date.now();
     persistCounterRef.current = 10; // snapshot promptly, not up to 10s from now
@@ -507,7 +522,8 @@ export function Night({
       watchRef.current = { id: ep.id, at: Date.now() };
       // The retry restarts from the top, so the watchdog's idea of "has it
       // moved" has to restart with it.
-      startPosRef.current = 0;
+      lastSeenPosRef.current = 0;
+      hasMovedRef.current = false;
       lastPosRef.current = 0;
       return;
     }
@@ -608,7 +624,6 @@ export function Night({
     // mid-render, or an event that simply never arrived, and it is the ONLY
     // path for the audio element, which has no equivalent callback.
     const t = media.transport();
-    setTransport(t);
     // "playing" is not proof that sound is coming out. An <audio> element
     // reports itself unpaused the instant play() is called — before a single
     // byte has arrived — so a stream that accepts the connection and then
@@ -616,10 +631,24 @@ export function Night({
     // the watchdog down and leave the night silent with the countdown running,
     // which is the failure everything here exists to prevent. Player.tsx has
     // the "playing" DOM event for this; behind the backend interface there is
-    // no such event, so the proof is the position having actually moved past
-    // where the episode was loaded.
-    const witnessed: Transport =
-      t === "playing" && media.currentTime() <= startPosRef.current + 0.5 ? "buffering" : t;
+    // no such event, so the proof is the position having MOVED.
+    //
+    // Movement, not position: AudioBackend attempts its start seek once, on
+    // loadedmetadata, and gives up silently when it fails — Safari resets
+    // pre-playback seeks, duration can still be NaN there. An episode whose
+    // seek did not land plays audibly from 0:00 while the position it was
+    // asked for is five minutes away, and a predicate written against that
+    // position kills it as stalled while the listener can hear it. A hung
+    // enclosure never moves either way, so the hole this guard exists to close
+    // stays closed.
+    const seenPos = media.currentTime();
+    if (seenPos > lastSeenPosRef.current) hasMovedRef.current = true;
+    lastSeenPosRef.current = seenPos;
+    const witnessed: Transport = t === "playing" && !hasMovedRef.current ? "buffering" : t;
+    // From `witnessed`, not `t`: the raw value exists to be distrusted, and a
+    // control reading "Pause" over an episode that has not made a sound yet is
+    // the exact class of lie this file is built to avoid.
+    setTransport(witnessed);
     if (witnessed === "playing") {
       // The countdown starts at the first real sound, not at mount, so a night
       // still waiting for its tap does not spend its minutes on silence. The
@@ -1176,7 +1205,11 @@ export function Night({
                   show ads. we can&apos;t mute or skip them.
                 </p>
               )}
-              {screenHeld === false && (
+              {/* Gated on the lineup holding a video for the same reason the
+                  ad notice is: a podcast keeps playing through a sleeping
+                  screen, so on an all-audio lineup this warning would be
+                  alarming and untrue. */}
+              {screenHeld === false && pool.some((e) => e.youtubeId) && (
                 <p className="text-[#8a7a5c]">
                   this browser won&apos;t let us hold the screen awake — set your
                   screen timeout to never, or video stops when it sleeps.

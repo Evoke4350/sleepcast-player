@@ -203,4 +203,21 @@ describe("driving an audio element through the backend interface", () => {
     await Promise.resolve();
     expect(errored).toHaveBeenCalledWith("play-failed");
   });
+
+  it("an interrupted play() is not reported at all", async () => {
+    // AbortError means the caller replaced the source or stopped it — a new
+    // load, or a pause on something still buffering. It says nothing about the
+    // episode, and it arrives a microtask late, by which time the subscriber is
+    // whoever is live NOW. Reported as a failure it condemns the wrong episode,
+    // whose own load then aborts the next one's play, until the night is over.
+    const { el, rejectNextPlay } = fakeAudio();
+    const b = new AudioBackend(el);
+    const errored = vi.fn();
+    b.onError(errored);
+    rejectNextPlay(new DOMException("interrupted by a new load request", "AbortError"));
+    b.load("https://x.test/a.mp3");
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(errored).not.toHaveBeenCalled();
+  });
 });
