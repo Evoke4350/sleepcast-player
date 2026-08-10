@@ -22,6 +22,15 @@
 //
 // The player is injected rather than constructed, so all of the above is
 // testable without a browser or a network fetch of Google's IFrame API.
+//
+// The constructor handlers above predate the mixed-lineup orchestrator, which
+// swaps backends per episode and needs to subscribe/unsubscribe rather than
+// own the only handler for the night. onProgress/onEnded/onError/transport()
+// below add that without touching the constructor path — YouTubeNight.tsx
+// still owns one of these all night and reads state() directly.
+
+import type { MediaBackend, Transport } from "./media/backend";
+import { transportFor } from "./youtube-night";
 
 /** The slice of YT.Player this uses. */
 export interface YTPlayerLike {
@@ -46,12 +55,16 @@ export interface CreatePlayerArgs {
   onError: (code: number) => void;
 }
 
-export class YouTubeMedia {
+export class YouTubeMedia implements MediaBackend {
   private player: YTPlayerLike | null = null;
   private ready = false;
   private dead = false;
   /** Issued before onReady; replayed in order when it fires. */
   private pending: Array<(p: YTPlayerLike) => void> = [];
+  private progressTimer: ReturnType<typeof setInterval> | null = null;
+  private progressSubs = new Set<() => void>();
+  private endedSubs = new Set<() => void>();
+  private errorSubs = new Set<(code: number | string) => void>();
 
   constructor(
     private readonly createPlayer: (args: CreatePlayerArgs) => YTPlayerLike,
@@ -82,8 +95,14 @@ export class YouTubeMedia {
         this.pending = [];
         for (const run of queued) run(this.player!);
       },
-      onEnded: () => this.handlers.onEnded?.(),
-      onError: (code) => this.handlers.onError?.(code),
+      onEnded: () => {
+        this.handlers.onEnded?.();
+        for (const s of this.endedSubs) s();
+      },
+      onError: (code) => {
+        this.handlers.onError?.(code);
+        for (const s of this.errorSubs) s(code);
+      },
     });
   }
 
@@ -129,6 +148,49 @@ export class YouTubeMedia {
     return this.player.getPlayerState();
   }
 
+  /** An iframe emits no timeupdate, so this polls once a second — the clock.
+   *  One interval however many subscribers, started on the first and stopped
+   *  with the last. The orchestrator's shouldTick gate dedupes anything that
+   *  arrives faster than it wants. */
+  onProgress(cb: () => void): () => void {
+    if (this.dead) return () => {};
+    this.progressSubs.add(cb);
+    this.progressTimer ??= setInterval(() => {
+      for (const s of this.progressSubs) s();
+    }, 1000);
+    return () => {
+      this.progressSubs.delete(cb);
+      if (this.progressSubs.size === 0 && this.progressTimer !== null) {
+        clearInterval(this.progressTimer);
+        this.progressTimer = null;
+      }
+    };
+  }
+
+  onEnded(cb: () => void): () => void {
+    if (this.dead) return () => {};
+    this.endedSubs.add(cb);
+    return () => void this.endedSubs.delete(cb);
+  }
+
+  onError(cb: (code: number | string) => void): () => void {
+    if (this.dead) return () => {};
+    this.errorSubs.add(cb);
+    return () => void this.errorSubs.delete(cb);
+  }
+
+  /** The shared vocabulary, layered on top of state()'s raw YT code, which
+   *  YouTubeNight.tsx reads directly and must keep working. transportFor's
+   *  four outcomes predate "dead" — checked here first, because state()
+   *  falls back to -1 (unstarted) after destroy, and transportFor(-1) reads
+   *  as "awaiting-start". A caller that cannot tell "hasn't started" from
+   *  "destroyed" renders a tap prompt over a play() that is a permanent
+   *  no-op. */
+  transport(): Transport {
+    if (this.dead) return "dead";
+    return transportFor(this.state());
+  }
+
   destroy(): void {
     if (this.dead) return;
     this.dead = true;
@@ -137,6 +199,15 @@ export class YouTubeMedia {
     this.player = null;
     this.ready = false;
     p?.destroy();
+    // An interval outliving the night is the bug tick-gate.ts exists to
+    // prevent.
+    if (this.progressTimer !== null) {
+      clearInterval(this.progressTimer);
+      this.progressTimer = null;
+    }
+    this.progressSubs.clear();
+    this.endedSubs.clear();
+    this.errorSubs.clear();
   }
 
   private run(command: (p: YTPlayerLike) => void): void {

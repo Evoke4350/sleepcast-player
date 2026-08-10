@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, it, test, vi } from "vitest";
 import { YouTubeMedia, type YTPlayerLike, type CreatePlayerArgs } from "./youtube-media";
 
 /** A stand-in for YT.Player that records calls and lets a test decide when
@@ -263,5 +263,163 @@ describe("asking the player what it is actually doing", () => {
     setState(1);
     media.destroy();
     expect(media.state()).toBe(-1);
+  });
+});
+
+describe("conforming to the shared backend interface", () => {
+  it("polls its own clock, because an iframe emits no timeupdate", () => {
+    // An <audio> gets progress free from timeupdate, which survives a locked
+    // screen. There is no equivalent here, so the backend owns an interval and
+    // the orchestrator never learns the difference.
+    vi.useFakeTimers();
+    try {
+      const { create, ready } = fakePlayer();
+      const media = new YouTubeMedia(create);
+      media.load("abc");
+      ready();
+      const cb = vi.fn();
+      media.onProgress(cb);
+      vi.advanceTimersByTime(2000);
+      expect(cb.mock.calls.length).toBeGreaterThanOrEqual(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("unsubscribing stops the callbacks", () => {
+    vi.useFakeTimers();
+    try {
+      const { create, ready } = fakePlayer();
+      const media = new YouTubeMedia(create);
+      media.load("abc");
+      ready();
+      const cb = vi.fn();
+      const off = media.onProgress(cb);
+      off();
+      vi.advanceTimersByTime(3000);
+      expect(cb).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("destroy stops the polling", () => {
+    // An interval outliving the night is the bug tick-gate.ts exists for.
+    vi.useFakeTimers();
+    try {
+      const { create, ready } = fakePlayer();
+      const media = new YouTubeMedia(create);
+      media.load("abc");
+      ready();
+      const cb = vi.fn();
+      media.onProgress(cb);
+      media.destroy();
+      vi.advanceTimersByTime(5000);
+      expect(cb).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("resubscribe restarts the clock after the last unsubscribe", () => {
+    // One interval serves every subscriber, started on the first and cleared
+    // with the last. A version that nulled the timer without allowing restart
+    // would pass all existing tests and silently stop progress for the second
+    // episode of a night.
+    vi.useFakeTimers();
+    try {
+      const { create, ready } = fakePlayer();
+      const media = new YouTubeMedia(create);
+      media.load("abc");
+      ready();
+      const cb1 = vi.fn();
+      const off1 = media.onProgress(cb1);
+      vi.advanceTimersByTime(1500);
+      expect(cb1.mock.calls.length).toBeGreaterThan(0);
+      off1(); // Clears the interval
+      cb1.mockClear();
+      vi.advanceTimersByTime(2000);
+      expect(cb1).not.toHaveBeenCalled(); // Still not called
+      const cb2 = vi.fn();
+      media.onProgress(cb2); // Restart the clock
+      vi.advanceTimersByTime(1500);
+      expect(cb2.mock.calls.length).toBeGreaterThan(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("partial unsubscribe leaves the clock running for the other subscriber", () => {
+    // A version that cleared the interval on any unsubscribe would kill the
+    // fade for whoever was still listening.
+    vi.useFakeTimers();
+    try {
+      const { create, ready } = fakePlayer();
+      const media = new YouTubeMedia(create);
+      media.load("abc");
+      ready();
+      const cb1 = vi.fn();
+      const cb2 = vi.fn();
+      const off1 = media.onProgress(cb1);
+      media.onProgress(cb2);
+      vi.advanceTimersByTime(1500);
+      expect(cb1.mock.calls.length).toBeGreaterThan(0);
+      expect(cb2.mock.calls.length).toBeGreaterThan(0);
+      cb1.mockClear();
+      cb2.mockClear();
+      off1(); // Remove only the first subscriber
+      vi.advanceTimersByTime(1500);
+      expect(cb2.mock.calls.length).toBeGreaterThan(0); // Second still fires
+      expect(cb1).not.toHaveBeenCalled(); // First does not
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("subscribed ended and error fire alongside the constructor handlers", () => {
+    // YouTubeNight.tsx passes handlers to the constructor and must keep
+    // working — this is additive, not a replacement.
+    const ctorEnded = vi.fn();
+    const { create, ready, ended, error } = fakePlayer();
+    const media = new YouTubeMedia(create, { onEnded: ctorEnded });
+    media.load("abc");
+    ready();
+    const subEnded = vi.fn();
+    const subError = vi.fn();
+    media.onEnded(subEnded);
+    media.onError(subError);
+    ended();
+    error(150);
+    expect(ctorEnded).toHaveBeenCalledTimes(1);
+    expect(subEnded).toHaveBeenCalledTimes(1);
+    expect(subError).toHaveBeenCalledWith(150);
+  });
+
+  it("transport maps YT's state codes, not a mirrored boolean", () => {
+    const { create, ready, setState } = fakePlayer();
+    const media = new YouTubeMedia(create);
+    media.load("abc");
+    ready();
+    setState(1);
+    expect(media.transport()).toBe("playing");
+    setState(2);
+    expect(media.transport()).toBe("paused");
+    setState(-1);
+    expect(media.transport()).toBe("awaiting-start");
+    setState(3);
+    expect(media.transport()).toBe("buffering");
+  });
+
+  it("transport reports dead rather than awaiting-start once destroyed", () => {
+    // state() falls back to -1 after destroy, and transportFor(-1) reads that
+    // as "awaiting-start" — the reading that once drew a tap prompt over a
+    // play() that can no longer do anything. transport() must catch destroy
+    // before transportFor ever sees the -1.
+    const { create, ready } = fakePlayer();
+    const media = new YouTubeMedia(create);
+    media.load("abc");
+    ready();
+    media.destroy();
+    expect(media.transport()).toBe("dead");
   });
 });
