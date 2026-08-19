@@ -1116,6 +1116,9 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
             </span>
           </label>
         </section>
+          <div className="pt-1 text-center">
+            <a href="/privacy" className="text-[10px] uppercase tracking-widest text-[#4a4030] hover:text-[#6e5d44]">privacy &amp; analytics</a>
+          </div>
           </div>
         </details>
       </div>
