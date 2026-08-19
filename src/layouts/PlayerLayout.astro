@@ -27,17 +27,43 @@ const { title = "sleepcast" } = Astro.props;
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="sleepcast" />
     <meta name="mobile-web-app-capable" content="yes" />
-    <!-- Google Analytics (gtag.js) -->
-    <script is:inline async src="https://www.googletagmanager.com/gtag/js?id=G-DPQWL1XFMD"></script>
+    <!-- Google Analytics (gtag.js) with Consent Mode v2. analytics_storage is
+         denied by default; the consent banner grants it and the choice persists. -->
     <script is:inline>
       window.dataLayer = window.dataLayer || [];
       function gtag(){dataLayer.push(arguments);}
+      gtag('consent', 'default', { ad_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied', analytics_storage: 'denied', wait_for_update: 500 });
+      try { if (localStorage.getItem('sc-consent') === 'granted') gtag('consent', 'update', { analytics_storage: 'granted' }); } catch (e) {}
       gtag('js', new Date());
       gtag('config', 'G-DPQWL1XFMD');
     </script>
+    <script is:inline async src="https://www.googletagmanager.com/gtag/js?id=G-DPQWL1XFMD"></script>
   </head>
   <body class="min-h-full flex flex-col">
     <slot />
+    <div id="sc-consent" hidden role="dialog" aria-label="analytics consent"
+      class="fixed inset-x-0 bottom-0 z-50 border-t border-[#241f30] bg-[#0a0810]/95 px-4 py-3 text-xs text-[#8a7a5c] backdrop-blur">
+      <div class="mx-auto flex max-w-2xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <span>sleepcast uses google analytics to understand usage. <a href="/privacy" class="underline text-[#c8a978]">learn more</a>.</span>
+        <span class="flex gap-2">
+          <button id="sc-decline" class="rounded-md border border-[#241f30] px-3 py-1.5 text-[#8a7a5c] hover:text-[#b59a76]">decline</button>
+          <button id="sc-accept" class="rounded-md border border-[#6e5d44] px-3 py-1.5 text-[#d9c3a0] hover:border-[#b59a76]">accept</button>
+        </span>
+      </div>
+    </div>
+    <script is:inline>
+      (function () {
+        try { if (localStorage.getItem('sc-consent')) return; } catch (e) { return; }
+        var b = document.getElementById('sc-consent'); if (!b) return; b.hidden = false;
+        function choose(v) {
+          try { localStorage.setItem('sc-consent', v); } catch (e) {}
+          if (v === 'granted' && window.gtag) gtag('consent', 'update', { analytics_storage: 'granted' });
+          b.hidden = true;
+        }
+        document.getElementById('sc-accept').addEventListener('click', function () { choose('granted'); });
+        document.getElementById('sc-decline').addEventListener('click', function () { choose('denied'); });
+      })();
+    </script>
     <script is:inline>
       // Registered late and failure-tolerant: the player works without it, so
       // a service worker that won't install must never block a night.

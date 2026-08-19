@@ -17,8 +17,10 @@ normal podcast app would have.
 - **The player survives a full reload** via `store.saveLive`/`loadLive`, a
   localStorage snapshot of the night. Don't assume it is stateless across
   reloads.
-- **No analytics, no cookies, no accounts, no database.** Nothing here should
-  ever add a dependency implying otherwise.
+- **No accounts, no database.** Google Analytics is the only third-party
+  analytics, gated behind a consent banner (Consent Mode v2, `analytics_storage`
+  denied by default) so it sets cookies only after the visitor accepts. Feed
+  data, settings, and history stay in `localStorage`.
 - **The sleep detector must stay conservative.** A false positive ends someone's
   night early. When changing `src/lib/rest/detector.ts`, run
   `detector.sim.test.ts` — it runs synthetic nights and is the only thing that
