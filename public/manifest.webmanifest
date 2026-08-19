@@ -1,7 +1,7 @@
 {
   "name": "sleepcast",
   "short_name": "sleepcast",
-  "description": "Shuffles episodes from podcast feeds you add until a sleep timer fades to silence. No account, no tracking.",
+  "description": "Shuffles episodes from podcast feeds you add until a sleep timer fades to silence. No account, no ads.",
   "lang": "en",
   "start_url": "/?source=pwa",
   "scope": "/",

@@ -30,10 +30,14 @@ can reach `169.254.169.254` and your internal network. The tests in
 
 ## What this app does not do
 
-It has no accounts, no server-side storage, no database, no cookies, no
-analytics, and no telemetry. Feeds, settings and listening history live only in
-the browser's `localStorage`. There is nothing on the server to breach because
-nothing about a user is sent to it — the only server work is fetching feeds.
+It has no accounts, no server-side storage, and no database. It uses Google
+Analytics for usage measurement, gated behind a consent banner (Consent Mode
+v2, denied by default), so analytics cookies are set only after a visitor
+accepts; declining, or opting out, leaves the app fully working. Feeds, settings
+and listening history live only in the browser's `localStorage`. There is
+nothing about a user on the app's server to breach: usage analytics goes
+directly from the browser to Google when consented, not through the server, and
+the only server work is fetching feeds.
 
 One optional feature ("varied mix") downloads MiniLM-L6-v2 from Hugging Face's
 CDN and runs it in the browser. That is the only third-party request the app
