@@ -46,6 +46,7 @@ import { BrownNoise, noiseGain } from "../lib/noise";
 import { shouldTick } from "../lib/tick-gate";
 import { RestSession, revivedNightStart } from "../lib/rest/session";
 import { recordNightEnd } from "../lib/night-end";
+import { NetworkHold, isOffline } from "../lib/network-hold";
 import { PlaybackWitness } from "../lib/witness";
 import { MAX_FAILS, applyEndedDecision, decideAfterEnded, shouldPlayWhole } from "../lib/episode-end";
 import type { RestNight } from "../lib/rest/types";
@@ -182,6 +183,8 @@ export function YouTubeNight({
   // (the player isn't ready or the seek hasn't landed), so snapshots and
   // resume points wait for it, and a retry reloads at the intended start.
   const witnessRef = useRef(new PlaybackWitness());
+  /** Waiting out a dropped network (see holdForNetwork). */
+  const netHoldRef = useRef(new NetworkHold());
   // The prompt waits a beat before appearing. A player that is simply still
   // coming up also reads as "unstarted", and flashing "tap to begin" at
   // someone half a second before it starts on its own is worse than silence.
@@ -252,6 +255,7 @@ export function YouTubeNight({
   }
 
   function startEpisode(ep: Episode, seekTo = 0) {
+    netHoldRef.current.cancel(); // a new episode: any wait was for the last one
     const media = mediaRef.current;
     if (!media || !ep.youtubeId) return;
     setNowPlaying({ id: ep.id, title: ep.title, feedId: ep.feedId });
@@ -346,6 +350,11 @@ export function YouTubeNight({
   function handleError(code: number, info: ErrorInfo) {
     const ep = currentEpRef.current;
     if (!ep?.youtubeId || tickHandleRef.current === null) return;
+    // Offline, every video fails: that says nothing about this one.
+    if (isOffline()) {
+      holdForNetwork(ep);
+      return;
+    }
     const decision = decideAfterError(code, retriesRef.current);
     if (decision.action === "retry") {
       // Counted even when uncertain: a retry reloads (a new switch), so an
@@ -547,6 +556,11 @@ export function YouTubeNight({
         limitMs: WATCHDOG_MS,
       })
     ) {
+      if (isOffline() && currentEpRef.current) {
+        // Not stuck: the network is gone. Nothing is condemned or skipped.
+        holdForNetwork(currentEpRef.current);
+        return;
+      }
       watchRef.current = null;
       // Stuck without an error code: a blocked embed that reported nothing, a
       // region lock, a load that never finished. Dead for tonight only — we do
@@ -587,6 +601,7 @@ export function YouTubeNight({
     // empty last night and a RestNight to the ledger, which calibration then
     // learned from.
     clearStopFade();
+    netHoldRef.current.cancel();
     recordNightEnd({
       reason,
       played: hasEverPlayedRef.current,
@@ -704,6 +719,7 @@ export function YouTubeNight({
       if (tickHandleRef.current !== null) clearInterval(tickHandleRef.current);
       tickHandleRef.current = null;
       clearStopFade();
+      netHoldRef.current.cancel();
       if (holdTimerRef.current) clearInterval(holdTimerRef.current);
       brownRef.current?.stop();
       mediaRef.current?.destroy();
@@ -719,6 +735,7 @@ export function YouTubeNight({
   /** This episode has played: stand the watchdog down and reset the failure
    *  counts. One place for the PLAYING event and the tick's witness. */
   function markPlayed() {
+    netHoldRef.current.cancel(); // the network is evidently fine
     lastHeardEpRef.current = currentEpRef.current;
     watchRef.current = null;
     failsRef.current = 0;
@@ -745,6 +762,25 @@ export function YouTubeNight({
     witnessRef.current.markReplayed();
     retriesRef.current = 0; // a fresh attempt, not the failed load's leftovers
     return true;
+  }
+
+  /** Offline: hold the night instead of spending the lineup on a dropped
+   *  network (see network-hold). Clock frozen and shown paused, every time,
+   *  even when already holding (a tap in the meantime thawed it). When the
+   *  network is back, the same episode reloads where it was, or where its
+   *  load was meant to start if it never played. */
+  function holdForNetwork(ep: Episode) {
+    watchRef.current = null;
+    freezeClock();
+    mediaRef.current?.pause();
+    setTransport("paused");
+    const w = witnessRef.current;
+    const at = w.played ? Math.max(w.startSec, mediaRef.current?.currentTime() ?? 0) : w.startSec;
+    netHoldRef.current.hold(() => {
+      if (tickHandleRef.current === null || stopFadeRef.current !== null) return;
+      if (currentEpRef.current !== ep) return;
+      reloadAt(ep, at);
+    });
   }
 
   /** Reload the current episode at `at`: a retry, or a replay. The per-load

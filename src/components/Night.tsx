@@ -53,6 +53,7 @@ import { BrownNoise, noiseGain } from "../lib/noise";
 import { shouldTick } from "../lib/tick-gate";
 import { RestSession, revivedNightStart } from "../lib/rest/session";
 import { recordNightEnd } from "../lib/night-end";
+import { NetworkHold, isOffline } from "../lib/network-hold";
 import { PlaybackWitness } from "../lib/witness";
 import { applyEndedDecision, decideAfterEnded, shouldPlayWhole } from "../lib/episode-end";
 import type { RestNight } from "../lib/rest/types";
@@ -194,6 +195,8 @@ export function Night({
   // is the only honest signal: where the episode was ASKED to start is not
   // where it necessarily is, because the start seek can silently fail to land.
   const witnessRef = useRef(new PlaybackWitness());
+  /** Waiting out a dropped network (see holdForNetwork). */
+  const netHoldRef = useRef(new NetworkHold());
   // The fade factor last applied to the live backend, before per-feed trim
   // (the night's fade, or the courtesy fade). A backend that becomes live is
   // set to it times its own episode's trim at once, rather than playing at
@@ -311,6 +314,7 @@ export function Night({
   }
 
   function startEpisode(ep: Episode, seekTo = 0) {
+    netHoldRef.current.cancel(); // a new episode: any wait was for the last one
     const next = backendFor(ep);
     // No backend for this kind of episode — the IFrame API never loaded and
     // this is a video. Retire it and move on rather than returning: the mount
@@ -464,6 +468,11 @@ export function Night({
   function handleError(code: number | string, info: ErrorInfo) {
     const ep = currentEpRef.current;
     if (!ep || tickHandleRef.current === null) return;
+    // Offline, every source fails: that says nothing about this episode.
+    if (isOffline() && code !== "autoplay-blocked") {
+      holdForNetwork(ep);
+      return;
+    }
 
     if (typeof code === "string") {
       if (code === "autoplay-blocked") {
@@ -701,6 +710,11 @@ export function Night({
         limitMs: WATCHDOG_MS,
       })
     ) {
+      if (isOffline() && currentEpRef.current) {
+        // Not stuck: the network is gone. Nothing is condemned or skipped.
+        holdForNetwork(currentEpRef.current);
+        return;
+      }
       watchRef.current = null;
       // Stuck without an error code: a blocked embed that reported nothing, a
       // region lock, a load that never finished. Dead for tonight only — we do
@@ -764,6 +778,7 @@ export function Night({
     // empty last night and a RestNight to the ledger, which calibration then
     // learned from.
     clearStopFade();
+    netHoldRef.current.cancel();
     recordNightEnd({
       reason,
       played: hasEverPlayedRef.current,
@@ -940,6 +955,7 @@ export function Night({
       if (tickHandleRef.current !== null) clearInterval(tickHandleRef.current);
       tickHandleRef.current = null;
       clearStopFade();
+      netHoldRef.current.cancel();
       if (holdTimerRef.current) clearInterval(holdTimerRef.current);
       brownRef.current?.stop();
       releaseBackends();
@@ -954,6 +970,7 @@ export function Night({
   /** This episode has played: stand the watchdog down and reset the retry
    *  count. One place for the embed's PLAYING event and the tick's witness. */
   function markPlayed() {
+    netHoldRef.current.cancel(); // the network is evidently fine
     lastHeardEpRef.current = currentEpRef.current;
     watchRef.current = null;
     retriesRef.current = 0;
@@ -970,6 +987,25 @@ export function Night({
     witnessRef.current.markReplayed();
     retriesRef.current = 0; // a fresh attempt, not the failed load's leftovers
     return true;
+  }
+
+  /** Offline: hold the night instead of spending the lineup on a dropped
+   *  network (see network-hold). Clock frozen and shown paused, every time,
+   *  even when already holding (a tap in the meantime thawed it). When the
+   *  network is back, the same episode reloads where it was, or where its
+   *  load was meant to start if it never played. */
+  function holdForNetwork(ep: Episode) {
+    watchRef.current = null;
+    freezeClock();
+    liveRef.current?.pause();
+    setTransport("paused");
+    const w = witnessRef.current;
+    const at = w.played ? Math.max(w.startSec, liveRef.current?.currentTime() ?? 0) : w.startSec;
+    netHoldRef.current.hold(() => {
+      if (tickHandleRef.current === null || stopFadeRef.current !== null) return;
+      if (currentEpRef.current !== ep) return;
+      reloadAt(ep, at);
+    });
   }
 
   /** Reload the current episode at `at`: a retry, or a replay. The per-load

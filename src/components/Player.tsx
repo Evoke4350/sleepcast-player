@@ -5,7 +5,8 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 const DriftGame = lazy(() => import("./DriftGame"));
 import type { Episode, PlayMode } from "../lib/engine";
 import { fadeVolume, formatTime, effectiveVolume, fadeDriverSeconds } from "../lib/engine";
-import { getPlays, recordHeardPlay, saveLive, rememberPosition, forgetPosition, blockEpisode, loadPositions } from "../lib/store";
+import { getPlays, recordHeardPlay, saveLive, rememberPosition, forgetPosition, blockEpisode } from "../lib/store";
+import { NetworkHold, isOffline } from "../lib/network-hold";
 import { pickNextEpisode, HEARD_SEC } from "../lib/plays";
 import { canExtend } from "../lib/timer-feel";
 import type { NoiseSettings } from "../lib/store";
@@ -109,9 +110,10 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   // skip it instead of sitting in silence. Bounded so a fully-broken pool
   // can't spin forever.
   const watchRef = useRef<{ src: string; at: number } | null>(null);
-  /** Set while waiting for the network to come back (see waitForNetwork);
-   *  calling it stops waiting. */
-  const offlineWaitRef = useRef<(() => void) | null>(null);
+  /** Waiting out a dropped network (see holdForNetwork). */
+  const netHoldRef = useRef(new NetworkHold());
+  /** Where the current load was asked to start (a revived position, a lead). */
+  const loadStartRef = useRef(0);
   const failsRef = useRef(0);
   // Whether anything has actually played this night. A night that never did
   // records nothing when it ends (see endSession).
@@ -170,6 +172,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   // The quarter-hour rule has fired and playback is held. Once dismissed it
   // does not fire again for the rest of the night.
   const [gettingUp, setGettingUp] = useState(false);
+  const gettingUpRef = useRef(false);
+  useEffect(() => { gettingUpRef.current = gettingUp; }, [gettingUp]);
   const ruleSpentRef = useRef(false);
   const nightStartedAtRef = useRef(Date.now());
   const holdTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -214,6 +218,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     audio.src = ep.url;
     currentEpRef.current = ep;
     epPlayedRef.current = false;
+    loadStartRef.current = seekTo;
+    netHoldRef.current.cancel(); // a new episode: any wait was for the last one
     // Snapshot the new episode to storage promptly, not up to 10s later.
     persistCounterRef.current = 10;
 
@@ -314,7 +320,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
    *  MAX_FAILS the whole pool looks broken and the night ends; returns whether
    *  it did. It used to pause instead, which froze the night for good (the
    *  clock stops on pause): it never ended or recorded. Ended as an app
-   *  give-up, so a restored night that failed offline keeps its snapshot. */
+   *  give-up, so a restored night whose sources all fail keeps its snapshot
+   *  (offline failures don't get here: see holdForNetwork). */
   function countFailure(): boolean {
     failsRef.current++;
     if (failsRef.current <= MAX_FAILS) return false;
@@ -322,43 +329,57 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     return true;
   }
 
-  /** A stuck track or a source error: move on, or end the night once the
-   *  whole pool looks broken. Offline, neither: every source fails at once,
-   *  and burning through the pool would end (and clear) a night that one tap
-   *  on the Wi-Fi would have saved. Wait for the network instead. */
-  function failAndMoveOn() {
-    if (typeof navigator !== "undefined" && navigator.onLine === false) {
-      waitForNetwork();
-      return;
-    }
-    if (countFailure()) return;
-    playNext();
-  }
-
-  /** Hold the night, clock frozen, until the browser reports the network is
-   *  back, then retry the same episode from its last remembered position. */
-  function waitForNetwork() {
+  /** Offline: hold the night instead of spending the pool on a dropped
+   *  network (see network-hold). Clock frozen and shown paused, every time,
+   *  even when already holding (a Resume tap in the meantime thawed it).
+   *  When the network is back, the same episode reloads where it was, or
+   *  where its load was meant to start if it never played. */
+  function holdForNetwork() {
     const audio = audioRef.current;
     const ep = currentEpRef.current;
-    if (!audio || !ep || offlineWaitRef.current) return;
-    // A failed element may already be paused, so no "pause" event would
-    // freeze the clock: freeze it here (onPlay thaws it on the retry).
+    if (!audio || !ep) return;
+    watchRef.current = null;
     if (endTimeRef.current !== null && pausedRemainingMsRef.current === null) {
       pausedRemainingMsRef.current = endTimeRef.current - Date.now();
     }
-    watchRef.current = null;
     audio.pause();
     setPaused(true);
-    const onOnline = () => {
-      offlineWaitRef.current = null;
-      if (tickHandleRef.current === null || currentEpRef.current !== ep) return;
-      playEpisode(ep, loadPositions()[ep.id] ?? 0);
-    };
-    window.addEventListener("online", onOnline, { once: true });
-    offlineWaitRef.current = () => {
-      window.removeEventListener("online", onOnline);
-      offlineWaitRef.current = null;
-    };
+    const at = epPlayedRef.current ? Math.max(audio.currentTime || 0, lastPosRef.current) : loadStartRef.current;
+    netHoldRef.current.hold(() => {
+      // Not over a night that ended or is fading out, a different episode, or
+      // the get-up hold the listener opted into.
+      if (tickHandleRef.current === null || stopFadeRef.current !== null) return;
+      if (currentEpRef.current !== ep || gettingUpRef.current) return;
+      reloadCurrent(ep, at);
+    });
+  }
+
+  /** Reload the current episode's source at `at`. Not playEpisode: this is
+   *  the same listening resumed, so the play ledger, the rest timeline and the
+   *  skip-intro are left alone. */
+  function reloadCurrent(ep: Episode, at: number) {
+    const audio = audioRef.current;
+    if (!audio) return;
+    seekCleanupRef.current?.();
+    seekCleanupRef.current = null;
+    // Closes the snapshot gate until it plays again, as the CORS retry does.
+    epPlayedRef.current = false;
+    audio.src = ep.url;
+    if (at > 0) {
+      const onMeta = () => {
+        try { audio.currentTime = at; } catch { /* not seekable yet */ }
+        cleanupMeta();
+      };
+      const cleanupMeta = () => {
+        audio.removeEventListener("loadedmetadata", onMeta);
+        if (seekCleanupRef.current === cleanupMeta) seekCleanupRef.current = null;
+      };
+      seekCleanupRef.current = cleanupMeta;
+      audio.addEventListener("loadedmetadata", onMeta);
+    }
+    lastPosRef.current = at; // not a jump heardTick should count
+    watchRef.current = { src: ep.url, at: Date.now() };
+    void audio.play().catch(() => { /* the error event or the watchdog decides */ });
   }
 
   function playNext() {
@@ -611,7 +632,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     const w = watchRef.current;
     if (w && Date.now() - w.at > 25_000) {
       watchRef.current = null;
-      failAndMoveOn();
+      if (isOffline()) holdForNetwork();
+      else if (!countFailure()) playNext();
       // Everything below concerns the episode just replaced (or the night just
       // ended), as in YouTubeNight's watchdog.
       return;
@@ -643,10 +665,10 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     //
     // A night that never played anything (every enclosure failed, say, and the
     // listener ended it) records nothing: no re-arm stamp, no empty last night,
-    // no RestNight for calibration to learn from. Ending it is still the
-    // listener's choice, so its snapshot is cleared either way.
+    // no RestNight for calibration to learn from. Its snapshot is cleared
+    // unless the app is the one giving up (gaveUp; see recordNightEnd).
     clearStopFade();
-    offlineWaitRef.current?.();
+    netHoldRef.current.cancel();
     recordNightEnd({
       reason,
       played: hasEverPlayedRef.current,
@@ -757,6 +779,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // Playback genuinely started: stand the watchdog down.
     const onPlaying = () => {
       watchRef.current = null;
+      netHoldRef.current.cancel(); // the network is evidently fine
       failsRef.current = 0;
       hasEverPlayedRef.current = true;
       epPlayedRef.current = true;
@@ -777,6 +800,12 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     };
 
     const onError = () => {
+      // Offline, first: a network drop says nothing about this enclosure or
+      // its feed's CORS headers, and must not condemn either.
+      if (isOffline() && tickHandleRef.current !== null && audio.getAttribute("src")) {
+        holdForNetwork();
+        return;
+      }
       // A crossOrigin element failing may only mean "this enclosure serves no
       // CORS headers" — retry the same source plain before skipping the track.
       const feedId = currentFeedRef.current;
@@ -822,7 +851,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
         // Counted like the watchdog's stuck tracks. Uncounted, a pool whose
         // sources all fail at once (network gone at 2am, every enclosure a
         // 404) switched tracks forever, since onPlaying never resets anything.
-        failAndMoveOn();
+        if (!countFailure()) playNext();
       }
     };
 
@@ -864,7 +893,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     return () => {
       if (tickHandleRef.current !== null) clearInterval(tickHandleRef.current);
       clearStopFade();
-      offlineWaitRef.current?.();
+      netHoldRef.current.cancel();
       // A hold still counting at unmount would call endSession on a player
       // that is gone, and through onEnd end whatever night came next.
       if (holdTimerRef.current) clearInterval(holdTimerRef.current);
