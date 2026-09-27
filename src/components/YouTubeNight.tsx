@@ -793,9 +793,9 @@ export function YouTubeNight({
     netHoldRef.current.hold(
       () => {
         // Not into a night that is ending (a fade-out) or has moved on.
-        if (tickHandleRef.current === null || stopFadeRef.current !== null) return;
-        if (currentEpRef.current !== ep) return;
-        reloadAt(ep, at);
+        if (tickHandleRef.current === null || stopFadeRef.current !== null) return false;
+        if (currentEpRef.current !== ep) return false;
+        return reloadAt(ep, at);
       },
       paused,
     );
@@ -822,7 +822,7 @@ export function YouTubeNight({
     restRef.current?.noteInteraction();
     const media = mediaRef.current;
     if (!media) return;
-    if (transport === "playing") {
+    if (transportRef.current === "playing") {
       media.pause();
       return;
     }

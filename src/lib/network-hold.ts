@@ -20,7 +20,7 @@ export function isOffline(): boolean {
  *  source does nothing and would only thaw the clock over silence. Holding
  *  again replaces the pending resume, so it always concerns what failed last. */
 export class NetworkHold {
-  private pending: (() => void) | null = null;
+  private pending: (() => boolean) | null = null;
   private off: (() => void) | null = null;
   /** The first hold's reading, kept until cancel(): through re-holds, and
    *  through a resume attempt that fails again before any sound (its own
@@ -30,7 +30,9 @@ export class NetworkHold {
 
   /** `paused`: whether the player was paused as the hold begins. Ignored
    *  after the first hold until cancel() (see pausedAtHold). */
-  hold(resume: () => void, paused: boolean, allow: () => boolean = () => true): void {
+  /** `resume` returns whether it actually reloaded: it may find the hold no
+   *  longer applies (a fade-out, the night moved on). */
+  hold(resume: () => boolean, paused: boolean, allow: () => boolean = () => true): void {
     this.disarm();
     this.pausedAtHold ??= paused;
     this.pending = resume;
@@ -42,14 +44,14 @@ export class NetworkHold {
   }
 
   /** Run the pending resume now. Returns whether there was one. `asked`:
-   *  the listener asked for sound, which settles the reading — should this
-   *  attempt fail too, the network coming back may resume by itself. */
+   *  the listener asked for sound, which settles the reading once the resume
+   *  actually reloads — should that attempt fail too, the network coming
+   *  back may resume by itself. */
   resumeNow(asked = false): boolean {
     const resume = this.pending;
     if (!resume) return false;
     this.disarm();
-    if (asked) this.pausedAtHold = false;
-    resume();
+    if (resume() && asked) this.pausedAtHold = false;
     return true;
   }
 
