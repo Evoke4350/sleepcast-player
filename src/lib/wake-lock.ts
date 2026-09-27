@@ -50,31 +50,45 @@ export function createScreenLock(
   function acquire(): Promise<boolean> {
     if (sentinel) return Promise.resolve(true);
     if (pending) return pending;
-    const gen = generation;
-    let self: Promise<boolean> | null = null;
-    self = (async () => {
+    // Each request owns a generation; release() and forgetHeld() bump it too.
+    // Only one request runs per generation (`pending` dedupes), so a request
+    // is current exactly when the generation is still its own.
+    const gen = ++generation;
+    // A request() that throws synchronously is a refusal like any other. It
+    // is caught here, before `pending` exists, because the async body's
+    // finally would otherwise run before `pending` was assigned and leave a
+    // settled `false` cached there for good. Past this point the body always
+    // awaits a promise first, so its finally runs after the assignment.
+    let requested: Promise<WakeLockSentinelLike>;
+    try {
+      requested = request();
+    } catch {
+      return Promise.resolve(sentinel !== null);
+    }
+    pending = (async () => {
       try {
-        const s = await request();
-        // Superseded, or another request already stored a lock: never keep a
-        // second sentinel, or the first would be overwritten and never released.
-        if (gen !== generation || sentinel) {
+        const s = await requested;
+        if (gen !== generation) {
+          // Superseded. Never keep it: storing it held the screen awake after
+          // a night ended, or kept a lock the browser revoked on hiding. Report
+          // whether a lock is held now, not this request's stale outcome, since
+          // callers write the result straight into their "screen held" state.
           await s.release().catch(() => {});
-          return gen === generation && sentinel !== null;
+          return sentinel !== null;
         }
         sentinel = s;
         return true;
       } catch {
         // Unsupported, insecure origin, or refused. Degraded, not broken — the
         // component tells the listener to keep the screen on themselves.
-        return false;
+        return sentinel !== null;
       } finally {
-        // Only clear our own slot. A superseded request finishing late must
-        // not clear a newer one, or a duplicate request could start.
-        if (pending === self) pending = null;
+        // Only the current request clears the slot; a superseded one finishing
+        // late must not clear a newer one, or a duplicate could start.
+        if (gen === generation) pending = null;
       }
     })();
-    pending = self;
-    return self;
+    return pending;
   }
 
   return {

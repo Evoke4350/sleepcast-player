@@ -182,3 +182,46 @@ describe("createScreenLock races found in review", () => {
     expect(lock.held()).toBe(true);
   });
 });
+
+describe("createScreenLock: second review", () => {
+  function deferredRequest() {
+    const pending: { resolve: () => void; sentinel: { released: boolean; release(): Promise<void> } }[] = [];
+    const request = () =>
+      new Promise<WakeLockSentinelLike>((resolve) => {
+        const sentinel = { released: false, async release() { this.released = true; } };
+        pending.push({ resolve: () => resolve(sentinel), sentinel });
+      });
+    return { request, pending };
+  }
+
+  // Mount's request was superseded by a hide/show; the newer request won
+  // first. The mount's late `false` was written into "screen held" while the
+  // lock was in fact held.
+  test("a superseded request reports the lock that is held now", async () => {
+    const { request, pending } = deferredRequest();
+    const lock = createScreenLock(request, () => false);
+    const mount = lock.acquire();
+    lock.forgetHeld();
+    const back = lock.reacquire();
+    pending[1].resolve();
+    await back;
+    pending[0].resolve();
+    expect(await mount).toBe(true);
+    expect(lock.held()).toBe(true);
+    expect(pending[0].sentinel.released).toBe(true);
+  });
+
+  // A request that threw synchronously left a settled `false` cached in the
+  // pending slot, so the lock was never asked for again.
+  test("a synchronous throw does not wedge later acquires", async () => {
+    let calls = 0;
+    const lock = createScreenLock(() => {
+      calls++;
+      if (calls === 1) throw new Error("sync");
+      return Promise.resolve({ release: async () => {} });
+    }, () => false);
+    expect(await lock.acquire()).toBe(false);
+    expect(await lock.acquire()).toBe(true);
+    expect(calls).toBe(2);
+  });
+});
