@@ -178,6 +178,8 @@ export function Night({
   const wasVariedRef = useRef(wasVaried);
 
   const currentEpRef = useRef<Episode | null>(null);
+  /** The last episode that actually played tonight (see NightEnd.lastHeard). */
+  const lastHeardEpRef = useRef<Episode | null>(null);
   const currentFeedRef = useRef<string | null>(null);
   // Everything known not to play: blocked across nights (the uploader disabled
   // embedding, the video is gone) plus whatever failed tonight.
@@ -774,8 +776,7 @@ export function Night({
         skipIntroByFeedId: skipIntroRef.current,
         wasVaried: wasVariedRef.current,
       },
-      current: currentEpRef.current,
-      currentHeard: witnessRef.current.heard,
+      lastHeard: lastHeardEpRef.current,
       rest: restRef.current,
       now: Date.now(),
     });
@@ -944,6 +945,7 @@ export function Night({
   /** This episode has played: stand the watchdog down and reset the retry
    *  count. One place for the embed's PLAYING event and the tick's witness. */
   function markPlayed() {
+    lastHeardEpRef.current = currentEpRef.current;
     watchRef.current = null;
     retriesRef.current = 0;
     hasEverPlayedRef.current = true;

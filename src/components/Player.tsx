@@ -17,6 +17,9 @@ import { RestSession, revivedNightStart } from "../lib/rest/session";
 import { recordNightEnd } from "../lib/night-end";
 import type { RestNight } from "../lib/rest/types";
 
+// Consecutive failures (stuck tracks, source errors) before the night ends.
+const MAX_FAILS = 6;
+
 const FADE_SECONDS = 60;
 // Just under a second, so a jittery 1s interval isn't swallowed by the gate it
 // shares with the ~4Hz timeupdate stream.
@@ -123,6 +126,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   // revive it), the live timer total, and a throttle so we snapshot the night
   // to storage every ~10s rather than every tick.
   const currentEpRef = useRef<Episode | null>(null);
+  /** The last episode that actually played tonight (see NightEnd.lastHeard). */
+  const lastHeardEpRef = useRef<Episode | null>(null);
   const totalSecondsRef = useRef(timerMinutes * 60);
   const persistCounterRef = useRef(0);
   // Play-ledger accounting for the episode currently playing (see heardTick).
@@ -304,6 +309,18 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     }
   }
 
+  /** Count one more consecutive failure (a stuck track, a source error). Past
+   *  MAX_FAILS the whole pool looks broken and the night ends; returns whether
+   *  it did. It used to pause instead, which froze the night for good (the
+   *  clock stops on pause): it never ended or recorded. Ended as an app
+   *  give-up, so a restored night that failed offline keeps its snapshot. */
+  function countFailure(): boolean {
+    failsRef.current++;
+    if (failsRef.current <= MAX_FAILS) return false;
+    endSession("ended", { gaveUp: true });
+    return true;
+  }
+
   function playNext() {
     // Exclude what is playing now. The ledger only records an episode after
     // HEARD_SEC, so on a fresh varied mix every episode is still a candidate
@@ -315,7 +332,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       // the whole feed, and end rather than fake-play silence all night.
       const playable = available.filter((e) => !corsBadFeeds.has(e.feedId));
       if (playable.length === 0) {
-        endSession("ended");
+        endSession("ended", { gaveUp: true });
         return;
       }
       available = playable;
@@ -553,18 +570,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     const w = watchRef.current;
     if (w && Date.now() - w.at > 25_000) {
       watchRef.current = null;
-      failsRef.current++;
-      if (failsRef.current <= 6 && tickHandleRef.current !== null) {
-        playNext(); // stuck track: move on
-      } else if (tickHandleRef.current !== null) {
-        // The whole pool looks broken. End the night, as Night and YouTubeNight
-        // do: pausing froze it for good (the clock stops on pause), so it never
-        // ended or recorded, and its snapshot sat waiting.
-        endSession("ended");
-        return;
-      } else {
-        audio.pause();
-      }
+      // A stuck track: move on, or end the night if the whole pool looks broken.
+      if (countFailure()) return;
+      playNext();
     }
 
     // Spent only when a snapshot can actually be written (the episode has
@@ -584,7 +592,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     }
   }
 
-  function endSession(reason: RestNight["endedVia"] = "faded") {
+  /** `gaveUp`: the app, not the listener, is ending a night that never
+   *  played, so its snapshot is kept (see NightEnd.gaveUp). */
+  function endSession(reason: RestNight["endedVia"] = "faded", { gaveUp = false }: { gaveUp?: boolean } = {}) {
     // "faded" is the natural end — the timer ran out untouched. Stamp it so
     // the setup screen can offer a smaller re-arm to someone who wakes back
     // up inside the window. A manual stop is not an invitation to resume.
@@ -597,7 +607,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     recordNightEnd({
       reason,
       played: hasEverPlayedRef.current,
-      gaveUp: false,
+      gaveUp,
       timerMinutes,
       modeKind: modeRef.current.kind,
       lastNight: {
@@ -608,8 +618,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
         skipIntroByFeedId: skipIntroRef.current,
         wasVaried: wasVariedRef.current,
       },
-      current: currentEpRef.current,
-      currentHeard: epPlayedRef.current,
+      lastHeard: lastHeardEpRef.current,
       rest: restRef.current,
       now: Date.now(),
     });
@@ -708,6 +717,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       failsRef.current = 0;
       hasEverPlayedRef.current = true;
       epPlayedRef.current = true;
+      lastHeardEpRef.current = currentEpRef.current;
       const feedId = currentFeedRef.current;
       if (feedId && audio.crossOrigin === "anonymous") corsGoodFeeds.add(feedId);
       // Conservative gate: attach only once every feed in the pool has already
@@ -769,9 +779,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
         // Counted like the watchdog's stuck tracks. Uncounted, a pool whose
         // sources all fail at once (network gone at 2am, every enclosure a
         // 404) switched tracks forever, since onPlaying never resets anything.
-        failsRef.current++;
-        if (failsRef.current <= 6) playNext();
-        else endSession("ended"); // the whole pool looks broken (see the watchdog)
+        if (!countFailure()) playNext();
       }
     };
 

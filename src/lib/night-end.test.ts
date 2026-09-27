@@ -12,7 +12,7 @@ const live: LiveSession = {
 const end = (over: Partial<NightEnd> = {}): NightEnd => ({
   reason: "faded", played: true, timerMinutes: 45, modeKind: "minutes",
   lastNight: { pool: [ep], playedIds: ["a"], feedTitles: {}, artworkByFeedId: {}, skipIntroByFeedId: {}, wasVaried: false },
-  current: ep, currentHeard: true, rest: new RestSession(1_000, 45), now: 5_000,
+  lastHeard: ep, rest: new RestSession(1_000, 45), now: 5_000,
   ...over,
 });
 
@@ -56,8 +56,12 @@ describe("recordNightEnd", () => {
 
 describe("recordNightEnd last episode", () => {
   beforeEach(() => { localStorage.clear(); saveLive(live); });
-  it("doesn't offer an episode that was never heard as the exact one again", () => {
-    recordNightEnd(end({ currentHeard: false }));
+  it("saves the last episode heard tonight", () => {
+    recordNightEnd(end());
+    expect(loadLastEpisode()?.id).toBe(ep.id);
+  });
+  it("doesn't offer anything when nothing was heard as the exact one again", () => {
+    recordNightEnd(end({ lastHeard: null }));
     expect(loadLastEpisode()).toBeNull();
     expect(loadNights()).toHaveLength(1); // the night itself still counts
   });

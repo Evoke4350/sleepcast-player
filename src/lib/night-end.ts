@@ -21,11 +21,12 @@ export interface NightEnd {
   timerMinutes: number;
   modeKind: PlayMode["kind"];
   lastNight: Omit<LastNight, "endedVia" | "endedAt">;
-  current: Episode | null;
-  /** Whether `current` was actually heard. Only a heard episode is saved as
-   *  "the exact one again": a night that ended on a run of failures would
-   *  otherwise offer tomorrow the one that couldn't play. */
-  currentHeard: boolean;
+  /** The last episode that actually made a sound tonight, saved as "the
+   *  exact one again". Not simply the current one: a night that ended on a run
+   *  of failures, or on a timer that ran out just after a switch, would offer
+   *  tomorrow an episode that never played. A saved position does not count as
+   *  heard here; only playback tonight does. */
+  lastHeard: Episode | null;
   rest: RestSession | null;
   now: number;
 }
@@ -38,6 +39,6 @@ export function recordNightEnd(e: NightEnd): void {
   // "faded" is the natural end — stamp it so setup can offer a smaller re-arm.
   if (e.reason === "faded") recordSessionEnd(e.timerMinutes, e.modeKind);
   saveLastNight({ ...e.lastNight, endedVia: e.reason, endedAt: e.now });
-  if (e.current && e.currentHeard) saveLastEpisode(e.current); // for "the exact one again"
+  if (e.lastHeard) saveLastEpisode(e.lastHeard); // for "the exact one again"
   if (e.rest) appendNight(e.rest.finish(e.reason, e.now));
 }
