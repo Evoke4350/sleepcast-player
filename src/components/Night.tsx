@@ -411,25 +411,20 @@ export function Night({
       replayedFromStart: w.replayed,
       mode: modeRef.current.kind,
     });
-    // No current episode (an ENDED before the first one started): there is
-    // nothing to replay or retire, so move on rather than leave the night
-    // silent. Ignoring and ending the night need no episode.
-    if (!done && decision.action !== "ignore" && decision.action !== "end-night") {
-      playNext();
-      return;
-    }
     switch (decision.action) {
       case "ignore":
         return;
       case "replay-from-start":
-        if (!replayFromStart()) playNext();
+        replayFromStart();
         return;
       case "end-night":
         if (done) forgetPosition(done.id); // played out: nothing to resume
         endSession(decision.reason);
         return;
       case "skip-dead":
-        if (!done) return; // handled above; narrows the type
+        // Always set here: handleEnded is only reachable once startEpisode has
+        // set the current episode. The check narrows the type.
+        if (!done) return;
         forgetPosition(done.id);
         skipDead(done, "that one ended before it played", false);
         return;

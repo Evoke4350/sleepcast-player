@@ -394,9 +394,12 @@ export class YouTubeMedia implements MediaBackend {
       // a load that never arrived leaves the PREVIOUS video showing, ended;
       // and a player that can't report its video (the fallback) may still
       // hold the old ENDED in its cached state. Both are left to the watchdog.
-      // Known limit: re-requesting the SAME video (a lone survivor) whose
-      // reload never arrives looks identical to its own ENDED, and gets one
-      // replay from 0 (decideAfterEnded). Bounded, and nothing tells them apart.
+      // Known limit: re-requesting the SAME video whose reload never arrives
+      // looks identical to its own ENDED, and nothing tells them apart. The
+      // players then take it as that episode ending (decideAfterEnded): an
+      // unheard one (a lone survivor restarted) gets its one replay from 0; a
+      // heard one (a retry) is treated as finished and the night moves on.
+      // Both are bounded.
       if (this.shownVideoId() !== sw.id) return;
       let raw = -1;
       try { raw = this.player?.getPlayerState() ?? -1; } catch { /* keep -1 */ }
