@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AppState, FeedRef } from "../lib/store";
-import { loadBlocked, loadPositions, clampTimerMinutes } from "../lib/store";
+import { loadBlocked, loadPositions, clampTimerMinutes, TIMER_MIN, TIMER_MAX } from "../lib/store";
 import { searchEpisodes } from "../lib/episode-search";
 import { parseOpml, buildOpml } from "../lib/opml";
 import { rearmMinutes } from "../lib/engine";
@@ -112,18 +112,13 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
 
   const canStart = enabledFeeds.length > 0 && pool.length > 0;
 
-  // Bumped when the listener asks to try again (the moon, with nothing
-  // loaded). A change it causes forces failed feeds to be retried at once.
-  const [retryNonce, setRetryNonce] = useState(0);
-  const seenRetryRef = useRef(0);
-
-  // Fetch / load feeds whenever enabled feeds change, or on a retry request
-  useEffect(() => {
-    const force = retryNonce !== seenRetryRef.current;
-    seenRetryRef.current = retryNonce;
+  // Fetch every enabled feed that needs it (see needsFetch). `force` retries
+  // failed feeds at once, for when the listener asks to try again. Takes the
+  // feed list so a caller that just changed it can pass the new one before
+  // the state update lands.
+  function fetchFeeds(feeds: FeedRef[], force: boolean) {
     const now = Date.now();
-    const enabled = appState.feeds.filter((f) => f.enabled);
-    for (const feed of enabled) {
+    for (const feed of feeds.filter((f) => f.enabled)) {
       // In flight or loaded: leave it. Failed: retry if asked or rested.
       if (!needsFetch(feedStatuses[feed.id], now, force)) continue;
 
@@ -177,8 +172,35 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
         }
       })();
     }
+  }
+
+  // Fetch / load feeds whenever enabled feeds change
+  useEffect(() => {
+    fetchFeeds(appState.feeds, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [appState.feeds, retryNonce]);
+  }, [appState.feeds]);
+
+  // A load that succeeds after "couldn't reach your feeds" clears the message.
+  useEffect(() => {
+    if (pool.length > 0) setFeedError("");
+  }, [pool.length]);
+
+  // An enabled feed with no status yet is about to be fetched, so it counts.
+  function anyFeedLoading(): boolean {
+    return enabledFeeds.some((f) => feedStatuses[f.id]?.loading ?? true);
+  }
+
+  // releaseStuckStart: a start that went pending while feeds were loading,
+  // and then every one of them failed. Give up and say so, rather than leave
+  // the moon disabled on "tucking you in…".
+  useEffect(() => {
+    if (!goldenPending || pool.length > 0 || anyFeedLoading()) return;
+    setGoldenPending(false);
+    leadRef.current = null;
+    rearmNightRef.current = null;
+    setFeedError("couldn't reach your feeds — check your connection and try again");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [goldenPending, feedStatuses, appState.feeds]);
 
   function updateAndSave(next: AppState) {
     setAppState(next);
@@ -386,10 +408,10 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
     rearmNightRef.current = null;
     onStart(
       chosen,
-      rearm ? rearm.minutes : timerMinutes,
+      rearm?.kind === "minutes" ? rearm.minutes : timerMinutes,
       skipIntroByFeedId, feedTitles, artworkByFeedId,
       leadRef.current, wasVaried, leadPositionRef.current,
-      rearm?.mode,
+      rearm ?? undefined,
     );
     leadRef.current = null;
   }
@@ -410,7 +432,7 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
   const rearmStartRef = useRef(false);
   // A re-arm's timer and mode, carried to startWith for that one night rather
   // than saved over the listener's setting.
-  const rearmNightRef = useRef<{ minutes: number; mode: PlayMode } | null>(null);
+  const rearmNightRef = useRef<PlayMode | null>(null);
 
   // One tap back to sleep: half the previous dose, no setup steps.
   function handleRearm() {
@@ -423,21 +445,26 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
     // For this night only. It used to be saved as the setting; once the
     // per-night reset to 45 was gone, a re-arm's halved dose became every
     // later night's timer (45, then 25, then 10...).
-    rearmNightRef.current = { minutes: nextMode.kind === "minutes" ? rearmM : timerMinutes, mode: nextMode };
+    rearmNightRef.current = nextMode;
     beginNight(null);
   }
 
   function beginNight(lead: Episode | null, leadPosition = 0) {
     if (goldenPending) return;
-    // Nothing to play means nothing to wait for. Without this the pending flag
-    // latches on forever when feeds fail to load: the moon reads "tucking you
-    // in…" and is disabled, and so is every other way to start a night.
-    if (pool.length === 0) {
+    // Nothing to play and nothing on its way means nothing to wait for:
+    // pending would latch on forever, the moon reading "tucking you in…" and
+    // disabled. That is only true once every enabled feed has finished. While
+    // one is still loading, fall through and wait (the golden effect starts
+    // the night when the pool fills; releaseStuckStart below gives up if they
+    // all fail). With no feed enabled, fall through too: the default show is
+    // turned on below. Both used to hit this early return and report a
+    // network failure that hadn't happened.
+    if (pool.length === 0 && enabledFeeds.length > 0 && !anyFeedLoading()) {
       setFeedError("couldn't reach your feeds — check your connection and try again");
       // "Try again" has to mean something: retry failed feeds now. Before,
       // they were only retried when the feed list changed, so tapping again
       // repeated this message forever.
-      setRetryNonce((n) => n + 1);
+      fetchFeeds(appState.feeds, true);
       // A re-arm that couldn't start must not carry into the next ordinary one.
       rearmNightRef.current = null;
       rearmStartRef.current = false;
@@ -1111,10 +1138,15 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
           <div className="flex items-center gap-3">
             <input
               type="number"
-              min={1}
+              min={TIMER_MIN}
+              max={TIMER_MAX}
               value={customMinutes || (mode.kind === "minutes" && !isPreset ? timerMinutes : "")}
               placeholder="minutes"
               onChange={(e) => handleCustomMinutes(e.target.value)}
+              // Saved values are clamped (3 saves 5, 600 saves 480). While
+              // typing, the box keeps what's typed so "3" can become "30";
+              // on leaving it, it shows what was actually saved.
+              onBlur={() => setCustomMinutes("")}
               className="w-28 rounded-lg bg-[#12101a] border border-[#241f30] px-3 py-3 text-base text-[#b59a76] placeholder:text-[#6e5d44] text-center focus:outline-none focus:border-[#6e5d44] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
               aria-label="Custom timer minutes"
             />

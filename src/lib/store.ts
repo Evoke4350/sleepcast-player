@@ -603,14 +603,16 @@ export function unblockEpisode(id: string): void {
 // Sleep timer persistence
 // ---------------------------------------------------------------------------
 
-const TIMER_MIN = 5;
-const TIMER_MAX = 480;
+export const TIMER_MIN = 5;
+export const TIMER_MAX = 480;
+const TIMER_DEFAULT = 30;
 
-/** Keep a timer in the range the setup screen offers, in whole minutes. */
+/** Keep a timer in the range the setup screen offers, in whole minutes. The
+ *  one definition of that range: settings, the custom box and the legacy
+ *  timer key all go through it. */
 export function clampTimerMinutes(n: number): number {
   return Math.min(TIMER_MAX, Math.max(TIMER_MIN, Math.round(n)));
 }
-const TIMER_DEFAULT = 30;
 
 export function loadTimerMinutes(): number {
   try {
@@ -628,7 +630,7 @@ export function loadTimerMinutes(): number {
 }
 
 export function saveTimerMinutes(minutes: number): void {
-  const clamped = Math.min(TIMER_MAX, Math.max(TIMER_MIN, minutes));
+  const clamped = clampTimerMinutes(minutes);
   try {
     localStorage.setItem(KEY_TIMER, String(clamped));
   } catch {
