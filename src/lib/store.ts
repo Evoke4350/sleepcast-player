@@ -248,7 +248,7 @@ export function loadState(): AppState {
 }
 
 export function saveState(s: AppState): void {
-  localStorage.setItem(KEY_STATE, JSON.stringify(s));
+  writeMakingRoom(KEY_STATE, JSON.stringify(s));
 }
 
 // ---------------------------------------------------------------------------
@@ -276,6 +276,10 @@ export interface LiveSession {
    *  before these existed; reconcile estimates them. */
   nightStartedAt?: number;
   timerMinutes?: number;
+  /** The night's play mode. A one-episode or all-night night has no clock
+   *  (remainingMs is 0), so without this a reload could neither tell it from a
+   *  finished timed night nor revive it in the right mode. */
+  modeKind?: PlayMode["kind"];
 }
 
 const LIVE_POOL_CAP = 80;
@@ -286,7 +290,7 @@ export function saveLive(s: LiveSession): void {
   const rest = s.pool.filter((e) => e.id !== s.current.id).slice(0, LIVE_POOL_CAP - 1);
   const bounded: LiveSession = { ...s, pool: [s.current, ...rest] };
   try {
-    localStorage.setItem(KEY_LIVE, JSON.stringify(bounded));
+    writeMakingRoom(KEY_LIVE, JSON.stringify(bounded));
   } catch {
     // Quota or private mode: a lost resume is not worth throwing over.
   }
@@ -313,9 +317,14 @@ export const LIVE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
  *  to matter, and recent. Without the age check, a tab the browser killed at
  *  11 pm offered to revive that night the next evening, and because a live
  *  snapshot outranks the 3am re-anchor, it hid that too. */
+function isTimerless(l: LiveSession): boolean {
+  return l.modeKind === "one-episode" || l.modeKind === "all-night";
+}
+
 export function isRevivable(l: LiveSession | null, now: number): boolean {
-  if (!l || l.remainingMs <= 60_000) return false;
-  if (typeof l.savedAt !== "number") return false;
+  if (!l || typeof l.savedAt !== "number") return false;
+  // A timerless night snapshots no remaining time; only a timed one can run out.
+  if (!isTimerless(l) && l.remainingMs <= 60_000) return false;
   const age = now - l.savedAt;
   return age >= 0 && age < LIVE_MAX_AGE_MS;
 }
@@ -336,7 +345,7 @@ const KEY_LASTEP = "sleepcast2.lastep";
 
 export function saveLastEpisode(ep: Episode): void {
   try {
-    localStorage.setItem(KEY_LASTEP, JSON.stringify(ep));
+    writeMakingRoom(KEY_LASTEP, JSON.stringify(ep));
   } catch {
     /* ignore */
   }
@@ -375,7 +384,7 @@ export interface LastNight {
 export function saveLastNight(n: LastNight): void {
   const bounded: LastNight = { ...n, pool: n.pool.slice(0, LASTNIGHT_POOL_CAP) };
   try {
-    localStorage.setItem(KEY_LASTNIGHT, JSON.stringify(bounded));
+    writeMakingRoom(KEY_LASTNIGHT, JSON.stringify(bounded));
   } catch {
     /* quota / private mode: a lost re-anchor is not worth throwing over */
   }
@@ -497,7 +506,7 @@ export function getPlays(): Play[] {
 
 function savePlays(plays: Play[]): void {
   try {
-    localStorage.setItem(KEY_PLAYS, JSON.stringify(plays));
+    if (!writeMakingRoom(KEY_PLAYS, JSON.stringify(plays))) throw new Error("full");
   } catch {
     // Quota exceeded: drop the oldest half rather than losing the ledger.
     try {
@@ -531,7 +540,7 @@ export function loadPositions(): Positions {
 export function rememberPosition(id: string, positionSec: number, durationSec: number): void {
   if (!shouldRemember(positionSec, durationSec)) return;
   try {
-    localStorage.setItem(
+    writeMakingRoom(
       KEY_POSITIONS,
       JSON.stringify(putPosition(loadPositions(), id, Math.floor(positionSec))),
     );
@@ -544,7 +553,7 @@ export function forgetPosition(id: string): void {
     const p = loadPositions();
     if (!(id in p)) return;
     delete p[id];
-    localStorage.setItem(KEY_POSITIONS, JSON.stringify(p));
+    writeMakingRoom(KEY_POSITIONS, JSON.stringify(p));
   } catch { /* ignore */ }
 }
 
@@ -577,13 +586,13 @@ export function blockEpisode(id: string): void {
     const b = loadBlocked();
     if (b.includes(id)) return;
     b.push(id);
-    localStorage.setItem(KEY_BLOCKED, JSON.stringify(b.slice(-BLOCKED_CAP)));
+    writeMakingRoom(KEY_BLOCKED, JSON.stringify(b.slice(-BLOCKED_CAP)));
   } catch { /* ignore */ }
 }
 
 export function unblockEpisode(id: string): void {
   try {
-    localStorage.setItem(KEY_BLOCKED, JSON.stringify(loadBlocked().filter((x) => x !== id)));
+    writeMakingRoom(KEY_BLOCKED, JSON.stringify(loadBlocked().filter((x) => x !== id)));
   } catch { /* ignore */ }
 }
 
@@ -742,4 +751,30 @@ export function recordSessionEnd(
   const s = loadState();
   s.settings.lastSession = { endedAt: Date.now(), timerMinutes, modeKind };
   saveState(s);
+}
+
+/** The mode to revive a snapshotted night in: its own timerless mode, or a
+ *  timed night of its original length (remainingMs carries the time left). */
+export function resumeMode(l: LiveSession): PlayMode {
+  if (l.modeKind === "one-episode" || l.modeKind === "all-night") return { kind: l.modeKind };
+  return { kind: "minutes", minutes: Math.max(1, Math.round(l.totalSeconds / 60)) };
+}
+
+/**
+ * localStorage.setItem that gives way to what matters. The feed-XML cache
+ * fills storage until a write fails, so every other write routinely meets a
+ * full quota: saveState threw (and endSession starts with it), while the
+ * live snapshot, last night, plays, positions and the rest ledger were
+ * silently lost. Cached feeds are re-fetchable; evict them one at a time and
+ * retry. Returns false if the value still could not be written.
+ */
+export function writeMakingRoom(key: string, value: string): boolean {
+  for (;;) {
+    try {
+      localStorage.setItem(key, value);
+      return true;
+    } catch {
+      if (!evictOneFeedCache()) return false;
+    }
+  }
 }

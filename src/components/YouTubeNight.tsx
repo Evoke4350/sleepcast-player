@@ -351,9 +351,7 @@ export function YouTubeNight({
       return;
     }
     if (tickHandleRef.current === null) return;
-    // One-episode mode means one episode. Player.tsx plays on here, which
-    // looks like an oversight rather than a decision — but that is its bug to
-    // fix on its own path, not something to replicate for symmetry.
+    // One-episode mode means one episode: the night ends with it.
     if (modeRef.current.kind === "one-episode") {
       endSession("faded");
       return;
@@ -428,6 +426,7 @@ export function YouTubeNight({
       savedAt: Date.now(),
       nightStartedAt: restRef.current?.startedAt,
       timerMinutes: restRef.current?.timerMinutes,
+      modeKind: modeRef.current.kind,
       remainingMs,
       totalSeconds: totalSecondsRef.current,
       position: media.currentTime(),

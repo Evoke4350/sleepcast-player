@@ -1,4 +1,5 @@
 import type { RestNight, RestRollup, DetectorParams } from "./types";
+import { writeMakingRoom } from "../store";
 
 const KEY = "sleepcast2.rest";
 const MAX_NIGHTS = 90;
@@ -15,7 +16,7 @@ export function loadNights(): RestNight[] {
 
 function save(nights: RestNight[]): void {
   try {
-    localStorage.setItem(KEY, JSON.stringify(nights.slice(-MAX_NIGHTS)));
+    writeMakingRoom(KEY, JSON.stringify(nights.slice(-MAX_NIGHTS)));
   } catch {
     /* quota / private mode: a lost stat is not worth throwing */
   }
@@ -80,7 +81,7 @@ export function loadParams(): DetectorParams | null {
   try { const r = localStorage.getItem(PKEY); return r ? JSON.parse(r) : null; } catch { return null; }
 }
 export function saveParams(p: DetectorParams): void {
-  try { localStorage.setItem(PKEY, JSON.stringify(p)); } catch { /* ignore */ }
+  try { writeMakingRoom(PKEY, JSON.stringify(p)); } catch { /* ignore */ }
 }
 
 // ---------------------------------------------------------------------------
