@@ -67,6 +67,7 @@ import {
   nextPlayable,
   decideAfterError,
   shouldGiveUp,
+  rearmsWatchdogOnTap,
   YT_STATE,
 } from "../lib/youtube-night";
 import { classifyYouTubeError } from "../lib/youtube-errors";
@@ -232,7 +233,14 @@ export function Night({
   // handled; the other three (unstarted, cued, buffering) left it saying
   // "playing" while nothing played, so a video waiting for a tap rendered a
   // Pause button over silence.
-  const [transport, setTransport] = useState<Transport>("buffering");
+  const [transport, setTransportState] = useState<Transport>("buffering");
+  /** The transport as last set, readable outside a render (the media
+   *  session's handlers run between them). */
+  const transportRef = useRef<Transport>("buffering");
+  function setTransport(t: Transport) {
+    transportRef.current = t;
+    setTransportState(t);
+  }
   // Whether anything has played at all this night. Autoplay refusals look
   // exactly like a dead video until you know the answer to this.
   const hasEverPlayedRef = useRef(false);
@@ -1072,19 +1080,13 @@ export function Night({
     const media = liveRef.current;
     if (!media) return;
     // Held for the network: this retries the reload (see NetworkHold).
-    if (netHoldRef.current.resumeNow()) return;
+    if (netHoldRef.current.resumeNow(true)) return;
     // The clock starts when sound is witnessed (the tick, or the embed's
     // PLAYING), not on the tap: a tap during buffering, or on a stream that
     // then hangs, ran the night down over silence.
-    // An episode that has never made a sound gets its watchdog timed from
-    // this tap rather than from its load or an earlier refused tap: a refusal
-    // sits the episode at unstarted/paused (exempt, or stood down), and a
-    // working tap minutes later otherwise read as a stall the moment it began
-    // buffering. Not while it is already buffering: repeated taps on a hung
-    // stream would then postpone the watchdog forever. And never once it has
-    // played, or a slow 2am rebuffer after a mid-night resume would condemn it.
-    if (currentEpRef.current && !witnessRef.current.played && transport !== "buffering") {
-      watchRef.current = { id: currentEpRef.current.id, at: Date.now() };
+    const ep = currentEpRef.current;
+    if (ep && rearmsWatchdogOnTap(witnessRef.current.played, transportRef.current)) {
+      watchRef.current = { id: ep.id, at: Date.now() };
     }
     media.play();
   }

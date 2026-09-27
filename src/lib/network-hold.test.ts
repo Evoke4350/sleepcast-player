@@ -110,6 +110,16 @@ describe("NetworkHold", () => {
     expect(later).not.toHaveBeenCalled();
   });
 
+  it("a listener's tap settles the reading: sound was asked for", () => {
+    const h = new NetworkHold();
+    h.hold(vi.fn(), true); // paused by the listener
+    h.resumeNow(true); // then they tapped play, still offline
+    const again = vi.fn();
+    h.hold(again, true); // failed again
+    online();
+    expect(again).toHaveBeenCalledTimes(1);
+  });
+
   it("reads navigator.onLine", () => {
     vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
     expect(isOffline()).toBe(true);

@@ -93,6 +93,13 @@ export interface PlayerProps {
   wasVaried?: boolean;
 }
 
+/** A seek's extras: the skip-intro plays a short episode whole, and says so
+ *  when it lands. */
+interface SeekHooks {
+  playWholeIf?: (durationSec: number) => boolean;
+  onLanded?: () => void;
+}
+
 export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, skipIntroByFeedId, feedTitles, artworkByFeedId, onEnd, resume = null, leadEpisode = null, leadPosition = 0, quarterHourRule = false, wasVaried = false }: PlayerProps) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const endTimeRef = useRef<number | null>(null);
@@ -114,6 +121,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   const netHoldRef = useRef(new NetworkHold());
   /** Where the current load was asked to start (a revived position, a lead). */
   const loadStartRef = useRef(0);
+  /** The current load's seek hooks (the skip-intro's), for a re-arm. */
+  const loadSeekHooksRef = useRef<SeekHooks>({});
   const failsRef = useRef(0);
   // Whether anything has actually played this night. A night that never did
   // records nothing when it ends (see endSession).
@@ -228,21 +237,18 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     const skipSec = skipMin * 60;
     // Where this load means to start, for a reload after a network drop.
     loadStartRef.current = seekTo > 0 ? seekTo : skipSec;
-    if (seekTo > 0) {
-      // Reviving a night: land where the sleeper left off. Stands in for the
-      // skip-intro seek — a saved position is already past any intro.
-      seekOnMetadata(audio, seekTo);
-    } else {
-      // The skip-intro, if any (0 just clears the last episode's seek).
-      // Duration can still be NaN at loadedmetadata, which used to swallow it.
-      seekOnMetadata(audio, skipSec, {
-        playWholeIf: (dur) => skipSec >= dur - 30, // barely longer than the skip
-        onLanded: () => {
-          setToast(`skipped the ${skipMin} min intro`);
-          setTimeout(() => setToast(""), 4200);
-        },
-      });
-    }
+    // Reviving a night: land where the sleeper left off (a saved position is
+    // already past any intro). Else the skip-intro, if any; 0 just clears the
+    // last episode's seek. Duration can still be NaN at loadedmetadata, which
+    // used to swallow the skip.
+    loadSeekHooksRef.current = seekTo > 0 ? {} : {
+      playWholeIf: (dur) => skipSec >= dur - 30, // barely longer than the skip
+      onLanded: () => {
+        setToast(`skipped the ${skipMin} min intro`);
+        setTimeout(() => setToast(""), 4200);
+      },
+    };
+    seekOnMetadata(audio, loadStartRef.current, loadSeekHooksRef.current);
 
     watchRef.current = { src: ep.url, at: Date.now() };
     playOrWait(audio);
@@ -318,7 +324,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   function seekOnMetadata(
     audio: HTMLAudioElement,
     at: number,
-    hooks: { playWholeIf?: (durationSec: number) => boolean; onLanded?: () => void } = {},
+    hooks: SeekHooks = {},
   ) {
     seekCleanupRef.current?.();
     seekCleanupRef.current = null;
@@ -387,9 +393,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     playOrWait(audio);
   }
 
-  /** Park the remaining time, so the countdown holds while nothing plays.
-   *  Only if not already parked: re-parking from a stale end time would
-   *  lose the minutes frozen so far. onPlay thaws it. */
   /** Where this episode is, for a reload or a snapshot: where the load meant
    *  to start while it has not played or its seek is still being enforced
    *  (Safari can read ~0 after "playing" until the seek is corrected), else
@@ -409,10 +412,13 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     if (!audio) return;
     if (gettingUpRef.current) showGettingUp(false);
     // Held for the network: this retries the reload (see NetworkHold).
-    if (netHoldRef.current.resumeNow()) return;
+    if (netHoldRef.current.resumeNow(true)) return;
     audio.play().catch(() => { /* the error event or the watchdog decides */ });
   }
 
+  /** Park the remaining time, so the countdown holds while nothing plays.
+   *  Only if not already parked: re-parking from a stale end time would
+   *  lose the minutes frozen so far. onPlay thaws it. */
   function freezeClock() {
     if (endTimeRef.current !== null && pausedRemainingMsRef.current === null) {
       pausedRemainingMsRef.current = endTimeRef.current - Date.now();
@@ -861,19 +867,19 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
           const src = audio.getAttribute("src")!;
           // Before the gate closes below: resumePosition reads it.
           const pos = resumePosition(audio);
-          const seekPending = seekCleanupRef.current !== null;
+          // A seek still being enforced (a revive, the skip-intro) keeps its
+          // hooks; otherwise the retry lands where playback was.
+          const hooks = seekCleanupRef.current !== null ? loadSeekHooksRef.current : {};
           audio.removeAttribute("crossorigin");
           // The reload reads 0 until its seek lands: close the snapshot gate
           // until it plays again (see epPlayedRef).
           epPlayedRef.current = false;
           audio.src = src;
-          // A seek the load armed (a revive, the skip-intro) that has not
-          // landed yet carries over to the retry. Otherwise the retry lands
-          // where playback was, which becomes this load's start.
-          if (!seekPending) {
-            loadStartRef.current = pos;
-            seekOnMetadata(audio, pos);
-          }
+          // Re-armed fresh, never carried over: the old enforcement's
+          // state (landed, attempts) belongs to the load that failed.
+          loadStartRef.current = pos;
+          loadSeekHooksRef.current = hooks;
+          seekOnMetadata(audio, pos, hooks);
           watchRef.current = { src, at: Date.now() };
           playOrWait(audio);
           return;

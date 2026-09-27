@@ -59,6 +59,7 @@ import {
   decideAfterError,
   transportFor,
   shouldGiveUp,
+  rearmsWatchdogOnTap,
   type Transport,
 } from "../lib/youtube-night";
 import { classifyYouTubeError } from "../lib/youtube-errors";
@@ -820,20 +821,21 @@ export function YouTubeNight({
       media.pause();
       return;
     }
-    // Held for the network: the tap retries the reload (see NetworkHold).
-    if (netHoldRef.current.resumeNow()) return;
+    askForSound();
+  }
+
+  /** A request for sound: the toggle's play half. (The embed keeps its own
+   *  media session inside the iframe.) */
+  function askForSound() {
+    const media = mediaRef.current;
+    if (!media) return;
+    // Held for the network: this retries the reload (see NetworkHold).
+    if (netHoldRef.current.resumeNow(true)) return;
     // The clock is not started here. PLAYING starts it (onStateChange, or the
     // tick if that event is missed); a tap during buffering, or one whose
     // play() is refused, would otherwise run the night down over silence.
-    // An episode that has never made a sound gets its watchdog timed from
-    // this tap rather than from its load or an earlier refused tap: a refusal
-    // sits the episode at unstarted/paused (exempt, or stood down), and a
-    // working tap minutes later otherwise read as a stall the moment it began
-    // buffering. Not while it is already buffering: repeated taps on a hung
-    // stream would then postpone the watchdog forever. And never once it has
-    // played, or a slow 2am rebuffer after a mid-night resume would condemn it.
     const ep = currentEpRef.current;
-    if (ep && !witnessRef.current.played && transport !== "buffering") {
+    if (ep && rearmsWatchdogOnTap(witnessRef.current.played, transport)) {
       watchRef.current = { id: ep.id, at: Date.now() };
     }
     media.play();
