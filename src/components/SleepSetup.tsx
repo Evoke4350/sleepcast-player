@@ -587,7 +587,10 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
       : null;
   const rearmM = rearmable ? rearmMinutes(rearmable.timerMinutes) : 0;
 
-  const isPreset = FEEL_PRESETS.some((p) => p.minutes === timerMinutes);
+  // Only a timed night has a duration to show as selected. In one-episode or
+  // all-night mode the saved minutes still matched a preset, so it lit up
+  // alongside the mode button and two choices looked active at once.
+  const isPreset = mode.kind === "minutes" && FEEL_PRESETS.some((p) => p.minutes === timerMinutes);
   // Offered as a disabled control with a reason rather than hidden: someone
   // who has read about the feature should find out why it isn't here, not
   // wonder whether they imagined it.
@@ -1080,7 +1083,7 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
             <input
               type="number"
               min={1}
-              value={customMinutes || (!isPreset ? timerMinutes : "")}
+              value={customMinutes || (mode.kind === "minutes" && !isPreset ? timerMinutes : "")}
               placeholder="minutes"
               onChange={(e) => handleCustomMinutes(e.target.value)}
               className="w-28 rounded-lg bg-[#12101a] border border-[#241f30] px-3 py-3 text-base text-[#b59a76] placeholder:text-[#6e5d44] text-center focus:outline-none focus:border-[#6e5d44] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
