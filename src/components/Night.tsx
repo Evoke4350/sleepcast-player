@@ -192,11 +192,6 @@ export function Night({
   // is the only honest signal: where the episode was ASKED to start is not
   // where it necessarily is, because the start seek can silently fail to land.
   const witnessRef = useRef(new PlaybackWitness());
-  // Per EPISODE, not per load (the witness resets on a retry): whether it has
-  // been heard at all, and whether it has been replayed from 0 after ending
-  // unheard. See decideAfterEnded.
-  const epHeardRef = useRef(false);
-  const epReplayedRef = useRef(false);
   // The fade factor last applied to the live backend, before per-feed trim
   // (the night's fade, or the courtesy fade). A backend that becomes live is
   // set to it times its own episode's trim at once, rather than playing at
@@ -370,9 +365,9 @@ export function Night({
     lastPosRef.current = start; // so the jump to `start` is not counted as listening
     // Seeded with the requested start: if the seek does land, arriving at
     // `start` is not movement and must not read as proof of sound.
-    witnessRef.current.reset(start, Date.now());
-    epHeardRef.current = false;
-    epReplayedRef.current = false;
+    // A saved position means it was already being listened to: an early end
+    // is then a finish, not a failure (see decideAfterEnded).
+    witnessRef.current.newEpisode(start, Date.now(), seekTo > 0);
     heardSavedAtRef.current = -1e9;
     epStartedAtRef.current = Date.now();
     persistCounterRef.current = 10; // snapshot promptly, not up to 10s from now
@@ -408,22 +403,38 @@ export function Night({
 
   function handleEnded() {
     const done = currentEpRef.current;
+    const w = witnessRef.current;
     const decision = decideAfterEnded({
       stopping: stopFadeRef.current !== null,
       active: tickHandleRef.current !== null,
-      playedThisEpisode: epHeardRef.current,
-      replayedFromStart: epReplayedRef.current,
+      playedThisEpisode: w.heard,
+      replayedFromStart: w.replayed,
       mode: modeRef.current.kind,
     });
-    if (decision.action === "ignore") return;
-    if (decision.action === "replay-from-start") {
-      replayFromStart();
-      return;
+    switch (decision.action) {
+      case "ignore":
+        return;
+      case "replay-from-start":
+        replayFromStart();
+        return;
+      case "end-night":
+        if (done) forgetPosition(done.id); // played out: nothing to resume
+        endSession(decision.reason);
+        return;
+      case "skip-dead":
+        if (!done) return;
+        forgetPosition(done.id);
+        skipDead(done, "that one ended before it played", false);
+        return;
+      case "next":
+        if (done) forgetPosition(done.id);
+        playNext();
+        return;
+      default: {
+        const unhandled: never = decision; // a new action must be handled here
+        return unhandled;
+      }
     }
-    if (done) forgetPosition(done.id); // played out, or unplayable: nothing to resume
-    if (decision.action === "end-night") endSession(decision.reason);
-    else if (decision.action === "skip-dead" && done) skipDead(done, "that one ended before it played", false);
-    else playNext();
   }
 
   /** Retire this episode for tonight and move on. `permanent` is only ever
@@ -486,13 +497,7 @@ export function Night({
       // revived position, the skip-intro): reloading at 0 restarted a long
       // video mid-night, and a position read before it played may not be its.
       const w = witnessRef.current;
-      const at = w.played ? Math.max(w.startSec, liveRef.current?.currentTime() ?? 0) : w.startSec;
-      liveRef.current?.load(ep.youtubeId, at);
-      watchRef.current = { id: ep.id, at: Date.now() };
-      // The watchdog's idea of "has it played" restarts with the reload, and
-      // so does the snapshot gate.
-      w.reset(at, Date.now());
-      lastPosRef.current = at;
+      reloadAt(ep, w.played ? Math.max(w.startSec, liveRef.current?.currentTime() ?? 0) : w.startSec);
       return;
     }
     // Never permanent if it arrived mid-switch: it may be the previous video's
@@ -656,6 +661,16 @@ export function Night({
     setShowStartPrompt(needsTap);
 
     const dur = media.duration();
+    // Started within 30 s of its end (a skip-intro longer than the episode,
+    // nearly), and not yet heard: play it whole, as Player.tsx does, rather
+    // than let the listener catch only its last seconds.
+    {
+      const w = witnessRef.current;
+      if (!w.heard && !w.replayed && w.startSec > 0 && dur > 0 && w.startSec >= dur - 30) {
+        replayFromStart();
+        return;
+      }
+    }
     const epRemaining = dur > 0 ? dur - cur : null;
     const driver = fadeDriverSeconds(kind, remaining, epRemaining);
 
@@ -948,19 +963,28 @@ export function Night({
     watchRef.current = null;
     retriesRef.current = 0;
     hasEverPlayedRef.current = true;
-    epHeardRef.current = true;
   }
 
-  /** Play the current episode from 0: it ended without ever being heard,
-   *  most likely started past its end (see decideAfterEnded). Once. */
+  /** Play the current episode from 0: it ended without ever being heard, or
+   *  its start is within 30 s of its end — most likely started past or near
+   *  its end by a skip-intro (see decideAfterEnded). Once per episode. */
   function replayFromStart() {
     const ep = currentEpRef.current;
+    if (!ep) return;
+    witnessRef.current.markReplayed();
+    retriesRef.current = 0; // a fresh attempt, not the failed load's leftovers
+    reloadAt(ep, 0);
+  }
+
+  /** Reload the current episode at `at`: a retry, or a replay. The per-load
+   *  witness, heard-time baseline and watchdog start over; per-episode state
+   *  (heard, replayed) is kept. */
+  function reloadAt(ep: Episode, at: number) {
     const media = liveRef.current;
-    if (!ep || !media) return;
-    epReplayedRef.current = true;
-    witnessRef.current.reset(0, Date.now());
-    lastPosRef.current = 0;
-    media.load(ep.youtubeId ?? ep.url, 0);
+    if (!media) return;
+    witnessRef.current.reset(at, Date.now());
+    lastPosRef.current = at;
+    media.load(ep.youtubeId ?? ep.url, at);
     watchRef.current = { id: ep.id, at: Date.now() };
   }
 

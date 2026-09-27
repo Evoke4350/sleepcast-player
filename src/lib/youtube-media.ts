@@ -95,6 +95,11 @@ export class YouTubeMedia implements MediaBackend {
      *  position), which the old load's own reading would satisfy at once. */
     positionCounts: boolean;
   } | null = null;
+  /** An ENDED arrived while the guard held, so it was read as loading and
+   *  not passed on. Fired when the guard lets go if the player still shows
+   *  ENDED: otherwise a short video that played and ended inside the hold
+   *  left the night silent until the watchdog. */
+  private endedInSwitch = false;
 
   constructor(
     private readonly createPlayer: (args: CreatePlayerArgs) => YTPlayerLike,
@@ -125,6 +130,7 @@ export class YouTubeMedia implements MediaBackend {
           since: Date.now(),
           positionCounts: !(Math.abs(here - startSeconds) < 3),
         };
+        this.endedInSwitch = false;
         p.loadVideoById(videoId, startSeconds);
       });
       return;
@@ -162,8 +168,9 @@ export class YouTubeMedia implements MediaBackend {
         // new load announces itself as unstarted (-1) or cued (5), and
         // anything else may be about the previous video. With the video id
         // available (inSwitch), events don't decide anything.
-        if (this.shownVideoId() === null && (state === -1 || state === 5)) this.switching = null;
+        if (this.shownVideoId() === null && (state === -1 || state === 5) && this.switching) this.releaseSwitch();
         const ended = this.eventState(state) === YT_STATE.ENDED;
+        if (state === YT_STATE.ENDED && !ended) this.endedInSwitch = true;
         this.handlers.onStateEvent?.(state);
         // Fired here for every event, not left to the caller's routing: a
         // handler that returned early would otherwise lose the night's end.
@@ -363,14 +370,27 @@ export class YouTubeMedia implements MediaBackend {
     if (!sw) return false;
     const elapsed = Date.now() - sw.since;
     if (elapsed < 0 || elapsed > SWITCH_GUARD_MAX_MS) {
-      this.switching = null;
+      this.releaseSwitch();
       return false;
     }
     const shown = this.shownVideoId();
     if (shown === null) return true; // fallback: the events decide
     if (shown !== sw.id || !this.showsFreshLoad(sw)) return true;
-    this.switching = null;
+    this.releaseSwitch();
     return false;
+  }
+
+  private releaseSwitch(): void {
+    this.switching = null;
+    if (!this.endedInSwitch) return;
+    this.endedInSwitch = false;
+    // Not from inside a getter: let the caller's reading finish first.
+    queueMicrotask(() => {
+      if (this.dead || this.switching) return;
+      let raw = -1;
+      try { raw = this.player?.getPlayerState() ?? -1; } catch { /* keep -1 */ }
+      if (raw === YT_STATE.ENDED) this.fireEnded();
+    });
   }
 
   /** The player is at the start of a load rather than mid-way through (or at

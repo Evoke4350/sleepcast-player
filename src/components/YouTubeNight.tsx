@@ -65,6 +65,8 @@ import { browserScreenLock, type ScreenLock } from "../lib/wake-lock";
 import { beacon } from "../lib/beacon";
 
 const FADE_SECONDS = 60;
+// Consecutive episodes that fail before the night gives up on the lineup.
+const MAX_FAILS = 6;
 const TICK_MIN_MS = 900;
 const LINEUP_MAX = 12;
 // A video that has not reached "playing" by now is stuck: a blocked embed that
@@ -180,11 +182,6 @@ export function YouTubeNight({
   // (the player isn't ready or the seek hasn't landed), so snapshots and
   // resume points wait for it, and a retry reloads at the intended start.
   const witnessRef = useRef(new PlaybackWitness());
-  // Per EPISODE, not per load (the witness resets on a retry): whether it has
-  // been heard at all, and whether it has been replayed from 0 after ending
-  // unheard. See decideAfterEnded.
-  const epHeardRef = useRef(false);
-  const epReplayedRef = useRef(false);
   // The prompt waits a beat before appearing. A player that is simply still
   // coming up also reads as "unstarted", and flashing "tap to begin" at
   // someone half a second before it starts on its own is worse than silence.
@@ -275,9 +272,9 @@ export function YouTubeNight({
     // A saved position is already past any intro, so it wins over skip-intro.
     const skipSec = (skipIntroRef.current[ep.feedId] ?? 0) * 60;
     const start = seekTo > 0 ? seekTo : skipSec;
-    witnessRef.current.reset(start, Date.now());
-    epHeardRef.current = false;
-    epReplayedRef.current = false;
+    // A saved position means it was already being listened to: an early end
+    // is then a finish, not a failure (see decideAfterEnded).
+    witnessRef.current.newEpisode(start, Date.now(), seekTo > 0);
     media.load(ep.youtubeId, start);
 
     watchRef.current = { id: ep.id, at: Date.now() };
@@ -318,32 +315,41 @@ export function YouTubeNight({
 
   function handleEnded() {
     const done = currentEpRef.current;
+    const w = witnessRef.current;
     const decision = decideAfterEnded({
       stopping: stopFadeRef.current !== null,
       active: tickHandleRef.current !== null,
-      playedThisEpisode: epHeardRef.current,
-      replayedFromStart: epReplayedRef.current,
+      playedThisEpisode: w.heard,
+      replayedFromStart: w.replayed,
       mode: modeRef.current.kind,
     });
-    if (decision.action === "ignore") return;
-    if (decision.action === "replay-from-start") {
-      replayFromStart();
-      return;
-    }
-    if (done) forgetPosition(done.id); // played out, or unplayable: nothing to resume
-    if (decision.action === "end-night") endSession(decision.reason);
-    else if (decision.action === "skip-dead" && done) {
-      // Counted like the watchdog's kills, so a lineup of episodes that all
-      // end unheard stops after a few rather than flickering through them all.
-      failsRef.current++;
-      if (failsRef.current > 6) {
+    switch (decision.action) {
+      case "ignore":
+        return;
+      case "replay-from-start":
+        replayFromStart();
+        return;
+      case "end-night":
+        if (done) forgetPosition(done.id); // played out: nothing to resume
+        endSession(decision.reason);
+        return;
+      case "skip-dead":
+        if (!done) return;
+        forgetPosition(done.id);
+        // Counted like the watchdog's kills, so a lineup of episodes that all
+        // end unheard stops after a few rather than flickering through them all.
         deadRef.current.add(done.id);
-        endSession("ended", { gaveUp: true });
-      } else {
-        skipDead(done, "that one ended before it played", false);
+        if (!countFailure()) skipDead(done, "that one ended before it played", false);
+        return;
+      case "next":
+        if (done) forgetPosition(done.id);
+        playNext();
+        return;
+      default: {
+        const unhandled: never = decision; // a new action must be handled here
+        return unhandled;
       }
     }
-    else playNext();
   }
 
   function handleError(code: number, info: ErrorInfo) {
@@ -359,10 +365,7 @@ export function YouTubeNight({
       // four-hour video mid-night, and a position read before it played may
       // not be its. The reload closes the snapshot gate until it plays again.
       const w = witnessRef.current;
-      const at = w.played ? Math.max(w.startSec, mediaRef.current?.currentTime() ?? 0) : w.startSec;
-      w.reset(at, Date.now());
-      mediaRef.current?.load(ep.youtubeId, at);
-      watchRef.current = { id: ep.id, at: Date.now() };
+      reloadAt(ep, w.played ? Math.max(w.startSec, mediaRef.current?.currentTime() ?? 0) : w.startSec);
       return;
     }
     // Never permanent if it arrived mid-switch: it may be the previous video's
@@ -517,6 +520,16 @@ export function YouTubeNight({
     setShowStartPrompt(needsTap);
 
     const dur = media.duration();
+    // Started within 30 s of its end (a skip-intro longer than the episode,
+    // nearly), and not yet heard: play it whole, as Player.tsx does, rather
+    // than let the listener catch only its last seconds.
+    {
+      const w = witnessRef.current;
+      if (!w.heard && !w.replayed && w.startSec > 0 && dur > 0 && w.startSec >= dur - 30) {
+        replayFromStart();
+        return;
+      }
+    }
     const epRemaining = dur > 0 ? dur - cur : null;
     const driver = fadeDriverSeconds(kind, remaining, epRemaining);
 
@@ -549,13 +562,11 @@ export function YouTubeNight({
       })
     ) {
       watchRef.current = null;
-      failsRef.current++;
       // Stuck without an error code: a blocked embed that reported nothing, a
       // region lock, a load that never finished. Dead for tonight only — we do
       // not know enough to condemn it forever.
       deadRef.current.add(w.id);
-      if (failsRef.current <= 6) playNext();
-      else endSession("ended", { gaveUp: true }); // the whole lineup looks broken
+      if (!countFailure()) playNext();
     }
 
     // Spent only when a snapshot can actually be written (the episode has
@@ -723,19 +734,37 @@ export function YouTubeNight({
     failsRef.current = 0;
     retriesRef.current = 0;
     hasEverPlayedRef.current = true;
-    epHeardRef.current = true;
   }
 
-  /** Play the current episode from 0: it ended without ever being heard,
-   *  most likely started past its end (see decideAfterEnded). Once. */
+  /** Count one more consecutive failure. Past MAX_FAILS the whole lineup looks
+   *  broken and the night ends; returns whether it did. */
+  function countFailure(): boolean {
+    failsRef.current++;
+    if (failsRef.current <= MAX_FAILS) return false;
+    endSession("ended", { gaveUp: true });
+    return true;
+  }
+
+  /** Play the current episode from 0: it ended without ever being heard, or
+   *  its start is within 30 s of its end — most likely started past or near
+   *  its end by a skip-intro (see decideAfterEnded). Once per episode. */
   function replayFromStart() {
     const ep = currentEpRef.current;
+    if (!ep) return;
+    witnessRef.current.markReplayed();
+    retriesRef.current = 0; // a fresh attempt, not the failed load's leftovers
+    reloadAt(ep, 0);
+  }
+
+  /** Reload the current episode at `at`: a retry, or a replay. The per-load
+   *  witness, heard-time baseline and watchdog start over; per-episode state
+   *  (heard, replayed) is kept. */
+  function reloadAt(ep: Episode, at: number) {
     const media = mediaRef.current;
-    if (!ep || !media || !ep.youtubeId) return;
-    epReplayedRef.current = true;
-    witnessRef.current.reset(0, Date.now());
-    lastPosRef.current = 0;
-    media.load(ep.youtubeId, 0);
+    if (!media || !ep.youtubeId) return;
+    witnessRef.current.reset(at, Date.now());
+    lastPosRef.current = at;
+    media.load(ep.youtubeId!, at);
     watchRef.current = { id: ep.id, at: Date.now() };
   }
 

@@ -927,3 +927,50 @@ describe("YouTubeMedia progress dispatch", () => {
     expect(seen).toEqual(["first"]);
   });
 });
+
+describe("YouTubeMedia: an ENDED swallowed during a switch", () => {
+  // A short video that plays and ends while the guard still holds had its
+  // ENDED read as loading and dropped, and nothing sent it again: the night
+  // sat silent until the watchdog.
+  test("is fired once the guard lets go, if the player still shows ENDED", async () => {
+    vi.useFakeTimers();
+    try {
+      const f = fakePlayer({ reportsId: true });
+      let ended = 0;
+      const media = new YouTubeMedia(f.create, { onEnded: () => ended++ });
+      media.load("A");
+      f.ready();
+      f.showVideo("A");
+      f.setState(1);
+      f.setTime(500);
+      media.load("B"); // the player never reports B (lagging id)
+      f.ended(); // B played and ended inside the hold
+      expect(ended).toBe(0);
+      vi.advanceTimersByTime(SWITCH_GUARD_MAX_MS + 1);
+      media.state(); // the next tick lets go of the guard
+      await Promise.resolve();
+      expect(ended).toBe(1);
+    } finally { vi.useRealTimers(); }
+  });
+
+  test("is not fired if the player has moved on by then", async () => {
+    vi.useFakeTimers();
+    try {
+      const f = fakePlayer({ reportsId: true });
+      let ended = 0;
+      const media = new YouTubeMedia(f.create, { onEnded: () => ended++ });
+      media.load("A");
+      f.ready();
+      f.showVideo("A");
+      f.setState(1);
+      f.setTime(500);
+      media.load("B");
+      f.ended();
+      f.setState(1); // playing again
+      vi.advanceTimersByTime(SWITCH_GUARD_MAX_MS + 1);
+      media.state();
+      await Promise.resolve();
+      expect(ended).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
+});

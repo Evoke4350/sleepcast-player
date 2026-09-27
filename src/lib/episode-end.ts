@@ -34,8 +34,9 @@ export function decideAfterEnded(i: EndedInput): EndedDecision {
   if (!i.playedThisEpisode) {
     // It ended without ever being heard: most often because it was started
     // past its end (a Short, or a bonus episode, shorter than its skip-intro
-    // or saved position). Play it from the top once, as Player.tsx plays such
-    // episodes whole. If even that ends unheard, it is broken: dead tonight.
+    // or saved position). Play it from the top once. (One that merely starts
+    // near its end is caught earlier, once its length is known, and played
+    // whole the way Player.tsx does.) If even that ends unheard, it is broken: dead tonight.
     // Treating it as a finish instead kept no record, and a feed of such
     // episodes looped in silence all night.
     return i.replayedFromStart ? { action: "skip-dead" } : { action: "replay-from-start" };

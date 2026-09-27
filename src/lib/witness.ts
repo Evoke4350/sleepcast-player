@@ -40,8 +40,23 @@ export class PlaybackWitness {
   private at = 0;
   private start = 0;
   private seen = false;
+  // Per EPISODE, kept across reloads of it (a retry, a replay): whether it has
+  // been heard at all, and whether it was replayed from 0 after ending unheard.
+  // See decideAfterEnded.
+  private heardEp = false;
+  private replayedEp = false;
 
-  /** A new load asked to start at `startSec`, at `now`. */
+  /** A new episode, loaded to start at `startSec`. `heardBefore`: it was
+   *  already being listened to (a revived night, a saved position), so an
+   *  early end is a finish, not a failure. */
+  newEpisode(startSec: number, now: number, heardBefore = false): void {
+    this.reset(startSec, now);
+    this.heardEp = heardBefore;
+    this.replayedEp = false;
+  }
+
+  /** A reload of the same episode (a retry, a replay) at `startSec`. Only
+   *  the per-load state starts over. */
   reset(startSec: number, now: number): void {
     this.pos = startSec;
     this.at = now;
@@ -51,9 +66,9 @@ export class PlaybackWitness {
 
   /** Feed a reading. Only counts while the player says it is playing, so a
    *  paused or unstarted reading can never open the gate. Returns whether
-   *  playback has been witnessed since the last reset. */
+   *  playback has been witnessed since the last (re)load. */
   observe(pos: number, now: number, playing: boolean): boolean {
-    if (!this.seen && playing && isPlaybackStep(this.pos, this.at, pos, now, this.start)) this.seen = true;
+    if (!this.seen && playing && isPlaybackStep(this.pos, this.at, pos, now, this.start)) this.markPlayed();
     this.pos = pos;
     this.at = now;
     return this.seen;
@@ -62,10 +77,26 @@ export class PlaybackWitness {
   /** The player's own PLAYING event is proof enough. */
   markPlayed(): void {
     this.seen = true;
+    this.heardEp = true;
   }
 
+  /** It is about to be replayed from 0 after ending unheard. */
+  markReplayed(): void {
+    this.replayedEp = true;
+  }
+
+  /** Witnessed playing since the last (re)load: the snapshot gate. */
   get played(): boolean {
     return this.seen;
+  }
+
+  /** Heard at any point in this episode (across reloads). */
+  get heard(): boolean {
+    return this.heardEp;
+  }
+
+  get replayed(): boolean {
+    return this.replayedEp;
   }
 
   /** Where the current load was asked to start. */

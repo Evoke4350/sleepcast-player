@@ -78,3 +78,40 @@ describe("PlaybackWitness", () => {
     expect(w.played).toBe(true);
   });
 });
+
+describe("PlaybackWitness per-episode state", () => {
+  test("heard survives a reload of the same episode; played does not", () => {
+    const w = new PlaybackWitness();
+    w.newEpisode(0, 1_000);
+    w.observe(1, 2_000, true);
+    expect(w.played).toBe(true);
+    w.reset(3_590, 5_000); // a retry near its end
+    expect(w.played).toBe(false);
+    expect(w.heard).toBe(true);
+  });
+
+  test("a new episode clears heard and replayed", () => {
+    const w = new PlaybackWitness();
+    w.newEpisode(0, 1_000);
+    w.markPlayed();
+    w.markReplayed();
+    w.newEpisode(0, 2_000);
+    expect(w.heard).toBe(false);
+    expect(w.replayed).toBe(false);
+  });
+
+  test("an episode started at a saved position counts as heard", () => {
+    const w = new PlaybackWitness();
+    w.newEpisode(10_000, 1_000, true);
+    expect(w.heard).toBe(true);
+    expect(w.played).toBe(false);
+  });
+
+  test("replayed survives the replay's reload", () => {
+    const w = new PlaybackWitness();
+    w.newEpisode(300, 1_000);
+    w.markReplayed();
+    w.reset(0, 2_000);
+    expect(w.replayed).toBe(true);
+  });
+});
