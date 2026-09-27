@@ -310,8 +310,7 @@ export function Night({
     return ep.youtubeId ? ytRef.current : audioBackendRef.current;
   }
 
-  /** `byListener`: reached by the listener's own choice (see playNext). */
-  function startEpisode(ep: Episode, seekTo = 0, byListener = false) {
+  function startEpisode(ep: Episode, seekTo = 0) {
     const next = backendFor(ep);
     // No backend for this kind of episode — the IFrame API never loaded and
     // this is a video. Retire it and move on rather than returning: the mount
@@ -321,7 +320,7 @@ export function Night({
     // playing and nothing that will start. Nothing is detached before this
     // point, so whatever is playing keeps playing until its replacement does.
     if (!next) {
-      skipDead(ep, "that one can't be played here", false, byListener);
+      skipDead(ep, "that one can't be played here", false);
       return;
     }
 
@@ -387,7 +386,9 @@ export function Night({
   }
 
   /** `byListener`: Next or "never again" led here, so ending a never-played
-   *  night is the listener's choice and its snapshot goes (see recordNightEnd). */
+   *  night is the listener's choice and its snapshot goes (see recordNightEnd).
+   *  Only an end their action causes at once counts: one that fails later
+   *  (an error after load) is the app giving up, and keeps the snapshot. */
   function playNext(byListener = false) {
     const ep = nextPlayable(
       poolRef.current,
@@ -401,7 +402,7 @@ export function Night({
       endSession("ended", { gaveUp: !byListener });
       return;
     }
-    startEpisode(ep, 0, byListener);
+    startEpisode(ep);
   }
 
   function handleEnded() {
@@ -919,6 +920,13 @@ export function Night({
         // beginNight says so.
         if (cancelled) return;
         for (const e of pool) if (e.youtubeId) deadRef.current.add(e.id);
+        // Out of the lineup too: listed, they looked playable, and a tap
+        // replaced the podcast that was playing.
+        setBlockedTonight((prev) => {
+          const next = new Set(prev);
+          for (const e of pool) if (e.youtubeId) next.add(e.id);
+          return next;
+        });
         const resumable = resume?.episode && !resume.episode.youtubeId ? resume.episode : null;
         const lead = leadEpisode && !leadEpisode.youtubeId ? leadEpisode : null;
         const first =
@@ -1328,7 +1336,7 @@ export function Night({
                       onClick={() => {
                         if (!isNow) {
                           restRef.current?.noteInteraction();
-                          startEpisode(ep, 0, true);
+                          startEpisode(ep);
                         }
                       }}
                       className={`flex cursor-pointer items-baseline gap-2 text-sm leading-snug transition-opacity duration-700 ${

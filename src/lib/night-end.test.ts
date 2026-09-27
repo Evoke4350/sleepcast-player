@@ -77,9 +77,4 @@ describe("recordNightEnd last episode", () => {
     unblockEpisode(ep.id);
     expect(loadLastEpisode()?.id).toBe(ep.id);
   });
-  it("saves nothing when nothing was heard", () => {
-    recordNightEnd(end({ lastHeard: null }));
-    expect(loadLastEpisode()).toBeNull();
-    expect(loadNights()).toHaveLength(1); // the night itself still counts
-  });
 });

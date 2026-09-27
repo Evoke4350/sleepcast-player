@@ -356,14 +356,6 @@ export function saveLastEpisode(ep: Episode): void {
   }
 }
 
-export function clearLastEpisode(): void {
-  try {
-    localStorage.removeItem(KEY_LASTEP);
-  } catch {
-    /* ignore */
-  }
-}
-
 /** Never one the listener has since said "never again" to: the lead path
  *  plays it directly, without consulting the blocked list. Filtered here, on
  *  read, so an episode unblocked later is offered again. */

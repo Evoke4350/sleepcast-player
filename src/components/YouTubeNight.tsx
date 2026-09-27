@@ -296,7 +296,9 @@ export function YouTubeNight({
   }
 
   /** `byListener`: Next or "never again" led here, so ending a never-played
-   *  night is the listener's choice and its snapshot goes (see recordNightEnd). */
+   *  night is the listener's choice and its snapshot goes (see recordNightEnd).
+   *  Only an end their action causes at once counts: one that fails later
+   *  (an error after load) is the app giving up, and keeps the snapshot. */
   function playNext(byListener = false) {
     const ep = nextPlayable(
       poolRef.current,

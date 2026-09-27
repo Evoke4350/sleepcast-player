@@ -5,7 +5,7 @@
 // reached two of them and missed the third. The media teardown genuinely
 // differs per player; the bookkeeping does not.
 import type { Episode, PlayMode } from "./engine";
-import { clearLastEpisode, clearLive, recordSessionEnd, saveLastEpisode, saveLastNight, type LastNight } from "./store";
+import { clearLive, recordSessionEnd, saveLastEpisode, saveLastNight, type LastNight } from "./store";
 import { appendNight } from "./rest/ledger";
 import type { RestSession } from "./rest/session";
 import type { RestNight } from "./rest/types";
@@ -39,9 +39,8 @@ export function recordNightEnd(e: NightEnd): void {
   // "faded" is the natural end — stamp it so setup can offer a smaller re-arm.
   if (e.reason === "faded") recordSessionEnd(e.timerMinutes, e.modeKind);
   saveLastNight({ ...e.lastNight, endedVia: e.reason, endedAt: e.now });
-  // For "the exact one again" (a blocked one is hidden when read back). With
-  // nothing heard, clear it rather than leave an older night's pick standing.
+  // For "the exact one again" (a blocked one is hidden when read back).
+  // Always set here: whatever made `played` true also set it.
   if (e.lastHeard) saveLastEpisode(e.lastHeard);
-  else clearLastEpisode();
   if (e.rest) appendNight(e.rest.finish(e.reason, e.now));
 }

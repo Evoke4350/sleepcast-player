@@ -5,7 +5,7 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 const DriftGame = lazy(() => import("./DriftGame"));
 import type { Episode, PlayMode } from "../lib/engine";
 import { fadeVolume, formatTime, effectiveVolume, fadeDriverSeconds } from "../lib/engine";
-import { getPlays, recordHeardPlay, saveLive, rememberPosition, forgetPosition, blockEpisode } from "../lib/store";
+import { getPlays, recordHeardPlay, saveLive, rememberPosition, forgetPosition, blockEpisode, loadPositions } from "../lib/store";
 import { pickNextEpisode, HEARD_SEC } from "../lib/plays";
 import { canExtend } from "../lib/timer-feel";
 import type { NoiseSettings } from "../lib/store";
@@ -109,6 +109,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   // skip it instead of sitting in silence. Bounded so a fully-broken pool
   // can't spin forever.
   const watchRef = useRef<{ src: string; at: number } | null>(null);
+  /** Set while waiting for the network to come back (see waitForNetwork);
+   *  calling it stops waiting. */
+  const offlineWaitRef = useRef<(() => void) | null>(null);
   const failsRef = useRef(0);
   // Whether anything has actually played this night. A night that never did
   // records nothing when it ends (see endSession).
@@ -317,6 +320,45 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     if (failsRef.current <= MAX_FAILS) return false;
     endSession("ended", { gaveUp: true });
     return true;
+  }
+
+  /** A stuck track or a source error: move on, or end the night once the
+   *  whole pool looks broken. Offline, neither: every source fails at once,
+   *  and burning through the pool would end (and clear) a night that one tap
+   *  on the Wi-Fi would have saved. Wait for the network instead. */
+  function failAndMoveOn() {
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      waitForNetwork();
+      return;
+    }
+    if (countFailure()) return;
+    playNext();
+  }
+
+  /** Hold the night, clock frozen, until the browser reports the network is
+   *  back, then retry the same episode from its last remembered position. */
+  function waitForNetwork() {
+    const audio = audioRef.current;
+    const ep = currentEpRef.current;
+    if (!audio || !ep || offlineWaitRef.current) return;
+    // A failed element may already be paused, so no "pause" event would
+    // freeze the clock: freeze it here (onPlay thaws it on the retry).
+    if (endTimeRef.current !== null && pausedRemainingMsRef.current === null) {
+      pausedRemainingMsRef.current = endTimeRef.current - Date.now();
+    }
+    watchRef.current = null;
+    audio.pause();
+    setPaused(true);
+    const onOnline = () => {
+      offlineWaitRef.current = null;
+      if (tickHandleRef.current === null || currentEpRef.current !== ep) return;
+      playEpisode(ep, loadPositions()[ep.id] ?? 0);
+    };
+    window.addEventListener("online", onOnline, { once: true });
+    offlineWaitRef.current = () => {
+      window.removeEventListener("online", onOnline);
+      offlineWaitRef.current = null;
+    };
   }
 
   function playNext() {
@@ -569,9 +611,10 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     const w = watchRef.current;
     if (w && Date.now() - w.at > 25_000) {
       watchRef.current = null;
-      // A stuck track: move on, or end the night if the whole pool looks broken.
-      if (countFailure()) return;
-      playNext();
+      failAndMoveOn();
+      // Everything below concerns the episode just replaced (or the night just
+      // ended), as in YouTubeNight's watchdog.
+      return;
     }
 
     // Spent only when a snapshot can actually be written (the episode has
@@ -603,6 +646,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // no RestNight for calibration to learn from. Ending it is still the
     // listener's choice, so its snapshot is cleared either way.
     clearStopFade();
+    offlineWaitRef.current?.();
     recordNightEnd({
       reason,
       played: hasEverPlayedRef.current,
@@ -778,7 +822,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
         // Counted like the watchdog's stuck tracks. Uncounted, a pool whose
         // sources all fail at once (network gone at 2am, every enclosure a
         // 404) switched tracks forever, since onPlaying never resets anything.
-        if (!countFailure()) playNext();
+        failAndMoveOn();
       }
     };
 
@@ -820,6 +864,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     return () => {
       if (tickHandleRef.current !== null) clearInterval(tickHandleRef.current);
       clearStopFade();
+      offlineWaitRef.current?.();
       // A hold still counting at unmount would call endSession on a player
       // that is gone, and through onEnd end whatever night came next.
       if (holdTimerRef.current) clearInterval(holdTimerRef.current);
