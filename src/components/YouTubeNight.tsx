@@ -98,6 +98,8 @@ export interface YouTubeNightProps {
     remainingMs: number;
     totalSeconds: number;
     playedIds: string[];
+    /** When the revived night really began (snapshot's nightStartedAt). */
+    nightStartedAt?: number;
   } | null;
   leadEpisode?: Episode | null;
   leadPosition?: number;
@@ -601,7 +603,12 @@ export function YouTubeNight({
     // wait spends the listener's minutes on a still frame.
     pausedRemainingMsRef.current =
       endTimeRef.current === null ? null : endTimeRef.current - Date.now();
-    restRef.current = new RestSession(Date.now(), timerMinutes);
+    // A revived night continues the one that began before the reload: its
+    // time-to-sleep, timeline and snapshots count from the real start, not
+    // from the tap on "keep going".
+    const nightStart =
+      resume?.nightStartedAt && resume.nightStartedAt <= Date.now() ? resume.nightStartedAt : Date.now();
+    restRef.current = new RestSession(nightStart, timerMinutes);
     deadRef.current = new Set(loadBlocked());
     if (resume) {
       totalSecondsRef.current = resume.totalSeconds;

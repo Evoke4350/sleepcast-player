@@ -76,6 +76,8 @@ export interface PlayerProps {
     remainingMs: number;
     totalSeconds: number;
     playedIds: string[];
+    /** When the revived night really began (snapshot's nightStartedAt). */
+    nightStartedAt?: number;
   } | null;
   // "the exact one again": lead a fresh night with this episode (the same show
   // the returning listener drifted off to), then shuffle on as usual.
@@ -614,7 +616,13 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       mode.kind === "minutes"
         ? Date.now() + (resume ? resume.remainingMs : timerMinutes * 60 * 1000)
         : null; // timerless modes: the fade is driven by the episode, not a clock
-    restRef.current = new RestSession(Date.now(), timerMinutes);
+    // A revived night continues the one that began before the reload: its
+    // time-to-sleep, timeline and snapshots count from the real start, not
+    // from the tap on "keep going".
+    const nightStart =
+      resume?.nightStartedAt && resume.nightStartedAt <= Date.now() ? resume.nightStartedAt : Date.now();
+    restRef.current = new RestSession(nightStart, timerMinutes);
+    nightStartedAtRef.current = nightStart; // the quarter-hour rule's clock too
     if (resume) {
       totalSecondsRef.current = resume.totalSeconds;
       setTotalSeconds(resume.totalSeconds);
