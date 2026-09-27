@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { recordNightEnd, type NightEnd } from "./night-end";
-import { saveLive, loadLive, loadLastNight, loadLastEpisode, loadState, type LiveSession } from "./store";
+import { blockEpisode, saveLive, loadLive, loadLastNight, loadLastEpisode, loadState, type LiveSession } from "./store";
 import { loadNights } from "./rest/ledger";
 import { RestSession } from "./rest/session";
 
@@ -60,7 +60,14 @@ describe("recordNightEnd last episode", () => {
     recordNightEnd(end());
     expect(loadLastEpisode()?.id).toBe(ep.id);
   });
-  it("doesn't offer anything when nothing was heard as the exact one again", () => {
+  it("doesn't offer an episode blocked after it was heard", () => {
+    // Heard, then "never again", then the night ended before the next played.
+    blockEpisode(ep.id);
+    recordNightEnd(end());
+    expect(loadLastEpisode()).toBeNull();
+    expect(loadNights()).toHaveLength(1); // the night itself still counts
+  });
+  it("saves nothing when nothing was heard", () => {
     recordNightEnd(end({ lastHeard: null }));
     expect(loadLastEpisode()).toBeNull();
     expect(loadNights()).toHaveLength(1); // the night itself still counts

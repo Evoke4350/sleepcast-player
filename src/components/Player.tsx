@@ -332,7 +332,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       // the whole feed, and end rather than fake-play silence all night.
       const playable = available.filter((e) => !corsBadFeeds.has(e.feedId));
       if (playable.length === 0) {
-        endSession("ended", { gaveUp: true });
+        // Not a give-up: attachment only happens after something has played.
+        endSession("ended");
         return;
       }
       available = playable;

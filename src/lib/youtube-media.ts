@@ -394,9 +394,10 @@ export class YouTubeMedia implements MediaBackend {
       // a load that never arrived leaves the PREVIOUS video showing, ended;
       // and a player that can't report its video (the fallback) may still
       // hold the old ENDED in its cached state. Both are left to the watchdog.
-      // Known limit: a re-fire needs an ENDED to have arrived during the hold,
-      // i.e. a reload of the SAME video issued while its old load was still
-      // playing out (a retry, a play-whole replay). If that reload never
+      // The ENDED held here is usually the requested video's own (a Short
+      // requested past its end ends before its load confirms), and re-firing
+      // it is the point. Known limit: when the requested video is the SAME as
+      // the one playing out (a retry, a play-whole replay) and its reload never
       // arrives, the old load's ENDED looks identical to the new one's, and
       // nothing tells them apart; the players take it as the episode ending
       // (decideAfterEnded): moving on if it was heard, one replay if not.

@@ -80,8 +80,9 @@ export interface EndedHooks {
   forgetPosition(): void;
 }
 
-/** Carry out a decision. The one switch both players share, so a new
- *  outcome can't be handled in one and forgotten in the other. */
+/** Carry out a decision. The one switch Night and YouTubeNight share, so a
+ *  new outcome can't be handled in one and forgotten in the other. Player
+ *  (podcasts only, no videos, no replay) keeps its own simpler onEnded. */
 export function applyEndedDecision(d: EndedDecision, h: EndedHooks): void {
   switch (d.action) {
     case "ignore":

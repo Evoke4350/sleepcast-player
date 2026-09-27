@@ -310,7 +310,8 @@ export function Night({
     return ep.youtubeId ? ytRef.current : audioBackendRef.current;
   }
 
-  function startEpisode(ep: Episode, seekTo = 0) {
+  /** `byListener`: reached by the listener's own choice (see playNext). */
+  function startEpisode(ep: Episode, seekTo = 0, byListener = false) {
     const next = backendFor(ep);
     // No backend for this kind of episode — the IFrame API never loaded and
     // this is a video. Retire it and move on rather than returning: the mount
@@ -320,7 +321,7 @@ export function Night({
     // playing and nothing that will start. Nothing is detached before this
     // point, so whatever is playing keeps playing until its replacement does.
     if (!next) {
-      skipDead(ep, "that one can't be played here", false);
+      skipDead(ep, "that one can't be played here", false, byListener);
       return;
     }
 
@@ -400,7 +401,7 @@ export function Night({
       endSession("ended", { gaveUp: !byListener });
       return;
     }
-    startEpisode(ep);
+    startEpisode(ep, 0, byListener);
   }
 
   function handleEnded() {
@@ -1327,7 +1328,7 @@ export function Night({
                       onClick={() => {
                         if (!isNow) {
                           restRef.current?.noteInteraction();
-                          startEpisode(ep);
+                          startEpisode(ep, 0, true);
                         }
                       }}
                       className={`flex cursor-pointer items-baseline gap-2 text-sm leading-snug transition-opacity duration-700 ${

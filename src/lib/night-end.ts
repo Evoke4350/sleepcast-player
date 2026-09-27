@@ -5,7 +5,7 @@
 // reached two of them and missed the third. The media teardown genuinely
 // differs per player; the bookkeeping does not.
 import type { Episode, PlayMode } from "./engine";
-import { clearLive, recordSessionEnd, saveLastEpisode, saveLastNight, type LastNight } from "./store";
+import { clearLive, loadBlocked, recordSessionEnd, saveLastEpisode, saveLastNight, type LastNight } from "./store";
 import { appendNight } from "./rest/ledger";
 import type { RestSession } from "./rest/session";
 import type { RestNight } from "./rest/types";
@@ -25,7 +25,7 @@ export interface NightEnd {
    *  exact one again". Not simply the current one: a night that ended on a run
    *  of failures, or on a timer that ran out just after a switch, would offer
    *  tomorrow an episode that never played. A saved position does not count as
-   *  heard here; only playback tonight does. */
+   *  heard here; only playback tonight does. A blocked one is not saved. */
   lastHeard: Episode | null;
   rest: RestSession | null;
   now: number;
@@ -39,6 +39,8 @@ export function recordNightEnd(e: NightEnd): void {
   // "faded" is the natural end — stamp it so setup can offer a smaller re-arm.
   if (e.reason === "faded") recordSessionEnd(e.timerMinutes, e.modeKind);
   saveLastNight({ ...e.lastNight, endedVia: e.reason, endedAt: e.now });
-  if (e.lastHeard) saveLastEpisode(e.lastHeard); // for "the exact one again"
+  // For "the exact one again". Unless the listener said "never again" to it
+  // after hearing it: the night can end before the next one makes a sound.
+  if (e.lastHeard && !loadBlocked().includes(e.lastHeard.id)) saveLastEpisode(e.lastHeard);
   if (e.rest) appendNight(e.rest.finish(e.reason, e.now));
 }
