@@ -10,8 +10,9 @@ import { rateLimit, clientIp } from "../../lib/ratelimit";
 // at all. The only thing it can ever fetch is https://www.youtube.com/@<h>
 // where <h> matched /^[A-Za-z0-9._-]{1,64}$/, and the only thing it can ever
 // return is a 24-character channel id. The page is never sent back, so this
-// cannot be used to read anything, and there is no redirect to follow because
-// a wrong handle is a 404 rather than a hop somewhere else.
+// cannot be used to read anything. A wrong handle is a 404 rather than a hop
+// somewhere else; a redirect that does leave youtube.com (a consent page) is
+// refused rather than parsed.
 //
 // It exists because the honest alternative was a chore: a handle carries no
 // channel id, and telling a listener on a phone to go find the /channel/UC…
@@ -77,7 +78,7 @@ export const GET: APIRoute = async ({ url, request }) => {
   try {
     resp = await fetch(target, {
       headers: UA,
-      redirect: "follow", // youtube.com only; the URL was built here, not taken
+      redirect: "follow", // the URL was built here; the final host is checked below
       signal: AbortSignal.timeout(15000),
     });
   } catch {
@@ -85,6 +86,14 @@ export const GET: APIRoute = async ({ url, request }) => {
   }
   if (resp.status === 404) return json({ error: "no such channel" }, 404);
   if (!resp.ok) return json({ error: "youtube said no" }, 502);
+  // Redirects are followed, but only a page still on youtube.com can carry the
+  // channel id. Anywhere else (consent.youtube.com, google.com/sorry) would
+  // parse to "no channel id" and be reported as a missing channel.
+  let finalHost = "";
+  try { finalHost = resp.url ? new URL(resp.url).hostname : "www.youtube.com"; } catch { /* keep "" */ }
+  if (finalHost !== "www.youtube.com" && finalHost !== "youtube.com") {
+    return json({ error: "youtube sent us to another page — try again later" }, 502);
+  }
 
   // Read with a ceiling rather than resp.text(): an unbounded body on a 512MB
   // machine is a denial of service with extra steps.

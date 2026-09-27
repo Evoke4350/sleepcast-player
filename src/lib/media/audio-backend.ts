@@ -108,7 +108,13 @@ export class AudioBackend implements MediaBackend {
     if (this.dead) return () => {};
     const handler = () => cb();
     this.el.addEventListener(type, handler);
-    const off = () => this.el.removeEventListener(type, handler);
+    // Also drop it from `detach` once the caller unsubscribes: kept there, every
+    // episode switch added three dead entries for the rest of the night.
+    const off = () => {
+      this.el.removeEventListener(type, handler);
+      const i = this.detach.indexOf(off);
+      if (i !== -1) this.detach.splice(i, 1);
+    };
     this.detach.push(off);
     return off;
   }
@@ -132,6 +138,11 @@ export class AudioBackend implements MediaBackend {
   private reportPlayFailure(err: unknown): void {
     if (this.dead) return;
     if (err instanceof DOMException && err.name === "AbortError") return;
+    // NotSupportedError is the source failing to load, which the element also
+    // reports as its "error" event (the report of record, wired in onError).
+    // The rejection can land after that event has already moved the night on,
+    // on the NEXT episode's play(), skipping a working episode for a dead one.
+    if (err instanceof DOMException && err.name === "NotSupportedError") return;
     const code = err instanceof DOMException && err.name === "NotAllowedError" ? "autoplay-blocked" : "play-failed";
     for (const cb of this.errorCallbacks) cb(code);
   }

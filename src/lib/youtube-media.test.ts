@@ -423,3 +423,30 @@ describe("conforming to the shared backend interface", () => {
     expect(media.transport()).toBe("dead");
   });
 });
+
+describe("YouTubeMedia pending queue", () => {
+  // The night's tick sets volume every second. A player that never becomes
+  // ready (embed blocked) queued one closure per second all night, then
+  // replayed them all in a burst if it did become ready.
+  test("volume commands before ready collapse to the latest", () => {
+    const f = fakePlayer();
+    const media = new YouTubeMedia(f.create);
+    media.load("A");
+    for (let i = 0; i < 3600; i++) media.setVolume(i % 2 ? 0.5 : 0.25);
+    media.setVolume(0.8);
+    f.ready();
+    expect(f.calls.filter((c) => c.startsWith("volume:"))).toEqual(["volume:80"]);
+  });
+
+  test("other queued commands keep their order around the volume", () => {
+    const f = fakePlayer();
+    const media = new YouTubeMedia(f.create);
+    media.load("A");
+    media.setVolume(0.2);
+    media.pause();
+    media.setVolume(0.4);
+    f.ready();
+    expect(f.calls).toContain("pause");
+    expect(f.calls.filter((c) => c.startsWith("volume:"))).toEqual(["volume:40"]);
+  });
+});
