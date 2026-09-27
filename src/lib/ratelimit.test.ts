@@ -1,5 +1,5 @@
-import { describe, expect, test } from "vitest";
-import { clientIp, rateLimit } from "./ratelimit";
+import { describe, expect, test, vi } from "vitest";
+import { clientIp, rateLimit, bucketCount, PRUNE_AT } from "./ratelimit";
 
 const req = (headers: Record<string, string>) =>
   new Request("https://sleepcast.pro/api/relay", { headers });
@@ -63,5 +63,30 @@ describe("rateLimit", () => {
     rateLimit(a, 1, 60_000);
     expect(rateLimit(a, 1, 60_000).ok).toBe(false);
     expect(rateLimit(b, 1, 60_000).ok).toBe(true);
+  });
+});
+
+describe("rateLimit memory", () => {
+  // One bucket per visitor address, never removed: the map only ever grew for
+  // the life of the process.
+  test("drops expired buckets once the table is large", () => {
+    vi.useFakeTimers();
+    try {
+      for (let i = 0; i < PRUNE_AT + 10; i++) rateLimit(`old-${i}`, 5, 1000);
+      vi.advanceTimersByTime(2000);
+      rateLimit("new", 5, 1000);
+      expect(bucketCount()).toBeLessThan(10);
+    } finally { vi.useRealTimers(); }
+  });
+
+  test("keeps live buckets when pruning", () => {
+    vi.useFakeTimers();
+    try {
+      rateLimit("busy", 1, 60_000);
+      for (let i = 0; i < PRUNE_AT + 10; i++) rateLimit(`old-${i}`, 5, 1000);
+      vi.advanceTimersByTime(2000);
+      rateLimit("new", 5, 1000);
+      expect(rateLimit("busy", 1, 60_000).ok).toBe(false); // still limited
+    } finally { vi.useRealTimers(); }
   });
 });

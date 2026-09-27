@@ -9,6 +9,26 @@ interface Bucket {
 
 const buckets = new Map<string, Bucket>();
 
+/** Past this many buckets, expired ones are swept on the next call. One bucket
+ *  per visitor address was never removed, so the map grew for the life of the
+ *  process. */
+export const PRUNE_AT = 5_000;
+
+let lastPruneAt = 0;
+
+// At most once a second, so a table full of live buckets isn't rescanned on
+// every request.
+function prune(now: number): void {
+  if (now - lastPruneAt < 1_000) return;
+  lastPruneAt = now;
+  for (const [k, b] of buckets) if (b.resetAt <= now) buckets.delete(k);
+}
+
+/** For tests. */
+export function bucketCount(): number {
+  return buckets.size;
+}
+
 export interface RateLimitResult {
   ok: boolean;
   remaining: number;
@@ -21,6 +41,7 @@ export function rateLimit(
   windowMs: number,
 ): RateLimitResult {
   const now = Date.now();
+  if (buckets.size >= PRUNE_AT) prune(now);
   const b = buckets.get(key);
   if (!b || b.resetAt <= now) {
     buckets.set(key, { count: 1, resetAt: now + windowMs });
