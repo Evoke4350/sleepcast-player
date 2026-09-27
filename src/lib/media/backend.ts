@@ -14,7 +14,7 @@ export type Transport = "playing" | "paused" | "buffering" | "awaiting-start" | 
 
 /** Alongside every error. `uncertain`: it may not be about the current
  *  episode (it arrived while switching), so skip it tonight but don't
- *  condemn it for good, and don't spend its retry budget. */
+ *  condemn it for good. */
 export interface ErrorInfo {
   uncertain: boolean;
 }

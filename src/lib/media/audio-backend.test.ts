@@ -250,3 +250,24 @@ describe("AudioBackend: one failure, one report", () => {
     expect((b as unknown as { detach: unknown[] }).detach.length).toBe(0);
   });
 });
+
+describe("AudioBackend error dispatch", () => {
+  it("a handler that re-subscribes during dispatch runs once", async () => {
+    const { el, rejectNextPlay } = fakeAudio();
+    const b = new AudioBackend(el);
+    let calls = 0;
+    let off = () => {};
+    const handler = () => {
+      calls++;
+      if (calls > 10) return;
+      off();
+      off = b.onError(handler);
+    };
+    off = b.onError(handler);
+    rejectNextPlay(new Error("network blew up"));
+    b.play();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(calls).toBe(1);
+  });
+});

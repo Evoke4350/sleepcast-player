@@ -701,9 +701,9 @@ describe("YouTubeMedia switch guard: same id, errors, bounds", () => {
     expect(media.eventState(0)).toBe(-1);
   });
 
-  // A Short past a long skip-intro loads past its end and ends at once: an
-  // ENDED before the requested start is the new video's, and confirms.
-  test("an ENDED before the requested start confirms the switch", () => {
+  // A Short past a long skip-intro ends before confirming: a known, bounded
+  // limit (the watchdog). Confirming on it looped a Shorts feed forever.
+  test("an ENDED before the requested start does not confirm either", () => {
     const f = fakePlayer({ reportsId: true });
     const media = new YouTubeMedia(f.create);
     media.load("A");
@@ -715,7 +715,7 @@ describe("YouTubeMedia switch guard: same id, errors, bounds", () => {
     f.showVideo("B");
     f.setTime(60);
     f.setState(0);
-    expect(media.eventState(0)).toBe(0);
+    expect(media.eventState(0)).toBe(-1);
   });
 
   test("an error while the new video already shows freshly loaded is certain", () => {
@@ -826,5 +826,46 @@ describe("YouTubeMedia fires ENDED itself", () => {
     media.destroy();
     await Promise.resolve();
     expect(live).toBe(false);
+  });
+});
+
+describe("YouTubeMedia subscriber dispatch", () => {
+  // Night's handler unsubscribes and re-subscribes itself while handling (a
+  // skip starts the next episode). Looping over the live Set visited the
+  // re-added handler again: one error blocked every following video.
+  test("a handler that re-subscribes during dispatch runs once", () => {
+    const f = fakePlayer();
+    const media = new YouTubeMedia(f.create);
+    let calls = 0;
+    let off = () => {};
+    const handler = () => {
+      calls++;
+      if (calls > 10) return; // don't hang the test if it regresses
+      off();
+      off = media.onError(handler);
+    };
+    off = media.onError(handler);
+    media.load("A");
+    f.ready();
+    f.error(150);
+    expect(calls).toBe(1);
+  });
+
+  test("the same holds for ended", () => {
+    const f = fakePlayer();
+    const media = new YouTubeMedia(f.create);
+    let calls = 0;
+    let off = () => {};
+    const handler = () => {
+      calls++;
+      if (calls > 10) return;
+      off();
+      off = media.onEnded(handler);
+    };
+    off = media.onEnded(handler);
+    media.load("A");
+    f.ready();
+    f.ended();
+    expect(calls).toBe(1);
   });
 });

@@ -228,7 +228,7 @@ export class YouTubeMedia implements MediaBackend {
     if (this.dead) return () => {};
     this.progressSubs.add(cb);
     this.progressTimer ??= setInterval(() => {
-      for (const s of this.progressSubs) s();
+      for (const s of [...this.progressSubs]) s(); // a copy: see fireEnded
     }, 1000);
     return () => {
       this.progressSubs.delete(cb);
@@ -309,12 +309,15 @@ export class YouTubeMedia implements MediaBackend {
 
   private fireEnded(): void {
     this.handlers.onEnded?.();
-    for (const s of this.endedSubs) s();
+    // A copy: a handler may unsubscribe and re-subscribe itself (Night's
+    // skip starts the next episode), and a Set loop visits entries added
+    // mid-loop, running it again against the next episode.
+    for (const s of [...this.endedSubs]) s();
   }
 
   private emitError(code: number, info: ErrorInfo): void {
     this.handlers.onError?.(code, info);
-    for (const s of this.errorSubs) s(code, info);
+    for (const s of [...this.errorSubs]) s(code, info); // a copy: see fireEnded
   }
 
   /** The video id the player reports, or null if it can't report one. */
@@ -357,18 +360,18 @@ export class YouTubeMedia implements MediaBackend {
   }
 
   /** The player is at the start of a load rather than mid-way through (or at
-   *  the end of) an earlier one. ENDED counts only when it came before the
-   *  requested start, i.e. the new video is shorter than its start (a Short
-   *  past a long skip-intro). Otherwise it doesn't: requesting the video that
-   *  just ended (a lone survivor repeating) would confirm on the old load's
-   *  own ENDED, which sits at the end, past any start. */
+   *  the end of) an earlier one. ENDED doesn't count: requesting the video
+   *  that just ended (a lone survivor repeating) would confirm on the old
+   *  load's own ENDED. Known limit: a video shorter than its requested start
+   *  (a Short past a long skip-intro) ends before confirming and meets the
+   *  watchdog, a bounded failure. Confirming on "ENDED before the start"
+   *  instead turned a feed of such Shorts into an endless silent loop of
+   *  skips, and could match a stale ENDED. */
   private showsFreshLoad(sw: { start: number; positionCounts: boolean }): boolean {
     try {
       const raw = this.player!.getPlayerState();
       if (raw === YT_STATE.UNSTARTED || raw === YT_STATE.BUFFERING || raw === YT_STATE.CUED) return true;
-      const at = this.player!.getCurrentTime() || 0;
-      if (raw === YT_STATE.ENDED) return at < sw.start - 1;
-      return sw.positionCounts && Math.abs(at - sw.start) < 3;
+      return sw.positionCounts && Math.abs((this.player!.getCurrentTime() || 0) - sw.start) < 3;
     } catch {
       return false;
     }

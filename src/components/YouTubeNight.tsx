@@ -231,9 +231,7 @@ export function YouTubeNight({
   // state, except during a switch, when it may be the previous video's (a
   // PLAYING that would mark the new one played, an ENDED that would skip it).
   function handleStateEvent(raw: number) {
-    // A late event after the night ended (media torn down) is ignored:
-    // acting on it could forget the episode's position.
-    if (!mediaRef.current) return;
+    if (!mediaRef.current) return; // YouTubeMedia already ignores events once destroyed
     mediaRef.current.routeStateEvent(raw, {
       transport: setTransport,
       playing: () => {
@@ -332,9 +330,9 @@ export function YouTubeNight({
     if (!ep?.youtubeId || tickHandleRef.current === null) return;
     const decision = decideAfterError(code, retriesRef.current);
     if (decision.action === "retry") {
-      // An uncertain error may be the previous video's: reload, but don't
-      // spend this episode's retry budget on it.
-      if (!info.uncertain) retriesRef.current++;
+      // Counted even when uncertain: a retry reloads (a new switch), so an
+      // error that always lands mid-switch would otherwise retry forever.
+      retriesRef.current++;
       // Where it was, if it ever played, else where it was meant to start (a
       // revived position, the skip-intro): reloading at 0 restarted a
       // four-hour video mid-night, and a position read before it played may
