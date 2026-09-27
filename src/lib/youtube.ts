@@ -64,7 +64,9 @@ export function youtubeFeedUrl(input: string): YouTubeUrl | null {
     return null;
   }
 
-  const channel = path.match(/^\/channel\/([A-Za-z0-9_-]+)$/);
+  // A channel tab (/videos, /featured, /streams…) is still that channel, as
+  // the @handle match below already allows.
+  const channel = path.match(/^\/channel\/([A-Za-z0-9_-]+)(?:\/|$)/);
   if (channel) return { kind: "feed", url: feedFor("channel_id", channel[1]) };
 
   if (path === "/playlist") {

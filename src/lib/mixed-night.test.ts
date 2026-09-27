@@ -89,3 +89,14 @@ describe("a lead somebody else supplied", () => {
     expect(preferVideoLead(undefined, [yt("v1")], new Set(["v1"]), [], () => 0)).toBeNull();
   });
 });
+
+describe("preferVideoLead with no lead and no live video", () => {
+  // chooseLead correctly falls back to a podcast when every video is dead,
+  // but preferVideoLead dropped that podcast (it isn't a video, and there was
+  // no supplied lead), so the night reported nothing playable.
+  it("returns the podcast chooseLead picked", () => {
+    const pool = [yt("v1"), pod("p1")];
+    const lead = preferVideoLead(null, pool, new Set(["v1"]), [], () => 0);
+    expect(lead?.id).toBe("p1");
+  });
+});
