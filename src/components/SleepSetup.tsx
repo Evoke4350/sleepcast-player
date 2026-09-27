@@ -40,6 +40,8 @@ interface FeedStatus {
   error: string | null;
   episodes: Episode[];
   artwork?: string;
+  /** When it last failed, for the retry backoff (see needsFetch). */
+  failedAt?: number;
 }
 
 export interface SleepSetupProps {
@@ -51,7 +53,9 @@ export interface SleepSetupProps {
     artworkByFeedId: Record<string, string>,
     leadEpisode?: Episode | null,
     wasVaried?: boolean,
-    leadPosition?: number
+    leadPosition?: number,
+    /** This night's mode when it differs from the saved setting (a re-arm). */
+    modeOverride?: PlayMode
   ) => void;
 }
 
@@ -108,12 +112,20 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
 
   const canStart = enabledFeeds.length > 0 && pool.length > 0;
 
-  // Fetch / load feeds whenever enabled feeds change
+  // Bumped when the listener asks to try again (the moon, with nothing
+  // loaded). A change it causes forces failed feeds to be retried at once.
+  const [retryNonce, setRetryNonce] = useState(0);
+  const seenRetryRef = useRef(0);
+
+  // Fetch / load feeds whenever enabled feeds change, or on a retry request
   useEffect(() => {
+    const force = retryNonce !== seenRetryRef.current;
+    seenRetryRef.current = retryNonce;
+    const now = Date.now();
     const enabled = appState.feeds.filter((f) => f.enabled);
     for (const feed of enabled) {
-      // In flight or loaded: leave it. Failed: try again.
-      if (!needsFetch(feedStatuses[feed.id])) continue;
+      // In flight or loaded: leave it. Failed: retry if asked or rested.
+      if (!needsFetch(feedStatuses[feed.id], now, force)) continue;
 
       // Mark as loading
       setFeedStatuses((prev) => ({
@@ -159,14 +171,14 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
             const msg = err instanceof Error ? err.message : String(err);
             setFeedStatuses((prev) => ({
               ...prev,
-              [feed.id]: { loading: false, episodeCount: null, error: msg, episodes: [] },
+              [feed.id]: { loading: false, episodeCount: null, error: msg, episodes: [], failedAt: Date.now() },
             }));
           }
         }
       })();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [appState.feeds]);
+  }, [appState.feeds, retryNonce]);
 
   function updateAndSave(next: AppState) {
     setAppState(next);
@@ -367,7 +379,15 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
       const artwork = feedStatuses[f.id]?.artwork;
       if (artwork) artworkByFeedId[f.id] = artwork;
     }
-    onStart(chosen, timerMinutes, skipIntroByFeedId, feedTitles, artworkByFeedId, leadRef.current, wasVaried, leadPositionRef.current);
+    const rearm = rearmNightRef.current;
+    rearmNightRef.current = null;
+    onStart(
+      chosen,
+      rearm ? rearm.minutes : timerMinutes,
+      skipIntroByFeedId, feedTitles, artworkByFeedId,
+      leadRef.current, wasVaried, leadPositionRef.current,
+      rearm?.mode,
+    );
     leadRef.current = null;
   }
 
@@ -385,6 +405,9 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
   // "this start came from the offer, leave the stamp alone" from "an ordinary
   // start, clear it".
   const rearmStartRef = useRef(false);
+  // A re-arm's timer and mode, carried to startWith for that one night rather
+  // than saved over the listener's setting.
+  const rearmNightRef = useRef<{ minutes: number; mode: PlayMode } | null>(null);
 
   // One tap back to sleep: half the previous dose, no setup steps.
   function handleRearm() {
@@ -394,14 +417,10 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
       rearmable.modeKind === "one-episode"
         ? { kind: "one-episode" }
         : { kind: "minutes", minutes: rearmM };
-    updateAndSave({
-      ...appState,
-      settings: {
-        ...appState.settings,
-        mode: nextMode,
-        ...(nextMode.kind === "minutes" ? { timerMinutes: rearmM } : {}),
-      },
-    });
+    // For this night only. It used to be saved as the setting; once the
+    // per-night reset to 45 was gone, a re-arm's halved dose became every
+    // later night's timer (45, then 25, then 10...).
+    rearmNightRef.current = { minutes: nextMode.kind === "minutes" ? rearmM : timerMinutes, mode: nextMode };
     beginNight(null);
   }
 
@@ -412,6 +431,13 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
     // in…" and is disabled, and so is every other way to start a night.
     if (pool.length === 0) {
       setFeedError("couldn't reach your feeds — check your connection and try again");
+      // "Try again" has to mean something: retry failed feeds now. Before,
+      // they were only retried when the feed list changed, so tapping again
+      // repeated this message forever.
+      setRetryNonce((n) => n + 1);
+      // A re-arm that couldn't start must not carry into the next ordinary one.
+      rearmNightRef.current = null;
+      rearmStartRef.current = false;
       return;
     }
     leadRef.current = lead;
