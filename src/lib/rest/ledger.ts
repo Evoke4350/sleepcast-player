@@ -45,7 +45,12 @@ function median(xs: number[]): number | null {
 export const MIN_PLAUSIBLE_ONSET_MS = 7 * 60_000;
 
 export function rollup(nights: RestNight[]): RestRollup {
-  const slept = nights.filter((n) => n.sleptAtMs !== null && n.timeToSleepMs !== null);
+  // A night the listener marked "awake" was a detector false positive: it was
+  // not slept, and its onset time is not a time-to-sleep. stepback.ts and
+  // scoreFeeds already discard these; the headline stats must agree.
+  const slept = nights.filter(
+    (n) => n.sleptAtMs !== null && n.timeToSleepMs !== null && n.selfLabel !== "awake",
+  );
   // Onsets below this are pre-fix artifacts. The detector used to anchor onset
   // at the first quiet tick, so a night nobody touched recorded ~0ms and the
   // rest screen reported "you drifted off in 1 minute". The fixed detector
