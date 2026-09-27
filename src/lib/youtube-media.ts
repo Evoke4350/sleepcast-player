@@ -80,7 +80,7 @@ export class YouTubeMedia implements MediaBackend {
   private progressTimer: ReturnType<typeof setInterval> | null = null;
   private progressSubs = new Set<() => void>();
   private endedSubs = new Set<() => void>();
-  private errorSubs = new Set<(code: number | string, info?: ErrorInfo) => void>();
+  private errorSubs = new Set<(code: number | string, info: ErrorInfo) => void>();
   /** Set when a switch (loadVideoById) actually runs, until inSwitch confirms
    *  it (the requested video, freshly loaded) or gives up on it. In between, the iframe still reports the PREVIOUS
    *  video's state, time and duration, and may still deliver its events; this
@@ -96,14 +96,13 @@ export class YouTubeMedia implements MediaBackend {
     positionCounts: boolean;
   } | null = null;
 
-
   constructor(
     private readonly createPlayer: (args: CreatePlayerArgs) => YTPlayerLike,
     private readonly handlers: {
       onEnded?: () => void;
       onError?: (code: number, info: ErrorInfo) => void;
-      /** Every state event, for the caller to route (routeStateEvent). Without
-       *  it, this routes ENDED to onEnded itself. */
+      /** Every state event, for the caller to route (routeStateEvent). ENDED
+       *  is fired to onEnded by this wrapper either way; don't route it too. */
       onStateEvent?: (raw: number) => void;
     } = {},
   ) {}
@@ -126,7 +125,6 @@ export class YouTubeMedia implements MediaBackend {
           since: Date.now(),
           positionCounts: !(Math.abs(here - startSeconds) < 3),
         };
-
         p.loadVideoById(videoId, startSeconds);
       });
       return;
@@ -147,6 +145,7 @@ export class YouTubeMedia implements MediaBackend {
         return true;
       },
       onError: (code) => {
+        if (this.dead) return; // late, after the night was torn down
         // An error doesn't say which video it is about. During a switch it may
         // be the previous video's, delivered late, or the new one's. Holding
         // or dropping it guesses, and a wrong guess either blocks a working
@@ -156,6 +155,9 @@ export class YouTubeMedia implements MediaBackend {
         this.emitError(code, { uncertain: this.inSwitch() });
       },
       onStateChange: (state) => {
+        // Late, after the night was torn down: nothing may act on it (an ENDED
+        // would reach onEnded and could forget the episode's position).
+        if (this.dead) return;
         // Fallback only, for a player that can't say which video it has: the
         // new load announces itself as unstarted (-1) or cued (5), and
         // anything else may be about the previous video. With the video id
@@ -243,7 +245,7 @@ export class YouTubeMedia implements MediaBackend {
     return () => void this.endedSubs.delete(cb);
   }
 
-  onError(cb: (code: number | string, info?: ErrorInfo) => void): () => void {
+  onError(cb: (code: number | string, info: ErrorInfo) => void): () => void {
     if (this.dead) return () => {};
     this.errorSubs.add(cb);
     return () => void this.errorSubs.delete(cb);
@@ -355,15 +357,18 @@ export class YouTubeMedia implements MediaBackend {
   }
 
   /** The player is at the start of a load rather than mid-way through (or at
-   *  the end of) an earlier one. ENDED doesn't count: requesting the video
-   *  that just ended (a lone survivor repeating) would confirm on the old
-   *  load's own ENDED. A video shorter than its requested start ends before
-   *  confirming, and meets the watchdog instead. */
+   *  the end of) an earlier one. ENDED counts only when it came before the
+   *  requested start, i.e. the new video is shorter than its start (a Short
+   *  past a long skip-intro). Otherwise it doesn't: requesting the video that
+   *  just ended (a lone survivor repeating) would confirm on the old load's
+   *  own ENDED, which sits at the end, past any start. */
   private showsFreshLoad(sw: { start: number; positionCounts: boolean }): boolean {
     try {
       const raw = this.player!.getPlayerState();
       if (raw === YT_STATE.UNSTARTED || raw === YT_STATE.BUFFERING || raw === YT_STATE.CUED) return true;
-      return sw.positionCounts && Math.abs((this.player!.getCurrentTime() || 0) - sw.start) < 3;
+      const at = this.player!.getCurrentTime() || 0;
+      if (raw === YT_STATE.ENDED) return at < sw.start - 1;
+      return sw.positionCounts && Math.abs(at - sw.start) < 3;
     } catch {
       return false;
     }

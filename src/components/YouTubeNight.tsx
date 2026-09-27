@@ -327,12 +327,14 @@ export function YouTubeNight({
     playNext();
   }
 
-  function handleError(code: number, info?: ErrorInfo) {
+  function handleError(code: number, info: ErrorInfo) {
     const ep = currentEpRef.current;
     if (!ep?.youtubeId || tickHandleRef.current === null) return;
     const decision = decideAfterError(code, retriesRef.current);
     if (decision.action === "retry") {
-      retriesRef.current++;
+      // An uncertain error may be the previous video's: reload, but don't
+      // spend this episode's retry budget on it.
+      if (!info.uncertain) retriesRef.current++;
       // Where it was, if it ever played, else where it was meant to start (a
       // revived position, the skip-intro): reloading at 0 restarted a
       // four-hour video mid-night, and a position read before it played may
@@ -344,14 +346,19 @@ export function YouTubeNight({
       watchRef.current = { id: ep.id, at: Date.now() };
       return;
     }
+    // Never permanent if it arrived mid-switch: it may be the previous video's
+    // (see YouTubeMedia's onError). Skipped tonight, not condemned for good.
+    skipDead(ep, classifyYouTubeError(code).reason, decision.permanent && !info.uncertain);
+  }
+
+  /** Retire this episode for tonight and move on, as Night's skipDead does.
+   *  `permanent` means it will never play here on any night: remember it the
+   *  way "never again" does, so tomorrow does not rediscover it. */
+  function skipDead(ep: Episode, reason: string, permanent: boolean) {
     deadRef.current.add(ep.id);
-    // Permanent means it will never play here on any night — remember it the
-    // same way "never again" does, so tomorrow does not rediscover it.
-    // Not if it arrived mid-switch: it may be the previous video's (see
-    // YouTubeMedia's onError). Skipped tonight, never condemned for good.
-    if (decision.permanent && !info?.uncertain) blockEpisode(ep.id);
+    if (permanent) blockEpisode(ep.id);
     setBlockedTonight((prev) => new Set(prev).add(ep.id));
-    flash(classifyYouTubeError(code).reason);
+    flash(reason);
     playNext();
   }
 

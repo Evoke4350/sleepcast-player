@@ -449,7 +449,7 @@ export function Night({
    * 404, a host that stopped answering, a stream that will not decode — and
    * they skip, because a night that sits on one is a night of silence.
    */
-  function handleError(code: number | string, info?: ErrorInfo) {
+  function handleError(code: number | string, info: ErrorInfo) {
     const ep = currentEpRef.current;
     if (!ep || tickHandleRef.current === null) return;
 
@@ -470,7 +470,9 @@ export function Night({
     if (!ep.youtubeId) return;
     const decision = decideAfterError(code, retriesRef.current);
     if (decision.action === "retry") {
-      retriesRef.current++;
+      // An uncertain error may be the previous video's: reload, but don't
+      // spend this episode's retry budget on it.
+      if (!info.uncertain) retriesRef.current++;
       // Where it was, if it ever played, else where it was meant to start (a
       // revived position, the skip-intro): reloading at 0 restarted a long
       // video mid-night, and a position read before it played may not be its.
@@ -486,7 +488,7 @@ export function Night({
     }
     // Never permanent if it arrived mid-switch: it may be the previous video's
     // (see YouTubeMedia's onError). Skipped tonight, not condemned for good.
-    skipDead(ep, classifyYouTubeError(code).reason, decision.permanent && !info?.uncertain);
+    skipDead(ep, classifyYouTubeError(code).reason, decision.permanent && !info.uncertain);
   }
 
   function heardTick(cur: number) {

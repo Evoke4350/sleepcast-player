@@ -647,9 +647,9 @@ describe("YouTubeMedia switch guard: same id, errors, bounds", () => {
   // night on a dead one. It is delivered at once, marked uncertain mid-switch.
   test("an error during a switch is delivered at once, marked uncertain", () => {
     const f = fakePlayer({ reportsId: true });
-    const errs: Array<[number | string, boolean | undefined]> = [];
+    const errs: Array<[number | string, boolean]> = [];
     const media = new YouTubeMedia(f.create, { onError: (c, i) => errs.push([c, i.uncertain]) });
-    media.onError((c, i) => errs.push([`sub:${c}`, i?.uncertain]));
+    media.onError((c, i) => errs.push([`sub:${c}`, i.uncertain]));
     media.load("A");
     f.ready();
     f.showVideo("A");
@@ -662,7 +662,7 @@ describe("YouTubeMedia switch guard: same id, errors, bounds", () => {
 
   test("an error outside a switch is certain", () => {
     const f = fakePlayer({ reportsId: true });
-    const errs: Array<boolean | undefined> = [];
+    const errs: boolean[] = [];
     const media = new YouTubeMedia(f.create, { onError: (_c, i) => errs.push(i.uncertain) });
     media.load("A");
     f.ready();
@@ -688,8 +688,22 @@ describe("YouTubeMedia switch guard: same id, errors, bounds", () => {
   });
 
   // Requesting the video that just ended (a lone survivor repeating) would
-  // confirm on the old load's own ENDED, so ENDED is not a fresh load.
-  test("an ENDED state does not confirm a switch", () => {
+  // confirm on the old load's own ENDED, which sits at its end.
+  test("the old load's ENDED does not confirm re-requesting the same video", () => {
+    const f = fakePlayer({ reportsId: true });
+    const media = new YouTubeMedia(f.create);
+    media.load("A");
+    f.ready();
+    f.showVideo("A");
+    f.setState(0);
+    f.setTime(3600);
+    media.load("A", 0);
+    expect(media.eventState(0)).toBe(-1);
+  });
+
+  // A Short past a long skip-intro loads past its end and ends at once: an
+  // ENDED before the requested start is the new video's, and confirms.
+  test("an ENDED before the requested start confirms the switch", () => {
     const f = fakePlayer({ reportsId: true });
     const media = new YouTubeMedia(f.create);
     media.load("A");
@@ -701,7 +715,37 @@ describe("YouTubeMedia switch guard: same id, errors, bounds", () => {
     f.showVideo("B");
     f.setTime(60);
     f.setState(0);
-    expect(media.eventState(0)).toBe(-1);
+    expect(media.eventState(0)).toBe(0);
+  });
+
+  test("an error while the new video already shows freshly loaded is certain", () => {
+    const f = fakePlayer({ reportsId: true });
+    const errs: boolean[] = [];
+    const media = new YouTubeMedia(f.create, { onError: (_c, i) => errs.push(i.uncertain) });
+    media.load("A");
+    f.ready();
+    f.showVideo("A");
+    f.setState(1);
+    f.setTime(500);
+    media.load("B");
+    f.showVideo("B");
+    f.setState(-1);
+    f.error(150);
+    expect(errs).toEqual([false]);
+  });
+
+  test("events and errors after destroy are ignored", () => {
+    const f = fakePlayer({ reportsId: true });
+    let ended = 0;
+    const errs: number[] = [];
+    const media = new YouTubeMedia(f.create, { onEnded: () => ended++, onError: (c) => errs.push(c) });
+    media.load("A");
+    f.ready();
+    media.destroy();
+    f.ended();
+    f.error(150);
+    expect(ended).toBe(0);
+    expect(errs).toEqual([]);
   });
 
   // With the id check the guard had no upper bound: a load dropped without an

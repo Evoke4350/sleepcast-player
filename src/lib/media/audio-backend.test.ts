@@ -189,7 +189,7 @@ describe("driving an audio element through the backend interface", () => {
     b.play();
     await Promise.resolve();
     await Promise.resolve();
-    expect(errored).toHaveBeenCalledWith("autoplay-blocked");
+    expect(errored).toHaveBeenCalledWith("autoplay-blocked", { uncertain: false });
   });
 
   it("a play() rejection that isn't autoplay is reported as play-failed", async () => {
@@ -201,7 +201,7 @@ describe("driving an audio element through the backend interface", () => {
     b.play();
     await Promise.resolve();
     await Promise.resolve();
-    expect(errored).toHaveBeenCalledWith("play-failed");
+    expect(errored).toHaveBeenCalledWith("play-failed", { uncertain: false });
   });
 
   it("an interrupted play() is not reported at all", async () => {

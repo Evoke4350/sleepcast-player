@@ -1,4 +1,4 @@
-import type { MediaBackend, Transport } from "./backend";
+import type { MediaBackend, Transport, ErrorInfo } from "./backend";
 
 /**
  * An <audio> element behind the backend interface.
@@ -17,7 +17,7 @@ export class AudioBackend implements MediaBackend {
   private detach: Array<() => void> = [];
   /** A rejected play() is not a DOM event, so it cannot ride the "error"
    *  listener subscribe() sets up. These are called directly instead. */
-  private errorCallbacks = new Set<(code: number | string) => void>();
+  private errorCallbacks = new Set<(code: number | string, info: ErrorInfo) => void>();
 
   constructor(private readonly el: HTMLAudioElement) {}
 
@@ -84,9 +84,9 @@ export class AudioBackend implements MediaBackend {
     return this.subscribe("ended", cb);
   }
 
-  onError(cb: (code: number | string) => void): () => void {
+  onError(cb: (code: number | string, info: ErrorInfo) => void): () => void {
     this.errorCallbacks.add(cb);
-    const offDom = this.subscribe("error", () => cb("media-error"));
+    const offDom = this.subscribe("error", () => cb("media-error", { uncertain: false }));
     return () => {
       this.errorCallbacks.delete(cb);
       offDom();
@@ -144,6 +144,6 @@ export class AudioBackend implements MediaBackend {
     // on the NEXT episode's play(), skipping a working episode for a dead one.
     if (err instanceof DOMException && err.name === "NotSupportedError") return;
     const code = err instanceof DOMException && err.name === "NotAllowedError" ? "autoplay-blocked" : "play-failed";
-    for (const cb of this.errorCallbacks) cb(code);
+    for (const cb of this.errorCallbacks) cb(code, { uncertain: false });
   }
 }
