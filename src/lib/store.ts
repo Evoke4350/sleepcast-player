@@ -132,7 +132,9 @@ function sanitizeMode(raw: unknown, timerMinutes: number): PlayMode {
     if (kind === "all-night") return { kind: "all-night" };
     if (kind === "minutes") {
       const m = (raw as { minutes?: unknown }).minutes;
-      if (typeof m === "number" && m >= 1) return { kind: "minutes", minutes: m };
+      if (typeof m === "number" && Number.isFinite(m) && m >= 1) {
+        return { kind: "minutes", minutes: clampTimerMinutes(m) };
+      }
     }
   }
   return { kind: "minutes", minutes: timerMinutes };
@@ -229,10 +231,11 @@ export function loadState(): AppState {
     }
   }
 
+  const savedTimer = saved.settings?.timerMinutes;
   const timerMinutes =
-    typeof saved.settings?.timerMinutes === "number"
-      ? saved.settings.timerMinutes
-      : 60;
+    typeof savedTimer === "number" && Number.isFinite(savedTimer)
+      ? clampTimerMinutes(savedTimer)
+      : defaultSettings().timerMinutes; // same as a fresh install
   const rawSettings = (saved.settings ?? {}) as Record<string, unknown>;
   const settings: Settings = {
     timerMinutes,
@@ -600,9 +603,16 @@ export function unblockEpisode(id: string): void {
 // Sleep timer persistence
 // ---------------------------------------------------------------------------
 
-const TIMER_MIN = 5;
-const TIMER_MAX = 480;
+export const TIMER_MIN = 5;
+export const TIMER_MAX = 480;
 const TIMER_DEFAULT = 30;
+
+/** Keep a timer in the range the setup screen offers, in whole minutes. The
+ *  one definition of that range: settings, the custom box and the legacy
+ *  timer key all go through it. */
+export function clampTimerMinutes(n: number): number {
+  return Math.min(TIMER_MAX, Math.max(TIMER_MIN, Math.round(n)));
+}
 
 export function loadTimerMinutes(): number {
   try {
@@ -620,7 +630,7 @@ export function loadTimerMinutes(): number {
 }
 
 export function saveTimerMinutes(minutes: number): void {
-  const clamped = Math.min(TIMER_MAX, Math.max(TIMER_MIN, minutes));
+  const clamped = clampTimerMinutes(minutes);
   try {
     localStorage.setItem(KEY_TIMER, String(clamped));
   } catch {

@@ -157,13 +157,14 @@ export function AppPlayer() {
     artworkByFeedId: Record<string, string>,
     leadEpisode?: Episode | null,
     wasVaried?: boolean,
-    leadPosition?: number
+    leadPosition?: number,
+    modeOverride?: PlayMode
   ) {
     setResume(null); // a fresh night, not a revival
     // Starting over while the resume card is up: the snapshotted night is over.
     if (live) reconcileLive(live, Date.now());
     setLive(null);
-    applyNightSettings(loadState().settings.mode);
+    applyNightSettings(modeOverride ?? loadState().settings.mode);
     clearLastNight(); // a new night supersedes any prior faded one
     setSession({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artworkByFeedId, leadEpisode, wasVaried, leadPosition });
   }
