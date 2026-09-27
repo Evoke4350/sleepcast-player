@@ -37,7 +37,7 @@ function fakePlayer(opts: { reportsId?: boolean } = {}) {
     },
     ready: () => args!.onReady(),
     setState: (s: number) => { state = s; },
-    ended: () => args!.onEnded(),
+    ended: () => { state = 0; args!.onStateChange(0); },
     error: (code: number) => args!.onError(code),
     stateChange: (s: number) => { state = s; args!.onStateChange(s); },
     showVideo: (id: string) => { shownId = id; },
@@ -644,22 +644,96 @@ describe("YouTubeMedia switch guard: same id, errors, bounds", () => {
 
   // A late error for the previous video, delivered during the switch, was
   // passed on while the new episode was current: a 150 then blocked a working
-  // video forever.
-  test("errors during a switch are dropped", () => {
+  // video forever. Dropping every mid-switch error instead could stall a night
+  // whose new video had failed. They are held and resolved.
+  test("a mid-switch error while the old video shows is discarded once the new load is confirmed", () => {
+    vi.useFakeTimers();
+    try {
+      const f = fakePlayer({ reportsId: true });
+      const errs: Array<number | string> = [];
+      const media = new YouTubeMedia(f.create, { onError: (c) => errs.push(c) });
+      media.onError((c) => errs.push(`sub:${c}`));
+      media.load("A");
+      f.ready();
+      f.showVideo("A");
+      f.setState(1);
+      f.setTime(500);
+      media.load("B");
+      f.error(150); // A's, late
+      f.showVideo("B");
+      f.setState(-1);
+      expect(media.state()).toBe(-1); // confirmed now
+      vi.advanceTimersByTime(SWITCH_GUARD_MAX_MS + 5);
+      expect(errs).toEqual([]);
+      f.error(101); // B's own, after the switch
+      expect(errs).toEqual([101, "sub:101"]);
+    } finally { vi.useRealTimers(); }
+  });
+
+  test("a mid-switch error while the new video shows is delivered at once", () => {
     const f = fakePlayer({ reportsId: true });
-    const errs: Array<number | string> = [];
+    const errs: number[] = [];
     const media = new YouTubeMedia(f.create, { onError: (c) => errs.push(c) });
-    media.onError((c) => errs.push(`sub:${c}`));
     media.load("A");
     f.ready();
     f.showVideo("A");
-    media.load("B");
+    f.setState(1);
+    f.setTime(500);
+    media.load("B", 60);
+    f.showVideo("B"); // shows B, but not a fresh load yet
     f.error(150);
-    expect(errs).toEqual([]);
+    expect(errs).toEqual([150]);
+  });
+
+  test("a held error is delivered if the switch times out", () => {
+    vi.useFakeTimers();
+    try {
+      const f = fakePlayer({ reportsId: true });
+      const errs: number[] = [];
+      const media = new YouTubeMedia(f.create, { onError: (c) => errs.push(c) });
+      media.load("A");
+      f.ready();
+      f.showVideo("A");
+      f.setState(1);
+      f.setTime(500);
+      media.load("B");
+      f.error(150); // B failed before the player ever showed it
+      expect(errs).toEqual([]);
+      vi.advanceTimersByTime(SWITCH_GUARD_MAX_MS + 5);
+      expect(errs).toEqual([150]);
+    } finally { vi.useRealTimers(); }
+  });
+
+  // A retry reloads at the position the player already shows, so "at the
+  // requested start" held at once and released before anything restarted.
+  test("a retry at the current position waits for a fresh state, not the position", () => {
+    const f = fakePlayer({ reportsId: true });
+    const media = new YouTubeMedia(f.create);
+    media.load("A");
+    f.ready();
+    f.showVideo("A");
+    f.setState(1);
+    f.setTime(1800);
+    media.load("A", 1800);
+    expect(media.state()).toBe(-1);
+    f.setState(3);
+    expect(media.state()).toBe(3);
+  });
+
+  // A video shorter than its requested start ends as soon as it loads.
+  test("an ENDED of the requested video releases the guard", () => {
+    const f = fakePlayer({ reportsId: true });
+    const media = new YouTubeMedia(f.create);
+    media.load("A");
+    f.ready();
+    f.showVideo("A");
+    f.setState(1);
+    f.setTime(500);
+    media.load("B", 300);
     f.showVideo("B");
-    f.setState(-1);
-    f.error(101);
-    expect(errs).toEqual([101, "sub:101"]);
+    f.setTime(60);
+    f.setState(0);
+    expect(media.eventState(0)).toBe(0);
   });
 
   // With the id check the guard had no upper bound: a load dropped without an
@@ -684,19 +758,36 @@ describe("YouTubeMedia switch guard: same id, errors, bounds", () => {
     const f = fakePlayer({ reportsId: true });
     const media = new YouTubeMedia(f.create);
     const seen: string[] = [];
+    media.onEnded(() => seen.push("ended"));
     const h = {
       transport: (t: string) => seen.push(`t:${t}`),
       playing: () => seen.push("playing"),
       paused: () => seen.push("paused"),
-      ended: () => seen.push("ended"),
     };
     media.load("A");
     f.ready();
     f.showVideo("A");
+    f.setState(1);
+    f.setTime(500);
     media.routeStateEvent(1, h);
     media.routeStateEvent(2, h);
     media.load("B");
-    media.routeStateEvent(0, h); // A's stale ENDED
+    media.routeStateEvent(0, h); // A's stale ENDED: must not end B
     expect(seen).toEqual(["t:playing", "playing", "t:paused", "paused", "t:awaiting-start"]);
+    f.showVideo("B");
+    f.setState(3);
+    media.routeStateEvent(0, h); // B's own ENDED
+    expect(seen.at(-1)).toBe("ended");
+  });
+
+  test("with an onStateEvent handler, every state event reaches it", () => {
+    const f = fakePlayer();
+    const raws: number[] = [];
+    const media = new YouTubeMedia(f.create, { onStateEvent: (r) => raws.push(r) });
+    media.load("A");
+    f.ready();
+    f.stateChange(1);
+    f.stateChange(0);
+    expect(raws).toEqual([1, 0]);
   });
 });

@@ -54,7 +54,6 @@ export interface CreatePlayerArgs {
   /** Where to begin. Non-zero when a snapshotted night is being revived. */
   startSeconds?: number;
   onReady: () => void;
-  onEnded: () => void;
   onError: (code: number) => void;
   /** Every YT state change. The creator must forward these. They end a switch
    *  only for a player that can't report its video (see inSwitch); otherwise
@@ -80,18 +79,35 @@ export class YouTubeMedia implements MediaBackend {
   private progressSubs = new Set<() => void>();
   private endedSubs = new Set<() => void>();
   private errorSubs = new Set<(code: number | string) => void>();
-  /** Set when a switch (loadVideoById) actually runs, until the player is on
-   *  the requested video. In between, the iframe still reports the PREVIOUS
+  /** Set when a switch (loadVideoById) actually runs, until inSwitch confirms
+   *  it (the requested video, freshly loaded) or gives up on it. In between, the iframe still reports the PREVIOUS
    *  video's state, time and duration, and may still deliver its events; this
    *  reports the new load as unstarted at its start instead, so no caller can
    *  mistake the old video's readings or events for the new one's. */
-  private switching: { id: string; start: number; since: number } | null = null;
+  private switching: {
+    id: string;
+    start: number;
+    since: number;
+    /** Whether a position at `start` proves a fresh load: not when the player
+     *  was already there when the switch began (a retry at the current
+     *  position), which the old load's own reading would satisfy at once. */
+    positionCounts: boolean;
+  } | null = null;
+  /** An error that arrived mid-switch while the player still showed another
+   *  video: the previous video's (discarded once the new load is confirmed)
+   *  or the new one's before it showed (delivered if the switch times out). */
+  private deferredError: number | null = null;
+  private deferredTimer: ReturnType<typeof setTimeout> | null = null;
+  private lastSwitchEnd: "confirmed" | "timeout" | null = null;
 
   constructor(
     private readonly createPlayer: (args: CreatePlayerArgs) => YTPlayerLike,
     private readonly handlers: {
       onEnded?: () => void;
       onError?: (code: number) => void;
+      /** Every state event, for the caller to route (routeStateEvent). Without
+       *  it, this routes ENDED to onEnded itself. */
+      onStateEvent?: (raw: number) => void;
     } = {},
   ) {}
 
@@ -105,7 +121,16 @@ export class YouTubeMedia implements MediaBackend {
       // it could otherwise expire, or be cleared by the first video's own
       // startup, before the switch even began.
       this.run((p) => {
-        this.switching = { id: videoId, start: startSeconds, since: Date.now() };
+        let here = NaN;
+        try { here = p.getCurrentTime(); } catch { /* keep NaN */ }
+        this.switching = {
+          id: videoId,
+          start: startSeconds,
+          since: Date.now(),
+          positionCounts: !(Math.abs(here - startSeconds) < 3),
+        };
+        this.lastSwitchEnd = null;
+        this.clearDeferred();
         p.loadVideoById(videoId, startSeconds);
       });
       return;
@@ -124,25 +149,29 @@ export class YouTubeMedia implements MediaBackend {
         this.pendingVolume = null;
         for (const run of queued) run(this.player!);
       },
-      onEnded: () => {
-        this.handlers.onEnded?.();
-        for (const s of this.endedSubs) s();
-      },
       onError: (code) => {
-        // During a switch an error may be the previous video's, delivered
-        // late; passed on, it would condemn (even permanently block) the new
-        // episode. Dropped: a real failure of the new video still surfaces
-        // through the caller's watchdog.
-        if (this.inSwitch()) return;
-        this.handlers.onError?.(code);
-        for (const s of this.errorSubs) s(code);
+        // Mid-switch, an error while the player shows the requested video is
+        // that video's. Any other may be the previous video's, delivered late
+        // (passed on, it would condemn or permanently block the new episode),
+        // or the new video failing before the player showed it (dropped, it
+        // could stall a night the watchdog won't rescue). So it is held: gone
+        // if the new load is confirmed, delivered if the switch times out.
+        if (this.inSwitch() && this.shownVideoId() !== this.switching!.id) {
+          this.deferError(code);
+          return;
+        }
+        this.emitError(code);
       },
       onStateChange: (state) => {
         // Fallback only, for a player that can't say which video it has: the
         // new load announces itself as unstarted (-1) or cued (5), and
         // anything else may be about the previous video. With the video id
         // available (inSwitch), events don't decide anything.
-        if (this.shownVideoId() === null && (state === -1 || state === 5)) this.switching = null;
+        if (this.shownVideoId() === null && (state === -1 || state === 5) && this.switching) {
+          this.endSwitch("confirmed");
+        }
+        if (this.handlers.onStateEvent) this.handlers.onStateEvent(state);
+        else if (this.eventState(state) === YT_STATE.ENDED) this.fireEnded();
       },
     });
   }
@@ -244,6 +273,7 @@ export class YouTubeMedia implements MediaBackend {
     this.pending = [];
     this.pendingVolume = null;
     this.switching = null;
+    this.clearDeferred();
     const p = this.player;
     this.player = null;
     this.ready = false;
@@ -273,13 +303,48 @@ export class YouTubeMedia implements MediaBackend {
    *  lockstep and already drifting. */
   routeStateEvent(
     raw: number,
-    h: { transport(t: YTTransport): void; playing(): void; paused(): void; ended(): void },
+    h: { transport(t: YTTransport): void; playing(): void; paused(): void },
   ): void {
     const state = this.eventState(raw);
     h.transport(transportFor(state));
     if (state === YT_STATE.PLAYING) h.playing();
     else if (state === YT_STATE.PAUSED) h.paused();
-    else if (state === YT_STATE.ENDED) h.ended();
+    else if (state === YT_STATE.ENDED) this.fireEnded();
+  }
+
+  private fireEnded(): void {
+    this.handlers.onEnded?.();
+    for (const s of this.endedSubs) s();
+  }
+
+  private emitError(code: number): void {
+    this.handlers.onError?.(code);
+    for (const s of this.errorSubs) s(code);
+  }
+
+  private deferError(code: number): void {
+    this.deferredError = code;
+    if (this.deferredTimer !== null || !this.switching) return;
+    const wait = Math.max(0, this.switching.since + SWITCH_GUARD_MAX_MS - Date.now()) + 1;
+    this.deferredTimer = setTimeout(() => {
+      this.deferredTimer = null;
+      this.inSwitch(); // settle it: confirmed, or timed out by now
+      const code = this.deferredError;
+      this.deferredError = null;
+      if (code !== null && !this.dead && this.lastSwitchEnd === "timeout") this.emitError(code);
+    }, wait);
+  }
+
+  private clearDeferred(): void {
+    if (this.deferredTimer !== null) clearTimeout(this.deferredTimer);
+    this.deferredTimer = null;
+    this.deferredError = null;
+  }
+
+  private endSwitch(how: "confirmed" | "timeout"): void {
+    this.switching = null;
+    this.lastSwitchEnd = how;
+    if (how === "confirmed") this.clearDeferred(); // it was the previous video's
   }
 
   /** The video id the player reports, or null if it can't report one. */
@@ -310,23 +375,26 @@ export class YouTubeMedia implements MediaBackend {
     if (!sw) return false;
     const elapsed = Date.now() - sw.since;
     if (elapsed < 0 || elapsed > SWITCH_GUARD_MAX_MS) {
-      this.switching = null;
+      this.endSwitch("timeout");
       return false;
     }
     const shown = this.shownVideoId();
     if (shown === null) return true; // fallback: the events decide
-    if (shown !== sw.id || !this.showsFreshLoad(sw.start)) return true;
-    this.switching = null;
+    if (shown !== sw.id || !this.showsFreshLoad(sw)) return true;
+    this.endSwitch("confirmed");
     return false;
   }
 
-  /** The player is at the start of a load rather than mid-way through an
+  /** The player is at the start of a load (or at its end: a video shorter
+   *  than its requested start ends at once) rather than mid-way through an
    *  earlier one. */
-  private showsFreshLoad(start: number): boolean {
+  private showsFreshLoad(sw: { start: number; positionCounts: boolean }): boolean {
     try {
       const raw = this.player!.getPlayerState();
-      if (raw === YT_STATE.UNSTARTED || raw === YT_STATE.BUFFERING || raw === YT_STATE.CUED) return true;
-      return Math.abs((this.player!.getCurrentTime() || 0) - start) < 3;
+      if (raw === YT_STATE.UNSTARTED || raw === YT_STATE.BUFFERING || raw === YT_STATE.CUED || raw === YT_STATE.ENDED) {
+        return true;
+      }
+      return sw.positionCounts && Math.abs((this.player!.getCurrentTime() || 0) - sw.start) < 3;
     } catch {
       return false;
     }

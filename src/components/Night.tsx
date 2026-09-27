@@ -55,13 +55,9 @@ import { RestSession, revivedNightStart } from "../lib/rest/session";
 import { recordNightEnd } from "../lib/night-end";
 import { PlaybackWitness } from "../lib/witness";
 import type { RestNight } from "../lib/rest/types";
-import {
-  YouTubeMedia,
-  YT_EMBED_HOST,
-  type YTPlayerLike,
-  type CreatePlayerArgs,
-} from "../lib/youtube-media";
-import { loadYouTubeApi, type YTNamespace } from "../lib/youtube-api";
+import { YouTubeMedia } from "../lib/youtube-media";
+import { buildYouTubePlayer } from "../lib/youtube-embed";
+import { loadYouTubeApi } from "../lib/youtube-api";
 import type { MediaBackend, Transport } from "../lib/media/backend";
 import { AudioBackend } from "../lib/media/audio-backend";
 import { preferVideoLead } from "../lib/mixed-night";
@@ -279,82 +275,30 @@ export function Night({
     }
   }
 
-  // YT.Player REPLACES the element it is handed with an iframe. So it is given
-  // a plain div created here rather than one React rendered — React never
-  // knows about the node, and cannot trip over a child that vanished from
-  // under it.
-  function buildPlayer(YT: YTNamespace, args: CreatePlayerArgs): YTPlayerLike {
-    const mount = document.createElement("div");
-    hostRef.current!.appendChild(mount);
-    const player = new YT.Player(mount, {
-      host: YT_EMBED_HOST,
-      videoId: args.videoId,
-      width: "100%",
-      height: "100%",
-      playerVars: {
-        // Off: onReady starts the video only if it is still the live backend.
-        // Autoplay could start it hidden under a podcast after a Next.
-        autoplay: 0,
-        playsinline: 1,
-        // No chrome to catch a sleepy thumb, no related-video grid at the end,
-        // no keyboard, no annotations. The transport below is the transport.
-        controls: 0,
-        disablekb: 1,
-        fs: 0,
-        rel: 0,
-        iv_load_policy: 3,
-        modestbranding: 1,
-        start: Math.floor(args.startSeconds ?? 0),
-        origin: typeof location === "undefined" ? undefined : location.origin,
+  // Every state event, as YouTubeMedia hands it over (it has already let its
+  // switch guard see the event). Routed as the guard reads it: the event's own
+  // state, except during a switch, when it may be the previous video's (a
+  // PLAYING that would mark the new one played, an ENDED that would skip it).
+  function handleStateEvent(raw: number) {
+    // The player is not destroyed between episodes — it is hidden and paused
+    // behind a podcast, and it keeps emitting state changes from there. Acting
+    // on them while audio is live would report the video's transport over the
+    // podcast's and freeze the countdown over sound that is actually playing.
+    // Once both refs are null the player is gone, and "equal" must not read as
+    // "still live".
+    if (ytRef.current === null || liveRef.current !== ytRef.current) return;
+    ytRef.current.routeStateEvent(raw, {
+      transport: setTransport,
+      playing: () => {
+        witnessRef.current.markPlayed();
+        markPlayed();
+        // The clock starts here, not at mount. It is held frozen until
+        // something actually plays, so a night that never got its tap does
+        // not run its timer down over silence.
+        unfreezeClock();
       },
-      events: {
-        onReady: (e: { target: YTPlayerLike }) => {
-          args.onReady();
-          // Starting a night IS a user gesture, but Google's script has to
-          // load first and that gap routinely outlives the gesture's grace on
-          // a phone. Ask anyway — and when the answer is no, the video sits at
-          // "unstarted" and the tap prompt takes over. It is not an error and
-          // must not be treated as one.
-          //
-          // Unless the night already moved on: a Next tapped during the gap
-          // leaves a podcast playing, and playVideo() here would start a
-          // second sound over it. The null check is not redundant —
-          // releaseBackends() sets both refs to null, and "equal" would then
-          // be true of nothing at all, so a late onReady would drive a player
-          // that has been destroyed.
-          if (ytRef.current !== null && liveRef.current === ytRef.current) e.target.playVideo();
-        },
-        onStateChange: (e: { data: number }) => {
-          args.onStateChange(e.data); // YouTubeMedia's switch guard needs every one
-          // The player is not destroyed between episodes — it is hidden and
-          // paused behind a podcast, and it keeps emitting state changes from
-          // there. Acting on them while audio is live would report the video's
-          // transport over the podcast's and freeze the countdown over sound
-          // that is actually playing. Once both refs are null the player is
-          // gone, and "equal" must not read as "still live".
-          if (ytRef.current === null || liveRef.current !== ytRef.current) return;
-          // Routed as YouTubeMedia reads it (routeStateEvent / eventState): the
-          // event's own state, except during a switch, when it may be the
-          // previous video's (a PLAYING that would mark the new one played,
-          // an ENDED that would skip it).
-          ytRef.current.routeStateEvent(e.data, {
-            transport: setTransport,
-            playing: () => {
-              witnessRef.current.markPlayed();
-              markPlayed();
-              // The clock starts here, not at mount. It is held frozen until
-              // something actually plays, so a night that never got its tap
-              // does not run its timer down over silence.
-              unfreezeClock();
-            },
-            paused: freezeClock,
-            ended: args.onEnded,
-          });
-        },
-        onError: (e: { data: number }) => args.onError(e.data),
-      },
+      paused: freezeClock,
     });
-    return player as unknown as YTPlayerLike;
   }
 
   /** Which backend this episode belongs to. `youtubeId` is the only signal —
@@ -914,7 +858,20 @@ export function Night({
         // per episode, and a handler wired into the constructor would outlive
         // every switch away from video and fire against a backend that is no
         // longer the one making sound.
-        ytRef.current = new YouTubeMedia((args) => buildPlayer(YT, args));
+        ytRef.current = new YouTubeMedia(
+          (args) =>
+            buildYouTubePlayer(YT, hostRef.current!, args, {
+              // Off: onReady starts the video only if it is still the live
+              // backend. Autoplay could start it hidden under a podcast.
+              autoplay: false,
+              // Unless the night already moved on: a Next tapped during the
+              // load leaves a podcast playing. The null check is not redundant:
+              // releaseBackends() nulls both refs, and "equal" would then be
+              // true of nothing at all.
+              shouldStartOnReady: () => ytRef.current !== null && liveRef.current === ytRef.current,
+            }),
+          { onStateEvent: handleStateEvent },
+        );
         // A resumed night carries its own episode and keeps it: reviving a
         // night is a deliberate tap, and that tap is itself the gesture the
         // video lead exists to buy.

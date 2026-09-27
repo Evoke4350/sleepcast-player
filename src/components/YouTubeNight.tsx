@@ -48,13 +48,9 @@ import { RestSession, revivedNightStart } from "../lib/rest/session";
 import { recordNightEnd } from "../lib/night-end";
 import { PlaybackWitness } from "../lib/witness";
 import type { RestNight } from "../lib/rest/types";
-import {
-  YouTubeMedia,
-  YT_EMBED_HOST,
-  type YTPlayerLike,
-  type CreatePlayerArgs,
-} from "../lib/youtube-media";
-import { loadYouTubeApi, type YTNamespace } from "../lib/youtube-api";
+import { YouTubeMedia } from "../lib/youtube-media";
+import { buildYouTubePlayer } from "../lib/youtube-embed";
+import { loadYouTubeApi } from "../lib/youtube-api";
 import {
   nextPlayable,
   decideAfterError,
@@ -229,69 +225,26 @@ export function YouTubeNight({
     }
   }
 
-  // YT.Player REPLACES the element it is handed with an iframe. So it is given
-  // a plain div created here rather than one React rendered — React never
-  // knows about the node, and cannot trip over a child that vanished from
-  // under it.
-  function buildPlayer(YT: YTNamespace, args: CreatePlayerArgs): YTPlayerLike {
-    const mount = document.createElement("div");
-    hostRef.current!.appendChild(mount);
-    const player = new YT.Player(mount, {
-      host: YT_EMBED_HOST,
-      videoId: args.videoId,
-      width: "100%",
-      height: "100%",
-      playerVars: {
-        autoplay: 1,
-        playsinline: 1,
-        // No chrome to catch a sleepy thumb, no related-video grid at the end,
-        // no keyboard, no annotations. The transport below is the transport.
-        controls: 0,
-        disablekb: 1,
-        fs: 0,
-        rel: 0,
-        iv_load_policy: 3,
-        modestbranding: 1,
-        start: Math.floor(args.startSeconds ?? 0),
-        origin: typeof location === "undefined" ? undefined : location.origin,
+  // Every state event, as YouTubeMedia hands it over (it has already let its
+  // switch guard see the event). Routed as the guard reads it: the event's own
+  // state, except during a switch, when it may be the previous video's (a
+  // PLAYING that would mark the new one played, an ENDED that would skip it).
+  function handleStateEvent(raw: number) {
+    // A late event after the night ended (media torn down) is ignored:
+    // acting on it could forget the episode's position.
+    if (!mediaRef.current) return;
+    mediaRef.current.routeStateEvent(raw, {
+      transport: setTransport,
+      playing: () => {
+        witnessRef.current.markPlayed();
+        markPlayed();
+        // The clock starts here, not at mount. It is held frozen until
+        // something actually plays, so a night that never got its tap does
+        // not run its timer down over silence.
+        unfreezeClock();
       },
-      events: {
-        onReady: (e: { target: YTPlayerLike }) => {
-          args.onReady();
-          // Starting a night IS a user gesture, but Google's script has to
-          // load first and that gap routinely outlives the gesture's grace on
-          // a phone. Ask anyway — and when the answer is no, the video sits at
-          // "unstarted" and the tap prompt takes over. It is not an error and
-          // must not be treated as one.
-          e.target.playVideo();
-        },
-        onStateChange: (e: { data: number }) => {
-          args.onStateChange(e.data); // YouTubeMedia's switch guard needs every one
-          // A late event after the night ended (media torn down) is ignored,
-          // as in Night: acting on it could forget the episode's position.
-          if (!mediaRef.current) return;
-          // Routed as YouTubeMedia reads it (routeStateEvent / eventState): the
-          // event's own state, except during a switch, when it may be the
-          // previous video's (a PLAYING that would mark the new one played,
-          // an ENDED that would skip it).
-          mediaRef.current.routeStateEvent(e.data, {
-            transport: setTransport,
-            playing: () => {
-              witnessRef.current.markPlayed();
-              markPlayed();
-              // The clock starts here, not at mount. It is held frozen until
-              // something actually plays, so a night that never got its tap
-              // does not run its timer down over silence.
-              unfreezeClock();
-            },
-            paused: freezeClock,
-            ended: args.onEnded,
-          });
-        },
-        onError: (e: { data: number }) => args.onError(e.data),
-      },
+      paused: freezeClock,
     });
-    return player as unknown as YTPlayerLike;
   }
 
   function startEpisode(ep: Episode, seekTo = 0) {
@@ -684,10 +637,10 @@ export function YouTubeNight({
     loadYouTubeApi()
       .then((YT) => {
         if (cancelled || !hostRef.current) return;
-        mediaRef.current = new YouTubeMedia((args) => buildPlayer(YT, args), {
-          onEnded: handleEnded,
-          onError: handleError,
-        });
+        mediaRef.current = new YouTubeMedia(
+          (args) => buildYouTubePlayer(YT, hostRef.current!, args, { autoplay: true, shouldStartOnReady: () => true }),
+          { onEnded: handleEnded, onError: handleError, onStateEvent: handleStateEvent },
+        );
         const first =
           resume?.episode ??
           leadEpisode ??
