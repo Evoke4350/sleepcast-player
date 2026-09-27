@@ -404,6 +404,11 @@ export function YouTubeNight({
   function restTick(driver: number) {
     const r = restRef.current;
     if (!r || pausedRemainingMsRef.current !== null || tickHandleRef.current === null) return;
+    // pausedRemainingMsRef is only set in minutes mode. In one-episode and
+    // all-night a paused (or never-started) episode kept feeding quiet ticks,
+    // and near an episode's end the detector could infer sleep during a pause.
+    const t = mediaRef.current?.transport();
+    if (t === "paused" || t === "awaiting-start") return;
     if (Date.now() - lastRestTickRef.current < 15_000) return;
     lastRestTickRef.current = Date.now();
     r.tick({
@@ -500,12 +505,13 @@ export function YouTubeNight({
     // The courtesy fade owns the volume while it runs; reassigning here would
     // fight it back up and produce audible stabs on the way out.
     if (stopFadeRef.current === null) {
-      media.setVolume(
-        Number.isFinite(driver)
-          ? effectiveVolume(driver, FADE_SECONDS, feedTrimRef.current[currentFeedRef.current ?? ""] ?? 1.0)
-          : 1,
-      );
-      brownRef.current?.setGain(noiseGain(noise.on ? noise.level : 0, driver, FADE_SECONDS));
+      // With no fade underway (driver Infinity) this is the feed's trim alone.
+      // A hard 1 played turned-down feeds at full volume in all-night mode.
+      media.setVolume(effectiveVolume(driver, FADE_SECONDS, feedTrimRef.current[currentFeedRef.current ?? ""] ?? 1.0));
+      // Silent while nothing plays: left at full level, the noise ran on under
+      // a pause with the clock frozen, so no fade would ever reach it.
+      const silent = media.transport() === "paused" || media.transport() === "awaiting-start";
+      brownRef.current?.setGain(noiseGain(noise.on && !silent ? noise.level : 0, driver, FADE_SECONDS));
     }
 
     setCountdown(kind === "minutes" ? remaining : 0);
@@ -855,7 +861,9 @@ export function YouTubeNight({
                         ? "remaining"
                         : "sleeping"}
                 </span>
-                {canExtend(extensions) ? (
+                {/* Only a timed night has a timer to stretch; elsewhere the
+                    button spent an extension and changed nothing. */}
+                {mode.kind !== "minutes" ? null : canExtend(extensions) ? (
                   <button
                     onClick={() => extendTimer(15)}
                     className="rounded-full border border-[#2e2d3a] px-3 py-1 normal-case tracking-normal text-[#7a7264] active:scale-95"

@@ -313,7 +313,10 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       ? available.filter((e) => e.id !== current.id)
       : available;
     const ep = pickNextEpisode(choices.length ? choices : available, getPlays());
+    // Nothing left (the last episode was just blocked): end rather than keep
+    // playing the one the listener said "never again" to.
     if (ep) playEpisode(ep);
+    else endSession("ended");
   }
 
   // Accumulate real playback for the current episode and write it to the play
@@ -418,6 +421,10 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   function restTick() {
     const r = restRef.current;
     if (!r || pausedRemainingMsRef.current !== null || tickHandleRef.current === null) return;
+    // pausedRemainingMsRef is only set in minutes mode. In one-episode and
+    // all-night a pause kept feeding quiet ticks, and with the episode near
+    // its end (fadingOrDone) the detector could infer sleep during a pause.
+    if (audioRef.current?.paused) return;
     if (Date.now() - lastRestTickRef.current < 15_000) return;
     lastRestTickRef.current = Date.now();
     // The detector's gate is an unattended fade, so it has to watch whichever
@@ -511,12 +518,16 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // all-night) on every pass, fighting the fade back up and producing
     // audible stabs on the way out.
     if (stopFadeRef.current === null) {
-      audio.volume = Number.isFinite(driver)
-        ? effectiveVolume(driver, FADE_SECONDS, feedTrimRef.current[currentFeedRef.current ?? ""] ?? 1.0)
-        : 1;
+      // effectiveVolume with no fade underway (driver Infinity) is the feed's
+      // trim alone. A hard 1 here played turned-down feeds at full volume in
+      // all-night mode (and one-episode, before the duration was known).
+      audio.volume = effectiveVolume(driver, FADE_SECONDS, feedTrimRef.current[currentFeedRef.current ?? ""] ?? 1.0);
       // The underlay rides the same driver, so voices and noise fade together
       // rather than leaving a bed of noise behind after the words stop.
-      brownRef.current?.setGain(noiseGain(noise.on ? noise.level : 0, driver, FADE_SECONDS));
+      // Paused means silent: the voice stops, so the noise does too. Left at
+      // full level it played on indefinitely under a pause or the quarter-hour
+      // hold, with the clock frozen so no fade would ever reach it.
+      brownRef.current?.setGain(noiseGain(noise.on && !audio.paused ? noise.level : 0, driver, FADE_SECONDS));
     }
     setCountdown(kind === "minutes" ? remaining : 0);
     setEpPos(
@@ -712,7 +723,14 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
           return;
         }
       }
-      if (tickHandleRef.current !== null && audio.getAttribute("src")) playNext();
+      if (tickHandleRef.current !== null && audio.getAttribute("src")) {
+        // Counted like the watchdog's stuck tracks. Uncounted, a pool whose
+        // sources all fail at once (network gone at 2am, every enclosure a
+        // 404) switched tracks forever, since onPlaying never resets anything.
+        failsRef.current++;
+        if (failsRef.current <= 6) playNext();
+        else audio.pause(); // whole pool looks broken — stop skipping in silence
+      }
     };
 
     audio.addEventListener("pause", onPause);
@@ -967,7 +985,10 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
                     ? "remaining"
                     : "sleeping"}
             </span>
-            {canExtend(extensions) ? (
+            {/* Only a timed night has a timer to stretch. In one-episode and
+                all-night modes extendTimer changes nothing, yet the button
+                still spent an extension and confirmed "a little longer". */}
+            {mode.kind !== "minutes" ? null : canExtend(extensions) ? (
               <button
                 onClick={() => extendTimer(15)}
                 className="rounded-full border border-[#2e2d3a] px-3 py-1 normal-case tracking-normal text-[#7a7264] active:scale-95"
