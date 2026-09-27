@@ -43,8 +43,6 @@ export interface YTPlayerLike {
   getCurrentTime(): number;
   getDuration(): number;
   loadVideoById(videoId: string, startSeconds?: number): void;
-  /** The loaded video's watch URL (…?v=ID). Optional: absent in older fakes. */
-  getVideoUrl?(): string;
   destroy(): void;
 }
 
@@ -154,19 +152,6 @@ export class YouTubeMedia implements MediaBackend {
    *
    * Unstarted before ready and after destroy, so a caller never has to guard.
    */
-  /** The id of the video the player actually has loaded, or null when that
-   *  can't be told (not ready, or the player doesn't say). Right after a
-   *  switch the iframe still reports the previous video's state and time;
-   *  this is how a caller tells those readings apart from the new video's. */
-  loadedVideoId(): string | null {
-    if (!this.ready || !this.player?.getVideoUrl) return null;
-    try {
-      return new URL(this.player.getVideoUrl()).searchParams.get("v");
-    } catch {
-      return null;
-    }
-  }
-
   state(): number {
     if (!this.ready || !this.player) return -1;
     return this.player.getPlayerState();

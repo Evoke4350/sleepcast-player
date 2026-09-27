@@ -46,6 +46,7 @@ import { BrownNoise, noiseGain } from "../lib/noise";
 import { shouldTick } from "../lib/tick-gate";
 import { RestSession, revivedNightStart } from "../lib/rest/session";
 import { recordNightEnd } from "../lib/night-end";
+import { isPlaybackStep } from "../lib/witness";
 import type { RestNight } from "../lib/rest/types";
 import {
   YouTubeMedia,
@@ -183,6 +184,9 @@ export function YouTubeNight({
   // retry reloads at the intended start rather than at 0:00.
   const epPlayedRef = useRef(false);
   const epStartSecRef = useRef(0);
+  // The last position seen and when, for isPlaybackStep.
+  const lastSeenPosRef = useRef(0);
+  const lastSeenAtRef = useRef(0);
   // The prompt waits a beat before appearing. A player that is simply still
   // coming up also reads as "unstarted", and flashing "tap to begin" at
   // someone half a second before it starts on its own is worse than silence.
@@ -313,6 +317,8 @@ export function YouTubeNight({
     const start = seekTo > 0 ? seekTo : skipSec;
     epPlayedRef.current = false;
     epStartSecRef.current = start;
+    lastSeenPosRef.current = start;
+    lastSeenAtRef.current = 0;
     media.load(ep.youtubeId, start);
 
     watchRef.current = { id: ep.id, at: Date.now() };
@@ -383,6 +389,8 @@ export function YouTubeNight({
       // snapshot gate closes until it plays; the retry's start is the new start.
       epPlayedRef.current = false;
       epStartSecRef.current = at;
+      lastSeenPosRef.current = at;
+      lastSeenAtRef.current = 0;
       mediaRef.current?.load(ep.youtubeId, at);
       watchRef.current = { id: ep.id, at: Date.now() };
       return;
@@ -501,24 +509,31 @@ export function YouTubeNight({
     // transport asserting something stale for the rest of the night.
     const ytState = media.state();
     const t = transportFor(ytState);
-    setTransport(t);
     // A missed PLAYING event must not leave the clock frozen over a video that
-    // is audibly playing (the tap no longer unfreezes it).
-    // Only once the reading can belong to this video: right after a switch
-    // the iframe still reports the previous one's state and time, which
-    // would mark the new episode played and save it at the old position.
-    // Beyond that, the same as onStateChange's PLAYING (watchdog down too,
-    // or the first rebuffer would condemn a video that is playing).
-    if (t === "playing" && !epPlayedRef.current && plausiblyThisEpisode()) {
+    // is audibly playing (the tap no longer unfreezes it). But the raw state
+    // can't be trusted for that: right after a switch or a retry the iframe
+    // still reports the previous load's PLAYING and position. Movement can:
+    // see isPlaybackStep. Once seen, the same as onStateChange's PLAYING.
+    const seenPos = media.currentTime();
+    const seenAt = Date.now();
+    if (
+      t === "playing" &&
+      !epPlayedRef.current &&
+      isPlaybackStep(lastSeenPosRef.current, lastSeenAtRef.current, seenPos, seenAt, epStartSecRef.current)
+    ) {
       watchRef.current = null;
       failsRef.current = 0;
       retriesRef.current = 0;
       hasEverPlayedRef.current = true;
       epPlayedRef.current = true;
-      unfreezeClock();
-    } else if (t === "playing" && epPlayedRef.current) {
-      unfreezeClock();
     }
+    lastSeenPosRef.current = seenPos;
+    lastSeenAtRef.current = seenAt;
+    if (t === "playing" && epPlayedRef.current) unfreezeClock();
+    // Shown as witnessed, not as reported: a leftover PLAYING over a video
+    // that hasn't started offered Pause, and a tap then paused the new video
+    // instead of starting it. Night stores its transport the same way.
+    setTransport(t === "playing" && !epPlayedRef.current ? "buffering" : t);
     // watchRef.at is when this episode was asked to play, and it is cleared
     // the moment it does — so this is exactly "how long it has refused for".
     const waitedMs = watchRef.current ? Date.now() - watchRef.current.at : 0;
@@ -732,23 +747,6 @@ export function YouTubeNight({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  /** Whether a "playing" reading belongs to this episode rather than to the
-   *  one before it, which the iframe keeps reporting right after a switch.
-   *  Asked of the player when it says which video it has loaded. Otherwise a
-   *  reading at least 2 s after the load, at a position this episode could
-   *  have reached, counting from 0: its start seek may not have landed. */
-  function plausiblyThisEpisode(): boolean {
-    const media = mediaRef.current;
-    const ep = currentEpRef.current;
-    if (!media || !ep) return false;
-    const loaded = media.loadedVideoId();
-    if (loaded !== null) return loaded === ep.youtubeId;
-    const sinceLoad = (Date.now() - epStartedAtRef.current) / 1000;
-    if (sinceLoad < 2) return false;
-    const pos = media.currentTime();
-    return pos >= 0 && pos <= epStartSecRef.current + sinceLoad + 2;
-  }
 
   // One handler for "start it" and "resume it": both are a tap asking for
   // sound, and the browser treats this tap as the gesture that permits it.

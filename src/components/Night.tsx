@@ -53,6 +53,7 @@ import { BrownNoise, noiseGain } from "../lib/noise";
 import { shouldTick } from "../lib/tick-gate";
 import { RestSession, revivedNightStart } from "../lib/rest/session";
 import { recordNightEnd } from "../lib/night-end";
+import { isPlaybackStep } from "../lib/witness";
 import type { RestNight } from "../lib/rest/types";
 import {
   YouTubeMedia,
@@ -673,17 +674,12 @@ export function Night({
     // reads 0 before metadata, overwriting the seeded start, and the start
     // seek (skip-intro, a revived position) then jumped 0 → start and read as
     // proof of sound, standing the watchdog down over a hung stream.
-    // Playback cannot outrun the wall clock, a seek can: a step up to the time
-    // since the last look (plus slack) is sound. A fixed 5 s cap missed real
-    // playback when ticks were throttled seconds apart in a background tab.
-    // But with ticks a minute apart the start seek itself fits under that
-    // cap, so a jump from ~0 to the requested start is never taken as sound.
+    // See isPlaybackStep: movement the way playback moves, never a seek
+    // (the start seek landing included) or a stale reading.
     const nowMs = Date.now();
-    const step = seenPos - lastSeenPosRef.current;
-    const wallSec = lastSeenAtRef.current ? (nowMs - lastSeenAtRef.current) / 1000 : 1;
-    const seekLanding =
-      epStartSecRef.current > 1 && lastSeenPosRef.current < 1 && Math.abs(seenPos - epStartSecRef.current) < 1.5;
-    if (step > 0 && step <= wallSec + 2 && !seekLanding) hasMovedRef.current = true;
+    if (isPlaybackStep(lastSeenPosRef.current, lastSeenAtRef.current, seenPos, nowMs, epStartSecRef.current)) {
+      hasMovedRef.current = true;
+    }
     lastSeenPosRef.current = seenPos;
     lastSeenAtRef.current = nowMs;
     const witnessed: Transport = t === "playing" && !hasMovedRef.current ? "buffering" : t;
@@ -789,7 +785,7 @@ export function Night({
 
     // Not before this episode has made a sound: its position reads 0 until
     // then, and writing that over a revived night's snapshot lost the position.
-    if (hasMovedRef.current && ++persistCounterRef.current >= 10) {
+    if (++persistCounterRef.current >= 10 && hasMovedRef.current) {
       persistCounterRef.current = 0;
       persistLive();
       if (currentEpRef.current && dur > 0) {
