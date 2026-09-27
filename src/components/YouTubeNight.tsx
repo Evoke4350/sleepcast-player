@@ -725,6 +725,10 @@ export function YouTubeNight({
   }
 
   function holdEndStart() {
+    // A second press (another finger, a pointerdown with no pointerup) must
+    // not orphan the first timer: nothing could cancel it, and it went on to
+    // end the night the listener had let go of.
+    holdEndCancel();
     let pct = 0;
     holdTimerRef.current = setInterval(() => {
       pct += 8;

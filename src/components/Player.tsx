@@ -753,6 +753,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     return () => {
       if (tickHandleRef.current !== null) clearInterval(tickHandleRef.current);
       clearStopFade();
+      // A hold still counting at unmount would call endSession on a player
+      // that is gone, and through onEnd end whatever night came next.
+      if (holdTimerRef.current) clearInterval(holdTimerRef.current);
       brownRef.current?.stop();
       levelerRef.current?.dispose();
       audio.removeEventListener("pause", onPause);
@@ -805,6 +808,10 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   // End must survive 2am thumbs: press and hold for a full second, a ring
   // fills to show intent registering, release early and nothing happens.
   function holdEndStart() {
+    // A second press (another finger, a pointerdown with no pointerup) must
+    // not orphan the first timer: nothing could cancel it, and it went on to
+    // end the night the listener had let go of.
+    holdEndCancel();
     let pct = 0;
     holdTimerRef.current = setInterval(() => {
       pct += 8;
