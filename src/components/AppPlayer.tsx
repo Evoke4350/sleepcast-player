@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import type { Episode } from "../lib/engine";
 import { formatTime } from "../lib/engine";
-import { loadLive, clearLive, clearLastNight, loadLastNight, type LiveSession, type LastNight, loadState, isRevivable } from "../lib/store";
+import { loadLive, clearLastNight, loadLastNight, type LiveSession, type LastNight, loadState, isRevivable } from "../lib/store";
 import type { PlayMode } from "../lib/engine";
 import type { NoiseSettings } from "../lib/store";
 import { shouldReanchor, nextInSpread } from "../lib/rest/reanchor";
@@ -12,6 +12,7 @@ import { YouTubeNight } from "./YouTubeNight";
 import { Night } from "./Night";
 import { isYouTubeLineup, isMixedLineup } from "../lib/youtube-night";
 import { RestView } from "./RestView";
+import { reconcileLive, settleLive } from "../lib/rest/reconcile";
 import { ReanchorView } from "./ReanchorView";
 import { shouldGreetGoodbye, markGoodbyeSeen, fmtDuration } from "../lib/rest/surface";
 import { loadNights, loadQuietUntil, saveQuietUntil, loadStepBackAsked, markStepBackAsked } from "../lib/rest/ledger";
@@ -96,13 +97,9 @@ export function AppPlayer() {
   }, [goodbye?.startedAt]);
 
   // A night snapshotted before a reload. Offer to revive it only if enough
-  // time is left to be worth it; a stale one gets cleared.
-  const [live, setLive] = useState<LiveSession | null>(() => {
-    const l = loadLive();
-    if (isRevivable(l, Date.now())) return l;
-    if (l) clearLive();
-    return null;
-  });
+  // time is left and it is recent; otherwise the tab was killed and the night
+  // is over, so record it (rest/reconcile.ts) rather than dropping it.
+  const [live, setLive] = useState<LiveSession | null>(() => settleLive(loadLive(), Date.now()));
 
   const [reanchor, setReanchor] = useState<{ lastNight: LastNight; next: Episode } | null>(null);
 
@@ -150,6 +147,8 @@ export function AppPlayer() {
     leadPosition?: number
   ) {
     setResume(null); // a fresh night, not a revival
+    // Starting over while the resume card is up: the snapshotted night is over.
+    if (live) reconcileLive(live, Date.now());
     setLive(null);
     const settings = loadState().settings;
     setQuarterHourRule(settings.quarterHourRule);
@@ -306,7 +305,7 @@ export function AppPlayer() {
               ▶ keep going
             </button>
             <button
-              onClick={() => { clearLive(); setLive(null); }}
+              onClick={() => { reconcileLive(live, Date.now()); clearLastNight(); setLive(null); }}
               className="mt-2 block w-full text-center text-xs text-[#4a4540] underline decoration-[#2a2620] underline-offset-4 transition-colors hover:text-[#8a7a5c]"
             >
               or start fresh

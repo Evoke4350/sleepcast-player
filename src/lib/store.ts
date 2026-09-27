@@ -271,6 +271,11 @@ export interface LiveSession {
   skipIntroByFeedId: Record<string, number>;
   feedTitles: Record<string, string>;
   artworkByFeedId: Record<string, string>;
+  /** When the night began and its timer length, for reconciling a killed tab
+   *  into the rest ledger (rest/reconcile.ts). Absent on snapshots written
+   *  before these existed; reconcile estimates them. */
+  nightStartedAt?: number;
+  timerMinutes?: number;
 }
 
 const LIVE_POOL_CAP = 80;
@@ -308,7 +313,7 @@ export const LIVE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
  *  to matter, and recent. Without the age check, a tab the browser killed at
  *  11 pm offered to revive that night the next evening, and because a live
  *  snapshot outranks the 3am re-anchor, it hid that too. */
-export function isRevivable(l: LiveSession | null, now: number): l is LiveSession {
+export function isRevivable(l: LiveSession | null, now: number): boolean {
   if (!l || l.remainingMs <= 60_000) return false;
   if (typeof l.savedAt !== "number") return false;
   const age = now - l.savedAt;
