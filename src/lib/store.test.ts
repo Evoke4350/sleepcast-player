@@ -697,3 +697,12 @@ describe("writes when storage is full", () => {
     } finally { spy.mockRestore(); }
   });
 });
+
+describe("loadState timer fallback", () => {
+  beforeEach(() => localStorage.clear());
+  it("a saved state without a timer gets the same 45 as a fresh install", () => {
+    localStorage.setItem("sleepcast2.state", JSON.stringify({ feeds: [], settings: {} }));
+    expect(loadState().settings.timerMinutes).toBe(45);
+    expect(loadState().settings.mode).toEqual({ kind: "minutes", minutes: 45 });
+  });
+});

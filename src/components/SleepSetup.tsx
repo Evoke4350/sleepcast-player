@@ -86,8 +86,6 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
     if (lastEpisode || greetNight) beacon("welcome_shown");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  // Golden path only overrides the timer if the user hasn't touched it this session
-  const [timerTouched, setTimerTouched] = useState(false);
 
   const timerMinutes = appState.settings.timerMinutes;
   const quarterHourRule = appState.settings.quarterHourRule;
@@ -196,7 +194,6 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
   }
 
   function selectTimer(minutes: number) {
-    setTimerTouched(true);
     const next: AppState = {
       ...appState,
       settings: {
@@ -213,7 +210,6 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
   }
 
   function handleCustomMinutes(value: string) {
-    setTimerTouched(true);
     setCustomMinutes(value);
     const n = Number(value);
     if (n >= 1) {
@@ -406,7 +402,6 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
         ...(nextMode.kind === "minutes" ? { timerMinutes: rearmM } : {}),
       },
     });
-    setTimerTouched(true);
     beginNight(null);
   }
 
@@ -428,10 +423,10 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
         feeds: next.feeds.map((f) => (f.id === "swm" ? { ...f, enabled: true } : f)),
       };
     }
-    if (!timerTouched) {
-      next = { ...next, settings: { ...next.settings, timerMinutes: 45 } };
-      setCustomMinutes("");
-    }
+    // The timer is left as saved. It used to be reset to 45 unless touched
+    // since page load, while the setup screen showed the saved choice as
+    // selected: pick "a long while" last night, tap the moon tonight, and get
+    // 45 minutes with nothing on screen saying so.
     if (!rearmStartRef.current && next.settings.lastSession !== null) {
       // Any ordinary start dismisses the offer for the rest of the window —
       // it should appear once, when it might help, and never nag.

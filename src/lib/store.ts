@@ -232,7 +232,7 @@ export function loadState(): AppState {
   const timerMinutes =
     typeof saved.settings?.timerMinutes === "number"
       ? saved.settings.timerMinutes
-      : 60;
+      : 45; // same as a fresh install (defaultSettings)
   const rawSettings = (saved.settings ?? {}) as Record<string, unknown>;
   const settings: Settings = {
     timerMinutes,
