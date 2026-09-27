@@ -1,5 +1,5 @@
 import type { APIRoute } from "astro";
-import { isAllowedFeedUrl, looksLikeFeed, resolvePublicIps, isPrivateIp, type PinnedAddress } from "../../lib/relay-guard";
+import { isAllowedFeedUrl, looksLikeFeed, resolvePublicIps, isPrivateIp, readCapped, type PinnedAddress } from "../../lib/relay-guard";
 import { rateLimit, clientIp } from "../../lib/ratelimit";
 
 // Raised from 10MB after Send Me To Sleep (1,702 episodes, 22.9MB of XML)
@@ -204,13 +204,15 @@ async function fetchUpstream(target: string, stale: CacheEntry | undefined): Pro
   const len = Number(upstream.headers.get("content-length") || 0);
   if (len > MAX_BYTES) return fail("too large", 413);
 
-  let body: ArrayBuffer;
+  // Capped while reading: content-length is optional (and can lie), so the
+  // header check above cannot bound memory on its own.
+  let body: ArrayBuffer | null;
   try {
-    body = await upstream.arrayBuffer();
+    body = await readCapped(upstream, MAX_BYTES);
   } catch {
     return fail("upstream body failed", 502);
   }
-  if (body.byteLength > MAX_BYTES) return fail("too large", 413);
+  if (body === null) return fail("too large", 413);
   // Not a feed → not our job to carry it, and it never enters the cache.
   if (!looksLikeFeed(body)) return fail("not a feed", 415);
 

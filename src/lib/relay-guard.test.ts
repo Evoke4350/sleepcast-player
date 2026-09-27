@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isAllowedFeedUrl, isPrivateIp, looksLikeFeed, resolvesToPublicIp, resolvePublicIps } from "./relay-guard";
+import { isAllowedFeedUrl, isPrivateIp, looksLikeFeed, resolvesToPublicIp, resolvePublicIps, readCapped } from "./relay-guard";
 
 const buf = (s: string) => new TextEncoder().encode(s).buffer as ArrayBuffer;
 
@@ -125,5 +125,65 @@ describe("resolvePublicIps", () => {
   it("agrees with resolvesToPublicIp", async () => {
     expect(await resolvesToPublicIp("localhost")).toBe(false);
     expect(await resolvesToPublicIp("no-such-host.invalid")).toBe(false);
+  });
+});
+
+describe("isPrivateIp: addresses that reach this machine or non-public networks", () => {
+  // "::" is the unspecified address. Connecting to it reaches localhost on
+  // Linux, so a feed host with AAAA "::" pointed the relay at this machine.
+  it.each([
+    "::",
+    "0:0:0:0:0:0:0:0",
+    "0:0:0:0:0:0:0:1",
+    "::ffff:7f00:1",          // IPv4-mapped loopback, hex form
+    "::127.0.0.1",            // IPv4-compatible (deprecated) loopback
+    "fe90::1", "febf::1",     // rest of link-local fe80::/10
+    "fec0::1",                // site-local (deprecated)
+    "ff02::1",                // multicast
+    "64:ff9b::a00:1",         // NAT64 prefix mapping 10.0.0.1
+    "64:ff9b:1::1",           // local-use NAT64 prefix
+    "224.0.0.1",              // IPv4 multicast
+    "240.0.0.1",              // reserved
+    "255.255.255.255",        // broadcast
+    "198.18.0.1",             // benchmarking
+    "192.0.0.1",              // IETF protocol assignments
+  ])("blocks %s", (ip) => {
+    expect(isPrivateIp(ip)).toBe(true);
+  });
+
+  it.each(["2606:4700::6810:84e5", "8.8.8.8", "::ffff:8.8.8.8", "2001:4860:4860::8888"])("allows public %s", (ip) => {
+    expect(isPrivateIp(ip)).toBe(false);
+  });
+});
+
+describe("readCapped", () => {
+  // A body with no content-length used to be read whole with arrayBuffer()
+  // and only then measured, so an endless or huge chunked response was
+  // buffered into the 512MB machine before the cap applied.
+  function streamOf(chunks: number, size: number, onPull?: () => void): Response {
+    let sent = 0;
+    return new Response(new ReadableStream<Uint8Array>({
+      pull(c) {
+        onPull?.();
+        if (sent++ >= chunks) { c.close(); return; }
+        c.enqueue(new Uint8Array(size).fill(60));
+      },
+    }));
+  }
+
+  it("returns the body when it fits", async () => {
+    const buf = await readCapped(streamOf(3, 10), 100);
+    expect(buf?.byteLength).toBe(30);
+  });
+
+  it("returns null once the body passes the cap, without reading the rest", async () => {
+    let pulls = 0;
+    const buf = await readCapped(streamOf(1_000_000, 1024, () => pulls++), 4096);
+    expect(buf).toBeNull();
+    expect(pulls).toBeLessThan(10);
+  });
+
+  it("handles an empty body", async () => {
+    expect((await readCapped(new Response(null), 10))?.byteLength).toBe(0);
   });
 });
