@@ -198,8 +198,6 @@ export function Night({
   const lastSeenPosRef = useRef(0);
   const hasMovedRef = useRef(false);
   const lastSeenAtRef = useRef(0);
-  // One re-arm per episode from a tap (see handleTogglePause).
-  const tapArmedRef = useRef(false);
   // The fade factor last applied to the live backend, before per-feed trim
   // (the night's fade, or the courtesy fade). A backend that becomes live is
   // set to it times its own episode's trim at once, rather than playing at
@@ -426,7 +424,6 @@ export function Night({
     // arriving at `start` is not movement and must not read as proof of sound.
     lastSeenPosRef.current = start;
     lastSeenAtRef.current = 0;
-    tapArmedRef.current = false;
     hasMovedRef.current = false;
     heardSavedAtRef.current = -1e9;
     epStartedAtRef.current = Date.now();
@@ -676,13 +673,17 @@ export function Night({
     // reads 0 before metadata, overwriting the seeded start, and the start
     // seek (skip-intro, a revived position) then jumped 0 → start and read as
     // proof of sound, standing the watchdog down over a hung stream.
-    // Playback cannot outrun the wall clock, a seek does: a step up to the
-    // time since the last look (plus slack) is sound. A fixed 5 s cap missed
-    // real playback when ticks were throttled seconds apart in a background tab.
+    // Playback cannot outrun the wall clock, a seek can: a step up to the time
+    // since the last look (plus slack) is sound. A fixed 5 s cap missed real
+    // playback when ticks were throttled seconds apart in a background tab.
+    // But with ticks a minute apart the start seek itself fits under that
+    // cap, so a jump from ~0 to the requested start is never taken as sound.
     const nowMs = Date.now();
     const step = seenPos - lastSeenPosRef.current;
     const wallSec = lastSeenAtRef.current ? (nowMs - lastSeenAtRef.current) / 1000 : 1;
-    if (step > 0 && step <= wallSec + 2) hasMovedRef.current = true;
+    const seekLanding =
+      epStartSecRef.current > 1 && lastSeenPosRef.current < 1 && Math.abs(seenPos - epStartSecRef.current) < 1.5;
+    if (step > 0 && step <= wallSec + 2 && !seekLanding) hasMovedRef.current = true;
     lastSeenPosRef.current = seenPos;
     lastSeenAtRef.current = nowMs;
     const witnessed: Transport = t === "playing" && !hasMovedRef.current ? "buffering" : t;
@@ -1008,14 +1009,15 @@ export function Night({
     }
     // The clock starts when sound is witnessed (the tick, or the embed's
     // PLAYING), not on the tap: a tap during buffering, or on a stream that
-    // then hangs, ran the night down over silence. An episode that has never
-    // made a sound (a refused autoplay stood the watchdog down) gets it back,
-    // timed from this tap; one resumed mid-night does not, or a slow 2am
-    // rebuffer would condemn it.
-    // Once per episode: re-arming on every tap let repeated taps on a hung
-    // "buffering" stream keep postponing the watchdog forever.
-    if (currentEpRef.current && !hasMovedRef.current && !tapArmedRef.current) {
-      tapArmedRef.current = true;
+    // then hangs, ran the night down over silence.
+    // An episode that has never made a sound gets its watchdog timed from
+    // this tap rather than from its load or an earlier refused tap: a refusal
+    // sits the episode at unstarted/paused (exempt, or stood down), and a
+    // working tap minutes later otherwise read as a stall the moment it began
+    // buffering. Not while it is already buffering: repeated taps on a hung
+    // stream would then postpone the watchdog forever. And never once it has
+    // played, or a slow 2am rebuffer after a mid-night resume would condemn it.
+    if (currentEpRef.current && !hasMovedRef.current && transport !== "buffering") {
       watchRef.current = { id: currentEpRef.current.id, at: Date.now() };
     }
     media.play();

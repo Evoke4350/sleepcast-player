@@ -40,7 +40,7 @@ export function reconcileLive(l: LiveSession, now: number): void {
     endedVia: "faded",
     sleptAtMs: null,
     timeToSleepMs: null,
-    interactions: 0,
+    interactions: l.interactions ?? 0, // touches before the tab died
     detector: "none",
   });
   clearLive();

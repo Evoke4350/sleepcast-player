@@ -183,8 +183,6 @@ export function YouTubeNight({
   // retry reloads at the intended start rather than at 0:00.
   const epPlayedRef = useRef(false);
   const epStartSecRef = useRef(0);
-  // One re-arm per episode from a tap (see handleTogglePause).
-  const tapArmedRef = useRef(false);
   // The prompt waits a beat before appearing. A player that is simply still
   // coming up also reads as "unstarted", and flashing "tap to begin" at
   // someone half a second before it starts on its own is worse than silence.
@@ -315,7 +313,6 @@ export function YouTubeNight({
     const start = seekTo > 0 ? seekTo : skipSec;
     epPlayedRef.current = false;
     epStartSecRef.current = start;
-    tapArmedRef.current = false;
     media.load(ep.youtubeId, start);
 
     watchRef.current = { id: ep.id, at: Date.now() };
@@ -578,10 +575,13 @@ export function YouTubeNight({
       else endSession("ended", { gaveUp: true }); // the whole lineup looks broken
     }
 
-    if (++persistCounterRef.current >= 10) {
+    // Spent only when a snapshot can actually be written (the episode has
+    // played), so a new episode's first one lands as soon as it plays, not
+    // ten ticks after a count used up while it was still loading.
+    if (++persistCounterRef.current >= 10 && epPlayedRef.current) {
       persistCounterRef.current = 0;
       persistLive();
-      if (currentEpRef.current && dur > 0 && epPlayedRef.current) {
+      if (currentEpRef.current && dur > 0) {
         rememberPosition(currentEpRef.current.id, cur, dur);
       }
     }
@@ -733,20 +733,26 @@ export function YouTubeNight({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // One handler for "start it" and "resume it": both are a tap asking for
-  // sound, and the browser treats this tap as the gesture that permits it.
-  // Only a video that is genuinely playing gets paused.
-  /** A "playing" reading taken at least 2 s after the load, at a position this
-   *  episode could have reached since its start. */
+  /** Whether a "playing" reading belongs to this episode rather than to the
+   *  one before it, which the iframe keeps reporting right after a switch.
+   *  Asked of the player when it says which video it has loaded. Otherwise a
+   *  reading at least 2 s after the load, at a position this episode could
+   *  have reached, counting from 0: its start seek may not have landed. */
   function plausiblyThisEpisode(): boolean {
     const media = mediaRef.current;
-    if (!media) return false;
+    const ep = currentEpRef.current;
+    if (!media || !ep) return false;
+    const loaded = media.loadedVideoId();
+    if (loaded !== null) return loaded === ep.youtubeId;
     const sinceLoad = (Date.now() - epStartedAtRef.current) / 1000;
     if (sinceLoad < 2) return false;
     const pos = media.currentTime();
-    return pos >= epStartSecRef.current - 1 && pos <= epStartSecRef.current + sinceLoad + 2;
+    return pos >= 0 && pos <= epStartSecRef.current + sinceLoad + 2;
   }
 
+  // One handler for "start it" and "resume it": both are a tap asking for
+  // sound, and the browser treats this tap as the gesture that permits it.
+  // Only a video that is genuinely playing gets paused.
   function handleTogglePause() {
     restRef.current?.noteInteraction();
     const media = mediaRef.current;
@@ -758,15 +764,15 @@ export function YouTubeNight({
     // The clock is not started here. PLAYING starts it (onStateChange, or the
     // tick if that event is missed); a tap during buffering, or one whose
     // play() is refused, would otherwise run the night down over silence.
-    // A video that has never played gets its watchdog timed from this tap,
-    // not from its load: tapping "begin" after a long wait otherwise read as
-    // a stall and skipped it the moment it started. One resumed mid-night is
-    // left alone, or a slow rebuffer would condemn it.
+    // An episode that has never made a sound gets its watchdog timed from
+    // this tap rather than from its load or an earlier refused tap: a refusal
+    // sits the episode at unstarted/paused (exempt, or stood down), and a
+    // working tap minutes later otherwise read as a stall the moment it began
+    // buffering. Not while it is already buffering: repeated taps on a hung
+    // stream would then postpone the watchdog forever. And never once it has
+    // played, or a slow 2am rebuffer after a mid-night resume would condemn it.
     const ep = currentEpRef.current;
-    // Once per episode: re-arming on every tap let repeated taps on a hung
-    // "buffering" video keep postponing the watchdog forever.
-    if (ep && !epPlayedRef.current && !tapArmedRef.current) {
-      tapArmedRef.current = true;
+    if (ep && !epPlayedRef.current && transport !== "buffering") {
       watchRef.current = { id: ep.id, at: Date.now() };
     }
     media.play();

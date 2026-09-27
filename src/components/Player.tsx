@@ -561,7 +561,10 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       }
     }
 
-    if (++persistCounterRef.current >= 10) {
+    // Spent only when a snapshot can actually be written (the episode has
+    // played), so a new episode's first one lands as soon as it plays, not
+    // ten ticks after a count used up while it was still loading.
+    if (++persistCounterRef.current >= 10 && epPlayedRef.current) {
       persistCounterRef.current = 0;
       persistLive();
       rememberCurrentPosition();
@@ -728,6 +731,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
           const src = audio.getAttribute("src")!;
           const pos = audio.currentTime;
           audio.removeAttribute("crossorigin");
+          // The reload reads 0 until its seek lands: close the snapshot gate
+          // until it plays again (see epPlayedRef).
+          epPlayedRef.current = false;
           audio.src = src;
           if (pos > 0) {
             // Registered through seekCleanupRef, which playEpisode tears down

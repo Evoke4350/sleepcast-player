@@ -450,3 +450,25 @@ describe("YouTubeMedia pending queue", () => {
     expect(f.calls.filter((c) => c.startsWith("volume:"))).toEqual(["volume:40"]);
   });
 });
+
+describe("YouTubeMedia.loadedVideoId", () => {
+  test("reads the id from the player's video URL once ready", () => {
+    const f = fakePlayer();
+    const media = new YouTubeMedia((args) => {
+      const p = f.create(args);
+      return Object.assign(p, { getVideoUrl: () => "https://www.youtube.com/watch?v=abc123" });
+    });
+    media.load("abc123");
+    expect(media.loadedVideoId()).toBeNull(); // not ready yet
+    f.ready();
+    expect(media.loadedVideoId()).toBe("abc123");
+  });
+
+  test("is null when the player can't say", () => {
+    const f = fakePlayer();
+    const media = new YouTubeMedia(f.create);
+    media.load("A");
+    f.ready();
+    expect(media.loadedVideoId()).toBeNull();
+  });
+});
