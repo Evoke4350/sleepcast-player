@@ -58,7 +58,7 @@ import type { RestNight } from "../lib/rest/types";
 import { YouTubeMedia } from "../lib/youtube-media";
 import { buildYouTubePlayer } from "../lib/youtube-embed";
 import { loadYouTubeApi } from "../lib/youtube-api";
-import type { MediaBackend, Transport } from "../lib/media/backend";
+import type { ErrorInfo, MediaBackend, Transport } from "../lib/media/backend";
 import { AudioBackend } from "../lib/media/audio-backend";
 import { preferVideoLead } from "../lib/mixed-night";
 import {
@@ -449,7 +449,7 @@ export function Night({
    * 404, a host that stopped answering, a stream that will not decode — and
    * they skip, because a night that sits on one is a night of silence.
    */
-  function handleError(code: number | string) {
+  function handleError(code: number | string, info?: ErrorInfo) {
     const ep = currentEpRef.current;
     if (!ep || tickHandleRef.current === null) return;
 
@@ -484,7 +484,9 @@ export function Night({
       lastPosRef.current = at;
       return;
     }
-    skipDead(ep, classifyYouTubeError(code).reason, decision.permanent);
+    // Never permanent if it arrived mid-switch: it may be the previous video's
+    // (see YouTubeMedia's onError). Skipped tonight, not condemned for good.
+    skipDead(ep, classifyYouTubeError(code).reason, decision.permanent && !info?.uncertain);
   }
 
   function heardTick(cur: number) {
@@ -854,10 +856,12 @@ export function Night({
     loadYouTubeApi()
       .then((YT) => {
         if (cancelled || !hostRef.current) return;
-        // No constructor handlers: startEpisode subscribes and unsubscribes
-        // per episode, and a handler wired into the constructor would outlive
-        // every switch away from video and fire against a backend that is no
-        // longer the one making sound.
+        // No onEnded/onError constructor handlers: startEpisode subscribes and
+        // unsubscribes those per episode, and one wired into the constructor
+        // would outlive every switch away from video and fire against a
+        // backend that is no longer the one making sound. onStateEvent is the
+        // exception, and safe: handleStateEvent returns at once unless video
+        // is the live backend.
         ytRef.current = new YouTubeMedia(
           (args) =>
             buildYouTubePlayer(YT, hostRef.current!, args, {

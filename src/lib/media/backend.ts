@@ -10,6 +10,10 @@
  *  one level up: a destroyed backend is not "hasn't started yet" — a tap
  *  will not help it, because its play() is a permanent no-op — and a caller
  *  that cannot tell the two apart renders a tap prompt over nothing. */
+export interface ErrorInfo {
+  uncertain?: boolean;
+}
+
 export type Transport = "playing" | "paused" | "buffering" | "awaiting-start" | "dead";
 
 export interface MediaBackend {
@@ -32,5 +36,7 @@ export interface MediaBackend {
    *  handler that outlives its backend fires against a dead one. */
   onProgress(cb: () => void): () => void;
   onEnded(cb: () => void): () => void;
-  onError(cb: (code: number | string) => void): () => void;
+  /** `info.uncertain`: the error may not be about the current episode (it
+   *  arrived while switching), so skip it tonight but don't condemn it. */
+  onError(cb: (code: number | string, info?: ErrorInfo) => void): () => void;
 }

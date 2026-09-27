@@ -208,7 +208,7 @@ describe("events the night depends on", () => {
     media.load("A");
     f.ready();
     f.error(150); // "embedding disabled by the uploader" — a real, common case
-    expect(onError).toHaveBeenCalledWith(150);
+    expect(onError).toHaveBeenCalledWith(150, { uncertain: false });
   });
 });
 
@@ -400,7 +400,7 @@ describe("conforming to the shared backend interface", () => {
     error(150);
     expect(ctorEnded).toHaveBeenCalledTimes(1);
     expect(subEnded).toHaveBeenCalledTimes(1);
-    expect(subError).toHaveBeenCalledWith(150);
+    expect(subError).toHaveBeenCalledWith(150, { uncertain: false });
   });
 
   it("transport maps YT's state codes, not a mirrored boolean", () => {
@@ -642,66 +642,33 @@ describe("YouTubeMedia switch guard: same id, errors, bounds", () => {
     expect(media.state()).toBe(1);
   });
 
-  // A late error for the previous video, delivered during the switch, was
-  // passed on while the new episode was current: a 150 then blocked a working
-  // video forever. Dropping every mid-switch error instead could stall a night
-  // whose new video had failed. They are held and resolved.
-  test("a mid-switch error while the old video shows is discarded once the new load is confirmed", () => {
-    vi.useFakeTimers();
-    try {
-      const f = fakePlayer({ reportsId: true });
-      const errs: Array<number | string> = [];
-      const media = new YouTubeMedia(f.create, { onError: (c) => errs.push(c) });
-      media.onError((c) => errs.push(`sub:${c}`));
-      media.load("A");
-      f.ready();
-      f.showVideo("A");
-      f.setState(1);
-      f.setTime(500);
-      media.load("B");
-      f.error(150); // A's, late
-      f.showVideo("B");
-      f.setState(-1);
-      expect(media.state()).toBe(-1); // confirmed now
-      vi.advanceTimersByTime(SWITCH_GUARD_MAX_MS + 5);
-      expect(errs).toEqual([]);
-      f.error(101); // B's own, after the switch
-      expect(errs).toEqual([101, "sub:101"]);
-    } finally { vi.useRealTimers(); }
-  });
-
-  test("a mid-switch error while the new video shows is delivered at once", () => {
+  // An error doesn't say which video it's about. Holding or dropping it
+  // mid-switch guessed, and a wrong guess blocked a working video or stalled a
+  // night on a dead one. It is delivered at once, marked uncertain mid-switch.
+  test("an error during a switch is delivered at once, marked uncertain", () => {
     const f = fakePlayer({ reportsId: true });
-    const errs: number[] = [];
-    const media = new YouTubeMedia(f.create, { onError: (c) => errs.push(c) });
+    const errs: Array<[number | string, boolean | undefined]> = [];
+    const media = new YouTubeMedia(f.create, { onError: (c, i) => errs.push([c, i.uncertain]) });
+    media.onError((c, i) => errs.push([`sub:${c}`, i?.uncertain]));
     media.load("A");
     f.ready();
     f.showVideo("A");
     f.setState(1);
     f.setTime(500);
-    media.load("B", 60);
-    f.showVideo("B"); // shows B, but not a fresh load yet
+    media.load("B");
     f.error(150);
-    expect(errs).toEqual([150]);
+    expect(errs).toEqual([[150, true], ["sub:150", true]]);
   });
 
-  test("a held error is delivered if the switch times out", () => {
-    vi.useFakeTimers();
-    try {
-      const f = fakePlayer({ reportsId: true });
-      const errs: number[] = [];
-      const media = new YouTubeMedia(f.create, { onError: (c) => errs.push(c) });
-      media.load("A");
-      f.ready();
-      f.showVideo("A");
-      f.setState(1);
-      f.setTime(500);
-      media.load("B");
-      f.error(150); // B failed before the player ever showed it
-      expect(errs).toEqual([]);
-      vi.advanceTimersByTime(SWITCH_GUARD_MAX_MS + 5);
-      expect(errs).toEqual([150]);
-    } finally { vi.useRealTimers(); }
+  test("an error outside a switch is certain", () => {
+    const f = fakePlayer({ reportsId: true });
+    const errs: Array<boolean | undefined> = [];
+    const media = new YouTubeMedia(f.create, { onError: (_c, i) => errs.push(i.uncertain) });
+    media.load("A");
+    f.ready();
+    f.showVideo("A");
+    f.error(101);
+    expect(errs).toEqual([false]);
   });
 
   // A retry reloads at the position the player already shows, so "at the
@@ -720,8 +687,9 @@ describe("YouTubeMedia switch guard: same id, errors, bounds", () => {
     expect(media.state()).toBe(3);
   });
 
-  // A video shorter than its requested start ends as soon as it loads.
-  test("an ENDED of the requested video releases the guard", () => {
+  // Requesting the video that just ended (a lone survivor repeating) would
+  // confirm on the old load's own ENDED, so ENDED is not a fresh load.
+  test("an ENDED state does not confirm a switch", () => {
     const f = fakePlayer({ reportsId: true });
     const media = new YouTubeMedia(f.create);
     media.load("A");
@@ -733,7 +701,7 @@ describe("YouTubeMedia switch guard: same id, errors, bounds", () => {
     f.showVideo("B");
     f.setTime(60);
     f.setState(0);
-    expect(media.eventState(0)).toBe(0);
+    expect(media.eventState(0)).toBe(-1);
   });
 
   // With the id check the guard had no upper bound: a load dropped without an
@@ -776,7 +744,8 @@ describe("YouTubeMedia switch guard: same id, errors, bounds", () => {
     expect(seen).toEqual(["t:playing", "playing", "t:paused", "paused", "t:awaiting-start"]);
     f.showVideo("B");
     f.setState(3);
-    media.routeStateEvent(0, h); // B's own ENDED
+    expect(media.state()).toBe(3); // a tick sees B, freshly loading: confirmed
+    f.ended(); // B's own ENDED, fired by the wrapper from the event
     expect(seen.at(-1)).toBe("ended");
   });
 
@@ -789,5 +758,29 @@ describe("YouTubeMedia switch guard: same id, errors, bounds", () => {
     f.stateChange(1);
     f.stateChange(0);
     expect(raws).toEqual([1, 0]);
+  });
+});
+
+describe("YouTubeMedia fires ENDED itself", () => {
+  test("even when the caller's state handler ignores the event", () => {
+    const f = fakePlayer();
+    let ended = 0;
+    const media = new YouTubeMedia(f.create, { onStateEvent: () => {}, onEnded: () => ended++ });
+    media.load("A");
+    f.ready();
+    f.ended();
+    expect(ended).toBe(1);
+  });
+
+  test("onReady reports whether the wrapper is still live", async () => {
+    let live: boolean | null = null;
+    const media = new YouTubeMedia((args) => {
+      queueMicrotask(() => { live = args.onReady(); });
+      return fakePlayer().create(args);
+    });
+    media.load("A");
+    media.destroy();
+    await Promise.resolve();
+    expect(live).toBe(false);
   });
 });

@@ -29,7 +29,7 @@
 // below add that without touching the constructor path — YouTubeNight.tsx
 // still owns one of these all night and reads state() directly.
 
-import type { MediaBackend, Transport } from "./media/backend";
+import type { ErrorInfo, MediaBackend, Transport } from "./media/backend";
 import { transportFor, YT_STATE, type Transport as YTTransport } from "./youtube-night";
 
 /** The slice of YT.Player this uses. */
@@ -53,7 +53,9 @@ export interface CreatePlayerArgs {
   videoId: string;
   /** Where to begin. Non-zero when a snapshotted night is being revived. */
   startSeconds?: number;
-  onReady: () => void;
+  /** Returns whether the player should still be driven: false once this
+   *  wrapper is dead, so the creator must not start playback then. */
+  onReady: () => boolean;
   onError: (code: number) => void;
   /** Every YT state change. The creator must forward these. They end a switch
    *  only for a player that can't report its video (see inSwitch); otherwise
@@ -78,7 +80,7 @@ export class YouTubeMedia implements MediaBackend {
   private progressTimer: ReturnType<typeof setInterval> | null = null;
   private progressSubs = new Set<() => void>();
   private endedSubs = new Set<() => void>();
-  private errorSubs = new Set<(code: number | string) => void>();
+  private errorSubs = new Set<(code: number | string, info?: ErrorInfo) => void>();
   /** Set when a switch (loadVideoById) actually runs, until inSwitch confirms
    *  it (the requested video, freshly loaded) or gives up on it. In between, the iframe still reports the PREVIOUS
    *  video's state, time and duration, and may still deliver its events; this
@@ -93,18 +95,13 @@ export class YouTubeMedia implements MediaBackend {
      *  position), which the old load's own reading would satisfy at once. */
     positionCounts: boolean;
   } | null = null;
-  /** An error that arrived mid-switch while the player still showed another
-   *  video: the previous video's (discarded once the new load is confirmed)
-   *  or the new one's before it showed (delivered if the switch times out). */
-  private deferredError: number | null = null;
-  private deferredTimer: ReturnType<typeof setTimeout> | null = null;
-  private lastSwitchEnd: "confirmed" | "timeout" | null = null;
+
 
   constructor(
     private readonly createPlayer: (args: CreatePlayerArgs) => YTPlayerLike,
     private readonly handlers: {
       onEnded?: () => void;
-      onError?: (code: number) => void;
+      onError?: (code: number, info: ErrorInfo) => void;
       /** Every state event, for the caller to route (routeStateEvent). Without
        *  it, this routes ENDED to onEnded itself. */
       onStateEvent?: (raw: number) => void;
@@ -129,8 +126,7 @@ export class YouTubeMedia implements MediaBackend {
           since: Date.now(),
           positionCounts: !(Math.abs(here - startSeconds) < 3),
         };
-        this.lastSwitchEnd = null;
-        this.clearDeferred();
+
         p.loadVideoById(videoId, startSeconds);
       });
       return;
@@ -141,37 +137,35 @@ export class YouTubeMedia implements MediaBackend {
       onReady: () => {
         // The iframe can finish loading after the user already ended the
         // night. Flushing then would start audio with nothing left to stop it.
-        if (this.dead) return;
+        if (this.dead) return false;
         this.ready = true;
         const queued = this.pending;
         this.pending = [];
         if (this.pendingVolume !== null) this.player!.setVolume(this.pendingVolume);
         this.pendingVolume = null;
         for (const run of queued) run(this.player!);
+        return true;
       },
       onError: (code) => {
-        // Mid-switch, an error while the player shows the requested video is
-        // that video's. Any other may be the previous video's, delivered late
-        // (passed on, it would condemn or permanently block the new episode),
-        // or the new video failing before the player showed it (dropped, it
-        // could stall a night the watchdog won't rescue). So it is held: gone
-        // if the new load is confirmed, delivered if the switch times out.
-        if (this.inSwitch() && this.shownVideoId() !== this.switching!.id) {
-          this.deferError(code);
-          return;
-        }
-        this.emitError(code);
+        // An error doesn't say which video it is about. During a switch it may
+        // be the previous video's, delivered late, or the new one's. Holding
+        // or dropping it guesses, and a wrong guess either blocks a working
+        // video or stalls a night on a dead one. So it is always delivered at
+        // once, and marked uncertain during a switch: the caller may skip the
+        // episode tonight but must not condemn it for good.
+        this.emitError(code, { uncertain: this.inSwitch() });
       },
       onStateChange: (state) => {
         // Fallback only, for a player that can't say which video it has: the
         // new load announces itself as unstarted (-1) or cued (5), and
         // anything else may be about the previous video. With the video id
         // available (inSwitch), events don't decide anything.
-        if (this.shownVideoId() === null && (state === -1 || state === 5) && this.switching) {
-          this.endSwitch("confirmed");
-        }
-        if (this.handlers.onStateEvent) this.handlers.onStateEvent(state);
-        else if (this.eventState(state) === YT_STATE.ENDED) this.fireEnded();
+        if (this.shownVideoId() === null && (state === -1 || state === 5)) this.switching = null;
+        const ended = this.eventState(state) === YT_STATE.ENDED;
+        this.handlers.onStateEvent?.(state);
+        // Fired here for every event, not left to the caller's routing: a
+        // handler that returned early would otherwise lose the night's end.
+        if (ended) this.fireEnded();
       },
     });
   }
@@ -249,7 +243,7 @@ export class YouTubeMedia implements MediaBackend {
     return () => void this.endedSubs.delete(cb);
   }
 
-  onError(cb: (code: number | string) => void): () => void {
+  onError(cb: (code: number | string, info?: ErrorInfo) => void): () => void {
     if (this.dead) return () => {};
     this.errorSubs.add(cb);
     return () => void this.errorSubs.delete(cb);
@@ -273,7 +267,6 @@ export class YouTubeMedia implements MediaBackend {
     this.pending = [];
     this.pendingVolume = null;
     this.switching = null;
-    this.clearDeferred();
     const p = this.player;
     this.player = null;
     this.ready = false;
@@ -309,7 +302,7 @@ export class YouTubeMedia implements MediaBackend {
     h.transport(transportFor(state));
     if (state === YT_STATE.PLAYING) h.playing();
     else if (state === YT_STATE.PAUSED) h.paused();
-    else if (state === YT_STATE.ENDED) this.fireEnded();
+    // ENDED is fired by the wrapper itself for every event (onStateChange).
   }
 
   private fireEnded(): void {
@@ -317,34 +310,9 @@ export class YouTubeMedia implements MediaBackend {
     for (const s of this.endedSubs) s();
   }
 
-  private emitError(code: number): void {
-    this.handlers.onError?.(code);
-    for (const s of this.errorSubs) s(code);
-  }
-
-  private deferError(code: number): void {
-    this.deferredError = code;
-    if (this.deferredTimer !== null || !this.switching) return;
-    const wait = Math.max(0, this.switching.since + SWITCH_GUARD_MAX_MS - Date.now()) + 1;
-    this.deferredTimer = setTimeout(() => {
-      this.deferredTimer = null;
-      this.inSwitch(); // settle it: confirmed, or timed out by now
-      const code = this.deferredError;
-      this.deferredError = null;
-      if (code !== null && !this.dead && this.lastSwitchEnd === "timeout") this.emitError(code);
-    }, wait);
-  }
-
-  private clearDeferred(): void {
-    if (this.deferredTimer !== null) clearTimeout(this.deferredTimer);
-    this.deferredTimer = null;
-    this.deferredError = null;
-  }
-
-  private endSwitch(how: "confirmed" | "timeout"): void {
-    this.switching = null;
-    this.lastSwitchEnd = how;
-    if (how === "confirmed") this.clearDeferred(); // it was the previous video's
+  private emitError(code: number, info: ErrorInfo): void {
+    this.handlers.onError?.(code, info);
+    for (const s of this.errorSubs) s(code, info);
   }
 
   /** The video id the player reports, or null if it can't report one. */
@@ -360,9 +328,10 @@ export class YouTubeMedia implements MediaBackend {
   /** Whether a switch is still unconfirmed.
    *
    *  Settled by the player showing the requested video AND a fresh load of it
-   *  (unstarted, buffering or cued, or a position at the requested start).
-   *  The id alone isn't enough: requesting the video already showing (a quick
-   *  A → B → A, a retry) matched before anything had restarted.
+   *  (see showsFreshLoad: unstarted, buffering or cued; or a position at the
+   *  requested start, unless the player was already there when the switch
+   *  began). The id alone isn't enough: requesting the video already showing
+   *  (a quick A → B → A, a retry) matched before anything had restarted.
    *
    *  A player that can't report its video falls back to its events (see
    *  onStateChange). Either way the guard gives up after SWITCH_GUARD_MAX_MS,
@@ -375,25 +344,25 @@ export class YouTubeMedia implements MediaBackend {
     if (!sw) return false;
     const elapsed = Date.now() - sw.since;
     if (elapsed < 0 || elapsed > SWITCH_GUARD_MAX_MS) {
-      this.endSwitch("timeout");
+      this.switching = null;
       return false;
     }
     const shown = this.shownVideoId();
     if (shown === null) return true; // fallback: the events decide
     if (shown !== sw.id || !this.showsFreshLoad(sw)) return true;
-    this.endSwitch("confirmed");
+    this.switching = null;
     return false;
   }
 
-  /** The player is at the start of a load (or at its end: a video shorter
-   *  than its requested start ends at once) rather than mid-way through an
-   *  earlier one. */
+  /** The player is at the start of a load rather than mid-way through (or at
+   *  the end of) an earlier one. ENDED doesn't count: requesting the video
+   *  that just ended (a lone survivor repeating) would confirm on the old
+   *  load's own ENDED. A video shorter than its requested start ends before
+   *  confirming, and meets the watchdog instead. */
   private showsFreshLoad(sw: { start: number; positionCounts: boolean }): boolean {
     try {
       const raw = this.player!.getPlayerState();
-      if (raw === YT_STATE.UNSTARTED || raw === YT_STATE.BUFFERING || raw === YT_STATE.CUED || raw === YT_STATE.ENDED) {
-        return true;
-      }
+      if (raw === YT_STATE.UNSTARTED || raw === YT_STATE.BUFFERING || raw === YT_STATE.CUED) return true;
       return sw.positionCounts && Math.abs((this.player!.getCurrentTime() || 0) - sw.start) < 3;
     } catch {
       return false;
@@ -406,9 +375,3 @@ export class YouTubeMedia implements MediaBackend {
     else this.pending.push(command);
   }
 }
-
-/** The embed origin. youtube-nocookie.com is Google's own reduced-tracking
- *  host: it still loads Google's player and Google still sees the request, but
- *  it does not set the advertising cookies the default domain does. The
- *  privacy policy states this rather than implying it away. */
-export const YT_EMBED_HOST = "https://www.youtube-nocookie.com";

@@ -49,6 +49,7 @@ import { recordNightEnd } from "../lib/night-end";
 import { PlaybackWitness } from "../lib/witness";
 import type { RestNight } from "../lib/rest/types";
 import { YouTubeMedia } from "../lib/youtube-media";
+import type { ErrorInfo } from "../lib/media/backend";
 import { buildYouTubePlayer } from "../lib/youtube-embed";
 import { loadYouTubeApi } from "../lib/youtube-api";
 import {
@@ -326,7 +327,7 @@ export function YouTubeNight({
     playNext();
   }
 
-  function handleError(code: number) {
+  function handleError(code: number, info?: ErrorInfo) {
     const ep = currentEpRef.current;
     if (!ep?.youtubeId || tickHandleRef.current === null) return;
     const decision = decideAfterError(code, retriesRef.current);
@@ -346,7 +347,9 @@ export function YouTubeNight({
     deadRef.current.add(ep.id);
     // Permanent means it will never play here on any night — remember it the
     // same way "never again" does, so tomorrow does not rediscover it.
-    if (decision.permanent) blockEpisode(ep.id);
+    // Not if it arrived mid-switch: it may be the previous video's (see
+    // YouTubeMedia's onError). Skipped tonight, never condemned for good.
+    if (decision.permanent && !info?.uncertain) blockEpisode(ep.id);
     setBlockedTonight((prev) => new Set(prev).add(ep.id));
     flash(classifyYouTubeError(code).reason);
     playNext();

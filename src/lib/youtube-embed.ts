@@ -6,8 +6,13 @@
 // made twice. The events go straight to YouTubeMedia (CreatePlayerArgs), which
 // filters them through its switch guard before the caller sees them.
 import type { CreatePlayerArgs, YTPlayerLike } from "./youtube-media";
-import { YT_EMBED_HOST } from "./youtube-media";
 import type { YTNamespace } from "./youtube-api";
+
+/** The embed origin. youtube-nocookie.com is Google's own reduced-tracking
+ *  host: it still loads Google's player and Google still sees the request, but
+ *  it does not set the advertising cookies the default domain does. The
+ *  privacy policy states this rather than implying it away. */
+export const YT_EMBED_HOST = "https://www.youtube-nocookie.com";
 
 export interface EmbedOptions {
   autoplay: boolean;
@@ -48,12 +53,14 @@ export function buildYouTubePlayer(
     },
     events: {
       onReady: (e: { target: YTPlayerLike }) => {
-        args.onReady();
+        // Not if the wrapper is already dead (the night ended while the
+        // iframe loaded): it refuses to drive the player then, and so must this.
+        const live = args.onReady();
         // Starting a night IS a user gesture, but Google's script has to load
         // first and that gap routinely outlives the gesture's grace on a phone.
         // Ask anyway — when the answer is no, the video sits at "unstarted" and
         // the tap prompt takes over. It is not an error.
-        if (opts.shouldStartOnReady()) e.target.playVideo();
+        if (live && opts.shouldStartOnReady()) e.target.playVideo();
       },
       onStateChange: (e: { data: number }) => args.onStateChange(e.data),
       onError: (e: { data: number }) => args.onError(e.data),
