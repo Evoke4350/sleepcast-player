@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AppState, FeedRef } from "../lib/store";
-import { loadBlocked, loadPositions } from "../lib/store";
+import { loadBlocked, loadPositions, clampTimerMinutes } from "../lib/store";
 import { searchEpisodes } from "../lib/episode-search";
 import { parseOpml, buildOpml } from "../lib/opml";
 import { rearmMinutes } from "../lib/engine";
@@ -223,8 +223,11 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
 
   function handleCustomMinutes(value: string) {
     setCustomMinutes(value);
-    const n = Number(value);
-    if (n >= 1) {
+    const raw = Number(value);
+    if (Number.isFinite(raw) && raw >= 1) {
+      // Saved within range: a typo like 45000 would otherwise be a month-long
+      // night, now that the saved timer is used as shown.
+      const n = clampTimerMinutes(raw);
       const next: AppState = {
         ...appState,
         settings: {
@@ -1115,9 +1118,11 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
               className="w-28 rounded-lg bg-[#12101a] border border-[#241f30] px-3 py-3 text-base text-[#b59a76] placeholder:text-[#6e5d44] text-center focus:outline-none focus:border-[#6e5d44] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
               aria-label="Custom timer minutes"
             />
-            <p className="text-xs text-[#6e5d44]">
-              now {timerMinutes} min — volume fades over the final 60 s
-            </p>
+            {mode.kind === "minutes" && (
+              <p className="text-xs text-[#6e5d44]">
+                now {timerMinutes} min — volume fades over the final 60 s
+              </p>
+            )}
           </div>
         </section>
 

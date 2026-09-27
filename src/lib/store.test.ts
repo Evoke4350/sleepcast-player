@@ -463,7 +463,7 @@ describe("quarter-hour rule opt-in", () => {
 });
 
 import { recordSessionEnd, REARM_WINDOW_MS } from "./store";
-import { isRevivable, LIVE_MAX_AGE_MS, resumeMode, type LiveSession, saveLive, loadLive, saveLastNight, loadLastNight } from "./store";
+import { isRevivable, LIVE_MAX_AGE_MS, resumeMode, type LiveSession, saveLive, loadLive, saveLastNight, loadLastNight, clampTimerMinutes } from "./store";
 
 describe("settings migration", () => {
   beforeEach(() => localStorage.clear());
@@ -704,5 +704,23 @@ describe("loadState timer fallback", () => {
     localStorage.setItem("sleepcast2.state", JSON.stringify({ feeds: [], settings: {} }));
     expect(loadState().settings.timerMinutes).toBe(45);
     expect(loadState().settings.mode).toEqual({ kind: "minutes", minutes: 45 });
+  });
+});
+
+describe("timer range", () => {
+  beforeEach(() => localStorage.clear());
+  // The custom-minutes box saved any n >= 1. A typo like 45000 used to be
+  // masked by the per-night reset to 45; with the saved timer now honoured it
+  // would have been a month-long night. Stored values are clamped on load too.
+  it("clamps a saved timer and mode into the allowed range", () => {
+    localStorage.setItem("sleepcast2.state", JSON.stringify({ feeds: [], settings: { timerMinutes: 45000, mode: { kind: "minutes", minutes: 45000 } } }));
+    expect(loadState().settings.timerMinutes).toBe(480);
+    expect(loadState().settings.mode).toEqual({ kind: "minutes", minutes: 480 });
+  });
+
+  it("clampTimerMinutes bounds and rounds", () => {
+    expect(clampTimerMinutes(1)).toBe(5);
+    expect(clampTimerMinutes(45000)).toBe(480);
+    expect(clampTimerMinutes(37.6)).toBe(38);
   });
 });
