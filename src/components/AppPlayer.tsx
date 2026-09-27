@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import type { Episode } from "../lib/engine";
 import { formatTime } from "../lib/engine";
-import { loadLive, clearLastNight, loadLastNight, type LiveSession, type LastNight, loadState, isRevivable } from "../lib/store";
+import { loadLive, clearLastNight, loadLastNight, type LiveSession, type LastNight, loadState, isRevivable, resumeMode } from "../lib/store";
 import type { PlayMode } from "../lib/engine";
 import type { NoiseSettings } from "../lib/store";
 import { shouldReanchor, nextInSpread } from "../lib/rest/reanchor";
@@ -136,6 +136,19 @@ export function AppPlayer() {
     return () => document.removeEventListener("visibilitychange", onVis);
   }, []);
 
+  // Settings the players take as props, read fresh when a night starts or is
+  // revived. A revived night used to skip this and run on the mount defaults:
+  // no per-feed trim (a turned-down feed came back at full volume), no noise,
+  // no leveling, no quarter-hour rule, and a 45-minute timed mode.
+  function applyNightSettings(nightMode: PlayMode) {
+    const settings = loadState().settings;
+    setQuarterHourRule(settings.quarterHourRule);
+    setMode(nightMode);
+    setFeedTrim(settings.feedTrim);
+    setNoise(settings.noise);
+    setLeveling(settings.leveling);
+  }
+
   function handleStart(
     pool: Episode[],
     timerMinutes: number,
@@ -150,12 +163,7 @@ export function AppPlayer() {
     // Starting over while the resume card is up: the snapshotted night is over.
     if (live) reconcileLive(live, Date.now());
     setLive(null);
-    const settings = loadState().settings;
-    setQuarterHourRule(settings.quarterHourRule);
-    setMode(settings.mode);
-    setFeedTrim(settings.feedTrim);
-    setNoise(settings.noise);
-    setLeveling(settings.leveling);
+    applyNightSettings(loadState().settings.mode);
     clearLastNight(); // a new night supersedes any prior faded one
     setSession({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artworkByFeedId, leadEpisode, wasVaried, leadPosition });
   }
@@ -164,6 +172,7 @@ export function AppPlayer() {
   // reload needs before audio can start again.
   function handleResume() {
     if (!live) return;
+    applyNightSettings(resumeMode(live));
     setResume({
       episode: live.current,
       position: live.position,
@@ -296,7 +305,7 @@ export function AppPlayer() {
             <p className="text-center text-[0.7rem] uppercase tracking-widest text-[#6e5d44]">still playing from before</p>
             <p className="mt-1.5 truncate text-center text-sm text-[#d9c9a8]">{live.current.title}</p>
             <p className="mt-0.5 text-center text-xs text-[#8a7a5c]">
-              {formatTime(live.position)} in · {Math.round(live.remainingMs / 60_000)} min left on the timer
+              {formatTime(live.position)} in · {live.modeKind === "all-night" ? "playing all night" : live.modeKind === "one-episode" ? "to the end of this one" : `${Math.round(live.remainingMs / 60_000)} min left on the timer`}
             </p>
             <button
               onClick={handleResume}

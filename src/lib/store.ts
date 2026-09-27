@@ -276,6 +276,10 @@ export interface LiveSession {
    *  before these existed; reconcile estimates them. */
   nightStartedAt?: number;
   timerMinutes?: number;
+  /** The night's play mode. A one-episode or all-night night has no clock
+   *  (remainingMs is 0), so without this a reload could neither tell it from a
+   *  finished timed night nor revive it in the right mode. */
+  modeKind?: PlayMode["kind"];
 }
 
 const LIVE_POOL_CAP = 80;
@@ -313,9 +317,14 @@ export const LIVE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
  *  to matter, and recent. Without the age check, a tab the browser killed at
  *  11 pm offered to revive that night the next evening, and because a live
  *  snapshot outranks the 3am re-anchor, it hid that too. */
+function isTimerless(l: LiveSession): boolean {
+  return l.modeKind === "one-episode" || l.modeKind === "all-night";
+}
+
 export function isRevivable(l: LiveSession | null, now: number): boolean {
-  if (!l || l.remainingMs <= 60_000) return false;
-  if (typeof l.savedAt !== "number") return false;
+  if (!l || typeof l.savedAt !== "number") return false;
+  // A timerless night snapshots no remaining time; only a timed one can run out.
+  if (!isTimerless(l) && l.remainingMs <= 60_000) return false;
   const age = now - l.savedAt;
   return age >= 0 && age < LIVE_MAX_AGE_MS;
 }
@@ -742,4 +751,11 @@ export function recordSessionEnd(
   const s = loadState();
   s.settings.lastSession = { endedAt: Date.now(), timerMinutes, modeKind };
   saveState(s);
+}
+
+/** The mode to revive a snapshotted night in: its own timerless mode, or a
+ *  timed night of its original length (remainingMs carries the time left). */
+export function resumeMode(l: LiveSession): PlayMode {
+  if (l.modeKind === "one-episode" || l.modeKind === "all-night") return { kind: l.modeKind };
+  return { kind: "minutes", minutes: Math.max(1, Math.round(l.totalSeconds / 60)) };
 }

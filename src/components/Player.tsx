@@ -397,6 +397,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       savedAt: Date.now(),
       nightStartedAt: restRef.current?.startedAt,
       timerMinutes: restRef.current?.timerMinutes,
+      modeKind: modeRef.current.kind,
       remainingMs,
       totalSeconds: totalSecondsRef.current,
       position: Number.isFinite(audio.currentTime) ? audio.currentTime : 0,

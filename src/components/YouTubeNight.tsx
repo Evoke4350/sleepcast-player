@@ -428,6 +428,7 @@ export function YouTubeNight({
       savedAt: Date.now(),
       nightStartedAt: restRef.current?.startedAt,
       timerMinutes: restRef.current?.timerMinutes,
+      modeKind: modeRef.current.kind,
       remainingMs,
       totalSeconds: totalSecondsRef.current,
       position: media.currentTime(),

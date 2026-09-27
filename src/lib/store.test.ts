@@ -463,7 +463,7 @@ describe("quarter-hour rule opt-in", () => {
 });
 
 import { recordSessionEnd, REARM_WINDOW_MS } from "./store";
-import { isRevivable, LIVE_MAX_AGE_MS, type LiveSession } from "./store";
+import { isRevivable, LIVE_MAX_AGE_MS, resumeMode, type LiveSession } from "./store";
 
 describe("settings migration", () => {
   beforeEach(() => localStorage.clear());
@@ -609,5 +609,38 @@ describe("isRevivable", () => {
 
   it("is false for no snapshot", () => {
     expect(isRevivable(null, 1_000_000)).toBe(false);
+  });
+});
+
+describe("timerless snapshots", () => {
+  const ep = { id: "a", title: "A", url: "https://x/a.mp3", feedId: "f", date: "2024-01-01" } as any;
+  const live = (over: Partial<LiveSession> = {}): LiveSession => ({
+    savedAt: 1_000_000, remainingMs: 0, totalSeconds: 45 * 60, position: 10,
+    current: ep, playedIds: [], pool: [ep], skipIntroByFeedId: {}, feedTitles: {}, artworkByFeedId: {},
+    ...over,
+  });
+
+  // persistLive writes remainingMs 0 for one-episode and all-night nights
+  // ("revive the night, there is no clock to resume"), but isRevivable
+  // required more than a minute left, so those nights could never be revived.
+  it("revives a recent all-night or one-episode night", () => {
+    expect(isRevivable(live({ modeKind: "all-night" }), 1_000_000 + 60_000)).toBe(true);
+    expect(isRevivable(live({ modeKind: "one-episode" }), 1_000_000 + 60_000)).toBe(true);
+  });
+
+  it("still expires them after the revive window", () => {
+    expect(isRevivable(live({ modeKind: "all-night" }), 1_000_000 + LIVE_MAX_AGE_MS)).toBe(false);
+  });
+
+  it("does not treat a timed night with no time left as timerless", () => {
+    expect(isRevivable(live({ modeKind: "minutes" }), 1_000_000 + 60_000)).toBe(false);
+    expect(isRevivable(live(), 1_000_000 + 60_000)).toBe(false); // snapshot from before modeKind
+  });
+
+  it("resumes in the mode the night was in", () => {
+    expect(resumeMode(live({ modeKind: "all-night" }))).toEqual({ kind: "all-night" });
+    expect(resumeMode(live({ modeKind: "one-episode" }))).toEqual({ kind: "one-episode" });
+    expect(resumeMode(live({ modeKind: "minutes", remainingMs: 20 * 60_000, totalSeconds: 75 * 60 }))).toEqual({ kind: "minutes", minutes: 75 });
+    expect(resumeMode(live({ remainingMs: 20 * 60_000 }))).toEqual({ kind: "minutes", minutes: 45 });
   });
 });
