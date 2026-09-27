@@ -1,5 +1,6 @@
 import type { RestNight, RestRollup, DetectorParams } from "./types";
 import { writeMakingRoom } from "../store";
+import { DEFAULT_PARAMS, LAMBDA_MAX, TICK_MS, quietTicksToDecide } from "./detector";
 
 const KEY = "sleepcast2.rest";
 const MAX_NIGHTS = 90;
@@ -42,8 +43,14 @@ function median(xs: number[]): number | null {
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 }
 
-/** Floor on a believable onset: ~30 quiet ticks to reach the decision bound. */
-export const MIN_PLAUSIBLE_ONSET_MS = 7 * 60_000;
+/** Floor on a believable onset: the fastest the detector can reach its
+ *  decision bound at the most sensitive calibration (LAMBDA_MAX), counted from
+ *  a first tick at t=0. It used to be 7 min, which assumed the default rate
+ *  (~30 ticks) and so hid real fast nights of listeners calibrated higher.
+ *  Pre-fix artifacts (onset at the first quiet tick, "1 minute") still fall
+ *  below it. */
+export const MIN_PLAUSIBLE_ONSET_MS =
+  (quietTicksToDecide({ ...DEFAULT_PARAMS, lambdaAwake: LAMBDA_MAX }) - 1) * TICK_MS;
 
 export function rollup(nights: RestNight[]): RestRollup {
   // A night the listener marked "awake" was a detector false positive: it was
@@ -55,8 +62,8 @@ export function rollup(nights: RestNight[]): RestRollup {
   // Onsets below this are pre-fix artifacts. The detector used to anchor onset
   // at the first quiet tick, so a night nobody touched recorded ~0ms and the
   // rest screen reported "you drifted off in 1 minute". The fixed detector
-  // anchors at the decision bound, which cannot be reached in under ~7 min of
-  // quiet, so nothing legitimate can land here.
+  // anchors at the decision bound, which no calibration reaches faster than
+  // MIN_PLAUSIBLE_ONSET_MS, so nothing legitimate can land here.
   //
   // The nights themselves still count as slept — the sleep was real, only the
   // figure was wrong — so this filters the time statistics, not the ledger.
