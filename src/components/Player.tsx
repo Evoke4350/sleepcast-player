@@ -172,8 +172,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   // The quarter-hour rule has fired and playback is held. Once dismissed it
   // does not fire again for the rest of the night.
   const [gettingUp, setGettingUp] = useState(false);
+  /** Set with the state, not after the render: the hold reads it at once. */
   const gettingUpRef = useRef(false);
-  useEffect(() => { gettingUpRef.current = gettingUp; }, [gettingUp]);
   const ruleSpentRef = useRef(false);
   const nightStartedAtRef = useRef(Date.now());
   const holdTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -306,9 +306,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     const audio = audioRef.current;
     const ep = currentEpRef.current;
     if (!audio || !ep) return;
-    // Paused before it failed: by the listener (a paused element's buffering
-    // can fail too), or already held. Neither resumes by itself.
-    const listenerPaused = audio.paused && !netHoldRef.current.holding;
+    // Read before pausing: paused already means by the listener (a paused
+    // element's buffering can fail too; see NetworkHold).
+    const paused = audio.paused;
     const at = epPlayedRef.current ? Math.max(audio.currentTime || 0, lastPosRef.current, loadStartRef.current) : loadStartRef.current;
     watchRef.current = null;
     if (endTimeRef.current !== null && pausedRemainingMsRef.current === null) {
@@ -321,28 +321,37 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
         if (tickHandleRef.current === null || currentEpRef.current !== ep) return;
         reloadCurrent(ep, at);
       },
+      paused,
       // Not over the get-up hold the listener opted into, or a fade-out.
-      () => !listenerPaused && !gettingUpRef.current && stopFadeRef.current === null,
+      () => !gettingUpRef.current && stopFadeRef.current === null,
     );
   }
 
-  /** Seek to `at` once metadata is in. Registered in seekCleanupRef, which
+  /** Land the new load at `at`. Enforced across the loading lifecycle until
+   *  playback is actually there, as the skip-intro is: Safari quietly resets
+   *  a seek made before playback starts. Registered in seekCleanupRef, which
    *  every new load tears down first: a bare listener would outlive a load
    *  that errors before metadata and force-seek the NEXT one to this spot. */
   function seekOnMetadata(audio: HTMLAudioElement, at: number) {
     seekCleanupRef.current?.();
     seekCleanupRef.current = null;
     if (at <= 0) return;
-    const onMeta = () => {
-      cleanup();
-      try { audio.currentTime = at; } catch { /* not seekable yet */ }
-    };
+    const EVENTS = ["loadedmetadata", "canplay", "playing", "timeupdate"] as const;
+    let attempts = 0;
     const cleanup = () => {
-      audio.removeEventListener("loadedmetadata", onMeta);
+      for (const ev of EVENTS) audio.removeEventListener(ev, enforce);
       if (seekCleanupRef.current === cleanup) seekCleanupRef.current = null;
     };
+    const enforce = () => {
+      if (audio.currentTime >= at - 2) {
+        if (!audio.paused) cleanup(); // landed, and playback is rolling
+        return;
+      }
+      if (attempts++ > 12) { cleanup(); return; } // stop fighting a stubborn stream
+      try { audio.currentTime = at; } catch { /* not seekable yet: a later event retries */ }
+    };
     seekCleanupRef.current = cleanup;
-    audio.addEventListener("loadedmetadata", onMeta);
+    for (const ev of EVENTS) audio.addEventListener(ev, enforce);
   }
 
   /** play(), and if autoplay is refused (a track change or a reload while the
@@ -588,6 +597,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
         ruleSpentRef.current = true;
         audio.pause();
         setPaused(true);
+        gettingUpRef.current = true;
         setGettingUp(true);
         return;
       }
@@ -821,11 +831,15 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
           // The reload reads 0 until its seek lands: close the snapshot gate
           // until it plays again (see epPlayedRef).
           epPlayedRef.current = false;
-          if (pos > 0) loadStartRef.current = pos;
           audio.src = src;
-          seekOnMetadata(audio, pos);
+          // At 0 (it failed before playing), whatever seek the load armed
+          // (a revive, the skip-intro) is still pending and carries over.
+          if (pos > 0) {
+            loadStartRef.current = pos;
+            seekOnMetadata(audio, pos);
+          }
           watchRef.current = { src, at: Date.now() };
-          void audio.play().catch(() => {});
+          playOrWait(audio);
           return;
         }
       }
@@ -1021,6 +1035,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   const dim = Math.max(0.55, 1 - 0.45 * (1 - countdown / Math.max(1, totalSeconds)));
 
   function dismissGettingUp() {
+    gettingUpRef.current = false;
     setGettingUp(false);
     restRef.current?.noteInteraction();
     if (netHoldRef.current.resumeNow()) return; // held for the network: reload
@@ -1042,7 +1057,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
             you're heavy — the bed keeps its meaning that way.
           </p>
           <button
-            onClick={() => { setGettingUp(false); endSession("ended"); }}
+            onClick={() => { gettingUpRef.current = false; setGettingUp(false); endSession("ended"); }}
             className="mt-2 rounded-full border border-[#6e5d44] px-5 py-2 text-sm text-[#f0dcb8] transition-colors hover:border-[#8a7a5c]"
           >
             alright, I'll get up

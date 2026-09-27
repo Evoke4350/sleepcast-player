@@ -9,7 +9,7 @@ describe("NetworkHold", () => {
   it("resumes once when the network comes back", () => {
     const h = new NetworkHold();
     const resume = vi.fn();
-    h.hold(resume);
+    h.hold(resume, false);
     expect(h.holding).toBe(true);
     online();
     online();
@@ -21,8 +21,8 @@ describe("NetworkHold", () => {
     const h = new NetworkHold();
     const first = vi.fn();
     const second = vi.fn();
-    h.hold(first);
-    h.hold(second);
+    h.hold(first, false);
+    h.hold(second, false);
     online();
     expect(first).not.toHaveBeenCalled();
     expect(second).toHaveBeenCalledTimes(1);
@@ -31,7 +31,7 @@ describe("NetworkHold", () => {
   it("a cancelled hold never resumes", () => {
     const h = new NetworkHold();
     const resume = vi.fn();
-    h.hold(resume);
+    h.hold(resume, false);
     h.cancel();
     online();
     expect(h.resumeNow()).toBe(false);
@@ -42,7 +42,7 @@ describe("NetworkHold", () => {
     const h = new NetworkHold();
     const resume = vi.fn();
     let allowed = false;
-    h.hold(resume, () => allowed);
+    h.hold(resume, false, () => allowed);
     online();
     expect(resume).not.toHaveBeenCalled();
     expect(h.holding).toBe(true);
@@ -57,11 +57,36 @@ describe("NetworkHold", () => {
     const h = new NetworkHold();
     const resume = vi.fn();
     let allowed = false;
-    h.hold(resume, () => allowed);
+    h.hold(resume, false, () => allowed);
     online();
     allowed = true;
     online();
     expect(resume).toHaveBeenCalledTimes(1);
+  });
+
+  it("never auto-resumes over the listener's own pause", () => {
+    const h = new NetworkHold();
+    const resume = vi.fn();
+    h.hold(resume, true);
+    online();
+    expect(resume).not.toHaveBeenCalled();
+    expect(h.resumeNow()).toBe(true);
+  });
+
+  it("a re-hold keeps the first reading, not the pause the hold made", () => {
+    const h = new NetworkHold();
+    const first = vi.fn();
+    const second = vi.fn();
+    h.hold(first, false);
+    h.hold(second, true); // paused by the first hold, not the listener
+    online();
+    expect(second).toHaveBeenCalledTimes(1);
+
+    const listener = vi.fn();
+    h.hold(vi.fn(), true); // the listener's pause
+    h.hold(listener, false);
+    online();
+    expect(listener).not.toHaveBeenCalled();
   });
 
   it("reads navigator.onLine", () => {

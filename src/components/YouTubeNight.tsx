@@ -776,10 +776,10 @@ export function YouTubeNight({
    *  load was meant to start if it never played. */
   function holdForNetwork(ep: Episode) {
     const media = mediaRef.current;
-    // Paused by the listener before it failed: the network coming back is no
-    // reason to start sound in a dark room. Their tap resumes it instead.
-    const listenerPaused = media?.transport() === "paused";
     const at = witnessRef.current.resumeAt(media?.currentTime() ?? 0);
+    // Read before pausing: paused already means by the listener (see
+    // NetworkHold), and the network coming back then starts nothing.
+    const paused = media?.transport() === "paused";
     watchRef.current = null;
     freezeClock();
     media?.pause();
@@ -789,7 +789,8 @@ export function YouTubeNight({
         if (tickHandleRef.current === null || currentEpRef.current !== ep) return;
         reloadAt(ep, at);
       },
-      () => !listenerPaused && stopFadeRef.current === null,
+      paused,
+      () => stopFadeRef.current === null,
     );
   }
 

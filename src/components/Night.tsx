@@ -858,6 +858,20 @@ export function Night({
       });
     };
     document.addEventListener("visibilitychange", onVis);
+    // Lock-screen and headphone play must go through the hold too: the
+    // browser's default handler would play() the failed source and the tick
+    // would thaw the clock over silence. (A video's embed keeps its own
+    // media session inside the iframe, which the default handler can't reach.)
+    if (typeof navigator !== "undefined" && "mediaSession" in navigator) {
+      navigator.mediaSession.setActionHandler("play", () => {
+        restRef.current?.noteInteraction();
+        if (!netHoldRef.current.resumeNow()) liveRef.current?.play();
+      });
+      navigator.mediaSession.setActionHandler("pause", () => {
+        restRef.current?.noteInteraction();
+        liveRef.current?.pause();
+      });
+    }
 
     // The element exists from the first render, so its backend can too. The
     // embed cannot: it needs Google's script.
@@ -967,6 +981,8 @@ export function Night({
       void lockRef.current?.release();
       if (typeof navigator !== "undefined" && "mediaSession" in navigator) {
         navigator.mediaSession.metadata = null;
+        navigator.mediaSession.setActionHandler("play", null);
+        navigator.mediaSession.setActionHandler("pause", null);
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1000,10 +1016,10 @@ export function Night({
    *  load was meant to start if it never played. */
   function holdForNetwork(ep: Episode) {
     const media = liveRef.current;
-    // Paused by the listener before it failed: the network coming back is no
-    // reason to start sound in a dark room. Their tap resumes it instead.
-    const listenerPaused = media?.transport() === "paused";
     const at = witnessRef.current.resumeAt(media?.currentTime() ?? 0);
+    // Read before pausing: paused already means by the listener (see
+    // NetworkHold), and the network coming back then starts nothing.
+    const paused = media?.transport() === "paused";
     watchRef.current = null;
     freezeClock();
     media?.pause();
@@ -1013,7 +1029,8 @@ export function Night({
         if (tickHandleRef.current === null || currentEpRef.current !== ep) return;
         reloadAt(ep, at);
       },
-      () => !listenerPaused && stopFadeRef.current === null,
+      paused,
+      () => stopFadeRef.current === null,
     );
   }
 
