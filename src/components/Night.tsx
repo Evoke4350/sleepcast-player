@@ -779,10 +779,16 @@ export function Night({
 
   function endSession(reason: RestNight["endedVia"] = "faded") {
     if (tickHandleRef.current === null && reason !== "ended") return;
-    if (reason === "faded") recordSessionEnd(timerMinutes, modeRef.current.kind);
+    // A night that never played anything (the error screen's "back to setup",
+    // or a lineup with nothing playable) records nothing. It used to clear
+    // the live snapshot, so a revived night that failed offline lost its
+    // snapshot, and it wrote an empty last night and a RestNight to the
+    // ledger, which calibration then learned from.
+    const played = hasEverPlayedRef.current;
+    if (reason === "faded" && played) recordSessionEnd(timerMinutes, modeRef.current.kind);
     clearStopFade();
-    clearLive();
-    saveLastNight({
+    if (played) clearLive();
+    if (played) saveLastNight({
       pool: poolRef.current,
       playedIds: [...playedIdsRef.current],
       feedTitles: feedTitlesRef.current,
@@ -792,7 +798,7 @@ export function Night({
       endedAt: Date.now(),
       wasVaried: wasVariedRef.current,
     });
-    if (currentEpRef.current) saveLastEpisode(currentEpRef.current);
+    if (played && currentEpRef.current) saveLastEpisode(currentEpRef.current);
     watchRef.current = null;
     if (tickHandleRef.current !== null) {
       clearInterval(tickHandleRef.current);
@@ -807,7 +813,7 @@ export function Night({
       navigator.mediaSession.metadata = null;
     }
     if (restRef.current) {
-      appendNight(restRef.current.finish(reason, Date.now()));
+      if (played) appendNight(restRef.current.finish(reason, Date.now()));
       restRef.current = null;
     }
     onEndRef.current();
