@@ -79,12 +79,7 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
   const leadPositionRef = useRef(0);
   const [query, setQuery] = useState("");
   const [feedError, setFeedError] = useState("");
-  // Never offer "the exact one again" for an episode since blocked: the lead
-  // path plays it directly, without consulting the blocked list.
-  const [lastEpisode] = useState(() => {
-    const ep = loadLastEpisode();
-    return ep && !loadBlocked().includes(ep.id) ? ep : null;
-  });
+  const [lastEpisode] = useState(() => loadLastEpisode());
   const [greetNight, setGreetNight] = useState<RestNight | null>(() => {
     const last = loadNights().at(-1) ?? null;
     return last && last.sleptAtMs !== null && last.selfLabel === undefined ? last : null;

@@ -47,7 +47,7 @@ import { shouldTick } from "../lib/tick-gate";
 import { RestSession, revivedNightStart } from "../lib/rest/session";
 import { recordNightEnd } from "../lib/night-end";
 import { PlaybackWitness } from "../lib/witness";
-import { applyEndedDecision, decideAfterEnded, shouldPlayWhole } from "../lib/episode-end";
+import { MAX_FAILS, applyEndedDecision, decideAfterEnded, shouldPlayWhole } from "../lib/episode-end";
 import type { RestNight } from "../lib/rest/types";
 import { YouTubeMedia } from "../lib/youtube-media";
 import type { ErrorInfo } from "../lib/media/backend";
@@ -65,8 +65,6 @@ import { browserScreenLock, type ScreenLock } from "../lib/wake-lock";
 import { beacon } from "../lib/beacon";
 
 const FADE_SECONDS = 60;
-// Consecutive episodes that fail before the night gives up on the lineup.
-const MAX_FAILS = 6;
 const TICK_MIN_MS = 900;
 const LINEUP_MAX = 12;
 // A video that has not reached "playing" by now is stuck: a blocked embed that

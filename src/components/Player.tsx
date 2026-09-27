@@ -16,9 +16,7 @@ import { shouldSuggestGettingUp } from "../lib/rest/quarterhour";
 import { RestSession, revivedNightStart } from "../lib/rest/session";
 import { recordNightEnd } from "../lib/night-end";
 import type { RestNight } from "../lib/rest/types";
-
-// Consecutive failures (stuck tracks, source errors) before the night ends.
-const MAX_FAILS = 6;
+import { MAX_FAILS } from "../lib/episode-end";
 
 const FADE_SECONDS = 60;
 // Just under a second, so a jittery 1s interval isn't swallowed by the gate it

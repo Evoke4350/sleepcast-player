@@ -7,6 +7,11 @@
 import type { PlayMode } from "./engine";
 import type { PlaybackWitness } from "./witness";
 
+/** Consecutive failures (stuck episodes, source errors) before a player gives
+ *  up on the whole lineup and ends the night. Shared by Player and
+ *  YouTubeNight so the threshold can't drift between them. */
+export const MAX_FAILS = 6;
+
 export type EndedDecision =
   | { action: "ignore" }
   | { action: "end-night"; reason: "ended" | "faded" }

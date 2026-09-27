@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { recordNightEnd, type NightEnd } from "./night-end";
-import { blockEpisode, saveLive, loadLive, loadLastNight, loadLastEpisode, loadState, type LiveSession } from "./store";
+import { blockEpisode, unblockEpisode, saveLastEpisode, saveLive, loadLive, loadLastNight, loadLastEpisode, loadState, type LiveSession } from "./store";
 import { loadNights } from "./rest/ledger";
 import { RestSession } from "./rest/session";
 
 const ep = { id: "a", title: "A", url: "https://x/a.mp3", feedId: "f", date: "2024-01-01" };
+const older = { ...ep, id: "z", title: "Z", url: "https://x/z.mp3" };
 const live: LiveSession = {
   savedAt: 1, remainingMs: 10 * 60_000, totalSeconds: 2700, position: 60, current: ep,
   playedIds: [], pool: [ep], skipIntroByFeedId: {}, feedTitles: {}, artworkByFeedId: {},
@@ -55,7 +56,9 @@ describe("recordNightEnd", () => {
 });
 
 describe("recordNightEnd last episode", () => {
-  beforeEach(() => { localStorage.clear(); saveLive(live); });
+  // An older night's pick is already stored, so "nothing offered" below means
+  // it was actually replaced, not merely left unwritten.
+  beforeEach(() => { localStorage.clear(); saveLive(live); saveLastEpisode(older); });
   it("saves the last episode heard tonight", () => {
     recordNightEnd(end());
     expect(loadLastEpisode()?.id).toBe(ep.id);
@@ -66,6 +69,13 @@ describe("recordNightEnd last episode", () => {
     recordNightEnd(end());
     expect(loadLastEpisode()).toBeNull();
     expect(loadNights()).toHaveLength(1); // the night itself still counts
+  });
+  it("offers a blocked episode again once it is unblocked", () => {
+    recordNightEnd(end());
+    blockEpisode(ep.id);
+    expect(loadLastEpisode()).toBeNull();
+    unblockEpisode(ep.id);
+    expect(loadLastEpisode()?.id).toBe(ep.id);
   });
   it("saves nothing when nothing was heard", () => {
     recordNightEnd(end({ lastHeard: null }));
