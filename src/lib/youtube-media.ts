@@ -55,8 +55,11 @@ export interface CreatePlayerArgs {
   onError: (code: number) => void;
   /** Every YT state change. The creator must forward these: they are how this
    *  wrapper knows the iframe has started talking about a new load. */
-  onStateChange?: (state: number) => void;
+  onStateChange: (state: number) => void;
 }
+
+/** Longest a switch is reported as unstarted without the player saying so. */
+export const SWITCH_GUARD_MAX_MS = 10_000;
 
 export class YouTubeMedia implements MediaBackend {
   private player: YTPlayerLike | null = null;
@@ -76,7 +79,7 @@ export class YouTubeMedia implements MediaBackend {
    *  In between, the iframe still reports the PREVIOUS video's state, time and
    *  duration; this reports the new load as unstarted at its start instead,
    *  so no caller can mistake the old video's readings for the new one's. */
-  private switching: { start: number } | null = null;
+  private switching: { start: number; since: number } | null = null;
 
   constructor(
     private readonly createPlayer: (args: CreatePlayerArgs) => YTPlayerLike,
@@ -92,7 +95,7 @@ export class YouTubeMedia implements MediaBackend {
   load(videoId: string, startSeconds = 0): void {
     if (this.dead) return;
     if (this.player) {
-      this.switching = { start: startSeconds };
+      this.switching = { start: startSeconds, since: Date.now() };
       this.run((p) => p.loadVideoById(videoId, startSeconds));
       return;
     }
@@ -118,8 +121,11 @@ export class YouTubeMedia implements MediaBackend {
         this.handlers.onError?.(code);
         for (const s of this.errorSubs) s(code);
       },
-      onStateChange: () => {
-        this.switching = null;
+      onStateChange: (state) => {
+        // Only the new load's own announcement ends the guard. YouTube
+        // broadcasts a load as unstarted (-1) or cued (5); anything else may be
+        // an event about the previous video that was already in flight.
+        if (state === -1 || state === 5) this.switching = null;
       },
     });
   }
@@ -144,13 +150,13 @@ export class YouTubeMedia implements MediaBackend {
   /** 0 before ready — the countdown reads this every tick and must not be
    *  handed NaN or an exception while the iframe is still coming up. */
   currentTime(): number {
-    if (this.switching) return this.switching.start;
+    if (this.inSwitch()) return this.switching!.start;
     if (!this.ready || !this.player) return 0;
     return this.player.getCurrentTime() || 0;
   }
 
   duration(): number {
-    if (this.switching) return 0;
+    if (this.inSwitch()) return 0;
     if (!this.ready || !this.player) return 0;
     return this.player.getDuration() || 0;
   }
@@ -167,7 +173,7 @@ export class YouTubeMedia implements MediaBackend {
    * Unstarted before ready and after destroy, so a caller never has to guard.
    */
   state(): number {
-    if (this.switching) return -1;
+    if (this.inSwitch()) return -1;
     if (!this.ready || !this.player) return -1;
     return this.player.getPlayerState();
   }
@@ -220,6 +226,7 @@ export class YouTubeMedia implements MediaBackend {
     this.dead = true;
     this.pending = [];
     this.pendingVolume = null;
+    this.switching = null;
     const p = this.player;
     this.player = null;
     this.ready = false;
@@ -233,6 +240,19 @@ export class YouTubeMedia implements MediaBackend {
     this.progressSubs.clear();
     this.endedSubs.clear();
     this.errorSubs.clear();
+  }
+
+  /** Whether a switch is still unconfirmed. Gives up after
+   *  SWITCH_GUARD_MAX_MS: with state events lost, holding on would report an
+   *  audible video as unstarted for good. Past that point stale readings are
+   *  harmless to callers that require movement (lib/witness.ts). */
+  private inSwitch(): boolean {
+    if (!this.switching) return false;
+    if (Date.now() - this.switching.since > SWITCH_GUARD_MAX_MS) {
+      this.switching = null;
+      return false;
+    }
+    return true;
   }
 
   private run(command: (p: YTPlayerLike) => void): void {

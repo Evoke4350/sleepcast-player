@@ -1,5 +1,5 @@
 import { describe, expect, it, test, vi } from "vitest";
-import { YouTubeMedia, type YTPlayerLike, type CreatePlayerArgs } from "./youtube-media";
+import { YouTubeMedia, SWITCH_GUARD_MAX_MS, type YTPlayerLike, type CreatePlayerArgs } from "./youtube-media";
 
 /** A stand-in for YT.Player that records calls and lets a test decide when
  *  onReady fires — which is the whole point, since the real one is not usable
@@ -469,8 +469,55 @@ describe("YouTubeMedia after a switch", () => {
     expect(media.state()).toBe(-1);
     expect(media.currentTime()).toBe(300);
     expect(media.duration()).toBe(0);
-    f.stateChange(3); // B buffering: the player is now talking about B
+    f.stateChange(-1); // B announced: the player is now talking about B
+    f.stateChange(3);
     expect(media.state()).toBe(3);
     expect(media.currentTime()).toBe(42.5);
+  });
+});
+
+describe("YouTubeMedia switch guard: what may end it", () => {
+  // An event already in flight for the PREVIOUS video (its PLAYING, say) must
+  // not end the guard: the new load announces itself as unstarted (-1) or cued
+  // (5), and only that is about the new video.
+  test("a stale PLAYING in flight does not end the guard; the new load's unstarted does", () => {
+    const f = fakePlayer();
+    const media = new YouTubeMedia(f.create);
+    media.load("A");
+    f.ready();
+    f.stateChange(1);
+    media.load("B", 0);
+    f.stateChange(1); // A's PLAYING, already in flight
+    expect(media.state()).toBe(-1);
+    f.stateChange(-1); // B announced
+    f.stateChange(1);
+    expect(media.state()).toBe(1);
+  });
+
+  // With events lost altogether the guard must not hold forever: the new video
+  // would read as unstarted while audible, and the watchdog would kill it.
+  test("the guard gives up after a while if no event ever comes", () => {
+    vi.useFakeTimers();
+    try {
+      const f = fakePlayer();
+      const media = new YouTubeMedia(f.create);
+      media.load("A");
+      f.ready();
+      f.setState(1);
+      media.load("B", 0);
+      expect(media.state()).toBe(-1);
+      vi.advanceTimersByTime(SWITCH_GUARD_MAX_MS + 1);
+      expect(media.state()).toBe(1);
+    } finally { vi.useRealTimers(); }
+  });
+
+  test("destroy drops the guard, so currentTime is 0 as documented", () => {
+    const f = fakePlayer();
+    const media = new YouTubeMedia(f.create);
+    media.load("A");
+    f.ready();
+    media.load("B", 300);
+    media.destroy();
+    expect(media.currentTime()).toBe(0);
   });
 });

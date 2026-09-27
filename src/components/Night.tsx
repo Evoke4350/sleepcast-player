@@ -326,7 +326,7 @@ export function Night({
           if (ytRef.current !== null && liveRef.current === ytRef.current) e.target.playVideo();
         },
         onStateChange: (e: { data: number }) => {
-          args.onStateChange?.(e.data); // YouTubeMedia's switch guard needs every one
+          args.onStateChange(e.data); // YouTubeMedia's switch guard needs every one
           // The player is not destroyed between episodes — it is hidden and
           // paused behind a podcast, and it keeps emitting state changes from
           // there. Acting on them while audio is live would report the video's
@@ -334,19 +334,23 @@ export function Night({
           // that is actually playing. Once both refs are null the player is
           // gone, and "equal" must not read as "still live".
           if (ytRef.current === null || liveRef.current !== ytRef.current) return;
-          setTransport(transportFor(e.data));
-          if (e.data === YT_STATE.PLAYING) {
-            watchRef.current = null;
-            retriesRef.current = 0;
-            hasEverPlayedRef.current = true;
+          // Acted on as the wrapper now reports it, not as the event says: an
+          // event already in flight for the previous video (its PLAYING, or
+          // its ENDED, which would skip the new one) arrives during a switch,
+          // and YouTubeMedia reports unstarted until the new load announces
+          // itself.
+          const s = ytRef.current.state();
+          setTransport(transportFor(s));
+          if (s === YT_STATE.PLAYING) {
             witnessRef.current.markPlayed();
+            markPlayed();
             // The clock starts here, not at mount. It is held frozen until
             // something actually plays, so a night that never got its tap does
             // not run its timer down over silence.
             unfreezeClock();
-          } else if (e.data === YT_STATE.PAUSED) {
+          } else if (s === YT_STATE.PAUSED) {
             freezeClock();
-          } else if (e.data === YT_STATE.ENDED) {
+          } else if (s === YT_STATE.ENDED) {
             args.onEnded();
           }
         },
@@ -673,9 +677,7 @@ export function Night({
       // The countdown starts at the first real sound, not at mount, so a night
       // still waiting for its tap does not spend its minutes on silence. The
       // embed also does this from onStateChange; both are idempotent.
-      watchRef.current = null;
-      retriesRef.current = 0;
-      hasEverPlayedRef.current = true;
+      markPlayed();
       unfreezeClock();
     } else if (witnessed === "paused") {
       freezeClock();
@@ -970,6 +972,14 @@ export function Night({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /** This episode has played: stand the watchdog down and reset the retry
+   *  count. One place for the embed's PLAYING event and the tick's witness. */
+  function markPlayed() {
+    watchRef.current = null;
+    retriesRef.current = 0;
+    hasEverPlayedRef.current = true;
+  }
 
   // One handler for "start it" and "resume it": both are a tap asking for
   // sound, and the browser treats this tap as the gesture that permits it.

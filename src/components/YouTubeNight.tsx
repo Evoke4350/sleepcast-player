@@ -267,17 +267,24 @@ export function YouTubeNight({
           e.target.playVideo();
         },
         onStateChange: (e: { data: number }) => {
-          args.onStateChange?.(e.data); // YouTubeMedia's switch guard needs every one
-          setTransport(transportFor(e.data));
-          if (e.data === YT_STATE.PLAYING) {
+          args.onStateChange(e.data); // YouTubeMedia's switch guard needs every one
+          // Acted on as the wrapper now reports it, not as the event says: an
+          // event already in flight for the previous video (its PLAYING, or
+          // its ENDED, which would skip the new one) arrives during a switch,
+          // and YouTubeMedia reports unstarted until the new load announces
+          // itself.
+          const s = mediaRef.current ? mediaRef.current.state() : e.data;
+          setTransport(transportFor(s));
+          if (s === YT_STATE.PLAYING) {
+            witnessRef.current.markPlayed();
             markPlayed();
             // The clock starts here, not at mount. It is held frozen until
             // something actually plays, so a night that never got its tap does
             // not run its timer down over silence.
             unfreezeClock();
-          } else if (e.data === YT_STATE.PAUSED) {
+          } else if (s === YT_STATE.PAUSED) {
             freezeClock();
-          } else if (e.data === YT_STATE.ENDED) {
+          } else if (s === YT_STATE.ENDED) {
             args.onEnded();
           }
         },
@@ -723,9 +730,6 @@ export function YouTubeNight({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // One handler for "start it" and "resume it": both are a tap asking for
-  // sound, and the browser treats this tap as the gesture that permits it.
-  // Only a video that is genuinely playing gets paused.
   /** This episode has played: stand the watchdog down and reset the failure
    *  counts. One place for the PLAYING event and the tick's witness. */
   function markPlayed() {
@@ -733,9 +737,11 @@ export function YouTubeNight({
     failsRef.current = 0;
     retriesRef.current = 0;
     hasEverPlayedRef.current = true;
-    witnessRef.current.markPlayed();
   }
 
+  // One handler for "start it" and "resume it": both are a tap asking for
+  // sound, and the browser treats this tap as the gesture that permits it.
+  // Only a video that is genuinely playing gets paused.
   function handleTogglePause() {
     restRef.current?.noteInteraction();
     const media = mediaRef.current;
