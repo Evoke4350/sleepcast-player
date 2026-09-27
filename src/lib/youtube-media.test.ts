@@ -34,6 +34,7 @@ function fakePlayer() {
     setState: (s: number) => { state = s; },
     ended: () => args!.onEnded(),
     error: (code: number) => args!.onError(code),
+    stateChange: (s: number) => { state = s; args!.onStateChange?.(s); },
   };
 }
 
@@ -451,3 +452,25 @@ describe("YouTubeMedia pending queue", () => {
   });
 });
 
+
+describe("YouTubeMedia after a switch", () => {
+  // loadVideoById returns at once, but the iframe keeps reporting the previous
+  // video's state and time until it emits a state change for the new load.
+  // Every reader then had to guard against stale readings itself.
+  test("reports the new load as unstarted at its start until the player says otherwise", () => {
+    const f = fakePlayer();
+    const media = new YouTubeMedia(f.create);
+    media.load("A");
+    f.ready();
+    f.stateChange(1); // A playing
+    expect(media.state()).toBe(1);
+    expect(media.currentTime()).toBe(42.5);
+    media.load("B", 300);
+    expect(media.state()).toBe(-1);
+    expect(media.currentTime()).toBe(300);
+    expect(media.duration()).toBe(0);
+    f.stateChange(3); // B buffering: the player is now talking about B
+    expect(media.state()).toBe(3);
+    expect(media.currentTime()).toBe(42.5);
+  });
+});

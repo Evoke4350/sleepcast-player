@@ -53,7 +53,7 @@ import { BrownNoise, noiseGain } from "../lib/noise";
 import { shouldTick } from "../lib/tick-gate";
 import { RestSession, revivedNightStart } from "../lib/rest/session";
 import { recordNightEnd } from "../lib/night-end";
-import { isPlaybackStep } from "../lib/witness";
+import { PlaybackWitness } from "../lib/witness";
 import type { RestNight } from "../lib/rest/types";
 import {
   YouTubeMedia,
@@ -191,21 +191,16 @@ export function Night({
 
   const heardSecRef = useRef(0);
   const lastPosRef = useRef(0);
-  // The position seen at the previous tick, and whether this episode's has
-  // ever advanced. The watchdog needs to tell "playing" from "claims to be
-  // playing", and movement is the only honest signal: where the episode was
-  // ASKED to start is not where it necessarily is, because the start seek can
-  // silently fail to land.
-  const lastSeenPosRef = useRef(0);
-  const hasMovedRef = useRef(false);
-  const lastSeenAtRef = useRef(0);
+  // Whether this episode has actually made a sound (lib/witness.ts). The
+  // watchdog needs to tell "playing" from "claims to be playing", and movement
+  // is the only honest signal: where the episode was ASKED to start is not
+  // where it necessarily is, because the start seek can silently fail to land.
+  const witnessRef = useRef(new PlaybackWitness());
   // The fade factor last applied to the live backend, before per-feed trim
   // (the night's fade, or the courtesy fade). A backend that becomes live is
   // set to it times its own episode's trim at once, rather than playing at
   // whatever it was last given, possibly hours ago, until a tick.
   const levelRef = useRef<number | null>(null);
-  // Where the current episode was asked to start, for a retry to go back to.
-  const epStartSecRef = useRef(0);
   const heardSavedAtRef = useRef(-1e9);
   const epStartedAtRef = useRef(0);
   const persistCounterRef = useRef(0);
@@ -331,6 +326,7 @@ export function Night({
           if (ytRef.current !== null && liveRef.current === ytRef.current) e.target.playVideo();
         },
         onStateChange: (e: { data: number }) => {
+          args.onStateChange?.(e.data); // YouTubeMedia's switch guard needs every one
           // The player is not destroyed between episodes — it is hidden and
           // paused behind a podcast, and it keeps emitting state changes from
           // there. Acting on them while audio is live would report the video's
@@ -343,6 +339,7 @@ export function Night({
             watchRef.current = null;
             retriesRef.current = 0;
             hasEverPlayedRef.current = true;
+            witnessRef.current.markPlayed();
             // The clock starts here, not at mount. It is held frozen until
             // something actually plays, so a night that never got its tap does
             // not run its timer down over silence.
@@ -413,7 +410,6 @@ export function Night({
     // A saved position is already past any intro, so it wins over skip-intro.
     const skipSec = (skipIntroRef.current[ep.feedId] ?? 0) * 60;
     const start = seekTo > 0 ? seekTo : skipSec;
-    epStartSecRef.current = start;
     // A videoId for the embed, an enclosure URL for the element. This is the
     // last place the difference is visible.
     next.load(ep.youtubeId ?? ep.url, start);
@@ -421,11 +417,9 @@ export function Night({
     watchRef.current = { id: ep.id, at: Date.now() };
     heardSecRef.current = 0;
     lastPosRef.current = start; // so the jump to `start` is not counted as listening
-    // Seeded with the requested start rather than 0: if the seek does land,
-    // arriving at `start` is not movement and must not read as proof of sound.
-    lastSeenPosRef.current = start;
-    lastSeenAtRef.current = 0;
-    hasMovedRef.current = false;
+    // Seeded with the requested start: if the seek does land, arriving at
+    // `start` is not movement and must not read as proof of sound.
+    witnessRef.current.reset(start, Date.now());
     heardSavedAtRef.current = -1e9;
     epStartedAtRef.current = Date.now();
     persistCounterRef.current = 10; // snapshot promptly, not up to 10s from now
@@ -532,18 +526,16 @@ export function Night({
     const decision = decideAfterError(code, retriesRef.current);
     if (decision.action === "retry") {
       retriesRef.current++;
-      // Where it was, or where it was meant to start (a revived position, the
-      // skip-intro): reloading at 0 restarted a long video mid-night.
-      const at = Math.max(epStartSecRef.current, liveRef.current?.currentTime() ?? 0);
-      epStartSecRef.current = at;
+      // Where it was, if it ever played, else where it was meant to start (a
+      // revived position, the skip-intro): reloading at 0 restarted a long
+      // video mid-night, and a position read before it played may not be its.
+      const w = witnessRef.current;
+      const at = w.played ? Math.max(w.startSec, liveRef.current?.currentTime() ?? 0) : w.startSec;
       liveRef.current?.load(ep.youtubeId, at);
       watchRef.current = { id: ep.id, at: Date.now() };
-      // The watchdog's idea of "has it moved" restarts with the reload, and so
-      // does the snapshot gate (hasMovedRef), since the position reads 0 again
-      // until the seek lands.
-      lastSeenPosRef.current = at;
-      lastSeenAtRef.current = 0;
-      hasMovedRef.current = false;
+      // The watchdog's idea of "has it played" restarts with the reload, and
+      // so does the snapshot gate.
+      w.reset(at, Date.now());
       lastPosRef.current = at;
       return;
     }
@@ -669,20 +661,10 @@ export function Night({
     // position kills it as stalled while the listener can hear it. A hung
     // enclosure never moves either way, so the hole this guard exists to close
     // stays closed.
-    const seenPos = media.currentTime();
-    // A small forward step is playback; a jump is a seek landing. The element
-    // reads 0 before metadata, overwriting the seeded start, and the start
-    // seek (skip-intro, a revived position) then jumped 0 → start and read as
-    // proof of sound, standing the watchdog down over a hung stream.
-    // See isPlaybackStep: movement the way playback moves, never a seek
-    // (the start seek landing included) or a stale reading.
-    const nowMs = Date.now();
-    if (isPlaybackStep(lastSeenPosRef.current, lastSeenAtRef.current, seenPos, nowMs, epStartSecRef.current)) {
-      hasMovedRef.current = true;
-    }
-    lastSeenPosRef.current = seenPos;
-    lastSeenAtRef.current = nowMs;
-    const witnessed: Transport = t === "playing" && !hasMovedRef.current ? "buffering" : t;
+    // One position read per tick, for the played decision and everything below.
+    const cur = media.currentTime();
+    const played = witnessRef.current.observe(cur, Date.now(), t === "playing");
+    const witnessed: Transport = t === "playing" && !played ? "buffering" : t;
     // From `witnessed`, not `t`: the raw value exists to be distrusted, and a
     // control reading "Pause" over an episode that has not made a sound yet is
     // the exact class of lie this file is built to avoid.
@@ -717,7 +699,6 @@ export function Night({
     }
     setShowStartPrompt(needsTap);
 
-    const cur = media.currentTime();
     const dur = media.duration();
     const epRemaining = dur > 0 ? dur - cur : null;
     const driver = fadeDriverSeconds(kind, remaining, epRemaining);
@@ -785,7 +766,7 @@ export function Night({
 
     // Not before this episode has made a sound: its position reads 0 until
     // then, and writing that over a revived night's snapshot lost the position.
-    if (++persistCounterRef.current >= 10 && hasMovedRef.current) {
+    if (++persistCounterRef.current >= 10 && witnessRef.current.played) {
       persistCounterRef.current = 0;
       persistLive();
       if (currentEpRef.current && dur > 0) {
@@ -1013,7 +994,7 @@ export function Night({
     // buffering. Not while it is already buffering: repeated taps on a hung
     // stream would then postpone the watchdog forever. And never once it has
     // played, or a slow 2am rebuffer after a mid-night resume would condemn it.
-    if (currentEpRef.current && !hasMovedRef.current && transport !== "buffering") {
+    if (currentEpRef.current && !witnessRef.current.played && transport !== "buffering") {
       watchRef.current = { id: currentEpRef.current.id, at: Date.now() };
     }
     media.play();

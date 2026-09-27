@@ -46,7 +46,7 @@ import { BrownNoise, noiseGain } from "../lib/noise";
 import { shouldTick } from "../lib/tick-gate";
 import { RestSession, revivedNightStart } from "../lib/rest/session";
 import { recordNightEnd } from "../lib/night-end";
-import { isPlaybackStep } from "../lib/witness";
+import { PlaybackWitness } from "../lib/witness";
 import type { RestNight } from "../lib/rest/types";
 import {
   YouTubeMedia,
@@ -178,15 +178,11 @@ export function YouTubeNight({
   // Whether anything has played at all this night. Autoplay refusals look
   // exactly like a dead video until you know the answer to this.
   const hasEverPlayedRef = useRef(false);
-  // Whether the CURRENT episode has reached PLAYING, and where it was asked to
-  // start. Until it plays, currentTime() is 0 (the player isn't ready or the
-  // seek hasn't landed), so snapshots and resume points wait for it, and a
-  // retry reloads at the intended start rather than at 0:00.
-  const epPlayedRef = useRef(false);
-  const epStartSecRef = useRef(0);
-  // The last position seen and when, for isPlaybackStep.
-  const lastSeenPosRef = useRef(0);
-  const lastSeenAtRef = useRef(0);
+  // Whether the CURRENT episode has actually played, and where it was asked
+  // to start (lib/witness.ts). Until it plays, its position can't be trusted
+  // (the player isn't ready or the seek hasn't landed), so snapshots and
+  // resume points wait for it, and a retry reloads at the intended start.
+  const witnessRef = useRef(new PlaybackWitness());
   // The prompt waits a beat before appearing. A player that is simply still
   // coming up also reads as "unstarted", and flashing "tap to begin" at
   // someone half a second before it starts on its own is worse than silence.
@@ -271,13 +267,10 @@ export function YouTubeNight({
           e.target.playVideo();
         },
         onStateChange: (e: { data: number }) => {
+          args.onStateChange?.(e.data); // YouTubeMedia's switch guard needs every one
           setTransport(transportFor(e.data));
           if (e.data === YT_STATE.PLAYING) {
-            watchRef.current = null;
-            failsRef.current = 0;
-            retriesRef.current = 0;
-            hasEverPlayedRef.current = true;
-            epPlayedRef.current = true;
+            markPlayed();
             // The clock starts here, not at mount. It is held frozen until
             // something actually plays, so a night that never got its tap does
             // not run its timer down over silence.
@@ -315,10 +308,7 @@ export function YouTubeNight({
     // A saved position is already past any intro, so it wins over skip-intro.
     const skipSec = (skipIntroRef.current[ep.feedId] ?? 0) * 60;
     const start = seekTo > 0 ? seekTo : skipSec;
-    epPlayedRef.current = false;
-    epStartSecRef.current = start;
-    lastSeenPosRef.current = start;
-    lastSeenAtRef.current = 0;
+    witnessRef.current.reset(start, Date.now());
     media.load(ep.youtubeId, start);
 
     watchRef.current = { id: ep.id, at: Date.now() };
@@ -382,15 +372,13 @@ export function YouTubeNight({
     const decision = decideAfterError(code, retriesRef.current);
     if (decision.action === "retry") {
       retriesRef.current++;
-      // Where it was, or where it was meant to start (a revived position, the
-      // skip-intro): reloading at 0 restarted a four-hour video mid-night.
-      const at = Math.max(epStartSecRef.current, mediaRef.current?.currentTime() ?? 0);
-      // Its position reads 0 again until the reload's seek lands, so the
-      // snapshot gate closes until it plays; the retry's start is the new start.
-      epPlayedRef.current = false;
-      epStartSecRef.current = at;
-      lastSeenPosRef.current = at;
-      lastSeenAtRef.current = 0;
+      // Where it was, if it ever played, else where it was meant to start (a
+      // revived position, the skip-intro): reloading at 0 restarted a
+      // four-hour video mid-night, and a position read before it played may
+      // not be its. The reload closes the snapshot gate until it plays again.
+      const w = witnessRef.current;
+      const at = w.played ? Math.max(w.startSec, mediaRef.current?.currentTime() ?? 0) : w.startSec;
+      w.reset(at, Date.now());
       mediaRef.current?.load(ep.youtubeId, at);
       watchRef.current = { id: ep.id, at: Date.now() };
       return;
@@ -449,7 +437,7 @@ export function YouTubeNight({
     if (!media || !ep || tickHandleRef.current === null) return;
     // Not before this episode has played: its position reads 0 until then,
     // and writing that over a revived night's snapshot lost the position.
-    if (!epPlayedRef.current) return;
+    if (!witnessRef.current.played) return;
     const remainingMs =
       endTimeRef.current === null
         ? 0
@@ -510,30 +498,18 @@ export function YouTubeNight({
     const ytState = media.state();
     const t = transportFor(ytState);
     // A missed PLAYING event must not leave the clock frozen over a video that
-    // is audibly playing (the tap no longer unfreezes it). But the raw state
-    // can't be trusted for that: right after a switch or a retry the iframe
-    // still reports the previous load's PLAYING and position. Movement can:
-    // see isPlaybackStep. Once seen, the same as onStateChange's PLAYING.
-    const seenPos = media.currentTime();
-    const seenAt = Date.now();
-    if (
-      t === "playing" &&
-      !epPlayedRef.current &&
-      isPlaybackStep(lastSeenPosRef.current, lastSeenAtRef.current, seenPos, seenAt, epStartSecRef.current)
-    ) {
-      watchRef.current = null;
-      failsRef.current = 0;
-      retriesRef.current = 0;
-      hasEverPlayedRef.current = true;
-      epPlayedRef.current = true;
-    }
-    lastSeenPosRef.current = seenPos;
-    lastSeenAtRef.current = seenAt;
-    if (t === "playing" && epPlayedRef.current) unfreezeClock();
-    // Shown as witnessed, not as reported: a leftover PLAYING over a video
-    // that hasn't started offered Pause, and a tap then paused the new video
-    // instead of starting it. Night stores its transport the same way.
-    setTransport(t === "playing" && !epPlayedRef.current ? "buffering" : t);
+    // is audibly playing (the tap no longer unfreezes it). Movement decides
+    // (lib/witness.ts); once seen, the same as onStateChange's PLAYING. One
+    // position read per tick, for this and everything below.
+    const cur = media.currentTime();
+    const wasPlayed = witnessRef.current.played;
+    const played = witnessRef.current.observe(cur, Date.now(), t === "playing");
+    if (played && !wasPlayed) markPlayed();
+    if (t === "playing" && played) unfreezeClock();
+    // Shown as witnessed, not as reported, as in Night: a "playing" over a
+    // video that hasn't made a sound offered Pause, and a tap then paused the
+    // new video instead of starting it.
+    setTransport(t === "playing" && !played ? "buffering" : t);
     // watchRef.at is when this episode was asked to play, and it is cleared
     // the moment it does — so this is exactly "how long it has refused for".
     const waitedMs = watchRef.current ? Date.now() - watchRef.current.at : 0;
@@ -547,7 +523,6 @@ export function YouTubeNight({
     }
     setShowStartPrompt(needsTap);
 
-    const cur = media.currentTime();
     const dur = media.duration();
     const epRemaining = dur > 0 ? dur - cur : null;
     const driver = fadeDriverSeconds(kind, remaining, epRemaining);
@@ -593,7 +568,7 @@ export function YouTubeNight({
     // Spent only when a snapshot can actually be written (the episode has
     // played), so a new episode's first one lands as soon as it plays, not
     // ten ticks after a count used up while it was still loading.
-    if (++persistCounterRef.current >= 10 && epPlayedRef.current) {
+    if (++persistCounterRef.current >= 10 && witnessRef.current.played) {
       persistCounterRef.current = 0;
       persistLive();
       if (currentEpRef.current && dur > 0) {
@@ -751,6 +726,16 @@ export function YouTubeNight({
   // One handler for "start it" and "resume it": both are a tap asking for
   // sound, and the browser treats this tap as the gesture that permits it.
   // Only a video that is genuinely playing gets paused.
+  /** This episode has played: stand the watchdog down and reset the failure
+   *  counts. One place for the PLAYING event and the tick's witness. */
+  function markPlayed() {
+    watchRef.current = null;
+    failsRef.current = 0;
+    retriesRef.current = 0;
+    hasEverPlayedRef.current = true;
+    witnessRef.current.markPlayed();
+  }
+
   function handleTogglePause() {
     restRef.current?.noteInteraction();
     const media = mediaRef.current;
@@ -770,7 +755,7 @@ export function YouTubeNight({
     // stream would then postpone the watchdog forever. And never once it has
     // played, or a slow 2am rebuffer after a mid-night resume would condemn it.
     const ep = currentEpRef.current;
-    if (ep && !epPlayedRef.current && transport !== "buffering") {
+    if (ep && !witnessRef.current.played && transport !== "buffering") {
       watchRef.current = { id: ep.id, at: Date.now() };
     }
     media.play();

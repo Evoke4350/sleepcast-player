@@ -7,7 +7,7 @@
 // "played" with this, so the rule can't drift between them.
 
 /**
- * Whether going from `prevPos` (seen at `prevAt`, 0 = no earlier look) to
+ * Whether going from `prevPos` (seen at `prevAt`) to
  * `pos` (at `now`) is playback rather than a seek or a stale reading:
  *
  *  - forward, and no faster than the wall clock (plus slack) — a seek jumps;
@@ -17,14 +17,59 @@
  *    start seek landing (from 0 before metadata, or from the previous video's
  *    leftover position), which with throttled ticks can fit under the cap.
  *
- * A leftover reading from the previous episode doesn't move, so it never
- * counts.
+ * `prevAt` must be a real time: PlaybackWitness seeds it with the load
+ * time, so the first look's allowance is the time since the load (a throttled
+ * first look a minute later still counts), not an assumed second.
  */
 export function isPlaybackStep(prevPos: number, prevAt: number, pos: number, now: number, startSec: number): boolean {
   const step = pos - prevPos;
   if (!(step > 0)) return false;
-  const wallSec = prevAt > 0 ? (now - prevAt) / 1000 : 1;
+  if (!(prevAt > 0)) return false;
+  const wallSec = (now - prevAt) / 1000;
   if (step > wallSec + 2) return false;
   const landsOnStart = startSec > 1 && Math.abs(pos - startSec) < 1.5 && Math.abs(prevPos - startSec) >= 1.5;
   return !landsOnStart;
+}
+
+/**
+ * The "has this episode played" state, kept with its rule. Reset on every
+ * load (a new episode, or a retry reloading one), fed each reading.
+ */
+export class PlaybackWitness {
+  private pos = 0;
+  private at = 0;
+  private start = 0;
+  private seen = false;
+
+  /** A new load asked to start at `startSec`, at `now`. */
+  reset(startSec: number, now: number): void {
+    this.pos = startSec;
+    this.at = now;
+    this.start = startSec;
+    this.seen = false;
+  }
+
+  /** Feed a reading. Only counts while the player says it is playing, so a
+   *  paused or unstarted reading can never open the gate. Returns whether
+   *  playback has been witnessed since the last reset. */
+  observe(pos: number, now: number, playing: boolean): boolean {
+    if (!this.seen && playing && isPlaybackStep(this.pos, this.at, pos, now, this.start)) this.seen = true;
+    this.pos = pos;
+    this.at = now;
+    return this.seen;
+  }
+
+  /** The player's own PLAYING event is proof enough. */
+  markPlayed(): void {
+    this.seen = true;
+  }
+
+  get played(): boolean {
+    return this.seen;
+  }
+
+  /** Where the current load was asked to start. */
+  get startSec(): number {
+    return this.start;
+  }
 }

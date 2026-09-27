@@ -53,6 +53,9 @@ export interface CreatePlayerArgs {
   onReady: () => void;
   onEnded: () => void;
   onError: (code: number) => void;
+  /** Every YT state change. The creator must forward these: they are how this
+   *  wrapper knows the iframe has started talking about a new load. */
+  onStateChange?: (state: number) => void;
 }
 
 export class YouTubeMedia implements MediaBackend {
@@ -69,6 +72,11 @@ export class YouTubeMedia implements MediaBackend {
   private progressSubs = new Set<() => void>();
   private endedSubs = new Set<() => void>();
   private errorSubs = new Set<(code: number | string) => void>();
+  /** Set by a switch (loadVideoById) until the player's next state change.
+   *  In between, the iframe still reports the PREVIOUS video's state, time and
+   *  duration; this reports the new load as unstarted at its start instead,
+   *  so no caller can mistake the old video's readings for the new one's. */
+  private switching: { start: number } | null = null;
 
   constructor(
     private readonly createPlayer: (args: CreatePlayerArgs) => YTPlayerLike,
@@ -84,6 +92,7 @@ export class YouTubeMedia implements MediaBackend {
   load(videoId: string, startSeconds = 0): void {
     if (this.dead) return;
     if (this.player) {
+      this.switching = { start: startSeconds };
       this.run((p) => p.loadVideoById(videoId, startSeconds));
       return;
     }
@@ -109,6 +118,9 @@ export class YouTubeMedia implements MediaBackend {
         this.handlers.onError?.(code);
         for (const s of this.errorSubs) s(code);
       },
+      onStateChange: () => {
+        this.switching = null;
+      },
     });
   }
 
@@ -132,11 +144,13 @@ export class YouTubeMedia implements MediaBackend {
   /** 0 before ready — the countdown reads this every tick and must not be
    *  handed NaN or an exception while the iframe is still coming up. */
   currentTime(): number {
+    if (this.switching) return this.switching.start;
     if (!this.ready || !this.player) return 0;
     return this.player.getCurrentTime() || 0;
   }
 
   duration(): number {
+    if (this.switching) return 0;
     if (!this.ready || !this.player) return 0;
     return this.player.getDuration() || 0;
   }
@@ -153,6 +167,7 @@ export class YouTubeMedia implements MediaBackend {
    * Unstarted before ready and after destroy, so a caller never has to guard.
    */
   state(): number {
+    if (this.switching) return -1;
     if (!this.ready || !this.player) return -1;
     return this.player.getPlayerState();
   }
