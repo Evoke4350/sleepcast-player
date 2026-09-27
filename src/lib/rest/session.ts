@@ -15,7 +15,7 @@ export class RestSession {
   private timeline: { t: number; feedId: string; episodeId: string }[] = [];
   private skipped = new Set<string>();
 
-  constructor(private startedAt: number, private timerMinutes: number) {
+  constructor(readonly startedAt: number, readonly timerMinutes: number) {
     const params = currentParams(loadParams(), loadNights());
     this.detector = new SleepDetector(params);
   }

@@ -574,6 +574,8 @@ export function Night({
     if (endTimeRef.current !== null && remainingMs <= 0) return;
     saveLive({
       savedAt: Date.now(),
+      nightStartedAt: restRef.current?.startedAt,
+      timerMinutes: restRef.current?.timerMinutes,
       remainingMs,
       totalSeconds: totalSecondsRef.current,
       position: media.currentTime(),

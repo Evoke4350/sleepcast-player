@@ -395,6 +395,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     if (endTimeRef.current !== null && remainingMs <= 0) return;
     saveLive({
       savedAt: Date.now(),
+      nightStartedAt: restRef.current?.startedAt,
+      timerMinutes: restRef.current?.timerMinutes,
       remainingMs,
       totalSeconds: totalSecondsRef.current,
       position: Number.isFinite(audio.currentTime) ? audio.currentTime : 0,
