@@ -68,7 +68,6 @@ import { preferVideoLead } from "../lib/mixed-night";
 import {
   nextPlayable,
   decideAfterError,
-  transportFor,
   shouldGiveUp,
   YT_STATE,
 } from "../lib/youtube-night";
@@ -334,23 +333,23 @@ export function Night({
           // that is actually playing. Once both refs are null the player is
           // gone, and "equal" must not read as "still live".
           if (ytRef.current === null || liveRef.current !== ytRef.current) return;
-          // As YouTubeMedia.eventState says: the event's own state, except
-          // during a switch, when it may be the previous video's (a PLAYING
-          // that would mark the new one played, an ENDED that would skip it).
-          const s = ytRef.current.eventState(e.data);
-          setTransport(transportFor(s));
-          if (s === YT_STATE.PLAYING) {
-            witnessRef.current.markPlayed();
-            markPlayed();
-            // The clock starts here, not at mount. It is held frozen until
-            // something actually plays, so a night that never got its tap does
-            // not run its timer down over silence.
-            unfreezeClock();
-          } else if (s === YT_STATE.PAUSED) {
-            freezeClock();
-          } else if (s === YT_STATE.ENDED) {
-            args.onEnded();
-          }
+          // Routed as YouTubeMedia reads it (routeStateEvent / eventState): the
+          // event's own state, except during a switch, when it may be the
+          // previous video's (a PLAYING that would mark the new one played,
+          // an ENDED that would skip it).
+          ytRef.current.routeStateEvent(e.data, {
+            transport: setTransport,
+            playing: () => {
+              witnessRef.current.markPlayed();
+              markPlayed();
+              // The clock starts here, not at mount. It is held frozen until
+              // something actually plays, so a night that never got its tap
+              // does not run its timer down over silence.
+              unfreezeClock();
+            },
+            paused: freezeClock,
+            ended: args.onEnded,
+          });
         },
         onError: (e: { data: number }) => args.onError(e.data),
       },

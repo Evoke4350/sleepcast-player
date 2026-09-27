@@ -13,12 +13,13 @@ function fakePlayer(opts: { reportsId?: boolean } = {}) {
   // The id the player says it has loaded. Deliberately NOT updated by
   // loadVideoById: the real iframe catches up later, which is the point.
   let shownId = "";
+  let time = 42.5;
   const player: YTPlayerLike = {
     getPlayerState: () => state,
     playVideo: () => void calls.push("play"),
     pauseVideo: () => void calls.push("pause"),
     setVolume: (n) => void calls.push(`volume:${n}`),
-    getCurrentTime: () => 42.5,
+    getCurrentTime: () => time,
     getDuration: () => 7200,
     loadVideoById: (id, start) => void calls.push(`load:${id}@${start ?? 0}`),
     destroy: () => void calls.push("destroy"),
@@ -40,6 +41,7 @@ function fakePlayer(opts: { reportsId?: boolean } = {}) {
     error: (code: number) => args!.onError(code),
     stateChange: (s: number) => { state = s; args!.onStateChange(s); },
     showVideo: (id: string) => { shownId = id; },
+    setTime: (t: number) => { time = t; },
   };
 }
 
@@ -545,7 +547,8 @@ describe("YouTubeMedia switch guard with a player that reports its video", () =>
     expect(media.state()).toBe(-1);
     expect(media.currentTime()).toBe(120);
     f.showVideo("B");
-    expect(media.state()).toBe(1);
+    f.setState(3); // B, freshly loading
+    expect(media.state()).toBe(3);
   });
 
   test("a load that never announces itself is released as soon as the player shows it", () => {
@@ -557,6 +560,7 @@ describe("YouTubeMedia switch guard with a player that reports its video", () =>
     media.load("B");
     f.showVideo("B"); // no -1 or 5 event at all
     f.setState(1);
+    f.setTime(0.5); // playing from its start
     expect(media.state()).toBe(1);
   });
 });
@@ -604,5 +608,95 @@ describe("YouTubeMedia guard timing", () => {
       expect(media.state()).toBe(-1);
       expect(media.currentTime()).toBe(60);
     } finally { vi.useRealTimers(); }
+  });
+});
+
+describe("YouTubeMedia switch guard: same id, errors, bounds", () => {
+  // Requesting the video the player already shows (A → B → A quickly, or a
+  // retry of the same video) matched the id at once, before the player had
+  // restarted anything, and let the in-between video's events through.
+  test("a same-id switch holds until the player shows a fresh load", () => {
+    const f = fakePlayer({ reportsId: true });
+    const media = new YouTubeMedia(f.create);
+    media.load("A");
+    f.ready();
+    f.showVideo("A");
+    f.setState(1);
+    f.setTime(500);
+    media.load("A", 30);
+    expect(media.eventState(1)).toBe(-1); // still A's old playback
+    f.setState(3); // the reload is buffering
+    expect(media.state()).toBe(3);
+  });
+
+  test("a same-id switch also releases once the position is at the requested start", () => {
+    const f = fakePlayer({ reportsId: true });
+    const media = new YouTubeMedia(f.create);
+    media.load("A");
+    f.ready();
+    f.showVideo("A");
+    f.setState(1);
+    f.setTime(500);
+    media.load("A", 30);
+    f.setTime(31);
+    expect(media.state()).toBe(1);
+  });
+
+  // A late error for the previous video, delivered during the switch, was
+  // passed on while the new episode was current: a 150 then blocked a working
+  // video forever.
+  test("errors during a switch are dropped", () => {
+    const f = fakePlayer({ reportsId: true });
+    const errs: Array<number | string> = [];
+    const media = new YouTubeMedia(f.create, { onError: (c) => errs.push(c) });
+    media.onError((c) => errs.push(`sub:${c}`));
+    media.load("A");
+    f.ready();
+    f.showVideo("A");
+    media.load("B");
+    f.error(150);
+    expect(errs).toEqual([]);
+    f.showVideo("B");
+    f.setState(-1);
+    f.error(101);
+    expect(errs).toEqual([101, "sub:101"]);
+  });
+
+  // With the id check the guard had no upper bound: a load dropped without an
+  // error left the player on the old id, and everything read unstarted forever.
+  test("the guard is bounded even when the player reports ids", () => {
+    vi.useFakeTimers();
+    try {
+      const f = fakePlayer({ reportsId: true });
+      const media = new YouTubeMedia(f.create);
+      media.load("A");
+      f.ready();
+      f.showVideo("A");
+      f.setState(1);
+      media.load("B");
+      expect(media.state()).toBe(-1);
+      vi.advanceTimersByTime(SWITCH_GUARD_MAX_MS + 1);
+      expect(media.state()).toBe(1);
+    } finally { vi.useRealTimers(); }
+  });
+
+  test("routeStateEvent sends each state to its handler, filtered by the guard", () => {
+    const f = fakePlayer({ reportsId: true });
+    const media = new YouTubeMedia(f.create);
+    const seen: string[] = [];
+    const h = {
+      transport: (t: string) => seen.push(`t:${t}`),
+      playing: () => seen.push("playing"),
+      paused: () => seen.push("paused"),
+      ended: () => seen.push("ended"),
+    };
+    media.load("A");
+    f.ready();
+    f.showVideo("A");
+    media.routeStateEvent(1, h);
+    media.routeStateEvent(2, h);
+    media.load("B");
+    media.routeStateEvent(0, h); // A's stale ENDED
+    expect(seen).toEqual(["t:playing", "playing", "t:paused", "paused", "t:awaiting-start"]);
   });
 });

@@ -30,7 +30,7 @@
 // still owns one of these all night and reads state() directly.
 
 import type { MediaBackend, Transport } from "./media/backend";
-import { transportFor } from "./youtube-night";
+import { transportFor, YT_STATE, type Transport as YTTransport } from "./youtube-night";
 
 /** The slice of YT.Player this uses. */
 export interface YTPlayerLike {
@@ -56,18 +56,15 @@ export interface CreatePlayerArgs {
   onReady: () => void;
   onEnded: () => void;
   onError: (code: number) => void;
-  /** Every YT state change. The creator must forward these: they are how this
-   *  wrapper knows the iframe has started talking about a new load. */
+  /** Every YT state change. The creator must forward these. They end a switch
+   *  only for a player that can't report its video (see inSwitch); otherwise
+   *  the video id and the player's own state decide. */
   onStateChange: (state: number) => void;
 }
 
-/** Longest a switch is reported as unstarted when the player can't say which
- *  video it has (the fallback in inSwitch). */
+/** Longest a switch is held unconfirmed, whatever the player reports: a load
+ *  dropped without an error would otherwise read as unstarted for good. */
 export const SWITCH_GUARD_MAX_MS = 10_000;
-
-/** A clock that doesn't jump when the wall clock is corrected. */
-const monotonicNow = (): number =>
-  typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now();
 
 export class YouTubeMedia implements MediaBackend {
   private player: YTPlayerLike | null = null;
@@ -108,7 +105,7 @@ export class YouTubeMedia implements MediaBackend {
       // it could otherwise expire, or be cleared by the first video's own
       // startup, before the switch even began.
       this.run((p) => {
-        this.switching = { id: videoId, start: startSeconds, since: monotonicNow() };
+        this.switching = { id: videoId, start: startSeconds, since: Date.now() };
         p.loadVideoById(videoId, startSeconds);
       });
       return;
@@ -132,6 +129,11 @@ export class YouTubeMedia implements MediaBackend {
         for (const s of this.endedSubs) s();
       },
       onError: (code) => {
+        // During a switch an error may be the previous video's, delivered
+        // late; passed on, it would condemn (even permanently block) the new
+        // episode. Dropped: a real failure of the new video still surfaces
+        // through the caller's watchdog.
+        if (this.inSwitch()) return;
         this.handlers.onError?.(code);
         for (const s of this.errorSubs) s(code);
       },
@@ -266,6 +268,20 @@ export class YouTubeMedia implements MediaBackend {
     return this.inSwitch() ? -1 : raw;
   }
 
+  /** Route one state event to the caller's handlers, as eventState reads it.
+   *  Night and YouTubeNight carried copies of this dispatch, edited in
+   *  lockstep and already drifting. */
+  routeStateEvent(
+    raw: number,
+    h: { transport(t: YTTransport): void; playing(): void; paused(): void; ended(): void },
+  ): void {
+    const state = this.eventState(raw);
+    h.transport(transportFor(state));
+    if (state === YT_STATE.PLAYING) h.playing();
+    else if (state === YT_STATE.PAUSED) h.paused();
+    else if (state === YT_STATE.ENDED) h.ended();
+  }
+
   /** The video id the player reports, or null if it can't report one. */
   private shownVideoId(): string | null {
     if (!this.ready || !this.player?.getVideoData) return null;
@@ -276,26 +292,44 @@ export class YouTubeMedia implements MediaBackend {
     }
   }
 
-  /** Whether a switch is still unconfirmed. Settled by asking the player
-   *  which video it has. A player that can't say falls back to its events
-   *  (see onStateChange) and gives up after SWITCH_GUARD_MAX_MS, since with
-   *  events lost it would report an audible video as unstarted for good.
-   *  Past that point in the fallback, stale readings can reach callers;
-   *  the players' witness still requires movement, but a stale PLAYING
-   *  event would be believed. */
+  /** Whether a switch is still unconfirmed.
+   *
+   *  Settled by the player showing the requested video AND a fresh load of it
+   *  (unstarted, buffering or cued, or a position at the requested start).
+   *  The id alone isn't enough: requesting the video already showing (a quick
+   *  A → B → A, a retry) matched before anything had restarted.
+   *
+   *  A player that can't report its video falls back to its events (see
+   *  onStateChange). Either way the guard gives up after SWITCH_GUARD_MAX_MS,
+   *  wall-clock (which keeps counting while a phone sleeps), or if the clock
+   *  jumps backwards. Past that point stale readings can reach callers; the
+   *  players' witness still requires movement, but a stale PLAYING event
+   *  would be believed. */
   private inSwitch(): boolean {
-    if (!this.switching) return false;
+    const sw = this.switching;
+    if (!sw) return false;
+    const elapsed = Date.now() - sw.since;
+    if (elapsed < 0 || elapsed > SWITCH_GUARD_MAX_MS) {
+      this.switching = null;
+      return false;
+    }
     const shown = this.shownVideoId();
-    if (shown !== null) {
-      if (shown !== this.switching.id) return true;
-      this.switching = null;
+    if (shown === null) return true; // fallback: the events decide
+    if (shown !== sw.id || !this.showsFreshLoad(sw.start)) return true;
+    this.switching = null;
+    return false;
+  }
+
+  /** The player is at the start of a load rather than mid-way through an
+   *  earlier one. */
+  private showsFreshLoad(start: number): boolean {
+    try {
+      const raw = this.player!.getPlayerState();
+      if (raw === YT_STATE.UNSTARTED || raw === YT_STATE.BUFFERING || raw === YT_STATE.CUED) return true;
+      return Math.abs((this.player!.getCurrentTime() || 0) - start) < 3;
+    } catch {
       return false;
     }
-    if (monotonicNow() - this.switching.since > SWITCH_GUARD_MAX_MS) {
-      this.switching = null;
-      return false;
-    }
-    return true;
   }
 
   private run(command: (p: YTPlayerLike) => void): void {

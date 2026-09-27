@@ -60,7 +60,6 @@ import {
   decideAfterError,
   transportFor,
   shouldGiveUp,
-  YT_STATE,
   type Transport,
 } from "../lib/youtube-night";
 import { classifyYouTubeError } from "../lib/youtube-errors";
@@ -271,23 +270,23 @@ export function YouTubeNight({
           // A late event after the night ended (media torn down) is ignored,
           // as in Night: acting on it could forget the episode's position.
           if (!mediaRef.current) return;
-          // As YouTubeMedia.eventState says: the event's own state, except
-          // during a switch, when it may be the previous video's (a PLAYING
-          // that would mark the new one played, an ENDED that would skip it).
-          const s = mediaRef.current.eventState(e.data);
-          setTransport(transportFor(s));
-          if (s === YT_STATE.PLAYING) {
-            witnessRef.current.markPlayed();
-            markPlayed();
-            // The clock starts here, not at mount. It is held frozen until
-            // something actually plays, so a night that never got its tap does
-            // not run its timer down over silence.
-            unfreezeClock();
-          } else if (s === YT_STATE.PAUSED) {
-            freezeClock();
-          } else if (s === YT_STATE.ENDED) {
-            args.onEnded();
-          }
+          // Routed as YouTubeMedia reads it (routeStateEvent / eventState): the
+          // event's own state, except during a switch, when it may be the
+          // previous video's (a PLAYING that would mark the new one played,
+          // an ENDED that would skip it).
+          mediaRef.current.routeStateEvent(e.data, {
+            transport: setTransport,
+            playing: () => {
+              witnessRef.current.markPlayed();
+              markPlayed();
+              // The clock starts here, not at mount. It is held frozen until
+              // something actually plays, so a night that never got its tap
+              // does not run its timer down over silence.
+              unfreezeClock();
+            },
+            paused: freezeClock,
+            ended: args.onEnded,
+          });
         },
         onError: (e: { data: number }) => args.onError(e.data),
       },
@@ -514,6 +513,10 @@ export function YouTubeNight({
     const played = witnessRef.current.observe(cur, Date.now(), t === "playing");
     if (played && !wasPlayed) markPlayed();
     if (t === "playing" && played) unfreezeClock();
+    // And the other way, as Night's tick does: a PAUSED event that arrived
+    // during a switch reads unstarted and is dropped, so the clock would
+    // otherwise run on over a paused video.
+    else if (t === "paused") freezeClock();
     // Shown as witnessed, not as reported, as in Night: a "playing" over a
     // video that hasn't made a sound offered Pause, and a tap then paused the
     // new video instead of starting it.
