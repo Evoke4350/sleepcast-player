@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
-import { decideAfterEnded, type EndedInput } from "./episode-end";
+import { decideAfterEnded, shouldPlayWhole, type EndedInput } from "./episode-end";
+import { PlaybackWitness } from "./witness";
 
 const base: EndedInput = { stopping: false, active: true, playedThisEpisode: true, replayedFromStart: false, mode: "minutes" };
 
@@ -32,5 +33,42 @@ describe("decideAfterEnded", () => {
 
   test("the unheard rule applies in one-episode mode too, before ending the night", () => {
     expect(decideAfterEnded({ ...base, mode: "one-episode", playedThisEpisode: false })).toEqual({ action: "replay-from-start" });
+  });
+});
+
+describe("shouldPlayWhole", () => {
+  const started = (start: number, heardBefore = false) => {
+    const w = new PlaybackWitness();
+    w.newEpisode(start, 1_000, heardBefore);
+    return w;
+  };
+
+  test("a start within 30 s of the end plays the episode whole", () => {
+    expect(shouldPlayWhole(started(600), 620)).toBe(true);
+  });
+
+  // The duration usually arrives after the load's first second has counted.
+  test("still true once this load's own playback has been heard", () => {
+    const w = started(600);
+    w.observe(601, 2_000, true);
+    expect(w.heard).toBe(true);
+    expect(shouldPlayWhole(w, 620)).toBe(true);
+  });
+
+  test("not for an episode heard before this load (revived, or retried near its end)", () => {
+    expect(shouldPlayWhole(started(600, true), 620)).toBe(false);
+    const w = started(0);
+    w.observe(1, 2_000, true);
+    w.reset(3590, 3_000);
+    expect(shouldPlayWhole(w, 3600)).toBe(false);
+  });
+
+  test("not twice, not from 0, not without a duration, not far from the end", () => {
+    const w = started(600);
+    w.markReplayed();
+    expect(shouldPlayWhole(w, 620)).toBe(false);
+    expect(shouldPlayWhole(started(0), 20)).toBe(false);
+    expect(shouldPlayWhole(started(600), 0)).toBe(false);
+    expect(shouldPlayWhole(started(60), 3600)).toBe(false);
   });
 });

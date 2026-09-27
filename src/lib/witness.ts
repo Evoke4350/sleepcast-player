@@ -45,14 +45,18 @@ export class PlaybackWitness {
   // See decideAfterEnded.
   private heardEp = false;
   private replayedEp = false;
+  // Whether it had been heard when the current load began. Rules that must
+  // decide before this load's own first second counts (see shouldPlayWhole)
+  // read this rather than the live `heard`.
+  private heardAtLoad = false;
 
   /** A new episode, loaded to start at `startSec`. `heardBefore`: it was
    *  already being listened to (a revived night, a saved position), so an
    *  early end is a finish, not a failure. */
   newEpisode(startSec: number, now: number, heardBefore = false): void {
-    this.reset(startSec, now);
     this.heardEp = heardBefore;
     this.replayedEp = false;
+    this.reset(startSec, now);
   }
 
   /** A reload of the same episode (a retry, a replay) at `startSec`. Only
@@ -62,6 +66,7 @@ export class PlaybackWitness {
     this.at = now;
     this.start = startSec;
     this.seen = false;
+    this.heardAtLoad = this.heardEp;
   }
 
   /** Feed a reading. Only counts while the player says it is playing, so a
@@ -97,6 +102,11 @@ export class PlaybackWitness {
 
   get replayed(): boolean {
     return this.replayedEp;
+  }
+
+  /** Heard before the current load began. */
+  get heardBeforeLoad(): boolean {
+    return this.heardAtLoad;
   }
 
   /** Where the current load was asked to start. */

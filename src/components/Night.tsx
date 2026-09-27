@@ -54,7 +54,7 @@ import { shouldTick } from "../lib/tick-gate";
 import { RestSession, revivedNightStart } from "../lib/rest/session";
 import { recordNightEnd } from "../lib/night-end";
 import { PlaybackWitness } from "../lib/witness";
-import { decideAfterEnded } from "../lib/episode-end";
+import { decideAfterEnded, shouldPlayWhole } from "../lib/episode-end";
 import type { RestNight } from "../lib/rest/types";
 import { YouTubeMedia } from "../lib/youtube-media";
 import { buildYouTubePlayer } from "../lib/youtube-embed";
@@ -422,7 +422,10 @@ export function Night({
         endSession(decision.reason);
         return;
       case "skip-dead":
-        if (!done) return;
+        if (!done) {
+          playNext(); // nothing to retire; don't leave the night silent
+          return;
+        }
         forgetPosition(done.id);
         skipDead(done, "that one ended before it played", false);
         return;
@@ -661,15 +664,12 @@ export function Night({
     setShowStartPrompt(needsTap);
 
     const dur = media.duration();
-    // Started within 30 s of its end (a skip-intro longer than the episode,
-    // nearly), and not yet heard: play it whole, as Player.tsx does, rather
-    // than let the listener catch only its last seconds.
-    {
-      const w = witnessRef.current;
-      if (!w.heard && !w.replayed && w.startSec > 0 && dur > 0 && w.startSec >= dur - 30) {
-        replayFromStart();
-        return;
-      }
+    // Started within 30 s of its end (a skip-intro nearly as long as the
+    // episode): play it whole, as Player.tsx does, rather than let the
+    // listener catch only its last seconds. See shouldPlayWhole.
+    if (shouldPlayWhole(witnessRef.current, dur)) {
+      replayFromStart();
+      return;
     }
     const epRemaining = dur > 0 ? dur - cur : null;
     const driver = fadeDriverSeconds(kind, remaining, epRemaining);
@@ -970,22 +970,23 @@ export function Night({
    *  its end by a skip-intro (see decideAfterEnded). Once per episode. */
   function replayFromStart() {
     const ep = currentEpRef.current;
-    if (!ep) return;
+    // Counted as the episode's one replay only if it actually reloaded.
+    if (!ep || !reloadAt(ep, 0)) return;
     witnessRef.current.markReplayed();
     retriesRef.current = 0; // a fresh attempt, not the failed load's leftovers
-    reloadAt(ep, 0);
   }
 
   /** Reload the current episode at `at`: a retry, or a replay. The per-load
    *  witness, heard-time baseline and watchdog start over; per-episode state
    *  (heard, replayed) is kept. */
-  function reloadAt(ep: Episode, at: number) {
+  function reloadAt(ep: Episode, at: number): boolean {
     const media = liveRef.current;
-    if (!media) return;
+    if (!media) return false;
     witnessRef.current.reset(at, Date.now());
     lastPosRef.current = at;
     media.load(ep.youtubeId ?? ep.url, at);
     watchRef.current = { id: ep.id, at: Date.now() };
+    return true;
   }
 
   // One handler for "start it" and "resume it": both are a tap asking for

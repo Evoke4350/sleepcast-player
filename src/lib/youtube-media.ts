@@ -381,12 +381,18 @@ export class YouTubeMedia implements MediaBackend {
   }
 
   private releaseSwitch(): void {
+    const id = this.switching?.id ?? null;
     this.switching = null;
     if (!this.endedInSwitch) return;
     this.endedInSwitch = false;
     // Not from inside a getter: let the caller's reading finish first.
     queueMicrotask(() => {
-      if (this.dead || this.switching) return;
+      if (this.dead || this.switching || id === null) return;
+      // Only for the requested video, as the player reports it. A timeout on
+      // a load that never arrived leaves the PREVIOUS video showing, ended;
+      // and a player that can't report its video (the fallback) may still
+      // hold the old ENDED in its cached state. Both are left to the watchdog.
+      if (this.shownVideoId() !== id) return;
       let raw = -1;
       try { raw = this.player?.getPlayerState() ?? -1; } catch { /* keep -1 */ }
       if (raw === YT_STATE.ENDED) this.fireEnded();

@@ -943,8 +943,9 @@ describe("YouTubeMedia: an ENDED swallowed during a switch", () => {
       f.showVideo("A");
       f.setState(1);
       f.setTime(500);
-      media.load("B"); // the player never reports B (lagging id)
-      f.ended(); // B played and ended inside the hold
+      media.load("B");
+      f.showVideo("B");
+      f.ended(); // B played and ended inside the hold (ENDED never confirms)
       expect(ended).toBe(0);
       vi.advanceTimersByTime(SWITCH_GUARD_MAX_MS + 1);
       media.state(); // the next tick lets go of the guard
@@ -965,6 +966,7 @@ describe("YouTubeMedia: an ENDED swallowed during a switch", () => {
       f.setState(1);
       f.setTime(500);
       media.load("B");
+      f.showVideo("B");
       f.ended();
       f.setState(1); // playing again
       vi.advanceTimersByTime(SWITCH_GUARD_MAX_MS + 1);
@@ -972,5 +974,48 @@ describe("YouTubeMedia: an ENDED swallowed during a switch", () => {
       await Promise.resolve();
       expect(ended).toBe(0);
     } finally { vi.useRealTimers(); }
+  });
+});
+
+describe("YouTubeMedia: a swallowed ENDED is only re-fired for the requested video", () => {
+  // Released by the timeout on a load that never arrived, the player still
+  // shows the PREVIOUS video, ended: re-firing charged its ENDED to the new
+  // episode.
+  test("not when the player still shows the previous video", async () => {
+    vi.useFakeTimers();
+    try {
+      const f = fakePlayer({ reportsId: true });
+      let ended = 0;
+      const media = new YouTubeMedia(f.create, { onEnded: () => ended++ });
+      media.load("A");
+      f.ready();
+      f.showVideo("A");
+      f.setState(1);
+      f.setTime(500);
+      media.load("B"); // dropped: the player stays on A
+      f.ended(); // A's own ENDED
+      vi.advanceTimersByTime(SWITCH_GUARD_MAX_MS + 1);
+      media.state();
+      await Promise.resolve();
+      expect(ended).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
+
+  // A player that can't report its video releases on the new load's event,
+  // while its cached state may still be the old ENDED: never re-fired there.
+  test("not on the fallback path", async () => {
+    const f = fakePlayer();
+    let ended = 0;
+    const media = new YouTubeMedia(f.create, { onEnded: () => ended++ });
+    media.load("A");
+    f.ready();
+    media.load("B");
+    f.ended(); // swallowed
+    f.setState(0);
+    media.state();
+    f.stateChange(-1); // the new load announces itself; cached state lags
+    f.setState(0);
+    await Promise.resolve();
+    expect(ended).toBe(0);
   });
 });
