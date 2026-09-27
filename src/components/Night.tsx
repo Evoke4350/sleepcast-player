@@ -199,6 +199,10 @@ export function Night({
   // silently fail to land.
   const lastSeenPosRef = useRef(0);
   const hasMovedRef = useRef(false);
+  // The level last given to the live backend (fade × trim, or the courtesy
+  // fade). A backend that becomes live is set to it at once, rather than
+  // playing at whatever it was last given, possibly hours ago, until a tick.
+  const levelRef = useRef<number | null>(null);
   const heardSavedAtRef = useRef(-1e9);
   const epStartedAtRef = useRef(0);
   const persistCounterRef = useRef(0);
@@ -291,7 +295,9 @@ export function Night({
       width: "100%",
       height: "100%",
       playerVars: {
-        autoplay: 1,
+        // Off: onReady starts the video only if it is still the live backend.
+        // Autoplay could start it hidden under a podcast after a Next.
+        autoplay: 0,
         playsinline: 1,
         // No chrome to catch a sleepy thumb, no related-video grid at the end,
         // no keyboard, no annotations. The transport below is the transport.
@@ -375,6 +381,7 @@ export function Night({
     // night that has already moved on to a video.
     for (const off of offRef.current.splice(0)) off();
     if (liveRef.current && liveRef.current !== next) liveRef.current.pause();
+    if (levelRef.current !== null && liveRef.current !== next) next.setVolume(levelRef.current);
     liveRef.current = next;
 
     offRef.current.push(
@@ -648,7 +655,12 @@ export function Night({
     // enclosure never moves either way, so the hole this guard exists to close
     // stays closed.
     const seenPos = media.currentTime();
-    if (seenPos > lastSeenPosRef.current) hasMovedRef.current = true;
+    // A small forward step is playback; a jump is a seek landing. The element
+    // reads 0 before metadata, overwriting the seeded start, and the start
+    // seek (skip-intro, a revived position) then jumped 0 → start and read as
+    // proof of sound, standing the watchdog down over a hung stream.
+    const step = seenPos - lastSeenPosRef.current;
+    if (step > 0 && step < 5) hasMovedRef.current = true;
     lastSeenPosRef.current = seenPos;
     const witnessed: Transport = t === "playing" && !hasMovedRef.current ? "buffering" : t;
     // From `witnessed`, not `t`: the raw value exists to be distrusted, and a
@@ -698,7 +710,8 @@ export function Night({
     if (stopFadeRef.current === null) {
       // With no fade underway (driver Infinity) this is the feed's trim alone.
       // A hard 1 played turned-down feeds at full volume in all-night mode.
-      media.setVolume(effectiveVolume(driver, FADE_SECONDS, feedTrimRef.current[currentFeedRef.current ?? ""] ?? 1.0));
+      levelRef.current = effectiveVolume(driver, FADE_SECONDS, feedTrimRef.current[currentFeedRef.current ?? ""] ?? 1.0);
+      media.setVolume(levelRef.current);
       // Silent while nothing plays: left at full level, the noise ran on under
       // a pause with the clock frozen, so no fade would ever reach it.
       const silent = media.transport() === "paused" || media.transport() === "awaiting-start";
@@ -745,9 +758,14 @@ export function Night({
       // pool shrinks with each failure and playNext ends the night the moment
       // nothing playable is left.
       playNext();
+      // cur/dur below belong to the episode just killed, while currentEpRef is
+      // now the next one: saving them would give it the killed one's position.
+      return;
     }
 
-    if (++persistCounterRef.current >= 10) {
+    // Not before this episode has made a sound: its position reads 0 until
+    // then, and writing that over a revived night's snapshot lost the position.
+    if (hasMovedRef.current && ++persistCounterRef.current >= 10) {
       persistCounterRef.current = 0;
       persistLive();
       if (currentEpRef.current && dur > 0) {
@@ -962,7 +980,11 @@ export function Night({
       media.pause();
       return;
     }
-    unfreezeClock();
+    // The clock starts when sound is witnessed (the tick, or the embed's
+    // PLAYING), not on the tap: a tap during buffering, or on a stream that
+    // then hangs, ran the night down over silence. And the watchdog is armed
+    // again, since a refused autoplay had stood it down.
+    if (currentEpRef.current) watchRef.current = { id: currentEpRef.current.id, at: Date.now() };
     media.play();
   }
 
@@ -1031,7 +1053,8 @@ export function Night({
           return;
         }
         const trim = feedTrimRef.current[currentFeedRef.current ?? ""] ?? 1.0;
-        liveRef.current.setVolume(effectiveVolume(left / 1000, 5, trim));
+        levelRef.current = effectiveVolume(left / 1000, 5, trim);
+        liveRef.current.setVolume(levelRef.current);
         brownRef.current?.setGain(noiseGain(noise.on ? noise.level : 0, left / 1000, 5));
       }, 100);
     }, 80);
