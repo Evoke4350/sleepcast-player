@@ -1,5 +1,6 @@
-import { describe, it, expect } from "vitest";
-import { paramsFromHistory, tightenAfterFalsePositive } from "./calibrate";
+import { describe, it, expect, beforeEach } from "vitest";
+import { paramsFromHistory, tightenAfterFalsePositive, currentParams, recordFalsePositive } from "./calibrate";
+import { loadParams, loadNights } from "./ledger";
 import { DEFAULT_PARAMS } from "./detector";
 import type { RestNight } from "./types";
 
@@ -31,5 +32,42 @@ describe("tightenAfterFalsePositive", () => {
     let p = DEFAULT_PARAMS;
     for (let i = 0; i < 50; i++) p = tightenAfterFalsePositive(p);
     expect(p.alpha).toBeGreaterThanOrEqual(0.001);
+  });
+});
+
+describe("recording a false positive", () => {
+  beforeEach(() => localStorage.clear());
+
+  // "I was awake" after a night the detector called slept is meant to tighten
+  // the detector. Both call sites did `const p = loadParams(); if (p) save…`,
+  // and nothing else ever saves params, so p was always null and the
+  // tightening was silently dropped for every listener.
+  it("tightens the detector even when no params were ever saved", () => {
+    expect(loadParams()).toBeNull();
+    recordFalsePositive();
+    expect(loadParams()?.alpha).toBe(DEFAULT_PARAMS.alpha / 2);
+  });
+
+  it("keeps tightening on each confirmed false positive", () => {
+    recordFalsePositive();
+    recordFalsePositive();
+    expect(loadParams()?.alpha).toBe(DEFAULT_PARAMS.alpha / 4);
+  });
+
+  it("the tightening reaches the params a new night's detector uses", () => {
+    recordFalsePositive();
+    expect(currentParams(loadParams(), loadNights()).alpha).toBe(DEFAULT_PARAMS.alpha / 2);
+  });
+
+  // Saving full params must not freeze lambdaAwake: it should keep being
+  // re-estimated from history; only alpha is carried from the saved copy.
+  it("keeps re-estimating lambdaAwake from history after a save", () => {
+    recordFalsePositive();
+    const busy = Array.from({ length: 3 }, (_, i) => ({
+      startedAt: i, timerMinutes: 45, endedVia: "faded" as const,
+      sleptAtMs: 600_000, timeToSleepMs: 600_000, interactions: 12, detector: "inference" as const,
+    }));
+    expect(currentParams(loadParams(), busy).lambdaAwake).toBe(paramsFromHistory(busy).lambdaAwake);
+    expect(paramsFromHistory(busy).lambdaAwake).not.toBe(DEFAULT_PARAMS.lambdaAwake);
   });
 });
