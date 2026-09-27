@@ -334,12 +334,10 @@ export function Night({
           // that is actually playing. Once both refs are null the player is
           // gone, and "equal" must not read as "still live".
           if (ytRef.current === null || liveRef.current !== ytRef.current) return;
-          // Acted on as the wrapper now reports it, not as the event says: an
-          // event already in flight for the previous video (its PLAYING, or
-          // its ENDED, which would skip the new one) arrives during a switch,
-          // and YouTubeMedia reports unstarted until the new load announces
-          // itself.
-          const s = ytRef.current.state();
+          // As YouTubeMedia.eventState says: the event's own state, except
+          // during a switch, when it may be the previous video's (a PLAYING
+          // that would mark the new one played, an ENDED that would skip it).
+          const s = ytRef.current.eventState(e.data);
           setTransport(transportFor(s));
           if (s === YT_STATE.PLAYING) {
             witnessRef.current.markPlayed();

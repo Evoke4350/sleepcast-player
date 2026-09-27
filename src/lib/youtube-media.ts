@@ -43,6 +43,9 @@ export interface YTPlayerLike {
   getCurrentTime(): number;
   getDuration(): number;
   loadVideoById(videoId: string, startSeconds?: number): void;
+  /** Which video the player has loaded. The real IFrame API has it; optional
+   *  so a player without it falls back to reading events (see inSwitch). */
+  getVideoData?(): { video_id?: string };
   destroy(): void;
 }
 
@@ -58,8 +61,13 @@ export interface CreatePlayerArgs {
   onStateChange: (state: number) => void;
 }
 
-/** Longest a switch is reported as unstarted without the player saying so. */
+/** Longest a switch is reported as unstarted when the player can't say which
+ *  video it has (the fallback in inSwitch). */
 export const SWITCH_GUARD_MAX_MS = 10_000;
+
+/** A clock that doesn't jump when the wall clock is corrected. */
+const monotonicNow = (): number =>
+  typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now();
 
 export class YouTubeMedia implements MediaBackend {
   private player: YTPlayerLike | null = null;
@@ -75,11 +83,12 @@ export class YouTubeMedia implements MediaBackend {
   private progressSubs = new Set<() => void>();
   private endedSubs = new Set<() => void>();
   private errorSubs = new Set<(code: number | string) => void>();
-  /** Set by a switch (loadVideoById) until the player's next state change.
-   *  In between, the iframe still reports the PREVIOUS video's state, time and
-   *  duration; this reports the new load as unstarted at its start instead,
-   *  so no caller can mistake the old video's readings for the new one's. */
-  private switching: { start: number; since: number } | null = null;
+  /** Set when a switch (loadVideoById) actually runs, until the player is on
+   *  the requested video. In between, the iframe still reports the PREVIOUS
+   *  video's state, time and duration, and may still deliver its events; this
+   *  reports the new load as unstarted at its start instead, so no caller can
+   *  mistake the old video's readings or events for the new one's. */
+  private switching: { id: string; start: number; since: number } | null = null;
 
   constructor(
     private readonly createPlayer: (args: CreatePlayerArgs) => YTPlayerLike,
@@ -95,8 +104,13 @@ export class YouTubeMedia implements MediaBackend {
   load(videoId: string, startSeconds = 0): void {
     if (this.dead) return;
     if (this.player) {
-      this.switching = { start: startSeconds, since: Date.now() };
-      this.run((p) => p.loadVideoById(videoId, startSeconds));
+      // Armed when the load runs, not when it is queued: queued before ready,
+      // it could otherwise expire, or be cleared by the first video's own
+      // startup, before the switch even began.
+      this.run((p) => {
+        this.switching = { id: videoId, start: startSeconds, since: monotonicNow() };
+        p.loadVideoById(videoId, startSeconds);
+      });
       return;
     }
     this.player = this.createPlayer({
@@ -122,10 +136,11 @@ export class YouTubeMedia implements MediaBackend {
         for (const s of this.errorSubs) s(code);
       },
       onStateChange: (state) => {
-        // Only the new load's own announcement ends the guard. YouTube
-        // broadcasts a load as unstarted (-1) or cued (5); anything else may be
-        // an event about the previous video that was already in flight.
-        if (state === -1 || state === 5) this.switching = null;
+        // Fallback only, for a player that can't say which video it has: the
+        // new load announces itself as unstarted (-1) or cued (5), and
+        // anything else may be about the previous video. With the video id
+        // available (inSwitch), events don't decide anything.
+        if (this.shownVideoId() === null && (state === -1 || state === 5)) this.switching = null;
       },
     });
   }
@@ -242,13 +257,41 @@ export class YouTubeMedia implements MediaBackend {
     this.errorSubs.clear();
   }
 
-  /** Whether a switch is still unconfirmed. Gives up after
-   *  SWITCH_GUARD_MAX_MS: with state events lost, holding on would report an
-   *  audible video as unstarted for good. Past that point stale readings are
-   *  harmless to callers that require movement (lib/witness.ts). */
+  /** The event's state as the caller should act on it: the event's own value
+   *  (the player's cached state may not have caught up with the event it is
+   *  dispatching), except during a switch, when it may be about the previous
+   *  video and reads as unstarted. A stale PLAYING then can't mark the new
+   *  episode played, and a stale ENDED can't skip it. */
+  eventState(raw: number): number {
+    return this.inSwitch() ? -1 : raw;
+  }
+
+  /** The video id the player reports, or null if it can't report one. */
+  private shownVideoId(): string | null {
+    if (!this.ready || !this.player?.getVideoData) return null;
+    try {
+      return this.player.getVideoData()?.video_id ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Whether a switch is still unconfirmed. Settled by asking the player
+   *  which video it has. A player that can't say falls back to its events
+   *  (see onStateChange) and gives up after SWITCH_GUARD_MAX_MS, since with
+   *  events lost it would report an audible video as unstarted for good.
+   *  Past that point in the fallback, stale readings can reach callers;
+   *  the players' witness still requires movement, but a stale PLAYING
+   *  event would be believed. */
   private inSwitch(): boolean {
     if (!this.switching) return false;
-    if (Date.now() - this.switching.since > SWITCH_GUARD_MAX_MS) {
+    const shown = this.shownVideoId();
+    if (shown !== null) {
+      if (shown !== this.switching.id) return true;
+      this.switching = null;
+      return false;
+    }
+    if (monotonicNow() - this.switching.since > SWITCH_GUARD_MAX_MS) {
       this.switching = null;
       return false;
     }

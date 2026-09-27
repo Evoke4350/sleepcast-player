@@ -268,12 +268,13 @@ export function YouTubeNight({
         },
         onStateChange: (e: { data: number }) => {
           args.onStateChange(e.data); // YouTubeMedia's switch guard needs every one
-          // Acted on as the wrapper now reports it, not as the event says: an
-          // event already in flight for the previous video (its PLAYING, or
-          // its ENDED, which would skip the new one) arrives during a switch,
-          // and YouTubeMedia reports unstarted until the new load announces
-          // itself.
-          const s = mediaRef.current ? mediaRef.current.state() : e.data;
+          // A late event after the night ended (media torn down) is ignored,
+          // as in Night: acting on it could forget the episode's position.
+          if (!mediaRef.current) return;
+          // As YouTubeMedia.eventState says: the event's own state, except
+          // during a switch, when it may be the previous video's (a PLAYING
+          // that would mark the new one played, an ENDED that would skip it).
+          const s = mediaRef.current.eventState(e.data);
           setTransport(transportFor(s));
           if (s === YT_STATE.PLAYING) {
             witnessRef.current.markPlayed();

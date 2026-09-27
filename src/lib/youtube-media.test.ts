@@ -4,12 +4,15 @@ import { YouTubeMedia, SWITCH_GUARD_MAX_MS, type YTPlayerLike, type CreatePlayer
 /** A stand-in for YT.Player that records calls and lets a test decide when
  *  onReady fires — which is the whole point, since the real one is not usable
  *  the moment it is constructed. */
-function fakePlayer() {
+function fakePlayer(opts: { reportsId?: boolean } = {}) {
   const calls: string[] = [];
   let args: CreatePlayerArgs | null = null;
   let created = 0;
 
   let state = -1;
+  // The id the player says it has loaded. Deliberately NOT updated by
+  // loadVideoById: the real iframe catches up later, which is the point.
+  let shownId = "";
   const player: YTPlayerLike = {
     getPlayerState: () => state,
     playVideo: () => void calls.push("play"),
@@ -19,6 +22,7 @@ function fakePlayer() {
     getDuration: () => 7200,
     loadVideoById: (id, start) => void calls.push(`load:${id}@${start ?? 0}`),
     destroy: () => void calls.push("destroy"),
+    ...(opts.reportsId ? { getVideoData: () => ({ video_id: shownId }) } : {}),
   };
 
   return {
@@ -34,7 +38,8 @@ function fakePlayer() {
     setState: (s: number) => { state = s; },
     ended: () => args!.onEnded(),
     error: (code: number) => args!.onError(code),
-    stateChange: (s: number) => { state = s; args!.onStateChange?.(s); },
+    stateChange: (s: number) => { state = s; args!.onStateChange(s); },
+    showVideo: (id: string) => { shownId = id; },
   };
 }
 
@@ -519,5 +524,85 @@ describe("YouTubeMedia switch guard: what may end it", () => {
     media.load("B", 300);
     media.destroy();
     expect(media.currentTime()).toBe(0);
+  });
+});
+
+describe("YouTubeMedia switch guard with a player that reports its video", () => {
+  // Event types were a guess at which video an event was about: a stale
+  // unstarted from an earlier load could end the guard early, and a load that
+  // never announced itself left it on for the full timeout. A player that says
+  // which video it has settles it.
+  test("holds until the player reports the requested video, whatever events arrive", () => {
+    const f = fakePlayer({ reportsId: true });
+    const media = new YouTubeMedia(f.create);
+    media.load("A");
+    f.ready();
+    f.showVideo("A");
+    f.stateChange(1);
+    media.load("B", 120);
+    f.stateChange(-1); // an unstarted that may belong to an earlier load
+    f.stateChange(1);
+    expect(media.state()).toBe(-1);
+    expect(media.currentTime()).toBe(120);
+    f.showVideo("B");
+    expect(media.state()).toBe(1);
+  });
+
+  test("a load that never announces itself is released as soon as the player shows it", () => {
+    const f = fakePlayer({ reportsId: true });
+    const media = new YouTubeMedia(f.create);
+    media.load("A");
+    f.ready();
+    f.showVideo("A");
+    media.load("B");
+    f.showVideo("B"); // no -1 or 5 event at all
+    f.setState(1);
+    expect(media.state()).toBe(1);
+  });
+});
+
+describe("YouTubeMedia.eventState", () => {
+  // Players decide PLAYING/PAUSED/ENDED from the event. Reading the player's
+  // cached state instead assumed it had caught up with the event it was
+  // dispatching; outside a switch the event's own value is the truth.
+  test("is the event's own state outside a switch, even if the cache lags", () => {
+    const f = fakePlayer();
+    const media = new YouTubeMedia(f.create);
+    media.load("A");
+    f.ready();
+    f.setState(1); // cache still says playing
+    expect(media.eventState(0)).toBe(0); // the ENDED event is believed
+  });
+
+  test("is unstarted during a switch, so a stale ENDED can't skip the new video", () => {
+    const f = fakePlayer({ reportsId: true });
+    const media = new YouTubeMedia(f.create);
+    media.load("A");
+    f.ready();
+    f.showVideo("A");
+    media.load("B");
+    expect(media.eventState(0)).toBe(-1);
+    f.showVideo("B");
+    expect(media.eventState(0)).toBe(0);
+  });
+});
+
+describe("YouTubeMedia guard timing", () => {
+  // A load queued before ready used to arm the guard when queued, so it could
+  // expire (or be cleared by the first video's own startup) before the load
+  // even ran.
+  test("the guard starts when the queued load actually runs", () => {
+    vi.useFakeTimers();
+    try {
+      const f = fakePlayer();
+      const media = new YouTubeMedia(f.create);
+      media.load("A");
+      media.load("B", 60); // queued: not ready yet
+      vi.advanceTimersByTime(SWITCH_GUARD_MAX_MS + 1);
+      f.ready(); // loadVideoById(B) runs now
+      f.setState(1);
+      expect(media.state()).toBe(-1);
+      expect(media.currentTime()).toBe(60);
+    } finally { vi.useRealTimers(); }
   });
 });
