@@ -54,7 +54,7 @@ import { shouldTick } from "../lib/tick-gate";
 import { RestSession, revivedNightStart } from "../lib/rest/session";
 import { recordNightEnd } from "../lib/night-end";
 import { NetworkHold, isOffline } from "../lib/network-hold";
-import { PlaybackWitness } from "../lib/witness";
+import { PlaybackWitness, rearmsWatchdogOnTap } from "../lib/witness";
 import { applyEndedDecision, decideAfterEnded, shouldPlayWhole } from "../lib/episode-end";
 import type { RestNight } from "../lib/rest/types";
 import { YouTubeMedia } from "../lib/youtube-media";
@@ -67,7 +67,6 @@ import {
   nextPlayable,
   decideAfterError,
   shouldGiveUp,
-  rearmsWatchdogOnTap,
   YT_STATE,
 } from "../lib/youtube-night";
 import { classifyYouTubeError } from "../lib/youtube-errors";

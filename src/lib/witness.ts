@@ -6,6 +6,8 @@
 // position moving the way playback moves. Night and YouTubeNight both decide
 // "played" with this, so the rule can't drift between them.
 
+import type { Transport } from "./media/backend";
+
 /**
  * Whether going from `prevPos` (seen at `prevAt`) to
  * `pos` (at `now`) is playback rather than a seek or a stale reading:
@@ -121,4 +123,18 @@ export class PlaybackWitness {
   get startSec(): number {
     return this.start;
   }
+}
+
+/**
+ * Whether a request for sound re-times the watchdog. An episode that has never
+ * made a sound gets its watchdog timed from this tap rather than from its load
+ * or an earlier refused tap: a refusal sits the episode at unstarted/paused
+ * (exempt, or stood down), and a working tap minutes later otherwise read as a
+ * stall the moment it began buffering. Not while it is already buffering:
+ * repeated taps on a hung stream would then postpone the watchdog forever. And
+ * never once it has played, or a slow 2am rebuffer after a mid-night resume
+ * would condemn it.
+ */
+export function rearmsWatchdogOnTap(played: boolean, transport: Transport): boolean {
+  return !played && transport !== "buffering";
 }

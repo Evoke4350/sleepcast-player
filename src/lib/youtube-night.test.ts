@@ -1,6 +1,5 @@
 import { describe, expect, test } from "vitest";
 import {
-  rearmsWatchdogOnTap,
   nextPlayable,
   decideAfterError,
   isYouTubeLineup,
@@ -188,13 +187,5 @@ describe("when a stalled video should be given up on", () => {
   test("but once something has played, autoplay works and a stall is real", () => {
     // Playback is permitted — this video specifically is not starting.
     expect(shouldGiveUp({ ...base, state: YT_STATE.UNSTARTED, hasEverPlayed: true })).toBe(true);
-  });
-});
-
-describe("rearmsWatchdogOnTap", () => {
-  test("only for an unplayed episode that is not already buffering", () => {
-    expect(rearmsWatchdogOnTap(false, "paused")).toBe(true);
-    expect(rearmsWatchdogOnTap(false, "buffering")).toBe(false);
-    expect(rearmsWatchdogOnTap(true, "paused")).toBe(false);
   });
 });

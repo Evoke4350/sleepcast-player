@@ -10,11 +10,10 @@ describe("NetworkHold", () => {
     const h = new NetworkHold();
     const resume = vi.fn();
     h.hold(resume, false);
-    expect(h.holding).toBe(true);
     online();
     online();
     expect(resume).toHaveBeenCalledTimes(1);
-    expect(h.holding).toBe(false);
+    expect(h.resumeNow()).toBe(false); // nothing left pending
   });
 
   it("holding again replaces the earlier resume", () => {
@@ -45,8 +44,7 @@ describe("NetworkHold", () => {
     h.hold(resume, false, () => allowed);
     online();
     expect(resume).not.toHaveBeenCalled();
-    expect(h.holding).toBe(true);
-    expect(h.resumeNow()).toBe(true);
+    expect(h.resumeNow()).toBe(true); // still pending for the tap
     expect(resume).toHaveBeenCalledTimes(1);
     allowed = true;
     online();

@@ -84,20 +84,6 @@ export function shouldGiveUp({ state, hasEverPlayed, elapsedMs, limitMs }: GiveU
 }
 
 /**
- * Whether a request for sound re-times the watchdog. An episode that has never
- * made a sound gets its watchdog timed from this tap rather than from its load
- * or an earlier refused tap: a refusal sits the episode at unstarted/paused
- * (exempt, or stood down), and a working tap minutes later otherwise read as a
- * stall the moment it began buffering. Not while it is already buffering:
- * repeated taps on a hung stream would then postpone the watchdog forever. And
- * never once it has played, or a slow 2am rebuffer after a mid-night resume
- * would condemn it.
- */
-export function rearmsWatchdogOnTap(played: boolean, transport: BackendTransport): boolean {
-  return !played && transport !== "buffering";
-}
-
-/**
  * The next video to try, or null when there is nothing left.
  *
  * `dead` holds both kinds of unplayable at once — blocked across nights

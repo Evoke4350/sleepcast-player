@@ -47,7 +47,7 @@ import { shouldTick } from "../lib/tick-gate";
 import { RestSession, revivedNightStart } from "../lib/rest/session";
 import { recordNightEnd } from "../lib/night-end";
 import { NetworkHold, isOffline } from "../lib/network-hold";
-import { PlaybackWitness } from "../lib/witness";
+import { PlaybackWitness, rearmsWatchdogOnTap } from "../lib/witness";
 import { MAX_FAILS, applyEndedDecision, decideAfterEnded, shouldPlayWhole } from "../lib/episode-end";
 import type { RestNight } from "../lib/rest/types";
 import { YouTubeMedia } from "../lib/youtube-media";
@@ -59,7 +59,6 @@ import {
   decideAfterError,
   transportFor,
   shouldGiveUp,
-  rearmsWatchdogOnTap,
   type Transport,
 } from "../lib/youtube-night";
 import { classifyYouTubeError } from "../lib/youtube-errors";
@@ -175,7 +174,13 @@ export function YouTubeNight({
   // handled; the other three (unstarted, cued, buffering) left it saying
   // "playing" while nothing played, so a video waiting for a tap rendered a
   // Pause button over silence.
-  const [transport, setTransport] = useState<Transport>("buffering");
+  const [transport, setTransportState] = useState<Transport>("buffering");
+  /** The transport as last set, readable outside a render. */
+  const transportRef = useRef<Transport>("buffering");
+  function setTransport(t: Transport) {
+    transportRef.current = t;
+    setTransportState(t);
+  }
   // Whether anything has played at all this night. Autoplay refusals look
   // exactly like a dead video until you know the answer to this.
   const hasEverPlayedRef = useRef(false);
@@ -835,7 +840,7 @@ export function YouTubeNight({
     // tick if that event is missed); a tap during buffering, or one whose
     // play() is refused, would otherwise run the night down over silence.
     const ep = currentEpRef.current;
-    if (ep && rearmsWatchdogOnTap(witnessRef.current.played, transport)) {
+    if (ep && rearmsWatchdogOnTap(witnessRef.current.played, transportRef.current)) {
       watchRef.current = { id: ep.id, at: Date.now() };
     }
     media.play();

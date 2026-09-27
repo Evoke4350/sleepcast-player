@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { isPlaybackStep, PlaybackWitness } from "./witness";
+import { isPlaybackStep, PlaybackWitness, rearmsWatchdogOnTap } from "./witness";
 
 describe("isPlaybackStep", () => {
   test("a second of playback over a second counts", () => {
@@ -125,5 +125,13 @@ describe("PlaybackWitness.resumeAt", () => {
     w.markPlayed();
     expect(w.resumeAt(900)).toBe(900);
     expect(w.resumeAt(0)).toBe(180); // a failed element reading 0
+  });
+});
+
+describe("rearmsWatchdogOnTap", () => {
+  test("only for an unplayed episode that is not already buffering", () => {
+    expect(rearmsWatchdogOnTap(false, "paused")).toBe(true);
+    expect(rearmsWatchdogOnTap(false, "buffering")).toBe(false);
+    expect(rearmsWatchdogOnTap(true, "paused")).toBe(false);
   });
 });

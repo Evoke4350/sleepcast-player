@@ -13,12 +13,12 @@ export function isOffline(): boolean {
 
 /** One pending resume per night. It runs by itself when the browser reports
  *  the network is back, unless the player was paused when the hold began (by
- *  the listener: no sound in a dark room they silenced) or `allow()` says
- *  no (Player's get-up prompt); then it waits for resumeNow(), a tap. The
- *  resume itself decides whether it still applies (a fade-out, a new
- *  episode). A tap during the hold must go through resumeNow too: play() on the failed source does
- *  nothing and would only thaw the clock over silence. Holding again
- *  replaces the pending resume, so it always concerns what failed last. */
+ *  the listener: no sound in a dark room they silenced) or `allow()` says no
+ *  (Player's get-up prompt); then it waits for resumeNow(), a tap. The resume
+ *  itself decides whether it still applies (a fade-out, a new episode). A tap
+ *  during the hold must go through resumeNow too: play() on the failed
+ *  source does nothing and would only thaw the clock over silence. Holding
+ *  again replaces the pending resume, so it always concerns what failed last. */
 export class NetworkHold {
   private pending: (() => void) | null = null;
   private off: (() => void) | null = null;
@@ -27,10 +27,6 @@ export class NetworkHold {
    *  refused play() leaves the element paused, and that is not the
    *  listener's pause either). */
   private pausedAtHold: boolean | null = null;
-
-  get holding(): boolean {
-    return this.pending !== null;
-  }
 
   /** `paused`: whether the player was paused as the hold begins. Ignored
    *  after the first hold until cancel() (see pausedAtHold). */
