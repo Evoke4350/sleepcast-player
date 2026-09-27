@@ -21,20 +21,22 @@ export function isOffline(): boolean {
 export class NetworkHold {
   private pending: (() => void) | null = null;
   private off: (() => void) | null = null;
-  private pausedAtHold = false;
+  /** The first hold's reading, kept until cancel(): through re-holds, and
+   *  through a resume attempt that fails again before any sound (its own
+   *  refused play() leaves the element paused, and that is not the
+   *  listener's pause either). */
+  private pausedAtHold: boolean | null = null;
 
   get holding(): boolean {
     return this.pending !== null;
   }
 
-  /** `paused`: whether the player was paused as the hold begins. Ignored on
-   *  a re-hold, where the pause seen is the earlier hold's own, and the
-   *  first reading (the listener's, or not) stands. */
+  /** `paused`: whether the player was paused as the hold begins. Ignored
+   *  after the first hold until cancel() (see pausedAtHold). */
   hold(resume: () => void, paused: boolean, allow: () => boolean = () => true): void {
-    const pausedAtHold = this.holding ? this.pausedAtHold : paused;
-    this.cancel();
+    this.disarm();
+    this.pausedAtHold ??= paused;
     this.pending = resume;
-    this.pausedAtHold = pausedAtHold;
     const onOnline = () => {
       if (!this.pausedAtHold && allow()) this.resumeNow();
     };
@@ -46,13 +48,18 @@ export class NetworkHold {
   resumeNow(): boolean {
     const resume = this.pending;
     if (!resume) return false;
-    this.cancel();
+    this.disarm();
     resume();
     return true;
   }
 
   /** Something played, a new episode started, or the night ended. */
   cancel(): void {
+    this.disarm();
+    this.pausedAtHold = null;
+  }
+
+  private disarm(): void {
     this.off?.();
     this.off = null;
     this.pending = null;

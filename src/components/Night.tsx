@@ -1034,7 +1034,6 @@ export function Night({
         reloadAt(ep, at);
       },
       paused,
-      () => stopFadeRef.current === null,
     );
   }
 

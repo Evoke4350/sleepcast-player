@@ -82,11 +82,32 @@ describe("NetworkHold", () => {
     online();
     expect(second).toHaveBeenCalledTimes(1);
 
+    h.cancel(); // sound came back
     const listener = vi.fn();
     h.hold(vi.fn(), true); // the listener's pause
     h.hold(listener, false);
     online();
     expect(listener).not.toHaveBeenCalled();
+  });
+
+  it("keeps the first reading through a resume that fails again", () => {
+    const h = new NetworkHold();
+    h.hold(vi.fn(), false);
+    online(); // the reload runs, is refused, leaves the element paused
+    const again = vi.fn();
+    h.hold(again, true); // failed again before any sound
+    online();
+    expect(again).toHaveBeenCalledTimes(1);
+  });
+
+  it("takes a fresh reading after cancel()", () => {
+    const h = new NetworkHold();
+    h.hold(vi.fn(), false);
+    h.cancel(); // sound came back
+    const later = vi.fn();
+    h.hold(later, true); // the listener has since paused
+    online();
+    expect(later).not.toHaveBeenCalled();
   });
 
   it("reads navigator.onLine", () => {

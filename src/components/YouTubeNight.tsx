@@ -792,7 +792,6 @@ export function YouTubeNight({
         reloadAt(ep, at);
       },
       paused,
-      () => stopFadeRef.current === null,
     );
   }
 

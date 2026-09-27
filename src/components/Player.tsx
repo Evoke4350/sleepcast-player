@@ -174,6 +174,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   const [gettingUp, setGettingUp] = useState(false);
   /** Set with the state, not after the render: the hold reads it at once. */
   const gettingUpRef = useRef(false);
+  /** The latest askForSound(), for handlers registered once at mount. */
+  const askForSoundRef = useRef<() => void>(() => {});
   const ruleSpentRef = useRef(false);
   const nightStartedAtRef = useRef(Date.now());
   const holdTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -222,17 +224,17 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // Snapshot the new episode to storage promptly, not up to 10s later.
     persistCounterRef.current = 10;
 
-    // Reviving a night: land where the sleeper left off. Stands in for the
-    // skip-intro seek — a saved position is already past any intro.
-    seekOnMetadata(audio, seekTo);
-
     const skipMin = skipIntroRef.current[ep.feedId] ?? 0;
     const skipSec = skipMin * 60;
     // Where this load means to start, for a reload after a network drop.
     loadStartRef.current = seekTo > 0 ? seekTo : skipSec;
-    if (seekTo === 0 && skipSec > 0) {
-      // Enforced, not a single seek (see seekOnMetadata); duration can also
-      // still be NaN at loadedmetadata, which used to swallow the skip.
+    if (seekTo > 0) {
+      // Reviving a night: land where the sleeper left off. Stands in for the
+      // skip-intro seek — a saved position is already past any intro.
+      seekOnMetadata(audio, seekTo);
+    } else {
+      // The skip-intro, if any (0 just clears the last episode's seek).
+      // Duration can still be NaN at loadedmetadata, which used to swallow it.
       seekOnMetadata(audio, skipSec, {
         playWholeIf: (dur) => skipSec >= dur - 30, // barely longer than the skip
         onLanded: () => {
@@ -288,9 +290,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // Read before pausing: paused already means by the listener (a paused
     // element's buffering can fail too; see NetworkHold).
     const paused = audio.paused;
-    // Where it was (a failed element may read 0, hence the last position
-    // heardTick saw), or where the load was meant to start if it never played.
-    const at = epPlayedRef.current ? Math.max(audio.currentTime || 0, lastPosRef.current) : loadStartRef.current;
+    const at = resumePosition(audio);
     watchRef.current = null;
     freezeClock();
     audio.pause();
@@ -305,8 +305,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
         reloadCurrent(ep, at);
       },
       paused,
-      // Not over the get-up hold the listener opted into, or a fade-out.
-      () => !gettingUpRef.current && stopFadeRef.current === null,
+      // Not by itself over the get-up hold the listener opted into.
+      () => !gettingUpRef.current,
     );
   }
 
@@ -390,6 +390,29 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   /** Park the remaining time, so the countdown holds while nothing plays.
    *  Only if not already parked: re-parking from a stale end time would
    *  lose the minutes frozen so far. onPlay thaws it. */
+  /** Where this episode is, for a reload or a snapshot: where the load meant
+   *  to start while it has not played or its seek is still being enforced
+   *  (Safari can read ~0 after "playing" until the seek is corrected), else
+   *  where playback is (a failed element may read 0: the last position
+   *  heardTick saw). */
+  function resumePosition(audio: HTMLAudioElement): number {
+    if (!epPlayedRef.current || seekCleanupRef.current !== null) return loadStartRef.current;
+    const cur = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
+    return cur > 0 ? cur : lastPosRef.current;
+  }
+
+  /** A request for sound: the toggle's play half, the media session's, and
+   *  the get-up prompt's "keep listening". Asking for sound answers the
+   *  prompt. Read through askForSoundRef by handlers registered at mount. */
+  function askForSound() {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (gettingUpRef.current) showGettingUp(false);
+    // Held for the network: this retries the reload (see NetworkHold).
+    if (netHoldRef.current.resumeNow()) return;
+    audio.play().catch(() => { /* the error event or the watchdog decides */ });
+  }
+
   function freezeClock() {
     if (endTimeRef.current !== null && pausedRemainingMsRef.current === null) {
       pausedRemainingMsRef.current = endTimeRef.current - Date.now();
@@ -474,7 +497,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     const audio = audioRef.current;
     const ep = currentEpRef.current;
     if (!audio || !ep || !epPlayedRef.current) return; // see epPlayedRef
-    rememberPosition(ep.id, audio.currentTime, audio.duration);
+    rememberPosition(ep.id, resumePosition(audio), audio.duration);
   }
 
   // "never again": drop this episode from tonight's pool, remember the choice,
@@ -516,7 +539,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       interactions: restRef.current?.interactionCount,
       remainingMs,
       totalSeconds: totalSecondsRef.current,
-      position: Number.isFinite(audio.currentTime) ? audio.currentTime : 0,
+      position: resumePosition(audio),
       current: ep,
       playedIds: [...playedIdsRef.current],
       pool: poolRef.current,
@@ -836,16 +859,18 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
         // into a silenced node — fall through to the ordinary skip instead.
         if (!attachedRef.current) {
           const src = audio.getAttribute("src")!;
-          const pos = audio.currentTime;
+          // Before the gate closes below: resumePosition reads it.
+          const pos = resumePosition(audio);
+          const seekPending = seekCleanupRef.current !== null;
           audio.removeAttribute("crossorigin");
           // The reload reads 0 until its seek lands: close the snapshot gate
           // until it plays again (see epPlayedRef).
           epPlayedRef.current = false;
           audio.src = src;
-          // Short of where the load meant to start (it failed before playing,
-          // or before a reset seek was corrected), whatever seek the load
-          // armed (a revive, the skip-intro) is still pending and carries over.
-          if (pos > loadStartRef.current) {
+          // A seek the load armed (a revive, the skip-intro) that has not
+          // landed yet carries over to the retry. Otherwise the retry lands
+          // where playback was, which becomes this load's start.
+          if (!seekPending) {
             loadStartRef.current = pos;
             seekOnMetadata(audio, pos);
           }
@@ -874,7 +899,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     if ("mediaSession" in navigator) {
       navigator.mediaSession.setActionHandler("play", () => {
         restRef.current?.noteInteraction();
-        if (!netHoldRef.current.resumeNow()) void audio.play().catch(() => {});
+        askForSoundRef.current();
       });
       navigator.mediaSession.setActionHandler("pause", () => { restRef.current?.noteInteraction(); audio.pause(); });
       // Routed through handleNext, not playNext directly: a lock-screen or
@@ -1028,11 +1053,11 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     restRef.current?.noteInteraction();
     const audio = audioRef.current;
     if (!audio) return;
-    // Held for the network: the tap retries the reload (see NetworkHold).
-    if (audio.paused) {
-      if (!netHoldRef.current.resumeNow()) audio.play().catch(() => {});
-    } else audio.pause();
+    if (audio.paused) askForSound();
+    else audio.pause();
   }
+
+  askForSoundRef.current = askForSound;
 
   function handleNext() {
     restRef.current?.noteInteraction();
@@ -1046,11 +1071,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   const dim = Math.max(0.55, 1 - 0.45 * (1 - countdown / Math.max(1, totalSeconds)));
 
   function dismissGettingUp() {
-    showGettingUp(false);
     restRef.current?.noteInteraction();
-    if (netHoldRef.current.resumeNow()) return; // held for the network: reload
-    audioRef.current?.play().catch(() => { /* a tap will resume it */ });
-    setPaused(false);
+    askForSound();
   }
 
   return (
