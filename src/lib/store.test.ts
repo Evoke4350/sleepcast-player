@@ -463,7 +463,7 @@ describe("quarter-hour rule opt-in", () => {
 });
 
 import { recordSessionEnd, REARM_WINDOW_MS } from "./store";
-import { isRevivable, LIVE_MAX_AGE_MS, resumeMode, type LiveSession } from "./store";
+import { isRevivable, LIVE_MAX_AGE_MS, resumeMode, type LiveSession, saveLive, loadLive, saveLastNight, loadLastNight } from "./store";
 
 describe("settings migration", () => {
   beforeEach(() => localStorage.clear());
@@ -642,5 +642,58 @@ describe("timerless snapshots", () => {
     expect(resumeMode(live({ modeKind: "one-episode" }))).toEqual({ kind: "one-episode" });
     expect(resumeMode(live({ modeKind: "minutes", remainingMs: 20 * 60_000, totalSeconds: 75 * 60 }))).toEqual({ kind: "minutes", minutes: 75 });
     expect(resumeMode(live({ remainingMs: 20 * 60_000 }))).toEqual({ kind: "minutes", minutes: 45 });
+  });
+});
+
+describe("writes when storage is full", () => {
+  // The feed-XML cache fills localStorage until a write fails, so storage is
+  // routinely near quota. Everything else then failed to save: saveState
+  // threw (and endSession starts with it, via recordSessionEnd), while the
+  // snapshot, last night, plays and the rest ledger were silently dropped.
+  // Cached feed XML is re-fetchable; it must give way.
+  function quotaUntilCacheGone() {
+    const real = Storage.prototype.setItem;
+    return vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, k: string, v: string) {
+      const cacheLeft = Object.keys(localStorage).some((x) => x.startsWith("sleepcast2.feedcache."));
+      if (cacheLeft && !k.startsWith("sleepcast2.feedcache.")) {
+        throw new DOMException("full", "QuotaExceededError");
+      }
+      return real.call(this, k, v);
+    });
+  }
+
+  beforeEach(() => localStorage.clear());
+
+  it("saveState evicts cached feeds instead of throwing", () => {
+    cacheFeedXml("swm", "<rss/>");
+    const spy = quotaUntilCacheGone();
+    try {
+      const s = loadState();
+      s.settings.quarterHourRule = true;
+      expect(() => saveState(s)).not.toThrow();
+    } finally { spy.mockRestore(); }
+    expect(loadState().settings.quarterHourRule).toBe(true);
+    expect(getCachedFeedXml("swm")).toBeNull();
+  });
+
+  it("the live snapshot and last night make room too", () => {
+    const ep = { id: "a", title: "A", url: "https://x/a.mp3", feedId: "f", date: "2024-01-01" } as any;
+    cacheFeedXml("swm", "<rss/>");
+    const spy = quotaUntilCacheGone();
+    try {
+      saveLive({ savedAt: 1, remainingMs: 1, totalSeconds: 1, position: 0, current: ep, playedIds: [], pool: [ep], skipIntroByFeedId: {}, feedTitles: {}, artworkByFeedId: {} });
+      saveLastNight({ pool: [ep], playedIds: [], feedTitles: {}, artworkByFeedId: {}, skipIntroByFeedId: {}, endedVia: "faded", endedAt: 1, wasVaried: false });
+    } finally { spy.mockRestore(); }
+    expect(loadLive()).not.toBeNull();
+    expect(loadLastNight()).not.toBeNull();
+  });
+
+  it("gives up quietly when there is nothing left to evict", () => {
+    const spy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("full", "QuotaExceededError");
+    });
+    try {
+      expect(() => saveState(loadState())).not.toThrow();
+    } finally { spy.mockRestore(); }
   });
 });

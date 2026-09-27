@@ -248,7 +248,7 @@ export function loadState(): AppState {
 }
 
 export function saveState(s: AppState): void {
-  localStorage.setItem(KEY_STATE, JSON.stringify(s));
+  writeMakingRoom(KEY_STATE, JSON.stringify(s));
 }
 
 // ---------------------------------------------------------------------------
@@ -290,7 +290,7 @@ export function saveLive(s: LiveSession): void {
   const rest = s.pool.filter((e) => e.id !== s.current.id).slice(0, LIVE_POOL_CAP - 1);
   const bounded: LiveSession = { ...s, pool: [s.current, ...rest] };
   try {
-    localStorage.setItem(KEY_LIVE, JSON.stringify(bounded));
+    writeMakingRoom(KEY_LIVE, JSON.stringify(bounded));
   } catch {
     // Quota or private mode: a lost resume is not worth throwing over.
   }
@@ -345,7 +345,7 @@ const KEY_LASTEP = "sleepcast2.lastep";
 
 export function saveLastEpisode(ep: Episode): void {
   try {
-    localStorage.setItem(KEY_LASTEP, JSON.stringify(ep));
+    writeMakingRoom(KEY_LASTEP, JSON.stringify(ep));
   } catch {
     /* ignore */
   }
@@ -384,7 +384,7 @@ export interface LastNight {
 export function saveLastNight(n: LastNight): void {
   const bounded: LastNight = { ...n, pool: n.pool.slice(0, LASTNIGHT_POOL_CAP) };
   try {
-    localStorage.setItem(KEY_LASTNIGHT, JSON.stringify(bounded));
+    writeMakingRoom(KEY_LASTNIGHT, JSON.stringify(bounded));
   } catch {
     /* quota / private mode: a lost re-anchor is not worth throwing over */
   }
@@ -506,7 +506,7 @@ export function getPlays(): Play[] {
 
 function savePlays(plays: Play[]): void {
   try {
-    localStorage.setItem(KEY_PLAYS, JSON.stringify(plays));
+    if (!writeMakingRoom(KEY_PLAYS, JSON.stringify(plays))) throw new Error("full");
   } catch {
     // Quota exceeded: drop the oldest half rather than losing the ledger.
     try {
@@ -540,7 +540,7 @@ export function loadPositions(): Positions {
 export function rememberPosition(id: string, positionSec: number, durationSec: number): void {
   if (!shouldRemember(positionSec, durationSec)) return;
   try {
-    localStorage.setItem(
+    writeMakingRoom(
       KEY_POSITIONS,
       JSON.stringify(putPosition(loadPositions(), id, Math.floor(positionSec))),
     );
@@ -553,7 +553,7 @@ export function forgetPosition(id: string): void {
     const p = loadPositions();
     if (!(id in p)) return;
     delete p[id];
-    localStorage.setItem(KEY_POSITIONS, JSON.stringify(p));
+    writeMakingRoom(KEY_POSITIONS, JSON.stringify(p));
   } catch { /* ignore */ }
 }
 
@@ -586,13 +586,13 @@ export function blockEpisode(id: string): void {
     const b = loadBlocked();
     if (b.includes(id)) return;
     b.push(id);
-    localStorage.setItem(KEY_BLOCKED, JSON.stringify(b.slice(-BLOCKED_CAP)));
+    writeMakingRoom(KEY_BLOCKED, JSON.stringify(b.slice(-BLOCKED_CAP)));
   } catch { /* ignore */ }
 }
 
 export function unblockEpisode(id: string): void {
   try {
-    localStorage.setItem(KEY_BLOCKED, JSON.stringify(loadBlocked().filter((x) => x !== id)));
+    writeMakingRoom(KEY_BLOCKED, JSON.stringify(loadBlocked().filter((x) => x !== id)));
   } catch { /* ignore */ }
 }
 
@@ -758,4 +758,23 @@ export function recordSessionEnd(
 export function resumeMode(l: LiveSession): PlayMode {
   if (l.modeKind === "one-episode" || l.modeKind === "all-night") return { kind: l.modeKind };
   return { kind: "minutes", minutes: Math.max(1, Math.round(l.totalSeconds / 60)) };
+}
+
+/**
+ * localStorage.setItem that gives way to what matters. The feed-XML cache
+ * fills storage until a write fails, so every other write routinely meets a
+ * full quota: saveState threw (and endSession starts with it), while the
+ * live snapshot, last night, plays, positions and the rest ledger were
+ * silently lost. Cached feeds are re-fetchable; evict them one at a time and
+ * retry. Returns false if the value still could not be written.
+ */
+export function writeMakingRoom(key: string, value: string): boolean {
+  for (;;) {
+    try {
+      localStorage.setItem(key, value);
+      return true;
+    } catch {
+      if (!evictOneFeedCache()) return false;
+    }
+  }
 }
