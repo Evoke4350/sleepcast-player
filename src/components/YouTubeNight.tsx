@@ -231,7 +231,9 @@ export function YouTubeNight({
   // state, except during a switch, when it may be the previous video's (a
   // PLAYING that would mark the new one played, an ENDED that would skip it).
   function handleStateEvent(raw: number) {
-    if (!mediaRef.current) return; // YouTubeMedia already ignores events once destroyed
+    // Narrows the ref (endSession nulls it); YouTubeMedia also ignores events
+    // once destroyed.
+    if (!mediaRef.current) return;
     mediaRef.current.routeStateEvent(raw, {
       transport: setTransport,
       playing: () => {
@@ -318,6 +320,14 @@ export function YouTubeNight({
     }
     if (tickHandleRef.current === null) return;
     // One-episode mode means one episode: the night ends with it.
+    // An episode that ends without ever having played (a Short loaded past its
+    // end by a long skip-intro, say) failed; it didn't finish. Treated as a
+    // finish, playNext kept no record of it and a feed of such Shorts looped
+    // in silence all night. Dead for tonight, like any episode that won't play.
+    if (done && !witnessRef.current.played) {
+      skipDead(done, "that one ended before it played", false);
+      return;
+    }
     if (modeRef.current.kind === "one-episode") {
       endSession("faded");
       return;

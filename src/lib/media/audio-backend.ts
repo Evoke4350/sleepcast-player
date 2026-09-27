@@ -144,8 +144,12 @@ export class AudioBackend implements MediaBackend {
     // on the NEXT episode's play(), skipping a working episode for a dead one.
     if (err instanceof DOMException && err.name === "NotSupportedError") return;
     const code = err instanceof DOMException && err.name === "NotAllowedError" ? "autoplay-blocked" : "play-failed";
-    // A copy: a handler may unsubscribe and re-subscribe itself (Night's skip
-    // starts the next episode), and a Set loop would run it again.
-    for (const cb of [...this.errorCallbacks]) cb(code, { uncertain: false });
+    // Over a copy (a handler may unsubscribe and re-subscribe itself, and a
+    // Set loop would run it again), skipping any removed mid-loop and stopping
+    // if a handler destroyed this — as YouTubeMedia.dispatch does.
+    for (const cb of [...this.errorCallbacks]) {
+      if (this.dead) return;
+      if (this.errorCallbacks.has(cb)) cb(code, { uncertain: false });
+    }
   }
 }

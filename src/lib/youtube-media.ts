@@ -64,7 +64,7 @@ export interface CreatePlayerArgs {
 }
 
 /** Longest a switch is held unconfirmed, whatever the player reports: a load
- *  dropped without an error would otherwise read as unstarted for good. */
+ *  dropped without an error would otherwise read as loading for good. */
 export const SWITCH_GUARD_MAX_MS = 10_000;
 
 export class YouTubeMedia implements MediaBackend {
@@ -84,7 +84,7 @@ export class YouTubeMedia implements MediaBackend {
   /** Set when a switch (loadVideoById) actually runs, until inSwitch confirms
    *  it (the requested video, freshly loaded) or gives up on it. In between, the iframe still reports the PREVIOUS
    *  video's state, time and duration, and may still deliver its events; this
-   *  reports the new load as unstarted at its start instead, so no caller can
+   *  reports the new load as buffering (loading) at its start instead, so no caller can
    *  mistake the old video's readings or events for the new one's. */
   private switching: {
     id: string;
@@ -215,7 +215,10 @@ export class YouTubeMedia implements MediaBackend {
    * Unstarted before ready and after destroy, so a caller never has to guard.
    */
   state(): number {
-    if (this.inSwitch()) return -1;
+    // Loading, not unstarted: "unstarted" asks for a tap, and a switch still
+    // resolving (up to SWITCH_GUARD_MAX_MS) must not show a tap prompt over a
+    // video that may already have ended or be about to play.
+    if (this.inSwitch()) return YT_STATE.BUFFERING;
     if (!this.ready || !this.player) return -1;
     return this.player.getPlayerState();
   }
@@ -228,7 +231,7 @@ export class YouTubeMedia implements MediaBackend {
     if (this.dead) return () => {};
     this.progressSubs.add(cb);
     this.progressTimer ??= setInterval(() => {
-      for (const s of [...this.progressSubs]) s(); // a copy: see fireEnded
+      this.dispatch(this.progressSubs);
     }, 1000);
     return () => {
       this.progressSubs.delete(cb);
@@ -287,10 +290,10 @@ export class YouTubeMedia implements MediaBackend {
   /** The event's state as the caller should act on it: the event's own value
    *  (the player's cached state may not have caught up with the event it is
    *  dispatching), except during a switch, when it may be about the previous
-   *  video and reads as unstarted. A stale PLAYING then can't mark the new
+   *  video and reads as buffering. A stale PLAYING then can't mark the new
    *  episode played, and a stale ENDED can't skip it. */
   eventState(raw: number): number {
-    return this.inSwitch() ? -1 : raw;
+    return this.inSwitch() ? YT_STATE.BUFFERING : raw;
   }
 
   /** Route one state event to the caller's handlers, as eventState reads it.
@@ -309,15 +312,24 @@ export class YouTubeMedia implements MediaBackend {
 
   private fireEnded(): void {
     this.handlers.onEnded?.();
-    // A copy: a handler may unsubscribe and re-subscribe itself (Night's
-    // skip starts the next episode), and a Set loop visits entries added
-    // mid-loop, running it again against the next episode.
-    for (const s of [...this.endedSubs]) s();
+    this.dispatch(this.endedSubs);
   }
 
   private emitError(code: number, info: ErrorInfo): void {
     this.handlers.onError?.(code, info);
-    for (const s of [...this.errorSubs]) s(code, info); // a copy: see fireEnded
+    this.dispatch(this.errorSubs, code, info);
+  }
+
+  /** Call each subscriber once. Over a copy: a handler may unsubscribe and
+   *  re-subscribe itself (Night's skip starts the next episode), and a Set
+   *  loop visits entries added mid-loop, running it again against the next
+   *  episode. But skipping any removed mid-loop, and stopping once a handler
+   *  has destroyed this (the night ended). */
+  private dispatch<A extends unknown[]>(set: Set<(...args: A) => void>, ...args: A): void {
+    for (const s of [...set]) {
+      if (this.dead) return;
+      if (set.has(s)) s(...args);
+    }
   }
 
   /** The video id the player reports, or null if it can't report one. */
@@ -362,11 +374,10 @@ export class YouTubeMedia implements MediaBackend {
   /** The player is at the start of a load rather than mid-way through (or at
    *  the end of) an earlier one. ENDED doesn't count: requesting the video
    *  that just ended (a lone survivor repeating) would confirm on the old
-   *  load's own ENDED. Known limit: a video shorter than its requested start
-   *  (a Short past a long skip-intro) ends before confirming and meets the
-   *  watchdog, a bounded failure. Confirming on "ENDED before the start"
-   *  instead turned a feed of such Shorts into an endless silent loop of
-   *  skips, and could match a stale ENDED. */
+   *  load's own ENDED. (A video shorter than its requested start, a Short
+   *  past a long skip-intro, ends without ever playing; the players treat
+   *  such an ENDED as a failure and skip it for the night, whichever way the
+   *  switch resolved.) */
   private showsFreshLoad(sw: { start: number; positionCounts: boolean }): boolean {
     try {
       const raw = this.player!.getPlayerState();

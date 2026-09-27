@@ -464,7 +464,7 @@ describe("YouTubeMedia after a switch", () => {
   // loadVideoById returns at once, but the iframe keeps reporting the previous
   // video's state and time until it emits a state change for the new load.
   // Every reader then had to guard against stale readings itself.
-  test("reports the new load as unstarted at its start until the player says otherwise", () => {
+  test("reports the new load as buffering at its start until the player says otherwise", () => {
     const f = fakePlayer();
     const media = new YouTubeMedia(f.create);
     media.load("A");
@@ -473,7 +473,7 @@ describe("YouTubeMedia after a switch", () => {
     expect(media.state()).toBe(1);
     expect(media.currentTime()).toBe(42.5);
     media.load("B", 300);
-    expect(media.state()).toBe(-1);
+    expect(media.state()).toBe(3);
     expect(media.currentTime()).toBe(300);
     expect(media.duration()).toBe(0);
     f.stateChange(-1); // B announced: the player is now talking about B
@@ -495,7 +495,7 @@ describe("YouTubeMedia switch guard: what may end it", () => {
     f.stateChange(1);
     media.load("B", 0);
     f.stateChange(1); // A's PLAYING, already in flight
-    expect(media.state()).toBe(-1);
+    expect(media.state()).toBe(3);
     f.stateChange(-1); // B announced
     f.stateChange(1);
     expect(media.state()).toBe(1);
@@ -512,7 +512,7 @@ describe("YouTubeMedia switch guard: what may end it", () => {
       f.ready();
       f.setState(1);
       media.load("B", 0);
-      expect(media.state()).toBe(-1);
+      expect(media.state()).toBe(3);
       vi.advanceTimersByTime(SWITCH_GUARD_MAX_MS + 1);
       expect(media.state()).toBe(1);
     } finally { vi.useRealTimers(); }
@@ -544,7 +544,7 @@ describe("YouTubeMedia switch guard with a player that reports its video", () =>
     media.load("B", 120);
     f.stateChange(-1); // an unstarted that may belong to an earlier load
     f.stateChange(1);
-    expect(media.state()).toBe(-1);
+    expect(media.state()).toBe(3);
     expect(media.currentTime()).toBe(120);
     f.showVideo("B");
     f.setState(3); // B, freshly loading
@@ -585,7 +585,7 @@ describe("YouTubeMedia.eventState", () => {
     f.ready();
     f.showVideo("A");
     media.load("B");
-    expect(media.eventState(0)).toBe(-1);
+    expect(media.eventState(0)).toBe(3);
     f.showVideo("B");
     expect(media.eventState(0)).toBe(0);
   });
@@ -605,7 +605,7 @@ describe("YouTubeMedia guard timing", () => {
       vi.advanceTimersByTime(SWITCH_GUARD_MAX_MS + 1);
       f.ready(); // loadVideoById(B) runs now
       f.setState(1);
-      expect(media.state()).toBe(-1);
+      expect(media.state()).toBe(3);
       expect(media.currentTime()).toBe(60);
     } finally { vi.useRealTimers(); }
   });
@@ -624,7 +624,7 @@ describe("YouTubeMedia switch guard: same id, errors, bounds", () => {
     f.setState(1);
     f.setTime(500);
     media.load("A", 30);
-    expect(media.eventState(1)).toBe(-1); // still A's old playback
+    expect(media.eventState(1)).toBe(3); // still A's old playback
     f.setState(3); // the reload is buffering
     expect(media.state()).toBe(3);
   });
@@ -682,7 +682,7 @@ describe("YouTubeMedia switch guard: same id, errors, bounds", () => {
     f.setState(1);
     f.setTime(1800);
     media.load("A", 1800);
-    expect(media.state()).toBe(-1);
+    expect(media.state()).toBe(3);
     f.setState(3);
     expect(media.state()).toBe(3);
   });
@@ -698,11 +698,12 @@ describe("YouTubeMedia switch guard: same id, errors, bounds", () => {
     f.setState(0);
     f.setTime(3600);
     media.load("A", 0);
-    expect(media.eventState(0)).toBe(-1);
+    expect(media.eventState(0)).toBe(3);
   });
 
-  // A Short past a long skip-intro ends before confirming: a known, bounded
-  // limit (the watchdog). Confirming on it looped a Shorts feed forever.
+  // A Short past a long skip-intro ends before confirming on this path, and
+  // the ENDED reads as loading; the players skip a never-played episode that
+  // ends either way.
   test("an ENDED before the requested start does not confirm either", () => {
     const f = fakePlayer({ reportsId: true });
     const media = new YouTubeMedia(f.create);
@@ -715,7 +716,7 @@ describe("YouTubeMedia switch guard: same id, errors, bounds", () => {
     f.showVideo("B");
     f.setTime(60);
     f.setState(0);
-    expect(media.eventState(0)).toBe(-1);
+    expect(media.eventState(0)).toBe(3);
   });
 
   test("an error while the new video already shows freshly loaded is certain", () => {
@@ -760,7 +761,7 @@ describe("YouTubeMedia switch guard: same id, errors, bounds", () => {
       f.showVideo("A");
       f.setState(1);
       media.load("B");
-      expect(media.state()).toBe(-1);
+      expect(media.state()).toBe(3);
       vi.advanceTimersByTime(SWITCH_GUARD_MAX_MS + 1);
       expect(media.state()).toBe(1);
     } finally { vi.useRealTimers(); }
@@ -785,7 +786,7 @@ describe("YouTubeMedia switch guard: same id, errors, bounds", () => {
     media.routeStateEvent(2, h);
     media.load("B");
     media.routeStateEvent(0, h); // A's stale ENDED: must not end B
-    expect(seen).toEqual(["t:playing", "playing", "t:paused", "paused", "t:awaiting-start"]);
+    expect(seen).toEqual(["t:playing", "playing", "t:paused", "paused", "t:buffering"]);
     f.showVideo("B");
     f.setState(3);
     expect(media.state()).toBe(3); // a tick sees B, freshly loading: confirmed
@@ -867,5 +868,62 @@ describe("YouTubeMedia subscriber dispatch", () => {
     f.ready();
     f.ended();
     expect(calls).toBe(1);
+  });
+});
+
+describe("YouTubeMedia: the real Short-past-skip-intro sequence", () => {
+  // The player announces the load (-1) before the Short hits its end, so the
+  // switch confirms and the ENDED reaches onEnded. The wrapper passes it on;
+  // the players decide it was a failure, since nothing played.
+  test("unstarted then ended: the switch confirms and ENDED is fired", () => {
+    const f = fakePlayer({ reportsId: true });
+    let ended = 0;
+    const media = new YouTubeMedia(f.create, { onEnded: () => ended++ });
+    media.load("A");
+    f.ready();
+    f.showVideo("A");
+    f.setState(1);
+    f.setTime(500);
+    media.load("B", 300);
+    f.showVideo("B");
+    f.stateChange(-1);
+    f.setTime(50);
+    f.ended();
+    expect(ended).toBe(1);
+  });
+});
+
+describe("YouTubeMedia progress dispatch", () => {
+  test("a progress handler that re-subscribes during dispatch runs once per poll", () => {
+    vi.useFakeTimers();
+    try {
+      const f = fakePlayer();
+      const media = new YouTubeMedia(f.create);
+      let calls = 0;
+      let off = () => {};
+      const handler = () => {
+        calls++;
+        if (calls > 10) return;
+        off();
+        off = media.onProgress(handler);
+      };
+      off = media.onProgress(handler);
+      media.load("A");
+      f.ready();
+      vi.advanceTimersByTime(1000);
+      expect(calls).toBe(1);
+    } finally { vi.useRealTimers(); }
+  });
+
+  test("dispatch stops once a handler destroys the media", () => {
+    const f = fakePlayer();
+    const media = new YouTubeMedia(f.create);
+    const seen: string[] = [];
+    media.onError(() => { seen.push("first"); media.destroy(); });
+    media.onError(() => seen.push("second"));
+    media.load("A");
+    f.ready();
+    f.error(150);
+    expect(seen).toEqual(["first"]);
   });
 });

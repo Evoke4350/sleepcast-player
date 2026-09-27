@@ -410,6 +410,14 @@ export function Night({
     }
     if (tickHandleRef.current === null) return;
     // One-episode mode means one episode: the night ends with it.
+    // An episode that ends without ever having played (a Short loaded past its
+    // end by a long skip-intro, say) failed; it didn't finish. Treated as a
+    // finish, playNext kept no record of it and a feed of such Shorts looped
+    // in silence all night. Dead for tonight, like any episode that won't play.
+    if (done && !witnessRef.current.played) {
+      skipDead(done, "that one ended before it played", false);
+      return;
+    }
     if (modeRef.current.kind === "one-episode") {
       endSession("faded");
       return;
