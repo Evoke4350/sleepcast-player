@@ -231,36 +231,15 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // Where this load means to start, for a reload after a network drop.
     loadStartRef.current = seekTo > 0 ? seekTo : skipSec;
     if (seekTo === 0 && skipSec > 0) {
-      // A single seek at loadedmetadata isn't enough: Safari quietly resets
-      // seeks made before playback starts, and duration can still be NaN at
-      // that point (which used to swallow the skip entirely). Enforce the
-      // position across the loading lifecycle until playback is actually
-      // past the mark, then stand down.
-      const EVENTS = ["loadedmetadata", "canplay", "playing", "timeupdate"] as const;
-      let attempts = 0;
-      const cleanup = () => {
-        for (const ev of EVENTS) audio.removeEventListener(ev, enforce);
-        if (seekCleanupRef.current === cleanup) seekCleanupRef.current = null;
-      };
-      const enforce = () => {
-        const dur = audio.duration;
-        if (Number.isFinite(dur) && dur > 0 && skipSec >= dur - 30) {
-          cleanup(); // episode barely longer than the skip: play it whole
-          return;
-        }
-        if (audio.currentTime >= skipSec - 2) {
-          if (!audio.paused) {
-            cleanup(); // skip landed and playback is rolling
-            setToast(`skipped the ${skipMin} min intro`);
-            setTimeout(() => setToast(""), 4200);
-          }
-          return;
-        }
-        if (attempts++ > 12) { cleanup(); return; } // stop fighting a stubborn stream
-        try { audio.currentTime = skipSec; } catch { /* not seekable yet: a later event retries */ }
-      };
-      seekCleanupRef.current = cleanup;
-      for (const ev of EVENTS) audio.addEventListener(ev, enforce);
+      // Enforced, not a single seek (see seekOnMetadata); duration can also
+      // still be NaN at loadedmetadata, which used to swallow the skip.
+      seekOnMetadata(audio, skipSec, {
+        playWholeIf: (dur) => skipSec >= dur - 30, // barely longer than the skip
+        onLanded: () => {
+          setToast(`skipped the ${skipMin} min intro`);
+          setTimeout(() => setToast(""), 4200);
+        },
+      });
     }
 
     watchRef.current = { src: ep.url, at: Date.now() };
@@ -309,16 +288,20 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // Read before pausing: paused already means by the listener (a paused
     // element's buffering can fail too; see NetworkHold).
     const paused = audio.paused;
-    const at = epPlayedRef.current ? Math.max(audio.currentTime || 0, lastPosRef.current, loadStartRef.current) : loadStartRef.current;
+    // Where it was (a failed element may read 0, hence the last position
+    // heardTick saw), or where the load was meant to start if it never played.
+    const at = epPlayedRef.current ? Math.max(audio.currentTime || 0, lastPosRef.current) : loadStartRef.current;
     watchRef.current = null;
-    if (endTimeRef.current !== null && pausedRemainingMsRef.current === null) {
-      pausedRemainingMsRef.current = endTimeRef.current - Date.now();
-    }
+    freezeClock();
     audio.pause();
     setPaused(true);
     netHoldRef.current.hold(
       () => {
-        if (tickHandleRef.current === null || currentEpRef.current !== ep) return;
+        // Not into a night that is ending (a fade-out) or has moved on. A
+        // tap through the get-up prompt is the listener's choice, as it is
+        // without a hold.
+        if (tickHandleRef.current === null || stopFadeRef.current !== null) return;
+        if (currentEpRef.current !== ep) return;
         reloadCurrent(ep, at);
       },
       paused,
@@ -332,21 +315,38 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
    *  a seek made before playback starts. Registered in seekCleanupRef, which
    *  every new load tears down first: a bare listener would outlive a load
    *  that errors before metadata and force-seek the NEXT one to this spot. */
-  function seekOnMetadata(audio: HTMLAudioElement, at: number) {
+  function seekOnMetadata(
+    audio: HTMLAudioElement,
+    at: number,
+    hooks: { playWholeIf?: (durationSec: number) => boolean; onLanded?: () => void } = {},
+  ) {
     seekCleanupRef.current?.();
     seekCleanupRef.current = null;
     if (at <= 0) return;
     const EVENTS = ["loadedmetadata", "canplay", "playing", "timeupdate"] as const;
     let attempts = 0;
+    let landed = false;
     const cleanup = () => {
       for (const ev of EVENTS) audio.removeEventListener(ev, enforce);
       if (seekCleanupRef.current === cleanup) seekCleanupRef.current = null;
     };
     const enforce = () => {
-      if (audio.currentTime >= at - 2) {
-        if (!audio.paused) cleanup(); // landed, and playback is rolling
+      const dur = audio.duration;
+      if (hooks.playWholeIf && Number.isFinite(dur) && dur > 0 && hooks.playWholeIf(dur)) {
+        cleanup();
         return;
       }
+      if (audio.currentTime >= at - 2) {
+        landed = true;
+        if (!audio.paused) {
+          cleanup(); // landed, and playback is rolling
+          hooks.onLanded?.();
+        }
+        return;
+      }
+      // Landed, still paused, and now short of the mark: that is the
+      // listener seeking back (Safari's reset comes as playback starts).
+      if (landed && audio.paused) { cleanup(); return; }
       if (attempts++ > 12) { cleanup(); return; } // stop fighting a stubborn stream
       try { audio.currentTime = at; } catch { /* not seekable yet: a later event retries */ }
     };
@@ -365,9 +365,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
         // The pause EVENT does not fire here, so without this the timer keeps
         // counting through silence, and an untouched fade is recorded as a
         // night they slept through when nothing ever played.
-        if (pausedRemainingMsRef.current === null && endTimeRef.current !== null) {
-          pausedRemainingMsRef.current = endTimeRef.current - Date.now();
-        }
+        freezeClock();
         setPaused(true);
       }
     });
@@ -387,6 +385,21 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     lastPosRef.current = at; // not a jump heardTick should count
     watchRef.current = { src: ep.url, at: Date.now() };
     playOrWait(audio);
+  }
+
+  /** Park the remaining time, so the countdown holds while nothing plays.
+   *  Only if not already parked: re-parking from a stale end time would
+   *  lose the minutes frozen so far. onPlay thaws it. */
+  function freezeClock() {
+    if (endTimeRef.current !== null && pausedRemainingMsRef.current === null) {
+      pausedRemainingMsRef.current = endTimeRef.current - Date.now();
+    }
+  }
+
+  /** The get-up prompt, with its ref set at once (the hold reads it). */
+  function showGettingUp(on: boolean) {
+    gettingUpRef.current = on;
+    setGettingUp(on);
   }
 
   function playNext() {
@@ -597,8 +610,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
         ruleSpentRef.current = true;
         audio.pause();
         setPaused(true);
-        gettingUpRef.current = true;
-        setGettingUp(true);
+        showGettingUp(true);
         return;
       }
     }
@@ -747,9 +759,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     const onPause = () => {
       setPaused(true);
       watchRef.current = null; // a paused track isn't a stuck track
-      if (endTimeRef.current !== null && !audio.ended) {
-        pausedRemainingMsRef.current = endTimeRef.current - Date.now();
-      }
+      if (!audio.ended) freezeClock();
       persistLive(); // capture the pause with its frozen remaining time
     };
 
@@ -832,9 +842,10 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
           // until it plays again (see epPlayedRef).
           epPlayedRef.current = false;
           audio.src = src;
-          // At 0 (it failed before playing), whatever seek the load armed
-          // (a revive, the skip-intro) is still pending and carries over.
-          if (pos > 0) {
+          // Short of where the load meant to start (it failed before playing,
+          // or before a reset seek was corrected), whatever seek the load
+          // armed (a revive, the skip-intro) is still pending and carries over.
+          if (pos > loadStartRef.current) {
             loadStartRef.current = pos;
             seekOnMetadata(audio, pos);
           }
@@ -1035,8 +1046,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   const dim = Math.max(0.55, 1 - 0.45 * (1 - countdown / Math.max(1, totalSeconds)));
 
   function dismissGettingUp() {
-    gettingUpRef.current = false;
-    setGettingUp(false);
+    showGettingUp(false);
     restRef.current?.noteInteraction();
     if (netHoldRef.current.resumeNow()) return; // held for the network: reload
     audioRef.current?.play().catch(() => { /* a tap will resume it */ });
@@ -1057,7 +1067,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
             you're heavy — the bed keeps its meaning that way.
           </p>
           <button
-            onClick={() => { gettingUpRef.current = false; setGettingUp(false); endSession("ended"); }}
+            onClick={() => { showGettingUp(false); endSession("ended"); }}
             className="mt-2 rounded-full border border-[#6e5d44] px-5 py-2 text-sm text-[#f0dcb8] transition-colors hover:border-[#8a7a5c]"
           >
             alright, I'll get up

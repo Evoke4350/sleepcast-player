@@ -197,6 +197,8 @@ export function Night({
   const witnessRef = useRef(new PlaybackWitness());
   /** Waiting out a dropped network (see holdForNetwork). */
   const netHoldRef = useRef(new NetworkHold());
+  /** The latest askForSound(), for handlers registered once at mount. */
+  const askForSoundRef = useRef<() => void>(() => {});
   // The fade factor last applied to the live backend, before per-feed trim
   // (the night's fade, or the courtesy fade). A backend that becomes live is
   // set to it times its own episode's trim at once, rather than playing at
@@ -865,7 +867,7 @@ export function Night({
     if (typeof navigator !== "undefined" && "mediaSession" in navigator) {
       navigator.mediaSession.setActionHandler("play", () => {
         restRef.current?.noteInteraction();
-        if (!netHoldRef.current.resumeNow()) liveRef.current?.play();
+        askForSoundRef.current();
       });
       navigator.mediaSession.setActionHandler("pause", () => {
         restRef.current?.noteInteraction();
@@ -1026,7 +1028,9 @@ export function Night({
     setTransport("paused");
     netHoldRef.current.hold(
       () => {
-        if (tickHandleRef.current === null || currentEpRef.current !== ep) return;
+        // Not into a night that is ending (a fade-out) or has moved on.
+        if (tickHandleRef.current === null || stopFadeRef.current !== null) return;
+        if (currentEpRef.current !== ep) return;
         reloadAt(ep, at);
       },
       paused,
@@ -1060,7 +1064,15 @@ export function Night({
       media.pause();
       return;
     }
-    // Held for the network: the tap retries the reload (see NetworkHold).
+    askForSound();
+  }
+
+  /** A request for sound: the toggle's play half, and the media session's.
+   *  Read through askForSoundRef from handlers registered once at mount. */
+  function askForSound() {
+    const media = liveRef.current;
+    if (!media) return;
+    // Held for the network: this retries the reload (see NetworkHold).
     if (netHoldRef.current.resumeNow()) return;
     // The clock starts when sound is witnessed (the tick, or the embed's
     // PLAYING), not on the tap: a tap during buffering, or on a stream that
@@ -1077,6 +1089,7 @@ export function Night({
     }
     media.play();
   }
+  askForSoundRef.current = askForSound;
 
   function handleNext() {
     restRef.current?.noteInteraction();

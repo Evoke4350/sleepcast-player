@@ -786,7 +786,9 @@ export function YouTubeNight({
     setTransport("paused");
     netHoldRef.current.hold(
       () => {
-        if (tickHandleRef.current === null || currentEpRef.current !== ep) return;
+        // Not into a night that is ending (a fade-out) or has moved on.
+        if (tickHandleRef.current === null || stopFadeRef.current !== null) return;
+        if (currentEpRef.current !== ep) return;
         reloadAt(ep, at);
       },
       paused,
