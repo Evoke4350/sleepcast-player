@@ -3,37 +3,51 @@
 // Offline, every source fails at once. Skipping through them ends the night
 // in seconds, and once something has played that end clears its snapshot, so
 // a Wi-Fi blip at 2am cost the listener the whole night. The players hold
-// instead (clock frozen, nothing skipped) and retry the current episode when
-// the browser says the network is back. navigator.onLine is imprecise: it can
-// read true on a network with no internet, where the ordinary failure
-// handling still applies. It does not read false while online.
+// instead (clock frozen, shown paused, nothing skipped) with a reload of the
+// current episode pending. navigator.onLine is imprecise: it can read true on
+// a network with no internet, where the ordinary failure handling applies.
 
 export function isOffline(): boolean {
   return typeof navigator !== "undefined" && navigator.onLine === false;
 }
 
-/** One pending wait per night. Holding again replaces the wait, so the retry
- *  always concerns whatever failed last, never an episode since left. */
+/** One pending resume per night. It runs by itself when the browser reports
+ *  the network is back and `auto()` allows it (not over a listener's own
+ *  pause, say); otherwise it waits for resumeNow(), a tap. A tap during the
+ *  hold must go through resumeNow too: play() on the failed source does
+ *  nothing and would only thaw the clock over silence. Holding again
+ *  replaces the pending resume, so it always concerns what failed last. */
 export class NetworkHold {
+  private pending: (() => void) | null = null;
   private off: (() => void) | null = null;
 
   get holding(): boolean {
-    return this.off !== null;
+    return this.pending !== null;
   }
 
-  hold(resume: () => void): void {
+  hold(resume: () => void, auto: () => boolean = () => true): void {
     this.cancel();
+    this.pending = resume;
     const onOnline = () => {
-      this.off = null;
-      resume();
+      if (auto()) this.resumeNow();
     };
-    window.addEventListener("online", onOnline, { once: true });
+    window.addEventListener("online", onOnline);
     this.off = () => window.removeEventListener("online", onOnline);
+  }
+
+  /** Run the pending resume now. Returns whether there was one. */
+  resumeNow(): boolean {
+    const resume = this.pending;
+    if (!resume) return false;
+    this.cancel();
+    resume();
+    return true;
   }
 
   /** Something played, a new episode started, or the night ended. */
   cancel(): void {
     this.off?.();
     this.off = null;
+    this.pending = null;
   }
 }

@@ -115,3 +115,15 @@ describe("PlaybackWitness per-episode state", () => {
     expect(w.replayed).toBe(true);
   });
 });
+
+describe("PlaybackWitness.resumeAt", () => {
+  test("is the load's start until it plays, then where it got to", () => {
+    const w = new PlaybackWitness();
+    w.newEpisode(180, 0);
+    expect(w.resumeAt(0)).toBe(180);
+    expect(w.resumeAt(900)).toBe(180);
+    w.markPlayed();
+    expect(w.resumeAt(900)).toBe(900);
+    expect(w.resumeAt(0)).toBe(180); // a failed element reading 0
+  });
+});

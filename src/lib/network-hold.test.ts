@@ -17,7 +17,7 @@ describe("NetworkHold", () => {
     expect(h.holding).toBe(false);
   });
 
-  it("holding again replaces the earlier wait", () => {
+  it("holding again replaces the earlier resume", () => {
     const h = new NetworkHold();
     const first = vi.fn();
     const second = vi.fn();
@@ -28,14 +28,40 @@ describe("NetworkHold", () => {
     expect(second).toHaveBeenCalledTimes(1);
   });
 
-  it("a cancelled wait never resumes", () => {
+  it("a cancelled hold never resumes", () => {
     const h = new NetworkHold();
     const resume = vi.fn();
     h.hold(resume);
     h.cancel();
     online();
+    expect(h.resumeNow()).toBe(false);
     expect(resume).not.toHaveBeenCalled();
-    expect(h.holding).toBe(false);
+  });
+
+  it("stays pending for a tap when auto-resume is not allowed", () => {
+    const h = new NetworkHold();
+    const resume = vi.fn();
+    let allowed = false;
+    h.hold(resume, () => allowed);
+    online();
+    expect(resume).not.toHaveBeenCalled();
+    expect(h.holding).toBe(true);
+    expect(h.resumeNow()).toBe(true);
+    expect(resume).toHaveBeenCalledTimes(1);
+    allowed = true;
+    online();
+    expect(resume).toHaveBeenCalledTimes(1);
+  });
+
+  it("a later online event resumes once auto-resume is allowed", () => {
+    const h = new NetworkHold();
+    const resume = vi.fn();
+    let allowed = false;
+    h.hold(resume, () => allowed);
+    online();
+    allowed = true;
+    online();
+    expect(resume).toHaveBeenCalledTimes(1);
   });
 
   it("reads navigator.onLine", () => {

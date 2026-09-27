@@ -243,6 +243,7 @@ export function YouTubeNight({
     mediaRef.current.routeStateEvent(raw, {
       transport: setTransport,
       playing: () => {
+        netHoldRef.current.cancel(); // sound: the network is evidently fine
         witnessRef.current.markPlayed();
         markPlayed();
         // The clock starts here, not at mount. It is held frozen until
@@ -365,7 +366,7 @@ export function YouTubeNight({
       // four-hour video mid-night, and a position read before it played may
       // not be its. The reload closes the snapshot gate until it plays again.
       const w = witnessRef.current;
-      reloadAt(ep, w.played ? Math.max(w.startSec, mediaRef.current?.currentTime() ?? 0) : w.startSec);
+      reloadAt(ep, w.resumeAt(mediaRef.current?.currentTime() ?? 0));
       return;
     }
     // Never permanent if it arrived mid-switch: it may be the previous video's
@@ -496,7 +497,10 @@ export function YouTubeNight({
     const cur = media.currentTime();
     const wasPlayed = witnessRef.current.played;
     const played = witnessRef.current.observe(cur, Date.now(), t === "playing");
-    if (played && !wasPlayed) markPlayed();
+    if (played && !wasPlayed) {
+      netHoldRef.current.cancel(); // sound: the network is fine
+      markPlayed();
+    }
     if (t === "playing" && played) unfreezeClock();
     // And the other way, as Night's tick does: a PAUSED event that arrived
     // during a switch reads unstarted and is dropped, so the clock would
@@ -566,6 +570,8 @@ export function YouTubeNight({
       // region lock, a load that never finished. Dead for tonight only — we do
       // not know enough to condemn it forever.
       deadRef.current.add(w.id);
+      // Out of the lineup too, or a tap on it replaces what is playing.
+      setBlockedTonight((prev) => new Set(prev).add(w.id));
       if (!countFailure()) playNext();
       // cur/dur below belong to the episode just killed, while currentEpRef is
       // now the next one (or the night ended): nothing below concerns it.
@@ -735,7 +741,6 @@ export function YouTubeNight({
   /** This episode has played: stand the watchdog down and reset the failure
    *  counts. One place for the PLAYING event and the tick's witness. */
   function markPlayed() {
-    netHoldRef.current.cancel(); // the network is evidently fine
     lastHeardEpRef.current = currentEpRef.current;
     watchRef.current = null;
     failsRef.current = 0;
@@ -770,17 +775,22 @@ export function YouTubeNight({
    *  network is back, the same episode reloads where it was, or where its
    *  load was meant to start if it never played. */
   function holdForNetwork(ep: Episode) {
+    const media = mediaRef.current;
+    // Paused by the listener before it failed: the network coming back is no
+    // reason to start sound in a dark room. Their tap resumes it instead.
+    const listenerPaused = media?.transport() === "paused";
+    const at = witnessRef.current.resumeAt(media?.currentTime() ?? 0);
     watchRef.current = null;
     freezeClock();
-    mediaRef.current?.pause();
+    media?.pause();
     setTransport("paused");
-    const w = witnessRef.current;
-    const at = w.played ? Math.max(w.startSec, mediaRef.current?.currentTime() ?? 0) : w.startSec;
-    netHoldRef.current.hold(() => {
-      if (tickHandleRef.current === null || stopFadeRef.current !== null) return;
-      if (currentEpRef.current !== ep) return;
-      reloadAt(ep, at);
-    });
+    netHoldRef.current.hold(
+      () => {
+        if (tickHandleRef.current === null || currentEpRef.current !== ep) return;
+        reloadAt(ep, at);
+      },
+      () => !listenerPaused && stopFadeRef.current === null,
+    );
   }
 
   /** Reload the current episode at `at`: a retry, or a replay. The per-load
@@ -808,6 +818,8 @@ export function YouTubeNight({
       media.pause();
       return;
     }
+    // Held for the network: the tap retries the reload (see NetworkHold).
+    if (netHoldRef.current.resumeNow()) return;
     // The clock is not started here. PLAYING starts it (onStateChange, or the
     // tick if that event is missed); a tap during buffering, or one whose
     // play() is refused, would otherwise run the night down over silence.

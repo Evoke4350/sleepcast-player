@@ -218,34 +218,18 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     audio.src = ep.url;
     currentEpRef.current = ep;
     epPlayedRef.current = false;
-    loadStartRef.current = seekTo;
     netHoldRef.current.cancel(); // a new episode: any wait was for the last one
     // Snapshot the new episode to storage promptly, not up to 10s later.
     persistCounterRef.current = 10;
 
-    if (seekTo > 0) {
-      // Reviving a night: land where the sleeper left off, once metadata is
-      // in. Stands in for the skip-intro seek — a saved position is already
-      // past any intro.
-      // Registered in seekCleanupRef, not just self-removing. If this episode
-      // is interrupted before metadata arrives — a dead URL, the watchdog, a
-      // Next tap — the handler would otherwise stay armed and seek the NEXT
-      // episode to this one's resume position, dropping the listener into the
-      // middle of a story they never started.
-      const onMeta = () => {
-        try { audio.currentTime = seekTo; } catch { /* not seekable yet */ }
-        cleanupMeta();
-      };
-      const cleanupMeta = () => {
-        audio.removeEventListener("loadedmetadata", onMeta);
-        if (seekCleanupRef.current === cleanupMeta) seekCleanupRef.current = null;
-      };
-      seekCleanupRef.current = cleanupMeta;
-      audio.addEventListener("loadedmetadata", onMeta);
-    }
+    // Reviving a night: land where the sleeper left off. Stands in for the
+    // skip-intro seek — a saved position is already past any intro.
+    seekOnMetadata(audio, seekTo);
 
     const skipMin = skipIntroRef.current[ep.feedId] ?? 0;
     const skipSec = skipMin * 60;
+    // Where this load means to start, for a reload after a network drop.
+    loadStartRef.current = seekTo > 0 ? seekTo : skipSec;
     if (seekTo === 0 && skipSec > 0) {
       // A single seek at loadedmetadata isn't enough: Safari quietly resets
       // seeks made before playback starts, and duration can still be NaN at
@@ -280,23 +264,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     }
 
     watchRef.current = { src: ep.url, at: Date.now() };
-    audio.play().catch((err: unknown) => {
-      if (err instanceof DOMException && err.name === "NotAllowedError") {
-        // Autoplay gate (track changed while backgrounded/locked): retrying
-        // won't help — show paused so one tap on Resume restores the night.
-        watchRef.current = null;
-        // Freeze the clock too. The pause EVENT does not fire here, so without
-        // this the timer keeps counting through silence — the listener loses
-        // those minutes, and an untouched fade is recorded as a night they
-        // slept through when nothing ever played.
-        if (pausedRemainingMsRef.current === null && endTimeRef.current !== null) {
-          pausedRemainingMsRef.current = endTimeRef.current - Date.now();
-        }
-        setPaused(true);
-      }
-      // Anything else (bad source, abort): the error event or the
-      // watchdog advances us.
-    });
+    playOrWait(audio);
     // An episode is no longer "heard" the instant it starts — heardTick records
     // it once HEARD_SEC of real playback has accumulated, so a track skipped
     // after three seconds stays in the pool.
@@ -330,56 +298,86 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   }
 
   /** Offline: hold the night instead of spending the pool on a dropped
-   *  network (see network-hold). Clock frozen and shown paused, every time,
-   *  even when already holding (a Resume tap in the meantime thawed it).
-   *  When the network is back, the same episode reloads where it was, or
-   *  where its load was meant to start if it never played. */
+   *  network (see NetworkHold). Clock frozen and shown paused, every time,
+   *  even when already holding. When the network is back, or on a tap, the
+   *  same episode reloads where it was, or where its load was meant to start
+   *  if it never played. */
   function holdForNetwork() {
     const audio = audioRef.current;
     const ep = currentEpRef.current;
     if (!audio || !ep) return;
+    // Paused before it failed: by the listener (a paused element's buffering
+    // can fail too), or already held. Neither resumes by itself.
+    const listenerPaused = audio.paused && !netHoldRef.current.holding;
+    const at = epPlayedRef.current ? Math.max(audio.currentTime || 0, lastPosRef.current, loadStartRef.current) : loadStartRef.current;
     watchRef.current = null;
     if (endTimeRef.current !== null && pausedRemainingMsRef.current === null) {
       pausedRemainingMsRef.current = endTimeRef.current - Date.now();
     }
     audio.pause();
     setPaused(true);
-    const at = epPlayedRef.current ? Math.max(audio.currentTime || 0, lastPosRef.current) : loadStartRef.current;
-    netHoldRef.current.hold(() => {
-      // Not over a night that ended or is fading out, a different episode, or
-      // the get-up hold the listener opted into.
-      if (tickHandleRef.current === null || stopFadeRef.current !== null) return;
-      if (currentEpRef.current !== ep || gettingUpRef.current) return;
-      reloadCurrent(ep, at);
+    netHoldRef.current.hold(
+      () => {
+        if (tickHandleRef.current === null || currentEpRef.current !== ep) return;
+        reloadCurrent(ep, at);
+      },
+      // Not over the get-up hold the listener opted into, or a fade-out.
+      () => !listenerPaused && !gettingUpRef.current && stopFadeRef.current === null,
+    );
+  }
+
+  /** Seek to `at` once metadata is in. Registered in seekCleanupRef, which
+   *  every new load tears down first: a bare listener would outlive a load
+   *  that errors before metadata and force-seek the NEXT one to this spot. */
+  function seekOnMetadata(audio: HTMLAudioElement, at: number) {
+    seekCleanupRef.current?.();
+    seekCleanupRef.current = null;
+    if (at <= 0) return;
+    const onMeta = () => {
+      cleanup();
+      try { audio.currentTime = at; } catch { /* not seekable yet */ }
+    };
+    const cleanup = () => {
+      audio.removeEventListener("loadedmetadata", onMeta);
+      if (seekCleanupRef.current === cleanup) seekCleanupRef.current = null;
+    };
+    seekCleanupRef.current = cleanup;
+    audio.addEventListener("loadedmetadata", onMeta);
+  }
+
+  /** play(), and if autoplay is refused (a track change or a reload while the
+   *  screen is locked), show paused with the clock frozen: retrying won't
+   *  help, and one tap on Resume restores the night. Anything else (a bad
+   *  source, an abort) is left to the error event or the watchdog. */
+  function playOrWait(audio: HTMLAudioElement) {
+    audio.play().catch((err: unknown) => {
+      if (err instanceof DOMException && err.name === "NotAllowedError") {
+        watchRef.current = null;
+        // The pause EVENT does not fire here, so without this the timer keeps
+        // counting through silence, and an untouched fade is recorded as a
+        // night they slept through when nothing ever played.
+        if (pausedRemainingMsRef.current === null && endTimeRef.current !== null) {
+          pausedRemainingMsRef.current = endTimeRef.current - Date.now();
+        }
+        setPaused(true);
+      }
     });
   }
 
   /** Reload the current episode's source at `at`. Not playEpisode: this is
    *  the same listening resumed, so the play ledger, the rest timeline and the
-   *  skip-intro are left alone. */
+   *  skip-intro enforcement are left alone. */
   function reloadCurrent(ep: Episode, at: number) {
     const audio = audioRef.current;
     if (!audio) return;
-    seekCleanupRef.current?.();
-    seekCleanupRef.current = null;
     // Closes the snapshot gate until it plays again, as the CORS retry does.
     epPlayedRef.current = false;
+    loadStartRef.current = at; // this load's start, should it fail again
     audio.src = ep.url;
-    if (at > 0) {
-      const onMeta = () => {
-        try { audio.currentTime = at; } catch { /* not seekable yet */ }
-        cleanupMeta();
-      };
-      const cleanupMeta = () => {
-        audio.removeEventListener("loadedmetadata", onMeta);
-        if (seekCleanupRef.current === cleanupMeta) seekCleanupRef.current = null;
-      };
-      seekCleanupRef.current = cleanupMeta;
-      audio.addEventListener("loadedmetadata", onMeta);
-    }
+    seekOnMetadata(audio, at);
     lastPosRef.current = at; // not a jump heardTick should count
     watchRef.current = { src: ep.url, at: Date.now() };
-    void audio.play().catch(() => { /* the error event or the watchdog decides */ });
+    playOrWait(audio);
   }
 
   function playNext() {
@@ -823,25 +821,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
           // The reload reads 0 until its seek lands: close the snapshot gate
           // until it plays again (see epPlayedRef).
           epPlayedRef.current = false;
+          if (pos > 0) loadStartRef.current = pos;
           audio.src = src;
-          if (pos > 0) {
-            // Registered through seekCleanupRef, which playEpisode tears down
-            // first thing. A bare listener here would outlive a retry that
-            // itself errors before metadata, and then force-seek the *next*
-            // episode to this stale position — the same leak fixed on the
-            // main seek path.
-            const onRetryMetadata = () => {
-              if (seekCleanupRef.current === cleanupRetry) seekCleanupRef.current = null;
-              try { audio.currentTime = pos; } catch { /* not seekable */ }
-            };
-            const cleanupRetry = () => {
-              audio.removeEventListener("loadedmetadata", onRetryMetadata);
-              if (seekCleanupRef.current === cleanupRetry) seekCleanupRef.current = null;
-            };
-            seekCleanupRef.current?.();
-            audio.addEventListener("loadedmetadata", onRetryMetadata, { once: true });
-            seekCleanupRef.current = cleanupRetry;
-          }
+          seekOnMetadata(audio, pos);
           watchRef.current = { src, at: Date.now() };
           void audio.play().catch(() => {});
           return;
@@ -865,7 +847,10 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     audio.addEventListener("error", onError);
 
     if ("mediaSession" in navigator) {
-      navigator.mediaSession.setActionHandler("play", () => { restRef.current?.noteInteraction(); audio.play(); });
+      navigator.mediaSession.setActionHandler("play", () => {
+        restRef.current?.noteInteraction();
+        if (!netHoldRef.current.resumeNow()) void audio.play().catch(() => {});
+      });
       navigator.mediaSession.setActionHandler("pause", () => { restRef.current?.noteInteraction(); audio.pause(); });
       // Routed through handleNext, not playNext directly: a lock-screen or
       // Bluetooth skip is still a rejection of the feed being left, and for
@@ -1018,8 +1003,10 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     restRef.current?.noteInteraction();
     const audio = audioRef.current;
     if (!audio) return;
-    if (audio.paused) audio.play().catch(() => {});
-    else audio.pause();
+    // Held for the network: the tap retries the reload (see NetworkHold).
+    if (audio.paused) {
+      if (!netHoldRef.current.resumeNow()) audio.play().catch(() => {});
+    } else audio.pause();
   }
 
   function handleNext() {
@@ -1036,6 +1023,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   function dismissGettingUp() {
     setGettingUp(false);
     restRef.current?.noteInteraction();
+    if (netHoldRef.current.resumeNow()) return; // held for the network: reload
     audioRef.current?.play().catch(() => { /* a tap will resume it */ });
     setPaused(false);
   }

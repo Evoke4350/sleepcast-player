@@ -296,6 +296,7 @@ export function Night({
     ytRef.current.routeStateEvent(raw, {
       transport: setTransport,
       playing: () => {
+        netHoldRef.current.cancel(); // sound: the network is evidently fine
         witnessRef.current.markPlayed();
         markPlayed();
         // The clock starts here, not at mount. It is held frozen until
@@ -498,7 +499,7 @@ export function Night({
       // revived position, the skip-intro): reloading at 0 restarted a long
       // video mid-night, and a position read before it played may not be its.
       const w = witnessRef.current;
-      reloadAt(ep, w.played ? Math.max(w.startSec, liveRef.current?.currentTime() ?? 0) : w.startSec);
+      reloadAt(ep, w.resumeAt(liveRef.current?.currentTime() ?? 0));
       return;
     }
     // Never permanent if it arrived mid-switch: it may be the previous video's
@@ -627,7 +628,9 @@ export function Night({
     // stays closed.
     // One position read per tick, for the played decision and everything below.
     const cur = media.currentTime();
+    const wasPlayed = witnessRef.current.played;
     const played = witnessRef.current.observe(cur, Date.now(), t === "playing");
+    if (played && !wasPlayed) netHoldRef.current.cancel(); // sound: the network is fine
     const witnessed: Transport = t === "playing" && !played ? "buffering" : t;
     // From `witnessed`, not `t`: the raw value exists to be distrusted, and a
     // control reading "Pause" over an episode that has not made a sound yet is
@@ -720,6 +723,8 @@ export function Night({
       // region lock, a load that never finished. Dead for tonight only — we do
       // not know enough to condemn it forever.
       deadRef.current.add(w.id);
+      // Out of the lineup too, or a tap on it replaces what is playing.
+      setBlockedTonight((prev) => new Set(prev).add(w.id));
       // No failure count decides anything here. On an all-video night a run of
       // failures is evidence about the whole lineup; on a mixed one it is
       // evidence about one kind of episode, and the run is close to guaranteed:
@@ -970,7 +975,6 @@ export function Night({
   /** This episode has played: stand the watchdog down and reset the retry
    *  count. One place for the embed's PLAYING event and the tick's witness. */
   function markPlayed() {
-    netHoldRef.current.cancel(); // the network is evidently fine
     lastHeardEpRef.current = currentEpRef.current;
     watchRef.current = null;
     retriesRef.current = 0;
@@ -995,17 +999,22 @@ export function Night({
    *  network is back, the same episode reloads where it was, or where its
    *  load was meant to start if it never played. */
   function holdForNetwork(ep: Episode) {
+    const media = liveRef.current;
+    // Paused by the listener before it failed: the network coming back is no
+    // reason to start sound in a dark room. Their tap resumes it instead.
+    const listenerPaused = media?.transport() === "paused";
+    const at = witnessRef.current.resumeAt(media?.currentTime() ?? 0);
     watchRef.current = null;
     freezeClock();
-    liveRef.current?.pause();
+    media?.pause();
     setTransport("paused");
-    const w = witnessRef.current;
-    const at = w.played ? Math.max(w.startSec, liveRef.current?.currentTime() ?? 0) : w.startSec;
-    netHoldRef.current.hold(() => {
-      if (tickHandleRef.current === null || stopFadeRef.current !== null) return;
-      if (currentEpRef.current !== ep) return;
-      reloadAt(ep, at);
-    });
+    netHoldRef.current.hold(
+      () => {
+        if (tickHandleRef.current === null || currentEpRef.current !== ep) return;
+        reloadAt(ep, at);
+      },
+      () => !listenerPaused && stopFadeRef.current === null,
+    );
   }
 
   /** Reload the current episode at `at`: a retry, or a replay. The per-load
@@ -1034,6 +1043,8 @@ export function Night({
       media.pause();
       return;
     }
+    // Held for the network: the tap retries the reload (see NetworkHold).
+    if (netHoldRef.current.resumeNow()) return;
     // The clock starts when sound is witnessed (the tick, or the embed's
     // PLAYING), not on the tap: a tap during buffering, or on a stream that
     // then hangs, ran the night down over silence.

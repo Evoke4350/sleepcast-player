@@ -109,6 +109,14 @@ export class PlaybackWitness {
     return this.heardAtLoad;
   }
 
+  /** Where to reload this episode: where it was, if this load ever played,
+   *  else where it was meant to start (a revived position, the skip-intro).
+   *  Reloading at 0 restarted a long episode mid-night, and a position read
+   *  before it played may not be its own. */
+  resumeAt(currentTime: number): number {
+    return this.seen ? Math.max(this.start, currentTime) : this.start;
+  }
+
   /** Where the current load was asked to start. */
   get startSec(): number {
     return this.start;
