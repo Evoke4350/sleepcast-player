@@ -35,21 +35,31 @@ export function createScreenLock(
   // `sentinel` alone let two calls (mount and a visibility change) each
   // request a lock, and the first was never released.
   let pending: Promise<boolean> | null = null;
-  // Bumped by release(). A request that resolves after a release belongs to a
-  // night that has ended: storing it held the screen awake after the player
-  // had gone, so it is released on arrival instead.
+  // Bumped by release() and forgetHeld(). A request that resolves after either
+  // belongs to a lock that should no longer be held: a night that has ended,
+  // or a tab the browser already revoked on hiding. Storing it held the screen
+  // awake after the player had gone (or reported a revoked lock as held), so
+  // it is released on arrival instead.
   let generation = 0;
+
+  function invalidate(): void {
+    generation++;
+    pending = null;
+  }
 
   function acquire(): Promise<boolean> {
     if (sentinel) return Promise.resolve(true);
     if (pending) return pending;
     const gen = generation;
-    pending = (async () => {
+    let self: Promise<boolean> | null = null;
+    self = (async () => {
       try {
         const s = await request();
-        if (gen !== generation) {
+        // Superseded, or another request already stored a lock: never keep a
+        // second sentinel, or the first would be overwritten and never released.
+        if (gen !== generation || sentinel) {
           await s.release().catch(() => {});
-          return false;
+          return gen === generation && sentinel !== null;
         }
         sentinel = s;
         return true;
@@ -58,24 +68,29 @@ export function createScreenLock(
         // component tells the listener to keep the screen on themselves.
         return false;
       } finally {
-        pending = null;
+        // Only clear our own slot. A superseded request finishing late must
+        // not clear a newer one, or a duplicate request could start.
+        if (pending === self) pending = null;
       }
     })();
-    return pending;
+    pending = self;
+    return self;
   }
 
   return {
     acquire,
     held: () => sentinel !== null,
-    forgetHeld: () => { sentinel = null; },
+    forgetHeld: () => {
+      sentinel = null;
+      invalidate();
+    },
     async reacquire() {
       // A hidden tab cannot hold one, and asking throws. Wait for the return.
       if (sentinel || isHidden()) return;
       await acquire();
     },
     async release() {
-      generation++;
-      pending = null;
+      invalidate();
       const s = sentinel;
       sentinel = null;
       try {

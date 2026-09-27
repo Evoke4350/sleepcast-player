@@ -133,3 +133,52 @@ describe("createScreenLock races", () => {
     expect(lock.held()).toBe(true);
   });
 });
+
+describe("createScreenLock races found in review", () => {
+  function deferredRequest() {
+    const pending: { resolve: () => void; sentinel: { released: boolean; release(): Promise<void> } }[] = [];
+    const request = () =>
+      new Promise<WakeLockSentinelLike>((resolve) => {
+        const sentinel = { released: false, async release() { this.released = true; } };
+        pending.push({ resolve: () => resolve(sentinel), sentinel });
+      });
+    return { request, pending };
+  }
+
+  // A superseded request's cleanup cleared the newer pending slot, so a
+  // visibility change started a third request and two sentinels were stored,
+  // the first never released.
+  test("a superseded request finishing late does not open a duplicate", async () => {
+    const { request, pending } = deferredRequest();
+    const lock = createScreenLock(request, () => false);
+    const p1 = lock.acquire();
+    await lock.release();
+    const p2 = lock.acquire();
+    pending[0].resolve();
+    await p1;
+    const p3 = lock.reacquire();
+    expect(pending).toHaveLength(2); // no third request
+    pending[1].resolve();
+    await p2; await p3;
+    await lock.release();
+    expect(pending.every((p) => p.sentinel.released)).toBe(true);
+  });
+
+  // The tab hid while a request was in flight. The browser revokes on hide,
+  // yet the late result was stored, so on return held() said true and
+  // reacquire() did nothing.
+  test("forgetHeld drops a request still in flight", async () => {
+    const { request, pending } = deferredRequest();
+    const lock = createScreenLock(request, () => false);
+    const p1 = lock.acquire();
+    lock.forgetHeld();
+    pending[0].resolve();
+    expect(await p1).toBe(false);
+    expect(lock.held()).toBe(false);
+    const p2 = lock.reacquire();
+    expect(pending).toHaveLength(2);
+    pending[1].resolve();
+    await p2;
+    expect(lock.held()).toBe(true);
+  });
+});
