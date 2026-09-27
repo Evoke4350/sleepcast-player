@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { decideAfterEnded, shouldPlayWhole, type EndedInput } from "./episode-end";
+import { applyEndedDecision, decideAfterEnded, shouldPlayWhole, type EndedInput } from "./episode-end";
 import { PlaybackWitness } from "./witness";
 
 const base: EndedInput = { stopping: false, active: true, playedThisEpisode: true, replayedFromStart: false, mode: "minutes" };
@@ -70,5 +70,36 @@ describe("shouldPlayWhole", () => {
     expect(shouldPlayWhole(started(0), 20)).toBe(false);
     expect(shouldPlayWhole(started(600), 0)).toBe(false);
     expect(shouldPlayWhole(started(60), 3600)).toBe(false);
+  });
+});
+
+describe("applyEndedDecision", () => {
+  const hooks = () => {
+    const calls: string[] = [];
+    return {
+      calls,
+      h: {
+        replay: () => calls.push("replay"),
+        endNight: (r: string) => calls.push(`end:${r}`),
+        skipDead: () => calls.push("skip"),
+        next: () => calls.push("next"),
+        forgetPosition: () => calls.push("forget"),
+      },
+    };
+  };
+
+  test("each outcome runs its hook; the position is kept only for ignore and replay", () => {
+    const cases: Array<[Parameters<typeof applyEndedDecision>[0], string[]]> = [
+      [{ action: "ignore" }, []],
+      [{ action: "replay-from-start" }, ["replay"]],
+      [{ action: "end-night", reason: "faded" }, ["forget", "end:faded"]],
+      [{ action: "skip-dead" }, ["forget", "skip"]],
+      [{ action: "next" }, ["forget", "next"]],
+    ];
+    for (const [d, want] of cases) {
+      const { calls, h } = hooks();
+      applyEndedDecision(d, h);
+      expect(calls).toEqual(want);
+    }
   });
 });

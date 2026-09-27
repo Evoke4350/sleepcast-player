@@ -556,8 +556,14 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       failsRef.current++;
       if (failsRef.current <= 6 && tickHandleRef.current !== null) {
         playNext(); // stuck track: move on
+      } else if (tickHandleRef.current !== null) {
+        // The whole pool looks broken. End the night, as Night and YouTubeNight
+        // do: pausing froze it for good (the clock stops on pause), so it never
+        // ended or recorded, and its snapshot sat waiting.
+        endSession("ended");
+        return;
       } else {
-        audio.pause(); // whole pool looks broken — stop skipping in silence
+        audio.pause();
       }
     }
 
@@ -603,6 +609,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
         wasVaried: wasVariedRef.current,
       },
       current: currentEpRef.current,
+      currentHeard: epPlayedRef.current,
       rest: restRef.current,
       now: Date.now(),
     });
@@ -764,7 +771,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
         // 404) switched tracks forever, since onPlaying never resets anything.
         failsRef.current++;
         if (failsRef.current <= 6) playNext();
-        else audio.pause(); // whole pool looks broken — stop skipping in silence
+        else endSession("ended"); // the whole pool looks broken (see the watchdog)
       }
     };
 

@@ -47,7 +47,7 @@ import { shouldTick } from "../lib/tick-gate";
 import { RestSession, revivedNightStart } from "../lib/rest/session";
 import { recordNightEnd } from "../lib/night-end";
 import { PlaybackWitness } from "../lib/witness";
-import { decideAfterEnded, shouldPlayWhole } from "../lib/episode-end";
+import { applyEndedDecision, decideAfterEnded, shouldPlayWhole } from "../lib/episode-end";
 import type { RestNight } from "../lib/rest/types";
 import { YouTubeMedia } from "../lib/youtube-media";
 import type { ErrorInfo } from "../lib/media/backend";
@@ -314,43 +314,31 @@ export function YouTubeNight({
   }
 
   function handleEnded() {
+    // Always set: handleEnded is only reachable once startEpisode has set the
+    // current episode (its handlers are subscribed there). Narrows the type.
     const done = currentEpRef.current;
+    if (!done) return;
     const w = witnessRef.current;
-    const decision = decideAfterEnded({
-      stopping: stopFadeRef.current !== null,
-      active: tickHandleRef.current !== null,
-      playedThisEpisode: w.heard,
-      replayedFromStart: w.replayed,
-      mode: modeRef.current.kind,
-    });
-    switch (decision.action) {
-      case "ignore":
-        return;
-      case "replay-from-start":
-        replayFromStart();
-        return;
-      case "end-night":
-        if (done) forgetPosition(done.id); // played out: nothing to resume
-        endSession(decision.reason);
-        return;
-      case "skip-dead":
-        // Always set here: handleEnded is only reachable once startEpisode has
-        // set the current episode. The check narrows the type.
-        if (!done) return;
-        forgetPosition(done.id);
-        // Counted like the watchdog's kills, so a lineup of episodes that all
-        // end unheard stops after a few rather than flickering through them all.
-        if (!countFailure()) skipDead(done, "that one ended before it played", false);
-        return;
-      case "next":
-        if (done) forgetPosition(done.id);
-        playNext();
-        return;
-      default: {
-        const unhandled: never = decision; // a new action must be handled here
-        return unhandled;
-      }
-    }
+    applyEndedDecision(
+      decideAfterEnded({
+        stopping: stopFadeRef.current !== null,
+        active: tickHandleRef.current !== null,
+        playedThisEpisode: w.heard,
+        replayedFromStart: w.replayed,
+        mode: modeRef.current.kind,
+      }),
+      {
+        replay: () => void replayFromStart(),
+        endNight: (reason) => endSession(reason),
+        skipDead: () => {
+          // Counted like the watchdog's kills, so a lineup that all ends
+          // unheard stops after a few rather than flickering through them all.
+          if (!countFailure()) skipDead(done, "that one ended before it played", false);
+        },
+        next: () => playNext(),
+        forgetPosition: () => forgetPosition(done.id),
+      },
+    );
   }
 
   function handleError(code: number, info: ErrorInfo) {
@@ -377,12 +365,12 @@ export function YouTubeNight({
   /** Retire this episode for tonight and move on, as Night's skipDead does.
    *  `permanent` means it will never play here on any night: remember it the
    *  way "never again" does, so tomorrow does not rediscover it. */
-  function skipDead(ep: Episode, reason: string, permanent: boolean) {
+  function skipDead(ep: Episode, reason: string, permanent: boolean, byListener = false) {
     deadRef.current.add(ep.id);
     if (permanent) blockEpisode(ep.id);
     setBlockedTonight((prev) => new Set(prev).add(ep.id));
     flash(reason);
-    playNext();
+    playNext(byListener);
   }
 
   function heardTick(cur: number) {
@@ -563,6 +551,9 @@ export function YouTubeNight({
       // not know enough to condemn it forever.
       deadRef.current.add(w.id);
       if (!countFailure()) playNext();
+      // cur/dur below belong to the episode just killed, while currentEpRef is
+      // now the next one (or the night ended): nothing below concerns it.
+      return;
     }
 
     // Spent only when a snapshot can actually be written (the episode has
@@ -609,6 +600,7 @@ export function YouTubeNight({
         wasVaried: wasVariedRef.current,
       },
       current: currentEpRef.current,
+      currentHeard: witnessRef.current.heard,
       rest: restRef.current,
       now: Date.now(),
     });
@@ -805,14 +797,12 @@ export function YouTubeNight({
   function handleBlock() {
     const ep = currentEpRef.current;
     if (!ep) return;
-    blockEpisode(ep.id);
     restRef.current?.noteSkip(ep.feedId);
-    forgetPosition(ep.id);
-    deadRef.current.add(ep.id);
-    setBlockedTonight((prev) => new Set(prev).add(ep.id));
-    flash("never again");
     restRef.current?.noteInteraction();
-    playNext(true);
+    forgetPosition(ep.id);
+    // The listener's own choice: permanent, and ending a never-played night
+    // here clears its snapshot (see playNext's byListener).
+    skipDead(ep, "never again", true, true);
   }
 
   function extendTimer(minutes: number) {

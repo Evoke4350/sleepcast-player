@@ -54,7 +54,7 @@ import { shouldTick } from "../lib/tick-gate";
 import { RestSession, revivedNightStart } from "../lib/rest/session";
 import { recordNightEnd } from "../lib/night-end";
 import { PlaybackWitness } from "../lib/witness";
-import { decideAfterEnded, shouldPlayWhole } from "../lib/episode-end";
+import { applyEndedDecision, decideAfterEnded, shouldPlayWhole } from "../lib/episode-end";
 import type { RestNight } from "../lib/rest/types";
 import { YouTubeMedia } from "../lib/youtube-media";
 import { buildYouTubePlayer } from "../lib/youtube-embed";
@@ -402,54 +402,40 @@ export function Night({
   }
 
   function handleEnded() {
+    // Always set: handleEnded is only reachable once startEpisode has set the
+    // current episode (its handlers are subscribed there). Narrows the type.
     const done = currentEpRef.current;
+    if (!done) return;
     const w = witnessRef.current;
-    const decision = decideAfterEnded({
-      stopping: stopFadeRef.current !== null,
-      active: tickHandleRef.current !== null,
-      playedThisEpisode: w.heard,
-      replayedFromStart: w.replayed,
-      mode: modeRef.current.kind,
-    });
-    switch (decision.action) {
-      case "ignore":
-        return;
-      case "replay-from-start":
-        replayFromStart();
-        return;
-      case "end-night":
-        if (done) forgetPosition(done.id); // played out: nothing to resume
-        endSession(decision.reason);
-        return;
-      case "skip-dead":
-        // Always set here: handleEnded is only reachable once startEpisode has
-        // set the current episode. The check narrows the type.
-        if (!done) return;
-        forgetPosition(done.id);
-        skipDead(done, "that one ended before it played", false);
-        return;
-      case "next":
-        if (done) forgetPosition(done.id);
-        playNext();
-        return;
-      default: {
-        const unhandled: never = decision; // a new action must be handled here
-        return unhandled;
-      }
-    }
+    applyEndedDecision(
+      decideAfterEnded({
+        stopping: stopFadeRef.current !== null,
+        active: tickHandleRef.current !== null,
+        playedThisEpisode: w.heard,
+        replayedFromStart: w.replayed,
+        mode: modeRef.current.kind,
+      }),
+      {
+        replay: () => void replayFromStart(),
+        endNight: (reason) => endSession(reason),
+        skipDead: () => skipDead(done, "that one ended before it played", false),
+        next: () => playNext(),
+        forgetPosition: () => forgetPosition(done.id),
+      },
+    );
   }
 
   /** Retire this episode for tonight and move on. `permanent` is only ever
    *  true for a verdict that says the episode can never play here — the
    *  ordinary case is dead tonight, eligible again tomorrow. */
-  function skipDead(ep: Episode, reason: string, permanent: boolean) {
+  function skipDead(ep: Episode, reason: string, permanent: boolean, byListener = false) {
     deadRef.current.add(ep.id);
     // Permanent means it will never play here on any night — remember it the
     // same way "never again" does, so tomorrow does not rediscover it.
     if (permanent) blockEpisode(ep.id);
     setBlockedTonight((prev) => new Set(prev).add(ep.id));
     flash(reason);
-    playNext();
+    playNext(byListener);
   }
 
   /**
@@ -789,6 +775,7 @@ export function Night({
         wasVaried: wasVariedRef.current,
       },
       current: currentEpRef.current,
+      currentHeard: witnessRef.current.heard,
       rest: restRef.current,
       now: Date.now(),
     });
@@ -1026,14 +1013,12 @@ export function Night({
   function handleBlock() {
     const ep = currentEpRef.current;
     if (!ep) return;
-    blockEpisode(ep.id);
     restRef.current?.noteSkip(ep.feedId);
-    forgetPosition(ep.id);
-    deadRef.current.add(ep.id);
-    setBlockedTonight((prev) => new Set(prev).add(ep.id));
-    flash("never again");
     restRef.current?.noteInteraction();
-    playNext(true);
+    forgetPosition(ep.id);
+    // The listener's own choice: permanent, and ending a never-played night
+    // here clears its snapshot (see playNext's byListener).
+    skipDead(ep, "never again", true, true);
   }
 
   function extendTimer(minutes: number) {

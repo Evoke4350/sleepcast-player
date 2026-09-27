@@ -12,7 +12,7 @@ const live: LiveSession = {
 const end = (over: Partial<NightEnd> = {}): NightEnd => ({
   reason: "faded", played: true, timerMinutes: 45, modeKind: "minutes",
   lastNight: { pool: [ep], playedIds: ["a"], feedTitles: {}, artworkByFeedId: {}, skipIntroByFeedId: {}, wasVaried: false },
-  current: ep, rest: new RestSession(1_000, 45), now: 5_000,
+  current: ep, currentHeard: true, rest: new RestSession(1_000, 45), now: 5_000,
   ...over,
 });
 
@@ -51,5 +51,14 @@ describe("recordNightEnd", () => {
   it("gaveUp does not keep the snapshot of a night that played", () => {
     recordNightEnd(end({ gaveUp: true }));
     expect(loadLive()).toBeNull();
+  });
+});
+
+describe("recordNightEnd last episode", () => {
+  beforeEach(() => { localStorage.clear(); saveLive(live); });
+  it("doesn't offer an episode that was never heard as the exact one again", () => {
+    recordNightEnd(end({ currentHeard: false }));
+    expect(loadLastEpisode()).toBeNull();
+    expect(loadNights()).toHaveLength(1); // the night itself still counts
   });
 });

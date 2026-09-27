@@ -69,3 +69,41 @@ export function shouldPlayWhole(w: PlaybackWitness, durationSec: number): boolea
     w.startSec >= durationSec - PLAY_WHOLE_WITHIN_SEC
   );
 }
+
+/** What each outcome does, supplied by the player. */
+export interface EndedHooks {
+  replay(): void;
+  endNight(reason: "ended" | "faded"): void;
+  skipDead(): void;
+  next(): void;
+  /** Drop the episode's saved position: it played out, or can't play. */
+  forgetPosition(): void;
+}
+
+/** Carry out a decision. The one switch both players share, so a new
+ *  outcome can't be handled in one and forgotten in the other. */
+export function applyEndedDecision(d: EndedDecision, h: EndedHooks): void {
+  switch (d.action) {
+    case "ignore":
+      return;
+    case "replay-from-start":
+      h.replay();
+      return;
+    case "end-night":
+      h.forgetPosition();
+      h.endNight(d.reason);
+      return;
+    case "skip-dead":
+      h.forgetPosition();
+      h.skipDead();
+      return;
+    case "next":
+      h.forgetPosition();
+      h.next();
+      return;
+    default: {
+      const unhandled: never = d;
+      return unhandled;
+    }
+  }
+}

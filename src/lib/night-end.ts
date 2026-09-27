@@ -22,6 +22,10 @@ export interface NightEnd {
   modeKind: PlayMode["kind"];
   lastNight: Omit<LastNight, "endedVia" | "endedAt">;
   current: Episode | null;
+  /** Whether `current` was actually heard. Only a heard episode is saved as
+   *  "the exact one again": a night that ended on a run of failures would
+   *  otherwise offer tomorrow the one that couldn't play. */
+  currentHeard: boolean;
   rest: RestSession | null;
   now: number;
 }
@@ -34,6 +38,6 @@ export function recordNightEnd(e: NightEnd): void {
   // "faded" is the natural end — stamp it so setup can offer a smaller re-arm.
   if (e.reason === "faded") recordSessionEnd(e.timerMinutes, e.modeKind);
   saveLastNight({ ...e.lastNight, endedVia: e.reason, endedAt: e.now });
-  if (e.current) saveLastEpisode(e.current); // for "the exact one again"
+  if (e.current && e.currentHeard) saveLastEpisode(e.current); // for "the exact one again"
   if (e.rest) appendNight(e.rest.finish(e.reason, e.now));
 }
