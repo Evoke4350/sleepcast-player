@@ -642,7 +642,16 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
         endSession("ended");
         return;
       }
-      if (tickHandleRef.current !== null) playNext();
+      if (tickHandleRef.current === null) return;
+      // One-episode mode means one episode: its fade was driven by this
+      // episode's end, so the night is over. Playing on started the next
+      // episode at full volume after the fade and the night never ended.
+      // Night.tsx and YouTubeNight.tsx already end here.
+      if (modeRef.current.kind === "one-episode") {
+        endSession("faded");
+        return;
+      }
+      playNext();
     };
 
     // Playback genuinely started: stand the watchdog down.
