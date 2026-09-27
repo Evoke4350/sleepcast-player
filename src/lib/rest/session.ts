@@ -95,3 +95,9 @@ export class RestSession {
     };
   }
 }
+
+/** When a revived night's session should say it began: the snapshot's real
+ *  start when it has a believable one, else now. */
+export function revivedNightStart(savedStart: number | undefined, now: number): number {
+  return savedStart !== undefined && Number.isFinite(savedStart) && savedStart <= now ? savedStart : now;
+}

@@ -55,7 +55,7 @@ import { HEARD_SEC } from "../lib/plays";
 import { canExtend } from "../lib/timer-feel";
 import { BrownNoise, noiseGain } from "../lib/noise";
 import { shouldTick } from "../lib/tick-gate";
-import { RestSession } from "../lib/rest/session";
+import { RestSession, revivedNightStart } from "../lib/rest/session";
 import { appendNight } from "../lib/rest/ledger";
 import type { RestNight } from "../lib/rest/types";
 import {
@@ -199,10 +199,13 @@ export function Night({
   // silently fail to land.
   const lastSeenPosRef = useRef(0);
   const hasMovedRef = useRef(false);
-  // The level last given to the live backend (fade × trim, or the courtesy
-  // fade). A backend that becomes live is set to it at once, rather than
-  // playing at whatever it was last given, possibly hours ago, until a tick.
+  // The fade factor last applied to the live backend, before per-feed trim
+  // (the night's fade, or the courtesy fade). A backend that becomes live is
+  // set to it times its own episode's trim at once, rather than playing at
+  // whatever it was last given, possibly hours ago, until a tick.
   const levelRef = useRef<number | null>(null);
+  // Where the current episode was asked to start, for a retry to go back to.
+  const epStartSecRef = useRef(0);
   const heardSavedAtRef = useRef(-1e9);
   const epStartedAtRef = useRef(0);
   const persistCounterRef = useRef(0);
@@ -381,7 +384,9 @@ export function Night({
     // night that has already moved on to a video.
     for (const off of offRef.current.splice(0)) off();
     if (liveRef.current && liveRef.current !== next) liveRef.current.pause();
-    if (levelRef.current !== null && liveRef.current !== next) next.setVolume(levelRef.current);
+    if (levelRef.current !== null && liveRef.current !== next) {
+      next.setVolume(Math.min(1, levelRef.current * (feedTrimRef.current[ep.feedId] ?? 1.0)));
+    }
     liveRef.current = next;
 
     offRef.current.push(
@@ -408,6 +413,7 @@ export function Night({
     // A saved position is already past any intro, so it wins over skip-intro.
     const skipSec = (skipIntroRef.current[ep.feedId] ?? 0) * 60;
     const start = seekTo > 0 ? seekTo : skipSec;
+    epStartSecRef.current = start;
     // A videoId for the embed, an enclosure URL for the element. This is the
     // last place the difference is visible.
     next.load(ep.youtubeId ?? ep.url, start);
@@ -444,7 +450,7 @@ export function Night({
     // Nothing left that can play. Ending is the honest outcome: continuing
     // would be an hour of black screen with the timer running down.
     if (!ep) {
-      endSession("ended");
+      endSession("ended", { gaveUp: true });
       return;
     }
     startEpisode(ep);
@@ -523,13 +529,18 @@ export function Night({
     const decision = decideAfterError(code, retriesRef.current);
     if (decision.action === "retry") {
       retriesRef.current++;
-      liveRef.current?.load(ep.youtubeId, 0);
+      // Where it was, or where it was meant to start (a revived position, the
+      // skip-intro): reloading at 0 restarted a long video mid-night.
+      const at = Math.max(epStartSecRef.current, liveRef.current?.currentTime() ?? 0);
+      epStartSecRef.current = at;
+      liveRef.current?.load(ep.youtubeId, at);
       watchRef.current = { id: ep.id, at: Date.now() };
-      // The retry restarts from the top, so the watchdog's idea of "has it
-      // moved" has to restart with it.
-      lastSeenPosRef.current = 0;
+      // The watchdog's idea of "has it moved" restarts with the reload, and so
+      // does the snapshot gate (hasMovedRef), since the position reads 0 again
+      // until the seek lands.
+      lastSeenPosRef.current = at;
       hasMovedRef.current = false;
-      lastPosRef.current = 0;
+      lastPosRef.current = at;
       return;
     }
     skipDead(ep, classifyYouTubeError(code).reason, decision.permanent);
@@ -710,11 +721,11 @@ export function Night({
     if (stopFadeRef.current === null) {
       // With no fade underway (driver Infinity) this is the feed's trim alone.
       // A hard 1 played turned-down feeds at full volume in all-night mode.
-      levelRef.current = effectiveVolume(driver, FADE_SECONDS, feedTrimRef.current[currentFeedRef.current ?? ""] ?? 1.0);
-      media.setVolume(levelRef.current);
+      levelRef.current = effectiveVolume(driver, FADE_SECONDS, 1);
+      media.setVolume(effectiveVolume(driver, FADE_SECONDS, feedTrimRef.current[currentFeedRef.current ?? ""] ?? 1.0));
       // Silent while nothing plays: left at full level, the noise ran on under
       // a pause with the clock frozen, so no fade would ever reach it.
-      const silent = media.transport() === "paused" || media.transport() === "awaiting-start";
+      const silent = t === "paused" || t === "awaiting-start";
       brownRef.current?.setGain(noiseGain(noise.on && !silent ? noise.level : 0, driver, FADE_SECONDS));
     }
 
@@ -795,28 +806,32 @@ export function Night({
     liveRef.current = null;
   }
 
-  function endSession(reason: RestNight["endedVia"] = "faded") {
+  /** `gaveUp`: the app, not the listener, is ending a night that never
+   *  played (nothing playable, or the error screen). Its snapshot is kept, so a
+   *  revived night that failed offline can still be revived. When the listener
+   *  ends it themselves, the snapshot goes. */
+  function endSession(reason: RestNight["endedVia"] = "faded", { gaveUp = false }: { gaveUp?: boolean } = {}) {
     if (tickHandleRef.current === null && reason !== "ended") return;
-    // A night that never played anything (the error screen's "back to setup",
-    // or a lineup with nothing playable) records nothing. It used to clear
-    // the live snapshot, so a revived night that failed offline lost its
-    // snapshot, and it wrote an empty last night and a RestNight to the
-    // ledger, which calibration then learned from.
+    // A night that never played anything records nothing: it used to write an
+    // empty last night and a RestNight to the ledger, which calibration then
+    // learned from.
     const played = hasEverPlayedRef.current;
-    if (reason === "faded" && played) recordSessionEnd(timerMinutes, modeRef.current.kind);
     clearStopFade();
-    if (played) clearLive();
-    if (played) saveLastNight({
-      pool: poolRef.current,
-      playedIds: [...playedIdsRef.current],
-      feedTitles: feedTitlesRef.current,
-      artworkByFeedId: artworkRef.current,
-      skipIntroByFeedId: skipIntroRef.current,
-      endedVia: reason,
-      endedAt: Date.now(),
-      wasVaried: wasVariedRef.current,
-    });
-    if (played && currentEpRef.current) saveLastEpisode(currentEpRef.current);
+    if (played || !gaveUp) clearLive();
+    if (played) {
+      if (reason === "faded") recordSessionEnd(timerMinutes, modeRef.current.kind);
+      saveLastNight({
+        pool: poolRef.current,
+        playedIds: [...playedIdsRef.current],
+        feedTitles: feedTitlesRef.current,
+        artworkByFeedId: artworkRef.current,
+        skipIntroByFeedId: skipIntroRef.current,
+        endedVia: reason,
+        endedAt: Date.now(),
+        wasVaried: wasVariedRef.current,
+      });
+      if (currentEpRef.current) saveLastEpisode(currentEpRef.current);
+    }
     watchRef.current = null;
     if (tickHandleRef.current !== null) {
       clearInterval(tickHandleRef.current);
@@ -851,8 +866,7 @@ export function Night({
     // A revived night continues the one that began before the reload: its
     // time-to-sleep, timeline and snapshots count from the real start, not
     // from the tap on "keep going".
-    const nightStart =
-      resume?.nightStartedAt && resume.nightStartedAt <= Date.now() ? resume.nightStartedAt : Date.now();
+    const nightStart = revivedNightStart(resume?.nightStartedAt, Date.now());
     restRef.current = new RestSession(nightStart, timerMinutes);
     deadRef.current = new Set(loadBlocked());
     if (resume) {
@@ -982,9 +996,13 @@ export function Night({
     }
     // The clock starts when sound is witnessed (the tick, or the embed's
     // PLAYING), not on the tap: a tap during buffering, or on a stream that
-    // then hangs, ran the night down over silence. And the watchdog is armed
-    // again, since a refused autoplay had stood it down.
-    if (currentEpRef.current) watchRef.current = { id: currentEpRef.current.id, at: Date.now() };
+    // then hangs, ran the night down over silence. An episode that has never
+    // made a sound (a refused autoplay stood the watchdog down) gets it back,
+    // timed from this tap; one resumed mid-night does not, or a slow 2am
+    // rebuffer would condemn it.
+    if (currentEpRef.current && !hasMovedRef.current) {
+      watchRef.current = { id: currentEpRef.current.id, at: Date.now() };
+    }
     media.play();
   }
 
@@ -1053,8 +1071,8 @@ export function Night({
           return;
         }
         const trim = feedTrimRef.current[currentFeedRef.current ?? ""] ?? 1.0;
-        levelRef.current = effectiveVolume(left / 1000, 5, trim);
-        liveRef.current.setVolume(levelRef.current);
+        levelRef.current = effectiveVolume(left / 1000, 5, 1);
+        liveRef.current.setVolume(effectiveVolume(left / 1000, 5, trim));
         brownRef.current?.setGain(noiseGain(noise.on ? noise.level : 0, left / 1000, 5));
       }, 100);
     }, 80);
@@ -1127,7 +1145,7 @@ export function Night({
             <p className="text-sm text-[#d9c9a8]">this night didn&apos;t start.</p>
             <p className="text-xs text-[#8a7a5c]">{errorText}</p>
             <button
-              onClick={() => endSession("ended")}
+              onClick={() => endSession("ended", { gaveUp: true })}
               className="rounded-full border border-[#6e5d44] px-4 py-1.5 text-xs text-[#f0dcb8]"
             >
               back to setup

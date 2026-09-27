@@ -61,8 +61,10 @@ export class YouTubeMedia implements MediaBackend {
   private dead = false;
   /** Issued before onReady; replayed in order when it fires. */
   private pending: Array<(p: YTPlayerLike) => void> = [];
-  /** The volume command currently in `pending`, so a newer one replaces it. */
-  private queuedVolume: ((p: YTPlayerLike) => void) | null = null;
+  /** The latest volume asked for before ready. Only the latest matters: the
+   *  night sets it every second, and queueing each one put a closure a second
+   *  in `pending` all night for a player that was slow (or never) ready. */
+  private pendingVolume: number | null = null;
   private progressTimer: ReturnType<typeof setInterval> | null = null;
   private progressSubs = new Set<() => void>();
   private endedSubs = new Set<() => void>();
@@ -95,7 +97,8 @@ export class YouTubeMedia implements MediaBackend {
         this.ready = true;
         const queued = this.pending;
         this.pending = [];
-        this.queuedVolume = null;
+        if (this.pendingVolume !== null) this.player!.setVolume(this.pendingVolume);
+        this.pendingVolume = null;
         for (const run of queued) run(this.player!);
       },
       onEnded: () => {
@@ -120,15 +123,10 @@ export class YouTubeMedia implements MediaBackend {
   /** Takes 0–1, like HTMLMediaElement.volume. */
   setVolume(level: number): void {
     const clamped = Math.max(0, Math.min(1, level));
-    const command = (p: YTPlayerLike) => p.setVolume(Math.round(clamped * 100));
-    // Only the latest volume matters. The night sets it every second, so a
-    // player that is slow (or never) ready would otherwise queue one closure a
-    // second all night and replay them in a burst.
-    if (!(this.ready && this.player) && !this.dead) {
-      if (this.queuedVolume) this.pending = this.pending.filter((c) => c !== this.queuedVolume);
-      this.queuedVolume = command;
-    }
-    this.run(command);
+    const percent = Math.round(clamped * 100);
+    if (this.dead) return;
+    if (this.ready && this.player) this.player.setVolume(percent);
+    else this.pendingVolume = percent;
   }
 
   /** 0 before ready — the countdown reads this every tick and must not be
@@ -206,7 +204,7 @@ export class YouTubeMedia implements MediaBackend {
     if (this.dead) return;
     this.dead = true;
     this.pending = [];
-    this.queuedVolume = null;
+    this.pendingVolume = null;
     const p = this.player;
     this.player = null;
     this.ready = false;

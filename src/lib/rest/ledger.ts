@@ -52,6 +52,17 @@ function median(xs: number[]): number | null {
 export const MIN_PLAUSIBLE_ONSET_MS =
   (quietTicksToDecide({ ...DEFAULT_PARAMS, lambdaAwake: LAMBDA_MAX }) - 1) * TICK_MS;
 
+/** Nights started before this may predate the detector fix, whose onsets were
+ *  anchored at the first quiet tick after the last touch and so can land
+ *  anywhere below ~7 min. The fix predates this repository (first commit
+ *  2026-07-30), so that is the cutoff. Those nights keep the old floor. */
+export const PRE_FIX_BEFORE_MS = Date.UTC(2026, 6, 31);
+const LEGACY_FLOOR_MS = 7 * 60_000;
+
+function plausibleFloor(n: RestNight): number {
+  return n.startedAt < PRE_FIX_BEFORE_MS ? LEGACY_FLOOR_MS : MIN_PLAUSIBLE_ONSET_MS;
+}
+
 export function rollup(nights: RestNight[]): RestRollup {
   // A night the listener marked "awake" was a detector false positive: it was
   // not slept, and its onset time is not a time-to-sleep. stepback.ts and
@@ -68,8 +79,8 @@ export function rollup(nights: RestNight[]): RestRollup {
   // The nights themselves still count as slept — the sleep was real, only the
   // figure was wrong — so this filters the time statistics, not the ledger.
   const tts = slept
-    .map((n) => n.timeToSleepMs as number)
-    .filter((ms) => ms >= MIN_PLAUSIBLE_ONSET_MS);
+    .filter((n) => (n.timeToSleepMs as number) >= plausibleFloor(n))
+    .map((n) => n.timeToSleepMs as number);
   const last7 = nights.slice(-7);
   const avg7 = last7.length
     ? last7.reduce((s, n) => s + n.interactions, 0) / last7.length

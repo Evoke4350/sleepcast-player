@@ -48,7 +48,7 @@ import { HEARD_SEC } from "../lib/plays";
 import { canExtend } from "../lib/timer-feel";
 import { BrownNoise, noiseGain } from "../lib/noise";
 import { shouldTick } from "../lib/tick-gate";
-import { RestSession } from "../lib/rest/session";
+import { RestSession, revivedNightStart } from "../lib/rest/session";
 import { appendNight } from "../lib/rest/ledger";
 import type { RestNight } from "../lib/rest/types";
 import {
@@ -345,7 +345,7 @@ export function YouTubeNight({
     // Nothing left that can play. Ending is the honest outcome: continuing
     // would be an hour of black screen with the timer running down.
     if (!ep) {
-      endSession("ended");
+      endSession("ended", { gaveUp: true });
       return;
     }
     startEpisode(ep);
@@ -379,6 +379,10 @@ export function YouTubeNight({
       // Where it was, or where it was meant to start (a revived position, the
       // skip-intro): reloading at 0 restarted a four-hour video mid-night.
       const at = Math.max(epStartSecRef.current, mediaRef.current?.currentTime() ?? 0);
+      // Its position reads 0 again until the reload's seek lands, so the
+      // snapshot gate closes until it plays; the retry's start is the new start.
+      epPlayedRef.current = false;
+      epStartSecRef.current = at;
       mediaRef.current?.load(ep.youtubeId, at);
       watchRef.current = { id: ep.id, at: Date.now() };
       return;
@@ -498,6 +502,13 @@ export function YouTubeNight({
     const ytState = media.state();
     const t = transportFor(ytState);
     setTransport(t);
+    // A missed PLAYING event must not leave the clock frozen over a video that
+    // is audibly playing (the tap no longer unfreezes it).
+    if (t === "playing") {
+      hasEverPlayedRef.current = true;
+      epPlayedRef.current = true;
+      unfreezeClock();
+    }
     // watchRef.at is when this episode was asked to play, and it is cleared
     // the moment it does — so this is exactly "how long it has refused for".
     const waitedMs = watchRef.current ? Date.now() - watchRef.current.at : 0;
@@ -527,7 +538,7 @@ export function YouTubeNight({
       media.setVolume(effectiveVolume(driver, FADE_SECONDS, feedTrimRef.current[currentFeedRef.current ?? ""] ?? 1.0));
       // Silent while nothing plays: left at full level, the noise ran on under
       // a pause with the clock frozen, so no fade would ever reach it.
-      const silent = media.transport() === "paused" || media.transport() === "awaiting-start";
+      const silent = t === "paused" || t === "awaiting-start";
       brownRef.current?.setGain(noiseGain(noise.on && !silent ? noise.level : 0, driver, FADE_SECONDS));
     }
 
@@ -551,7 +562,7 @@ export function YouTubeNight({
       // not know enough to condemn it forever.
       deadRef.current.add(w.id);
       if (failsRef.current <= 6) playNext();
-      else endSession("ended"); // the whole lineup looks broken
+      else endSession("ended", { gaveUp: true }); // the whole lineup looks broken
     }
 
     if (++persistCounterRef.current >= 10) {
@@ -570,28 +581,32 @@ export function YouTubeNight({
     }
   }
 
-  function endSession(reason: RestNight["endedVia"] = "faded") {
+  /** `gaveUp`: the app, not the listener, is ending a night that never
+   *  played (nothing playable, or the error screen). Its snapshot is kept, so a
+   *  revived night that failed offline can still be revived. When the listener
+   *  ends it themselves, the snapshot goes. */
+  function endSession(reason: RestNight["endedVia"] = "faded", { gaveUp = false }: { gaveUp?: boolean } = {}) {
     if (tickHandleRef.current === null && reason !== "ended") return;
-    // A night that never played anything (the error screen's "back to setup",
-    // or a lineup with nothing playable) records nothing. It used to clear
-    // the live snapshot, so a revived night that failed offline lost its
-    // snapshot, and it wrote an empty last night and a RestNight to the
-    // ledger, which calibration then learned from.
+    // A night that never played anything records nothing: it used to write an
+    // empty last night and a RestNight to the ledger, which calibration then
+    // learned from.
     const played = hasEverPlayedRef.current;
-    if (reason === "faded" && played) recordSessionEnd(timerMinutes, modeRef.current.kind);
     clearStopFade();
-    if (played) clearLive();
-    if (played) saveLastNight({
-      pool: poolRef.current,
-      playedIds: [...playedIdsRef.current],
-      feedTitles: feedTitlesRef.current,
-      artworkByFeedId: artworkRef.current,
-      skipIntroByFeedId: skipIntroRef.current,
-      endedVia: reason,
-      endedAt: Date.now(),
-      wasVaried: wasVariedRef.current,
-    });
-    if (played && currentEpRef.current) saveLastEpisode(currentEpRef.current);
+    if (played || !gaveUp) clearLive();
+    if (played) {
+      if (reason === "faded") recordSessionEnd(timerMinutes, modeRef.current.kind);
+      saveLastNight({
+        pool: poolRef.current,
+        playedIds: [...playedIdsRef.current],
+        feedTitles: feedTitlesRef.current,
+        artworkByFeedId: artworkRef.current,
+        skipIntroByFeedId: skipIntroRef.current,
+        endedVia: reason,
+        endedAt: Date.now(),
+        wasVaried: wasVariedRef.current,
+      });
+      if (currentEpRef.current) saveLastEpisode(currentEpRef.current);
+    }
     watchRef.current = null;
     if (tickHandleRef.current !== null) {
       clearInterval(tickHandleRef.current);
@@ -627,8 +642,7 @@ export function YouTubeNight({
     // A revived night continues the one that began before the reload: its
     // time-to-sleep, timeline and snapshots count from the real start, not
     // from the tap on "keep going".
-    const nightStart =
-      resume?.nightStartedAt && resume.nightStartedAt <= Date.now() ? resume.nightStartedAt : Date.now();
+    const nightStart = revivedNightStart(resume?.nightStartedAt, Date.now());
     restRef.current = new RestSession(nightStart, timerMinutes);
     deadRef.current = new Set(loadBlocked());
     if (resume) {
@@ -717,9 +731,15 @@ export function YouTubeNight({
       media.pause();
       return;
     }
-    // The clock is not started here. PLAYING starts it (onStateChange); a tap
-    // during buffering, or one whose play() is refused, would otherwise run
-    // the night down over silence.
+    // The clock is not started here. PLAYING starts it (onStateChange, or the
+    // tick if that event is missed); a tap during buffering, or one whose
+    // play() is refused, would otherwise run the night down over silence.
+    // A video that has never played gets its watchdog timed from this tap,
+    // not from its load: tapping "begin" after a long wait otherwise read as
+    // a stall and skipped it the moment it started. One resumed mid-night is
+    // left alone, or a slow rebuffer would condemn it.
+    const ep = currentEpRef.current;
+    if (ep && !epPlayedRef.current) watchRef.current = { id: ep.id, at: Date.now() };
     media.play();
   }
 
@@ -851,7 +871,7 @@ export function YouTubeNight({
             <p className="text-sm text-[#d9c9a8]">the video player didn&apos;t start.</p>
             <p className="text-xs text-[#8a7a5c]">{errorText}</p>
             <button
-              onClick={() => endSession("ended")}
+              onClick={() => endSession("ended", { gaveUp: true })}
               className="rounded-full border border-[#6e5d44] px-4 py-1.5 text-xs text-[#f0dcb8]"
             >
               back to setup

@@ -14,7 +14,7 @@ import { BrownNoise, noiseGain } from "../lib/noise";
 import { Leveler } from "../lib/leveler";
 import { shouldTick } from "../lib/tick-gate";
 import { shouldSuggestGettingUp } from "../lib/rest/quarterhour";
-import { RestSession } from "../lib/rest/session";
+import { RestSession, revivedNightStart } from "../lib/rest/session";
 import { appendNight } from "../lib/rest/ledger";
 import type { RestNight } from "../lib/rest/types";
 
@@ -108,6 +108,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   // can't spin forever.
   const watchRef = useRef<{ src: string; at: number } | null>(null);
   const failsRef = useRef(0);
+  // Whether anything has actually played this night. A night that never did
+  // records nothing when it ends (see endSession).
+  const hasEverPlayedRef = useRef(false);
   const restRef = useRef<RestSession | null>(null);
   const lastRestTickRef = useRef(0);
   // The full episode now playing (nowPlaying state omits the url we need to
@@ -567,20 +570,28 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // "faded" is the natural end — the timer ran out untouched. Stamp it so
     // the setup screen can offer a smaller re-arm to someone who wakes back
     // up inside the window. A manual stop is not an invitation to resume.
-    if (reason === "faded") recordSessionEnd(timerMinutes, modeRef.current.kind);
+    //
+    // A night that never played anything (every enclosure failed, say, and the
+    // listener ended it) records nothing: no re-arm stamp, no empty last night,
+    // no RestNight for calibration to learn from. Ending it is still the
+    // listener's choice, so its snapshot is cleared either way.
+    const played = hasEverPlayedRef.current;
     clearStopFade();
     clearLive(); // the night is over — nothing to revive
-    saveLastNight({
-      pool: poolRef.current,
-      playedIds: [...playedIdsRef.current],
-      feedTitles: feedTitlesRef.current,
-      artworkByFeedId: artworkRef.current,
-      skipIntroByFeedId: skipIntroRef.current,
-      endedVia: reason,
-      endedAt: Date.now(),
-      wasVaried: wasVariedRef.current,
-    });
-    if (currentEpRef.current) saveLastEpisode(currentEpRef.current); // for "the exact one again"
+    if (played) {
+      if (reason === "faded") recordSessionEnd(timerMinutes, modeRef.current.kind);
+      saveLastNight({
+        pool: poolRef.current,
+        playedIds: [...playedIdsRef.current],
+        feedTitles: feedTitlesRef.current,
+        artworkByFeedId: artworkRef.current,
+        skipIntroByFeedId: skipIntroRef.current,
+        endedVia: reason,
+        endedAt: Date.now(),
+        wasVaried: wasVariedRef.current,
+      });
+      if (currentEpRef.current) saveLastEpisode(currentEpRef.current); // for "the exact one again"
+    }
     watchRef.current = null;
     if (tickHandleRef.current !== null) {
       clearInterval(tickHandleRef.current);
@@ -602,7 +613,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     }
 
     if (restRef.current) {
-      appendNight(restRef.current.finish(reason, Date.now()));
+      if (played) appendNight(restRef.current.finish(reason, Date.now()));
       restRef.current = null;
     }
 
@@ -619,8 +630,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // A revived night continues the one that began before the reload: its
     // time-to-sleep, timeline and snapshots count from the real start, not
     // from the tap on "keep going".
-    const nightStart =
-      resume?.nightStartedAt && resume.nightStartedAt <= Date.now() ? resume.nightStartedAt : Date.now();
+    const nightStart = revivedNightStart(resume?.nightStartedAt, Date.now());
     restRef.current = new RestSession(nightStart, timerMinutes);
     nightStartedAtRef.current = nightStart; // the quarter-hour rule's clock too
     if (resume) {
@@ -677,6 +687,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     const onPlaying = () => {
       watchRef.current = null;
       failsRef.current = 0;
+      hasEverPlayedRef.current = true;
       const feedId = currentFeedRef.current;
       if (feedId && audio.crossOrigin === "anonymous") corsGoodFeeds.add(feedId);
       // Conservative gate: attach only once every feed in the pool has already

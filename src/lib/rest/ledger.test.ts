@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { loadNights, appendNight, rollup, setSelfLabel, MIN_PLAUSIBLE_ONSET_MS } from "./ledger";
+import { loadNights, appendNight, rollup, setSelfLabel, MIN_PLAUSIBLE_ONSET_MS, PRE_FIX_BEFORE_MS } from "./ledger";
 import { DEFAULT_PARAMS, LAMBDA_MAX, quietTicksToDecide, TICK_MS } from "./detector";
 import type { RestNight } from "./types";
 
@@ -107,5 +107,21 @@ describe("MIN_PLAUSIBLE_ONSET_MS", () => {
 
   it("still filters the pre-fix one-minute artifacts", () => {
     expect(MIN_PLAUSIBLE_ONSET_MS).toBeGreaterThan(60_000);
+  });
+});
+
+describe("rollup floor for nights recorded before the detector fix", () => {
+  // Pre-fix onsets were anchored at the first quiet tick after the last touch,
+  // so they can land anywhere below ~7 min, not only near zero. The derived
+  // floor is right for nights the fixed detector recorded; older nights keep
+  // the old one.
+  it("keeps the 7-minute floor for nights started before the fix shipped", () => {
+    const old = night({ startedAt: PRE_FIX_BEFORE_MS - 1, timeToSleepMs: 3 * 60_000, sleptAtMs: 3 * 60_000 });
+    expect(rollup([old]).bestTimeToSleepMs).toBeNull();
+  });
+
+  it("uses the derived floor for nights after it", () => {
+    const fresh = night({ startedAt: PRE_FIX_BEFORE_MS + 1, timeToSleepMs: 3 * 60_000, sleptAtMs: 3 * 60_000 });
+    expect(rollup([fresh]).bestTimeToSleepMs).toBe(3 * 60_000);
   });
 });
