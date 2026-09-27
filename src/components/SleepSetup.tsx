@@ -28,6 +28,7 @@ import { rankedFeeds, evidenceFor } from "../lib/rest/sleepscore";
 import type { RestNight } from "../lib/rest/types";
 import { diversePick } from "../lib/semantic-math";
 import { FEEL_PRESETS } from "../lib/timer-feel";
+import { needsFetch } from "../lib/feed-status";
 import { pickNextEpisode } from "../lib/plays";
 
 const VARIED_N = 8;
@@ -113,9 +114,8 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
   useEffect(() => {
     const enabled = appState.feeds.filter((f) => f.enabled);
     for (const feed of enabled) {
-      // Already loaded — skip re-fetch
-      const existing = feedStatuses[feed.id];
-      if (existing && !existing.loading) continue;
+      // In flight or loaded: leave it. Failed: try again.
+      if (!needsFetch(feedStatuses[feed.id])) continue;
 
       // Mark as loading
       setFeedStatuses((prev) => ({
