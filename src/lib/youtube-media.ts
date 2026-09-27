@@ -96,9 +96,10 @@ export class YouTubeMedia implements MediaBackend {
     positionCounts: boolean;
   } | null = null;
   /** An ENDED arrived while the guard held, so it was read as loading and
-   *  not passed on. Fired when the guard lets go if the player still shows
-   *  ENDED: otherwise a short video that played and ended inside the hold
-   *  left the night silent until the watchdog. */
+   *  not passed on. Re-fired when the guard lets go, but only if the player
+   *  then reports the requested video and still shows ENDED, and never on the
+   *  fallback path (see releaseSwitch): otherwise a short video that played
+   *  and ended inside the hold left the night silent until the watchdog. */
   private endedInSwitch = false;
 
   constructor(
@@ -168,7 +169,9 @@ export class YouTubeMedia implements MediaBackend {
         // new load announces itself as unstarted (-1) or cued (5), and
         // anything else may be about the previous video. With the video id
         // available (inSwitch), events don't decide anything.
-        if (this.shownVideoId() === null && (state === -1 || state === 5) && this.switching) this.releaseSwitch();
+        if (this.shownVideoId() === null && (state === -1 || state === 5) && this.switching) {
+          this.releaseSwitch(this.switching);
+        }
         const ended = this.eventState(state) === YT_STATE.ENDED;
         if (state === YT_STATE.ENDED && !ended) this.endedInSwitch = true;
         this.handlers.onStateEvent?.(state);
@@ -370,29 +373,31 @@ export class YouTubeMedia implements MediaBackend {
     if (!sw) return false;
     const elapsed = Date.now() - sw.since;
     if (elapsed < 0 || elapsed > SWITCH_GUARD_MAX_MS) {
-      this.releaseSwitch();
+      this.releaseSwitch(sw);
       return false;
     }
     const shown = this.shownVideoId();
     if (shown === null) return true; // fallback: the events decide
     if (shown !== sw.id || !this.showsFreshLoad(sw)) return true;
-    this.releaseSwitch();
+    this.releaseSwitch(sw);
     return false;
   }
 
-  private releaseSwitch(): void {
-    const id = this.switching?.id ?? null;
+  private releaseSwitch(sw: { id: string }): void {
     this.switching = null;
     if (!this.endedInSwitch) return;
     this.endedInSwitch = false;
     // Not from inside a getter: let the caller's reading finish first.
     queueMicrotask(() => {
-      if (this.dead || this.switching || id === null) return;
+      if (this.dead || this.switching) return;
       // Only for the requested video, as the player reports it. A timeout on
       // a load that never arrived leaves the PREVIOUS video showing, ended;
       // and a player that can't report its video (the fallback) may still
       // hold the old ENDED in its cached state. Both are left to the watchdog.
-      if (this.shownVideoId() !== id) return;
+      // Known limit: re-requesting the SAME video (a lone survivor) whose
+      // reload never arrives looks identical to its own ENDED, and gets one
+      // replay from 0 (decideAfterEnded). Bounded, and nothing tells them apart.
+      if (this.shownVideoId() !== sw.id) return;
       let raw = -1;
       try { raw = this.player?.getPlayerState() ?? -1; } catch { /* keep -1 */ }
       if (raw === YT_STATE.ENDED) this.fireEnded();

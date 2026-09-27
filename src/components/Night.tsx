@@ -411,21 +411,25 @@ export function Night({
       replayedFromStart: w.replayed,
       mode: modeRef.current.kind,
     });
+    // No current episode (an ENDED before the first one started): there is
+    // nothing to replay or retire, so move on rather than leave the night
+    // silent. Ignoring and ending the night need no episode.
+    if (!done && decision.action !== "ignore" && decision.action !== "end-night") {
+      playNext();
+      return;
+    }
     switch (decision.action) {
       case "ignore":
         return;
       case "replay-from-start":
-        replayFromStart();
+        if (!replayFromStart()) playNext();
         return;
       case "end-night":
         if (done) forgetPosition(done.id); // played out: nothing to resume
         endSession(decision.reason);
         return;
       case "skip-dead":
-        if (!done) {
-          playNext(); // nothing to retire; don't leave the night silent
-          return;
-        }
+        if (!done) return; // handled above; narrows the type
         forgetPosition(done.id);
         skipDead(done, "that one ended before it played", false);
         return;
@@ -667,10 +671,8 @@ export function Night({
     // Started within 30 s of its end (a skip-intro nearly as long as the
     // episode): play it whole, as Player.tsx does, rather than let the
     // listener catch only its last seconds. See shouldPlayWhole.
-    if (shouldPlayWhole(witnessRef.current, dur)) {
-      replayFromStart();
-      return;
-    }
+    // Only returns if it did reload: a failed replay must not stall every tick.
+    if (shouldPlayWhole(witnessRef.current, dur) && replayFromStart()) return;
     const epRemaining = dur > 0 ? dur - cur : null;
     const driver = fadeDriverSeconds(kind, remaining, epRemaining);
 
@@ -968,12 +970,13 @@ export function Night({
   /** Play the current episode from 0: it ended without ever being heard, or
    *  its start is within 30 s of its end — most likely started past or near
    *  its end by a skip-intro (see decideAfterEnded). Once per episode. */
-  function replayFromStart() {
+  function replayFromStart(): boolean {
     const ep = currentEpRef.current;
     // Counted as the episode's one replay only if it actually reloaded.
-    if (!ep || !reloadAt(ep, 0)) return;
+    if (!ep || !reloadAt(ep, 0)) return false;
     witnessRef.current.markReplayed();
     retriesRef.current = 0; // a fresh attempt, not the failed load's leftovers
+    return true;
   }
 
   /** Reload the current episode at `at`: a retry, or a replay. The per-load
