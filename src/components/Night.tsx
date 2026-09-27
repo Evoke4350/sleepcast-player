@@ -54,6 +54,7 @@ import { shouldTick } from "../lib/tick-gate";
 import { RestSession, revivedNightStart } from "../lib/rest/session";
 import { recordNightEnd } from "../lib/night-end";
 import { PlaybackWitness } from "../lib/witness";
+import { decideAfterEnded } from "../lib/episode-end";
 import type { RestNight } from "../lib/rest/types";
 import { YouTubeMedia } from "../lib/youtube-media";
 import { buildYouTubePlayer } from "../lib/youtube-embed";
@@ -191,6 +192,11 @@ export function Night({
   // is the only honest signal: where the episode was ASKED to start is not
   // where it necessarily is, because the start seek can silently fail to land.
   const witnessRef = useRef(new PlaybackWitness());
+  // Per EPISODE, not per load (the witness resets on a retry): whether it has
+  // been heard at all, and whether it has been replayed from 0 after ending
+  // unheard. See decideAfterEnded.
+  const epHeardRef = useRef(false);
+  const epReplayedRef = useRef(false);
   // The fade factor last applied to the live backend, before per-feed trim
   // (the night's fade, or the courtesy fade). A backend that becomes live is
   // set to it times its own episode's trim at once, rather than playing at
@@ -365,6 +371,8 @@ export function Night({
     // Seeded with the requested start: if the seek does land, arriving at
     // `start` is not movement and must not read as proof of sound.
     witnessRef.current.reset(start, Date.now());
+    epHeardRef.current = false;
+    epReplayedRef.current = false;
     heardSavedAtRef.current = -1e9;
     epStartedAtRef.current = Date.now();
     persistCounterRef.current = 10; // snapshot promptly, not up to 10s from now
@@ -400,29 +408,22 @@ export function Night({
 
   function handleEnded() {
     const done = currentEpRef.current;
-    if (done) forgetPosition(done.id);
-    if (stopFadeRef.current !== null) {
-      // The listener already asked to stop and the video happened to run out
-      // underneath the courtesy fade. Starting another would resurrect a night
-      // they just ended.
-      endSession("ended");
+    const decision = decideAfterEnded({
+      stopping: stopFadeRef.current !== null,
+      active: tickHandleRef.current !== null,
+      playedThisEpisode: epHeardRef.current,
+      replayedFromStart: epReplayedRef.current,
+      mode: modeRef.current.kind,
+    });
+    if (decision.action === "ignore") return;
+    if (decision.action === "replay-from-start") {
+      replayFromStart();
       return;
     }
-    if (tickHandleRef.current === null) return;
-    // One-episode mode means one episode: the night ends with it.
-    // An episode that ends without ever having played (a Short loaded past its
-    // end by a long skip-intro, say) failed; it didn't finish. Treated as a
-    // finish, playNext kept no record of it and a feed of such Shorts looped
-    // in silence all night. Dead for tonight, like any episode that won't play.
-    if (done && !witnessRef.current.played) {
-      skipDead(done, "that one ended before it played", false);
-      return;
-    }
-    if (modeRef.current.kind === "one-episode") {
-      endSession("faded");
-      return;
-    }
-    playNext();
+    if (done) forgetPosition(done.id); // played out, or unplayable: nothing to resume
+    if (decision.action === "end-night") endSession(decision.reason);
+    else if (decision.action === "skip-dead" && done) skipDead(done, "that one ended before it played", false);
+    else playNext();
   }
 
   /** Retire this episode for tonight and move on. `permanent` is only ever
@@ -947,6 +948,20 @@ export function Night({
     watchRef.current = null;
     retriesRef.current = 0;
     hasEverPlayedRef.current = true;
+    epHeardRef.current = true;
+  }
+
+  /** Play the current episode from 0: it ended without ever being heard,
+   *  most likely started past its end (see decideAfterEnded). Once. */
+  function replayFromStart() {
+    const ep = currentEpRef.current;
+    const media = liveRef.current;
+    if (!ep || !media) return;
+    epReplayedRef.current = true;
+    witnessRef.current.reset(0, Date.now());
+    lastPosRef.current = 0;
+    media.load(ep.youtubeId ?? ep.url, 0);
+    watchRef.current = { id: ep.id, at: Date.now() };
   }
 
   // One handler for "start it" and "resume it": both are a tap asking for

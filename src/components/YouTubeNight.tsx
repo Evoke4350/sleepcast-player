@@ -47,6 +47,7 @@ import { shouldTick } from "../lib/tick-gate";
 import { RestSession, revivedNightStart } from "../lib/rest/session";
 import { recordNightEnd } from "../lib/night-end";
 import { PlaybackWitness } from "../lib/witness";
+import { decideAfterEnded } from "../lib/episode-end";
 import type { RestNight } from "../lib/rest/types";
 import { YouTubeMedia } from "../lib/youtube-media";
 import type { ErrorInfo } from "../lib/media/backend";
@@ -179,6 +180,11 @@ export function YouTubeNight({
   // (the player isn't ready or the seek hasn't landed), so snapshots and
   // resume points wait for it, and a retry reloads at the intended start.
   const witnessRef = useRef(new PlaybackWitness());
+  // Per EPISODE, not per load (the witness resets on a retry): whether it has
+  // been heard at all, and whether it has been replayed from 0 after ending
+  // unheard. See decideAfterEnded.
+  const epHeardRef = useRef(false);
+  const epReplayedRef = useRef(false);
   // The prompt waits a beat before appearing. A player that is simply still
   // coming up also reads as "unstarted", and flashing "tap to begin" at
   // someone half a second before it starts on its own is worse than silence.
@@ -270,6 +276,8 @@ export function YouTubeNight({
     const skipSec = (skipIntroRef.current[ep.feedId] ?? 0) * 60;
     const start = seekTo > 0 ? seekTo : skipSec;
     witnessRef.current.reset(start, Date.now());
+    epHeardRef.current = false;
+    epReplayedRef.current = false;
     media.load(ep.youtubeId, start);
 
     watchRef.current = { id: ep.id, at: Date.now() };
@@ -310,29 +318,32 @@ export function YouTubeNight({
 
   function handleEnded() {
     const done = currentEpRef.current;
-    if (done) forgetPosition(done.id);
-    if (stopFadeRef.current !== null) {
-      // The listener already asked to stop and the video happened to run out
-      // underneath the courtesy fade. Starting another would resurrect a night
-      // they just ended.
-      endSession("ended");
+    const decision = decideAfterEnded({
+      stopping: stopFadeRef.current !== null,
+      active: tickHandleRef.current !== null,
+      playedThisEpisode: epHeardRef.current,
+      replayedFromStart: epReplayedRef.current,
+      mode: modeRef.current.kind,
+    });
+    if (decision.action === "ignore") return;
+    if (decision.action === "replay-from-start") {
+      replayFromStart();
       return;
     }
-    if (tickHandleRef.current === null) return;
-    // One-episode mode means one episode: the night ends with it.
-    // An episode that ends without ever having played (a Short loaded past its
-    // end by a long skip-intro, say) failed; it didn't finish. Treated as a
-    // finish, playNext kept no record of it and a feed of such Shorts looped
-    // in silence all night. Dead for tonight, like any episode that won't play.
-    if (done && !witnessRef.current.played) {
-      skipDead(done, "that one ended before it played", false);
-      return;
+    if (done) forgetPosition(done.id); // played out, or unplayable: nothing to resume
+    if (decision.action === "end-night") endSession(decision.reason);
+    else if (decision.action === "skip-dead" && done) {
+      // Counted like the watchdog's kills, so a lineup of episodes that all
+      // end unheard stops after a few rather than flickering through them all.
+      failsRef.current++;
+      if (failsRef.current > 6) {
+        deadRef.current.add(done.id);
+        endSession("ended", { gaveUp: true });
+      } else {
+        skipDead(done, "that one ended before it played", false);
+      }
     }
-    if (modeRef.current.kind === "one-episode") {
-      endSession("faded");
-      return;
-    }
-    playNext();
+    else playNext();
   }
 
   function handleError(code: number, info: ErrorInfo) {
@@ -712,6 +723,20 @@ export function YouTubeNight({
     failsRef.current = 0;
     retriesRef.current = 0;
     hasEverPlayedRef.current = true;
+    epHeardRef.current = true;
+  }
+
+  /** Play the current episode from 0: it ended without ever being heard,
+   *  most likely started past its end (see decideAfterEnded). Once. */
+  function replayFromStart() {
+    const ep = currentEpRef.current;
+    const media = mediaRef.current;
+    if (!ep || !media || !ep.youtubeId) return;
+    epReplayedRef.current = true;
+    witnessRef.current.reset(0, Date.now());
+    lastPosRef.current = 0;
+    media.load(ep.youtubeId, 0);
+    watchRef.current = { id: ep.id, at: Date.now() };
   }
 
   // One handler for "start it" and "resume it": both are a tap asking for

@@ -311,11 +311,13 @@ export class YouTubeMedia implements MediaBackend {
   }
 
   private fireEnded(): void {
+    if (this.dead) return; // an earlier handler for this event ended the night
     this.handlers.onEnded?.();
     this.dispatch(this.endedSubs);
   }
 
   private emitError(code: number, info: ErrorInfo): void {
+    if (this.dead) return;
     this.handlers.onError?.(code, info);
     this.dispatch(this.errorSubs, code, info);
   }
@@ -375,9 +377,9 @@ export class YouTubeMedia implements MediaBackend {
    *  the end of) an earlier one. ENDED doesn't count: requesting the video
    *  that just ended (a lone survivor repeating) would confirm on the old
    *  load's own ENDED. (A video shorter than its requested start, a Short
-   *  past a long skip-intro, ends without ever playing; the players treat
-   *  such an ENDED as a failure and skip it for the night, whichever way the
-   *  switch resolved.) */
+   *  past a long skip-intro, ends without ever playing; the players replay
+   *  such an episode from 0, whichever way the switch resolved: see
+   *  decideAfterEnded.) */
   private showsFreshLoad(sw: { start: number; positionCounts: boolean }): boolean {
     try {
       const raw = this.player!.getPlayerState();
