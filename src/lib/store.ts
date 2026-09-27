@@ -299,6 +299,22 @@ export function loadLive(): LiveSession | null {
   }
 }
 
+/** A snapshot older than this belongs to a night the listener has already
+ *  woken from, not the one they're trying to get back to. The same span as
+ *  the re-arm and re-anchor windows. */
+export const LIVE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
+
+/** Whether a snapshotted night is worth offering to revive: enough of it left
+ *  to matter, and recent. Without the age check, a tab the browser killed at
+ *  11 pm offered to revive that night the next evening, and because a live
+ *  snapshot outranks the 3am re-anchor, it hid that too. */
+export function isRevivable(l: LiveSession | null, now: number): l is LiveSession {
+  if (!l || l.remainingMs <= 60_000) return false;
+  if (typeof l.savedAt !== "number") return false;
+  const age = now - l.savedAt;
+  return age >= 0 && age < LIVE_MAX_AGE_MS;
+}
+
 export function clearLive(): void {
   try {
     localStorage.removeItem(KEY_LIVE);

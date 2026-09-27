@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import type { Episode } from "../lib/engine";
 import { formatTime } from "../lib/engine";
-import { loadLive, clearLive, clearLastNight, loadLastNight, type LiveSession, type LastNight, loadState } from "../lib/store";
+import { loadLive, clearLive, clearLastNight, loadLastNight, type LiveSession, type LastNight, loadState, isRevivable } from "../lib/store";
 import type { PlayMode } from "../lib/engine";
 import type { NoiseSettings } from "../lib/store";
 import { shouldReanchor, nextInSpread } from "../lib/rest/reanchor";
@@ -99,7 +99,7 @@ export function AppPlayer() {
   // time is left to be worth it; a stale one gets cleared.
   const [live, setLive] = useState<LiveSession | null>(() => {
     const l = loadLive();
-    if (l && l.remainingMs > 60_000) return l;
+    if (isRevivable(l, Date.now())) return l;
     if (l) clearLive();
     return null;
   });
@@ -117,7 +117,7 @@ export function AppPlayer() {
       // KEY_LIVE, so normally only one of the two is present — this guards the
       // edge where an older faded night lingers under a still-live one.)
       const live = loadLive();
-      if (live && live.remainingMs > 60_000) {
+      if (isRevivable(live, Date.now())) {
         setReanchor(null);
         return;
       }
