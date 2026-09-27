@@ -391,3 +391,13 @@ describe("the evidence beside the pick", () => {
     expect(line).not.toMatch(/3 times/);
   });
 });
+
+describe("medianTimeToSleep and self-labels", () => {
+  it("leaves out an onset the listener said was wrong", () => {
+    const nights = [
+      night({ onsetFeedId: "swm", onsetEpisodeId: "swm-ep", onsetAfterMs: 900_000 }),
+      night({ onsetFeedId: "swm", onsetEpisodeId: "swm-ep", onsetAfterMs: 60_000, selfLabel: "awake" }),
+    ];
+    expect(medianTimeToSleep(nights, "swm")).toBe(900_000);
+  });
+});

@@ -1,6 +1,6 @@
 import { useMemo } from "react";
-import { loadNights, rollup, setSelfLabel, loadParams, saveParams } from "../lib/rest/ledger";
-import { tightenAfterFalsePositive } from "../lib/rest/calibrate";
+import { loadNights, rollup, setSelfLabel } from "../lib/rest/ledger";
+import { recordFalsePositive } from "../lib/rest/calibrate";
 import { scoreFeeds, medianTimeToSleep, meetsSuggestionGate } from "../lib/rest/sleepscore";
 import { fmtDuration, lastNight } from "../lib/rest/surface";
 import { getPlays, loadState } from "../lib/store";
@@ -74,8 +74,7 @@ export function RestView({ onClose }: { onClose: () => void }) {
     setSelfLabel(last.startedAt, kind);
     // a confirmed false positive tightens the detector for next time
     if (kind === "awake" && last.sleptAtMs !== null) {
-      const p = loadParams();
-      if (p) saveParams(tightenAfterFalsePositive(p));
+      recordFalsePositive();
     }
     onClose();
   }

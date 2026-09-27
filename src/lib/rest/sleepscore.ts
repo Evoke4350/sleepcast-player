@@ -135,7 +135,8 @@ export function rankedFeeds(nights: readonly RestNight[]): FeedScore[] {
  *  worse than a smaller sample. */
 function onsetTimesFor(nights: readonly RestNight[], feedId: string): number[] {
   return nights
-    .filter((n) => n.onsetFeedId === feedId && n.onsetAfterMs !== undefined)
+    // "awake" nights are discarded for the same reason scoreFeeds drops them.
+    .filter((n) => n.onsetFeedId === feedId && n.onsetAfterMs !== undefined && n.selfLabel !== "awake")
     .map((n) => n.onsetAfterMs as number);
 }
 

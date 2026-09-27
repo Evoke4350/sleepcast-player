@@ -77,3 +77,20 @@ describe("rollup ignores pre-fix onset artifacts", () => {
     expect(r.medianTimeToSleepMs).toBeNull();
   });
 });
+
+describe("rollup and self-labels", () => {
+  // "I was awake" means the detector was wrong about that night. stepback.ts
+  // and scoreFeeds already discard such nights; the headline stats did not,
+  // so telling the app it was wrong still counted the night as slept and fed
+  // its bogus onset into "fastest" and "usually".
+  it("does not count a night the listener marked awake as slept", () => {
+    const r = rollup([
+      night({ timeToSleepMs: 600_000, sleptAtMs: 600_000 }),
+      night({ timeToSleepMs: 420_000, sleptAtMs: 420_000, selfLabel: "awake" }),
+    ]);
+    expect(r.nights).toBe(2);
+    expect(r.nightsSlept).toBe(1);
+    expect(r.bestTimeToSleepMs).toBe(600_000);
+    expect(r.medianTimeToSleepMs).toBe(600_000);
+  });
+});

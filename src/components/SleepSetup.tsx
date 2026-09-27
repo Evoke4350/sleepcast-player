@@ -22,8 +22,8 @@ import { diverseByMeta, formatTime } from "../lib/engine";
 import { parseFeedFor, youtubeFeedUrl } from "../lib/youtube";
 import { beacon } from "../lib/beacon";
 import type { Episode } from "../lib/engine";
-import { loadNights, setSelfLabel, loadParams, saveParams } from "../lib/rest/ledger";
-import { tightenAfterFalsePositive } from "../lib/rest/calibrate";
+import { loadNights, setSelfLabel } from "../lib/rest/ledger";
+import { recordFalsePositive } from "../lib/rest/calibrate";
 import { rankedFeeds, evidenceFor } from "../lib/rest/sleepscore";
 import type { RestNight } from "../lib/rest/types";
 import { diversePick } from "../lib/semantic-math";
@@ -521,8 +521,7 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
     beacon(kind === "slept" ? "slept_yes" : "slept_no");
     setSelfLabel(greetNight.startedAt, kind);
     if (kind === "awake" && greetNight.sleptAtMs !== null) {
-      const p = loadParams();
-      if (p) saveParams(tightenAfterFalsePositive(p));
+      recordFalsePositive();
     }
     setGreetNight(null);
   }

@@ -463,6 +463,7 @@ describe("quarter-hour rule opt-in", () => {
 });
 
 import { recordSessionEnd, REARM_WINDOW_MS } from "./store";
+import { isRevivable, LIVE_MAX_AGE_MS, type LiveSession } from "./store";
 
 describe("settings migration", () => {
   beforeEach(() => localStorage.clear());
@@ -575,5 +576,38 @@ describe("recordSessionEnd", () => {
 
   it("window constant is six hours", () => {
     expect(REARM_WINDOW_MS).toBe(6 * 60 * 60 * 1000);
+  });
+});
+
+describe("isRevivable", () => {
+  const ep = { id: "a", title: "A", url: "https://x/a.mp3", feedId: "f", date: "2024-01-01" } as any;
+  const live = (over: Partial<LiveSession> = {}): LiveSession => ({
+    savedAt: 1_000_000, remainingMs: 30 * 60_000, totalSeconds: 45 * 60, position: 10,
+    current: ep, playedIds: [], pool: [ep], skipIntroByFeedId: {}, feedTitles: {}, artworkByFeedId: {},
+    ...over,
+  });
+
+  it("revives a night snapshotted a little while ago with time left", () => {
+    expect(isRevivable(live(), 1_000_000 + 60 * 60_000)).toBe(true);
+  });
+
+  it("does not revive a night with a minute or less left", () => {
+    expect(isRevivable(live({ remainingMs: 60_000 }), 1_000_000)).toBe(false);
+  });
+
+  // savedAt was stored but never read: a tab the browser killed at 11 pm
+  // still offered to revive that night the next evening, and a live snapshot
+  // outranks the 3am re-anchor, so it also hid that.
+  it("does not revive last night's snapshot", () => {
+    expect(isRevivable(live(), 1_000_000 + LIVE_MAX_AGE_MS)).toBe(false);
+    expect(isRevivable(live(), 1_000_000 + 20 * 60 * 60_000)).toBe(false);
+  });
+
+  it("does not revive a snapshot with no save time", () => {
+    expect(isRevivable(live({ savedAt: undefined as any }), 1_000_000)).toBe(false);
+  });
+
+  it("is false for no snapshot", () => {
+    expect(isRevivable(null, 1_000_000)).toBe(false);
   });
 });

@@ -1,7 +1,7 @@
 import type { SleepSignal, SleepOnset, RestNight } from "./types";
-import { SleepDetector, DEFAULT_PARAMS } from "./detector";
+import { SleepDetector } from "./detector";
 import { loadNights, loadParams } from "./ledger";
-import { paramsFromHistory } from "./calibrate";
+import { currentParams } from "./calibrate";
 
 export class RestSession {
   private detector: SleepDetector;
@@ -16,7 +16,7 @@ export class RestSession {
   private skipped = new Set<string>();
 
   constructor(private startedAt: number, private timerMinutes: number) {
-    const params = loadParams() ?? paramsFromHistory(loadNights()) ?? DEFAULT_PARAMS;
+    const params = currentParams(loadParams(), loadNights());
     this.detector = new SleepDetector(params);
   }
 
