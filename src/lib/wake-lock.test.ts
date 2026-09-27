@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
-import { createScreenLock } from "./wake-lock";
+import { createScreenLock, type WakeLockSentinelLike } from "./wake-lock";
 
 function sentinel() {
   const release = vi.fn(() => Promise.resolve());
@@ -76,5 +76,60 @@ describe("the lock the browser takes back", () => {
     await lock.reacquire();
     await lock.reacquire();
     expect(request).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("createScreenLock races", () => {
+  function deferredRequest() {
+    const pending: { resolve: () => void; sentinel: { released: boolean; release(): Promise<void> } }[] = [];
+    const request = () =>
+      new Promise<WakeLockSentinelLike>((resolve) => {
+        const sentinel = { released: false, async release() { this.released = true; } };
+        pending.push({ resolve: () => resolve(sentinel), sentinel });
+      });
+    return { request, pending };
+  }
+
+  // The night ended (release) while the first request was still in flight.
+  // The request then resolved and stored its sentinel, so the screen was held
+  // awake after the player had gone.
+  test("a release during a pending acquire releases the late sentinel", async () => {
+    const { request, pending } = deferredRequest();
+    const lock = createScreenLock(request, () => false);
+    const acquiring = lock.acquire();
+    await lock.release();
+    pending[0].resolve();
+    expect(await acquiring).toBe(false);
+    expect(lock.held()).toBe(false);
+    expect(pending[0].sentinel.released).toBe(true);
+  });
+
+  // acquire() checked for a sentinel before awaiting, so two overlapping calls
+  // (mount + a visibility change) each requested one and the first leaked.
+  test("overlapping acquires share one request", async () => {
+    const { request, pending } = deferredRequest();
+    const lock = createScreenLock(request, () => false);
+    const a = lock.acquire();
+    const b = lock.reacquire();
+    expect(pending).toHaveLength(1);
+    pending[0].resolve();
+    expect(await a).toBe(true);
+    await b;
+    expect(lock.held()).toBe(true);
+    await lock.release();
+    expect(pending[0].sentinel.released).toBe(true);
+  });
+
+  test("can acquire again after a release", async () => {
+    const { request, pending } = deferredRequest();
+    const lock = createScreenLock(request, () => false);
+    const a = lock.acquire();
+    pending[0].resolve();
+    await a;
+    await lock.release();
+    const b = lock.acquire();
+    pending[1].resolve();
+    expect(await b).toBe(true);
+    expect(lock.held()).toBe(true);
   });
 });

@@ -31,18 +31,37 @@ export function createScreenLock(
   isHidden: () => boolean,
 ): ScreenLock {
   let sentinel: WakeLockSentinelLike | null = null;
+  // The request in flight, shared by overlapping acquire() calls. Checking
+  // `sentinel` alone let two calls (mount and a visibility change) each
+  // request a lock, and the first was never released.
+  let pending: Promise<boolean> | null = null;
+  // Bumped by release(). A request that resolves after a release belongs to a
+  // night that has ended: storing it held the screen awake after the player
+  // had gone, so it is released on arrival instead.
+  let generation = 0;
 
-  async function acquire(): Promise<boolean> {
-    if (sentinel) return true;
-    try {
-      sentinel = await request();
-      return true;
-    } catch {
-      // Unsupported, insecure origin, or refused. Degraded, not broken — the
-      // component tells the listener to keep the screen on themselves.
-      sentinel = null;
-      return false;
-    }
+  function acquire(): Promise<boolean> {
+    if (sentinel) return Promise.resolve(true);
+    if (pending) return pending;
+    const gen = generation;
+    pending = (async () => {
+      try {
+        const s = await request();
+        if (gen !== generation) {
+          await s.release().catch(() => {});
+          return false;
+        }
+        sentinel = s;
+        return true;
+      } catch {
+        // Unsupported, insecure origin, or refused. Degraded, not broken — the
+        // component tells the listener to keep the screen on themselves.
+        return false;
+      } finally {
+        pending = null;
+      }
+    })();
+    return pending;
   }
 
   return {
@@ -55,6 +74,8 @@ export function createScreenLock(
       await acquire();
     },
     async release() {
+      generation++;
+      pending = null;
       const s = sentinel;
       sentinel = null;
       try {
