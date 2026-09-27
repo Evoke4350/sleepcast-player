@@ -204,3 +204,26 @@ describe("revivedNightStart", () => {
     expect(revivedNightStart(NaN, 5_000)).toBe(5_000);
   });
 });
+
+describe("RestSession interactions across a reload", () => {
+  it("seeds the count from before the reload", () => {
+    const s = new RestSession(0, 45);
+    s.seedInteractions(8);
+    s.noteInteraction(1000);
+    expect(s.interactionCount).toBe(9);
+    expect(s.finish("faded", 2000).interactions).toBe(9);
+  });
+
+  it("ignores nonsense", () => {
+    const s = new RestSession(0, 45);
+    s.seedInteractions(NaN);
+    s.seedInteractions(-3);
+    expect(s.interactionCount).toBe(0);
+  });
+
+  it("seeding does not make the quarter-hour rule think a touch was recent", () => {
+    const s = new RestSession(0, 45);
+    s.seedInteractions(8);
+    expect(s.wakefulness(60_000).msSinceLastInteraction).toBeNull();
+  });
+});

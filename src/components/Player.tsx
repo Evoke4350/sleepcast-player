@@ -5,17 +5,16 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 const DriftGame = lazy(() => import("./DriftGame"));
 import type { Episode, PlayMode } from "../lib/engine";
 import { fadeVolume, formatTime, effectiveVolume, fadeDriverSeconds } from "../lib/engine";
-import { getPlays, recordHeardPlay, saveLive, clearLive, saveLastEpisode, saveLastNight, rememberPosition, forgetPosition, blockEpisode } from "../lib/store";
+import { getPlays, recordHeardPlay, saveLive, rememberPosition, forgetPosition, blockEpisode } from "../lib/store";
 import { pickNextEpisode, HEARD_SEC } from "../lib/plays";
 import { canExtend } from "../lib/timer-feel";
-import { recordSessionEnd } from "../lib/store";
 import type { NoiseSettings } from "../lib/store";
 import { BrownNoise, noiseGain } from "../lib/noise";
 import { Leveler } from "../lib/leveler";
 import { shouldTick } from "../lib/tick-gate";
 import { shouldSuggestGettingUp } from "../lib/rest/quarterhour";
 import { RestSession, revivedNightStart } from "../lib/rest/session";
-import { appendNight } from "../lib/rest/ledger";
+import { recordNightEnd } from "../lib/night-end";
 import type { RestNight } from "../lib/rest/types";
 
 const FADE_SECONDS = 60;
@@ -78,6 +77,8 @@ export interface PlayerProps {
     playedIds: string[];
     /** When the revived night really began (snapshot's nightStartedAt). */
     nightStartedAt?: number;
+    /** Transport touches before the reload. */
+    interactions?: number;
   } | null;
   // "the exact one again": lead a fresh night with this episode (the same show
   // the returning listener drifted off to), then shuffle on as usual.
@@ -111,6 +112,11 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   // Whether anything has actually played this night. A night that never did
   // records nothing when it ends (see endSession).
   const hasEverPlayedRef = useRef(false);
+  // Whether the CURRENT episode has reached "playing". Until it has, its
+  // position reads 0 (src just set, the resume seek waits for metadata), so
+  // snapshots and resume points wait for it rather than save that 0 over a
+  // revived night's position.
+  const epPlayedRef = useRef(false);
   const restRef = useRef<RestSession | null>(null);
   const lastRestTickRef = useRef(0);
   // The full episode now playing (nowPlaying state omits the url we need to
@@ -201,6 +207,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     }
     audio.src = ep.url;
     currentEpRef.current = ep;
+    epPlayedRef.current = false;
     // Snapshot the new episode to storage promptly, not up to 10s later.
     persistCounterRef.current = 10;
 
@@ -367,7 +374,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   function rememberCurrentPosition() {
     const audio = audioRef.current;
     const ep = currentEpRef.current;
-    if (!audio || !ep) return;
+    if (!audio || !ep || !epPlayedRef.current) return; // see epPlayedRef
     rememberPosition(ep.id, audio.currentTime, audio.duration);
   }
 
@@ -394,6 +401,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     const audio = audioRef.current;
     const ep = currentEpRef.current;
     if (!audio || !ep || tickHandleRef.current === null) return;
+    if (!epPlayedRef.current) return; // see epPlayedRef
     // Timerless modes have no remaining time to restore; 0 records "revive the
     // night, there is no clock to resume".
     const remainingMs =
@@ -406,6 +414,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       nightStartedAt: restRef.current?.startedAt,
       timerMinutes: restRef.current?.timerMinutes,
       modeKind: modeRef.current.kind,
+      interactions: restRef.current?.interactionCount,
       remainingMs,
       totalSeconds: totalSecondsRef.current,
       position: Number.isFinite(audio.currentTime) ? audio.currentTime : 0,
@@ -575,23 +584,26 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // listener ended it) records nothing: no re-arm stamp, no empty last night,
     // no RestNight for calibration to learn from. Ending it is still the
     // listener's choice, so its snapshot is cleared either way.
-    const played = hasEverPlayedRef.current;
     clearStopFade();
-    clearLive(); // the night is over — nothing to revive
-    if (played) {
-      if (reason === "faded") recordSessionEnd(timerMinutes, modeRef.current.kind);
-      saveLastNight({
+    recordNightEnd({
+      reason,
+      played: hasEverPlayedRef.current,
+      gaveUp: false,
+      timerMinutes,
+      modeKind: modeRef.current.kind,
+      lastNight: {
         pool: poolRef.current,
         playedIds: [...playedIdsRef.current],
         feedTitles: feedTitlesRef.current,
         artworkByFeedId: artworkRef.current,
         skipIntroByFeedId: skipIntroRef.current,
-        endedVia: reason,
-        endedAt: Date.now(),
         wasVaried: wasVariedRef.current,
-      });
-      if (currentEpRef.current) saveLastEpisode(currentEpRef.current); // for "the exact one again"
-    }
+      },
+      current: currentEpRef.current,
+      rest: restRef.current,
+      now: Date.now(),
+    });
+    restRef.current = null;
     watchRef.current = null;
     if (tickHandleRef.current !== null) {
       clearInterval(tickHandleRef.current);
@@ -612,10 +624,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       navigator.mediaSession.metadata = null;
     }
 
-    if (restRef.current) {
-      if (played) appendNight(restRef.current.finish(reason, Date.now()));
-      restRef.current = null;
-    }
 
     onEndRef.current();
   }
@@ -632,6 +640,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // from the tap on "keep going".
     const nightStart = revivedNightStart(resume?.nightStartedAt, Date.now());
     restRef.current = new RestSession(nightStart, timerMinutes);
+    restRef.current.seedInteractions(resume?.interactions ?? 0);
     nightStartedAtRef.current = nightStart; // the quarter-hour rule's clock too
     if (resume) {
       totalSecondsRef.current = resume.totalSeconds;
@@ -688,6 +697,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       watchRef.current = null;
       failsRef.current = 0;
       hasEverPlayedRef.current = true;
+      epPlayedRef.current = true;
       const feedId = currentFeedRef.current;
       if (feedId && audio.crossOrigin === "anonymous") corsGoodFeeds.add(feedId);
       // Conservative gate: attach only once every feed in the pool has already

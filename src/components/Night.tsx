@@ -41,14 +41,10 @@ import {
   getPlays,
   recordHeardPlay,
   saveLive,
-  clearLive,
-  saveLastEpisode,
-  saveLastNight,
   rememberPosition,
   forgetPosition,
   blockEpisode,
   loadBlocked,
-  recordSessionEnd,
   type NoiseSettings,
 } from "../lib/store";
 import { HEARD_SEC } from "../lib/plays";
@@ -56,7 +52,7 @@ import { canExtend } from "../lib/timer-feel";
 import { BrownNoise, noiseGain } from "../lib/noise";
 import { shouldTick } from "../lib/tick-gate";
 import { RestSession, revivedNightStart } from "../lib/rest/session";
-import { appendNight } from "../lib/rest/ledger";
+import { recordNightEnd } from "../lib/night-end";
 import type { RestNight } from "../lib/rest/types";
 import {
   YouTubeMedia,
@@ -133,6 +129,8 @@ export interface NightProps {
     playedIds: string[];
     /** When the revived night really began (snapshot's nightStartedAt). */
     nightStartedAt?: number;
+    /** Transport touches before the reload. */
+    interactions?: number;
   } | null;
   leadEpisode?: Episode | null;
   leadPosition?: number;
@@ -199,6 +197,9 @@ export function Night({
   // silently fail to land.
   const lastSeenPosRef = useRef(0);
   const hasMovedRef = useRef(false);
+  const lastSeenAtRef = useRef(0);
+  // One re-arm per episode from a tap (see handleTogglePause).
+  const tapArmedRef = useRef(false);
   // The fade factor last applied to the live backend, before per-feed trim
   // (the night's fade, or the courtesy fade). A backend that becomes live is
   // set to it times its own episode's trim at once, rather than playing at
@@ -424,6 +425,8 @@ export function Night({
     // Seeded with the requested start rather than 0: if the seek does land,
     // arriving at `start` is not movement and must not read as proof of sound.
     lastSeenPosRef.current = start;
+    lastSeenAtRef.current = 0;
+    tapArmedRef.current = false;
     hasMovedRef.current = false;
     heardSavedAtRef.current = -1e9;
     epStartedAtRef.current = Date.now();
@@ -440,7 +443,9 @@ export function Night({
     }
   }
 
-  function playNext() {
+  /** `byListener`: Next or "never again" led here, so ending a never-played
+   *  night is the listener's choice and its snapshot goes (see recordNightEnd). */
+  function playNext(byListener = false) {
     const ep = nextPlayable(
       poolRef.current,
       deadRef.current,
@@ -450,7 +455,7 @@ export function Night({
     // Nothing left that can play. Ending is the honest outcome: continuing
     // would be an hour of black screen with the timer running down.
     if (!ep) {
-      endSession("ended", { gaveUp: true });
+      endSession("ended", { gaveUp: !byListener });
       return;
     }
     startEpisode(ep);
@@ -539,6 +544,7 @@ export function Night({
       // does the snapshot gate (hasMovedRef), since the position reads 0 again
       // until the seek lands.
       lastSeenPosRef.current = at;
+      lastSeenAtRef.current = 0;
       hasMovedRef.current = false;
       lastPosRef.current = at;
       return;
@@ -569,13 +575,12 @@ export function Night({
     }
   }
 
-  function restTick(driver: number) {
+  function restTick(driver: number, t: Transport | undefined) {
     const r = restRef.current;
     if (!r || pausedRemainingMsRef.current !== null || tickHandleRef.current === null) return;
     // pausedRemainingMsRef is only set in minutes mode. In one-episode and
     // all-night a paused (or never-started) episode kept feeding quiet ticks,
     // and near an episode's end the detector could infer sleep during a pause.
-    const t = liveRef.current?.transport();
     if (t === "paused" || t === "awaiting-start") return;
     if (Date.now() - lastRestTickRef.current < 15_000) return;
     lastRestTickRef.current = Date.now();
@@ -600,6 +605,7 @@ export function Night({
       nightStartedAt: restRef.current?.startedAt,
       timerMinutes: restRef.current?.timerMinutes,
       modeKind: modeRef.current.kind,
+      interactions: restRef.current?.interactionCount,
       remainingMs,
       totalSeconds: totalSecondsRef.current,
       position: media.currentTime(),
@@ -670,9 +676,15 @@ export function Night({
     // reads 0 before metadata, overwriting the seeded start, and the start
     // seek (skip-intro, a revived position) then jumped 0 → start and read as
     // proof of sound, standing the watchdog down over a hung stream.
+    // Playback cannot outrun the wall clock, a seek does: a step up to the
+    // time since the last look (plus slack) is sound. A fixed 5 s cap missed
+    // real playback when ticks were throttled seconds apart in a background tab.
+    const nowMs = Date.now();
     const step = seenPos - lastSeenPosRef.current;
-    if (step > 0 && step < 5) hasMovedRef.current = true;
+    const wallSec = lastSeenAtRef.current ? (nowMs - lastSeenAtRef.current) / 1000 : 1;
+    if (step > 0 && step <= wallSec + 2) hasMovedRef.current = true;
     lastSeenPosRef.current = seenPos;
+    lastSeenAtRef.current = nowMs;
     const witnessed: Transport = t === "playing" && !hasMovedRef.current ? "buffering" : t;
     // From `witnessed`, not `t`: the raw value exists to be distrusted, and a
     // control reading "Pause" over an episode that has not made a sound yet is
@@ -713,7 +725,7 @@ export function Night({
     const epRemaining = dur > 0 ? dur - cur : null;
     const driver = fadeDriverSeconds(kind, remaining, epRemaining);
 
-    restTick(driver);
+    restTick(driver, t);
     heardTick(cur);
 
     // The courtesy fade owns the volume while it runs; reassigning here would
@@ -815,23 +827,26 @@ export function Night({
     // A night that never played anything records nothing: it used to write an
     // empty last night and a RestNight to the ledger, which calibration then
     // learned from.
-    const played = hasEverPlayedRef.current;
     clearStopFade();
-    if (played || !gaveUp) clearLive();
-    if (played) {
-      if (reason === "faded") recordSessionEnd(timerMinutes, modeRef.current.kind);
-      saveLastNight({
+    recordNightEnd({
+      reason,
+      played: hasEverPlayedRef.current,
+      gaveUp: gaveUp,
+      timerMinutes,
+      modeKind: modeRef.current.kind,
+      lastNight: {
         pool: poolRef.current,
         playedIds: [...playedIdsRef.current],
         feedTitles: feedTitlesRef.current,
         artworkByFeedId: artworkRef.current,
         skipIntroByFeedId: skipIntroRef.current,
-        endedVia: reason,
-        endedAt: Date.now(),
         wasVaried: wasVariedRef.current,
-      });
-      if (currentEpRef.current) saveLastEpisode(currentEpRef.current);
-    }
+      },
+      current: currentEpRef.current,
+      rest: restRef.current,
+      now: Date.now(),
+    });
+    restRef.current = null;
     watchRef.current = null;
     if (tickHandleRef.current !== null) {
       clearInterval(tickHandleRef.current);
@@ -844,10 +859,6 @@ export function Night({
     void lockRef.current?.release();
     if (typeof navigator !== "undefined" && "mediaSession" in navigator) {
       navigator.mediaSession.metadata = null;
-    }
-    if (restRef.current) {
-      if (played) appendNight(restRef.current.finish(reason, Date.now()));
-      restRef.current = null;
     }
     onEndRef.current();
   }
@@ -868,6 +879,7 @@ export function Night({
     // from the tap on "keep going".
     const nightStart = revivedNightStart(resume?.nightStartedAt, Date.now());
     restRef.current = new RestSession(nightStart, timerMinutes);
+    restRef.current.seedInteractions(resume?.interactions ?? 0);
     deadRef.current = new Set(loadBlocked());
     if (resume) {
       totalSecondsRef.current = resume.totalSeconds;
@@ -1000,7 +1012,10 @@ export function Night({
     // made a sound (a refused autoplay stood the watchdog down) gets it back,
     // timed from this tap; one resumed mid-night does not, or a slow 2am
     // rebuffer would condemn it.
-    if (currentEpRef.current && !hasMovedRef.current) {
+    // Once per episode: re-arming on every tap let repeated taps on a hung
+    // "buffering" stream keep postponing the watchdog forever.
+    if (currentEpRef.current && !hasMovedRef.current && !tapArmedRef.current) {
+      tapArmedRef.current = true;
       watchRef.current = { id: currentEpRef.current.id, at: Date.now() };
     }
     media.play();
@@ -1010,7 +1025,7 @@ export function Night({
     restRef.current?.noteInteraction();
     const leaving = currentEpRef.current;
     if (leaving) restRef.current?.noteSkip(leaving.feedId);
-    playNext();
+    playNext(true);
   }
 
   function handleBlock() {
@@ -1023,7 +1038,7 @@ export function Night({
     setBlockedTonight((prev) => new Set(prev).add(ep.id));
     flash("never again");
     restRef.current?.noteInteraction();
-    playNext();
+    playNext(true);
   }
 
   function extendTimer(minutes: number) {

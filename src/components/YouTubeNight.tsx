@@ -34,14 +34,10 @@ import {
   getPlays,
   recordHeardPlay,
   saveLive,
-  clearLive,
-  saveLastEpisode,
-  saveLastNight,
   rememberPosition,
   forgetPosition,
   blockEpisode,
   loadBlocked,
-  recordSessionEnd,
   type NoiseSettings,
 } from "../lib/store";
 import { HEARD_SEC } from "../lib/plays";
@@ -49,7 +45,7 @@ import { canExtend } from "../lib/timer-feel";
 import { BrownNoise, noiseGain } from "../lib/noise";
 import { shouldTick } from "../lib/tick-gate";
 import { RestSession, revivedNightStart } from "../lib/rest/session";
-import { appendNight } from "../lib/rest/ledger";
+import { recordNightEnd } from "../lib/night-end";
 import type { RestNight } from "../lib/rest/types";
 import {
   YouTubeMedia,
@@ -100,6 +96,8 @@ export interface YouTubeNightProps {
     playedIds: string[];
     /** When the revived night really began (snapshot's nightStartedAt). */
     nightStartedAt?: number;
+    /** Transport touches before the reload. */
+    interactions?: number;
   } | null;
   leadEpisode?: Episode | null;
   leadPosition?: number;
@@ -185,6 +183,8 @@ export function YouTubeNight({
   // retry reloads at the intended start rather than at 0:00.
   const epPlayedRef = useRef(false);
   const epStartSecRef = useRef(0);
+  // One re-arm per episode from a tap (see handleTogglePause).
+  const tapArmedRef = useRef(false);
   // The prompt waits a beat before appearing. A player that is simply still
   // coming up also reads as "unstarted", and flashing "tap to begin" at
   // someone half a second before it starts on its own is worse than silence.
@@ -315,6 +315,7 @@ export function YouTubeNight({
     const start = seekTo > 0 ? seekTo : skipSec;
     epPlayedRef.current = false;
     epStartSecRef.current = start;
+    tapArmedRef.current = false;
     media.load(ep.youtubeId, start);
 
     watchRef.current = { id: ep.id, at: Date.now() };
@@ -335,7 +336,9 @@ export function YouTubeNight({
     }
   }
 
-  function playNext() {
+  /** `byListener`: Next or "never again" led here, so ending a never-played
+   *  night is the listener's choice and its snapshot goes (see recordNightEnd). */
+  function playNext(byListener = false) {
     const ep = nextPlayable(
       poolRef.current,
       deadRef.current,
@@ -345,7 +348,7 @@ export function YouTubeNight({
     // Nothing left that can play. Ending is the honest outcome: continuing
     // would be an hour of black screen with the timer running down.
     if (!ep) {
-      endSession("ended", { gaveUp: true });
+      endSession("ended", { gaveUp: !byListener });
       return;
     }
     startEpisode(ep);
@@ -419,13 +422,12 @@ export function YouTubeNight({
     }
   }
 
-  function restTick(driver: number) {
+  function restTick(driver: number, t: Transport | undefined) {
     const r = restRef.current;
     if (!r || pausedRemainingMsRef.current !== null || tickHandleRef.current === null) return;
     // pausedRemainingMsRef is only set in minutes mode. In one-episode and
     // all-night a paused (or never-started) episode kept feeding quiet ticks,
     // and near an episode's end the detector could infer sleep during a pause.
-    const t = mediaRef.current?.transport();
     if (t === "paused" || t === "awaiting-start") return;
     if (Date.now() - lastRestTickRef.current < 15_000) return;
     lastRestTickRef.current = Date.now();
@@ -453,6 +455,7 @@ export function YouTubeNight({
       nightStartedAt: restRef.current?.startedAt,
       timerMinutes: restRef.current?.timerMinutes,
       modeKind: modeRef.current.kind,
+      interactions: restRef.current?.interactionCount,
       remainingMs,
       totalSeconds: totalSecondsRef.current,
       position: media.currentTime(),
@@ -504,9 +507,19 @@ export function YouTubeNight({
     setTransport(t);
     // A missed PLAYING event must not leave the clock frozen over a video that
     // is audibly playing (the tap no longer unfreezes it).
-    if (t === "playing") {
+    // Only once the reading can belong to this video: right after a switch
+    // the iframe still reports the previous one's state and time, which
+    // would mark the new episode played and save it at the old position.
+    // Beyond that, the same as onStateChange's PLAYING (watchdog down too,
+    // or the first rebuffer would condemn a video that is playing).
+    if (t === "playing" && !epPlayedRef.current && plausiblyThisEpisode()) {
+      watchRef.current = null;
+      failsRef.current = 0;
+      retriesRef.current = 0;
       hasEverPlayedRef.current = true;
       epPlayedRef.current = true;
+      unfreezeClock();
+    } else if (t === "playing" && epPlayedRef.current) {
       unfreezeClock();
     }
     // watchRef.at is when this episode was asked to play, and it is cleared
@@ -527,7 +540,7 @@ export function YouTubeNight({
     const epRemaining = dur > 0 ? dur - cur : null;
     const driver = fadeDriverSeconds(kind, remaining, epRemaining);
 
-    restTick(driver);
+    restTick(driver, t);
     heardTick(cur);
 
     // The courtesy fade owns the volume while it runs; reassigning here would
@@ -590,23 +603,26 @@ export function YouTubeNight({
     // A night that never played anything records nothing: it used to write an
     // empty last night and a RestNight to the ledger, which calibration then
     // learned from.
-    const played = hasEverPlayedRef.current;
     clearStopFade();
-    if (played || !gaveUp) clearLive();
-    if (played) {
-      if (reason === "faded") recordSessionEnd(timerMinutes, modeRef.current.kind);
-      saveLastNight({
+    recordNightEnd({
+      reason,
+      played: hasEverPlayedRef.current,
+      gaveUp: gaveUp,
+      timerMinutes,
+      modeKind: modeRef.current.kind,
+      lastNight: {
         pool: poolRef.current,
         playedIds: [...playedIdsRef.current],
         feedTitles: feedTitlesRef.current,
         artworkByFeedId: artworkRef.current,
         skipIntroByFeedId: skipIntroRef.current,
-        endedVia: reason,
-        endedAt: Date.now(),
         wasVaried: wasVariedRef.current,
-      });
-      if (currentEpRef.current) saveLastEpisode(currentEpRef.current);
-    }
+      },
+      current: currentEpRef.current,
+      rest: restRef.current,
+      now: Date.now(),
+    });
+    restRef.current = null;
     watchRef.current = null;
     if (tickHandleRef.current !== null) {
       clearInterval(tickHandleRef.current);
@@ -620,10 +636,6 @@ export function YouTubeNight({
     void lockRef.current?.release();
     if (typeof navigator !== "undefined" && "mediaSession" in navigator) {
       navigator.mediaSession.metadata = null;
-    }
-    if (restRef.current) {
-      if (played) appendNight(restRef.current.finish(reason, Date.now()));
-      restRef.current = null;
     }
     onEndRef.current();
   }
@@ -644,6 +656,7 @@ export function YouTubeNight({
     // from the tap on "keep going".
     const nightStart = revivedNightStart(resume?.nightStartedAt, Date.now());
     restRef.current = new RestSession(nightStart, timerMinutes);
+    restRef.current.seedInteractions(resume?.interactions ?? 0);
     deadRef.current = new Set(loadBlocked());
     if (resume) {
       totalSecondsRef.current = resume.totalSeconds;
@@ -723,6 +736,17 @@ export function YouTubeNight({
   // One handler for "start it" and "resume it": both are a tap asking for
   // sound, and the browser treats this tap as the gesture that permits it.
   // Only a video that is genuinely playing gets paused.
+  /** A "playing" reading taken at least 2 s after the load, at a position this
+   *  episode could have reached since its start. */
+  function plausiblyThisEpisode(): boolean {
+    const media = mediaRef.current;
+    if (!media) return false;
+    const sinceLoad = (Date.now() - epStartedAtRef.current) / 1000;
+    if (sinceLoad < 2) return false;
+    const pos = media.currentTime();
+    return pos >= epStartSecRef.current - 1 && pos <= epStartSecRef.current + sinceLoad + 2;
+  }
+
   function handleTogglePause() {
     restRef.current?.noteInteraction();
     const media = mediaRef.current;
@@ -739,7 +763,12 @@ export function YouTubeNight({
     // a stall and skipped it the moment it started. One resumed mid-night is
     // left alone, or a slow rebuffer would condemn it.
     const ep = currentEpRef.current;
-    if (ep && !epPlayedRef.current) watchRef.current = { id: ep.id, at: Date.now() };
+    // Once per episode: re-arming on every tap let repeated taps on a hung
+    // "buffering" video keep postponing the watchdog forever.
+    if (ep && !epPlayedRef.current && !tapArmedRef.current) {
+      tapArmedRef.current = true;
+      watchRef.current = { id: ep.id, at: Date.now() };
+    }
     media.play();
   }
 
@@ -747,7 +776,7 @@ export function YouTubeNight({
     restRef.current?.noteInteraction();
     const leaving = currentEpRef.current;
     if (leaving) restRef.current?.noteSkip(leaving.feedId);
-    playNext();
+    playNext(true);
   }
 
   function handleBlock() {
@@ -760,7 +789,7 @@ export function YouTubeNight({
     setBlockedTonight((prev) => new Set(prev).add(ep.id));
     flash("never again");
     restRef.current?.noteInteraction();
-    playNext();
+    playNext(true);
   }
 
   function extendTimer(minutes: number) {

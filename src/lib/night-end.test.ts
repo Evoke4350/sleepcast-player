@@ -1,0 +1,55 @@
+import { describe, it, expect, beforeEach } from "vitest";
+import { recordNightEnd, type NightEnd } from "./night-end";
+import { saveLive, loadLive, loadLastNight, loadLastEpisode, loadState, type LiveSession } from "./store";
+import { loadNights } from "./rest/ledger";
+import { RestSession } from "./rest/session";
+
+const ep = { id: "a", title: "A", url: "https://x/a.mp3", feedId: "f", date: "2024-01-01" };
+const live: LiveSession = {
+  savedAt: 1, remainingMs: 10 * 60_000, totalSeconds: 2700, position: 60, current: ep,
+  playedIds: [], pool: [ep], skipIntroByFeedId: {}, feedTitles: {}, artworkByFeedId: {},
+};
+const end = (over: Partial<NightEnd> = {}): NightEnd => ({
+  reason: "faded", played: true, timerMinutes: 45, modeKind: "minutes",
+  lastNight: { pool: [ep], playedIds: ["a"], feedTitles: {}, artworkByFeedId: {}, skipIntroByFeedId: {}, wasVaried: false },
+  current: ep, rest: new RestSession(1_000, 45), now: 5_000,
+  ...over,
+});
+
+describe("recordNightEnd", () => {
+  beforeEach(() => { localStorage.clear(); saveLive(live); });
+
+  it("a played night clears the snapshot and writes every record", () => {
+    recordNightEnd(end());
+    expect(loadLive()).toBeNull();
+    expect(loadLastNight()).toMatchObject({ endedVia: "faded", endedAt: 5_000 });
+    expect(loadLastEpisode()?.id).toBe("a");
+    expect(loadNights()).toHaveLength(1);
+    expect(loadState().settings.lastSession).not.toBeNull();
+  });
+
+  it("only a faded night stamps the re-arm", () => {
+    recordNightEnd(end({ reason: "ended" }));
+    expect(loadState().settings.lastSession).toBeNull();
+    expect(loadLastNight()?.endedVia).toBe("ended");
+  });
+
+  it("a never-played night the listener ends clears the snapshot and records nothing", () => {
+    recordNightEnd(end({ played: false, reason: "ended" }));
+    expect(loadLive()).toBeNull();
+    expect(loadLastNight()).toBeNull();
+    expect(loadLastEpisode()).toBeNull();
+    expect(loadNights()).toHaveLength(0);
+  });
+
+  it("a never-played night the app gives up on keeps the snapshot", () => {
+    recordNightEnd(end({ played: false, reason: "ended", gaveUp: true }));
+    expect(loadLive()).not.toBeNull();
+    expect(loadNights()).toHaveLength(0);
+  });
+
+  it("gaveUp does not keep the snapshot of a night that played", () => {
+    recordNightEnd(end({ gaveUp: true }));
+    expect(loadLive()).toBeNull();
+  });
+});

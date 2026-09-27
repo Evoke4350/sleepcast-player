@@ -283,6 +283,8 @@ export interface LiveSession {
    *  (remainingMs is 0), so without this a reload could neither tell it from a
    *  finished timed night nor revive it in the right mode. */
   modeKind?: PlayMode["kind"];
+  /** Transport touches before the snapshot, carried into a revived session. */
+  interactions?: number;
 }
 
 const LIVE_POOL_CAP = 80;

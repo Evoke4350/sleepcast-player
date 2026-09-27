@@ -25,6 +25,7 @@ interface ResumeDescriptor {
   totalSeconds: number;
   playedIds: string[];
   nightStartedAt?: number;
+  interactions?: number;
 }
 
 interface SessionState {
@@ -182,6 +183,7 @@ export function AppPlayer() {
       totalSeconds: live.totalSeconds,
       playedIds: live.playedIds ?? [],
       nightStartedAt: live.nightStartedAt,
+      interactions: live.interactions,
     });
     setSession({
       pool: live.pool,
