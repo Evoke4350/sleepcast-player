@@ -190,6 +190,10 @@ export class YouTubeMedia implements MediaBackend {
     this.run((p) => p.pauseVideo());
   }
 
+  standDown(): void {
+    this.pause();
+  }
+
   /** Takes 0–1, like HTMLMediaElement.volume. */
   setVolume(level: number): void {
     const clamped = Math.max(0, Math.min(1, level));

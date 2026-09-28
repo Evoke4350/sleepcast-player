@@ -107,6 +107,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   const onEndRef = useRef(onEnd);
   /** The seek the current load is enforcing (see landAt), if any. */
   const pendingSeekRef = useRef<SeekEnforcer | null>(null);
+  /** The skip-intro target while it's undecided whether the episode is too
+   *  short for it (see checkPlayWhole). */
+  const playWholeRef = useRef<number | null>(null);
   // Watchdog: a track that hasn't reached "playing" within the window is
   // stuck (silent play() rejection, stalled load, dead enclosure URL) —
   // skip it instead of sitting in silence. Bounded so a fully-broken pool
@@ -229,8 +232,10 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // Reviving a night: land where the sleeper left off (a saved position is
     // already past any intro). Else the skip-intro, if any; 0 just clears the
     // last episode's seek.
+    // An episode barely longer than the skip plays whole instead, decided
+    // once its duration is known (see checkPlayWhole).
+    playWholeRef.current = seekTo === 0 && skipSec > 0 ? skipSec : null;
     landAt(audio, seekTo > 0 ? seekTo : skipSec, seekTo > 0 ? {} : {
-      playWholeIf: (dur) => skipSec >= dur - 30, // barely longer than the skip
       onLanded: () => {
         setToast(`skipped the ${skipMin} min intro`);
         setTimeout(() => setToast(""), 4200);
@@ -320,11 +325,31 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   }
 
   /** Take the element's own position as where the episode is, when it can
-   *  be trusted: not before it knows its media (a new load reads 0), and
-   *  not from a failed element, which can read 0 too. */
+   *  be trusted: not while a seek is being enforced (Safari can read ~0
+   *  until it is corrected), not before the element knows its media (a new
+   *  load reads 0), and not from a failed element, which can read 0 too. */
   function notePosition(audio: HTMLAudioElement) {
+    if (pendingSeekRef.current) return;
     if (audio.error || audio.readyState < HTMLMediaElement.HAVE_METADATA) return;
     knownPosRef.current = audio.currentTime;
+  }
+
+  /** The skip-intro on an episode barely longer than the skip: play it whole.
+   *  Decided once, as soon as the duration is known, which can be after the
+   *  seek has landed (Safari can report NaN at loadedmetadata). Only undoes
+   *  the skip itself: a listener who has moved elsewhere is left there. */
+  function checkPlayWhole(audio: HTMLAudioElement) {
+    const skipSec = playWholeRef.current;
+    const dur = audio.duration;
+    if (skipSec === null || !Number.isFinite(dur) || dur <= 0) return;
+    playWholeRef.current = null;
+    if (skipSec < dur - 30) return;
+    const atSkip = pendingSeekRef.current !== null || Math.abs(audio.currentTime - skipSec) <= 2;
+    pendingSeekRef.current?.cancel();
+    if (!atSkip) return;
+    try { audio.currentTime = 0; } catch { /* not seekable: it plays from here */ }
+    knownPosRef.current = 0;
+    lastPosRef.current = 0;
   }
 
   /** play(), and if autoplay is refused (a track change or a reload while the
@@ -445,8 +470,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     const delta = t - lastPosRef.current;
     lastPosRef.current = t;
     if (delta > 0 && delta < 5) heardSecRef.current += delta;
-    // Where the episode is, while no seek is being enforced (resumePosition).
-    if (!pendingSeekRef.current) notePosition(audio);
+    checkPlayWhole(audio);
+    notePosition(audio);
 
     // Save on crossing the threshold, then refresh roughly every minute so the
     // ledger reflects how long a long episode actually ran. recordHeardPlay
@@ -861,9 +886,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     audio.addEventListener("timeupdate", heardTick); // accumulates real playback for the play ledger
     // heardTick tracks the position on timeupdate; a scrub while paused
     // fires only "seeked".
-    const trackSeek = () => {
-      if (!pendingSeekRef.current) notePosition(audio);
-    };
+    const trackSeek = () => notePosition(audio);
     audio.addEventListener("seeked", trackSeek);
     audio.addEventListener("playing", onPlaying);
     audio.addEventListener("ended", onEnded);

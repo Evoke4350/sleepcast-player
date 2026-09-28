@@ -31,7 +31,7 @@ export class AudioBackend implements MediaBackend {
 
     // Enforced, not a single seek: Safari resets a seek made before playback
     // starts (see SeekEnforcer). Cancelling a finished one is a no-op.
-    if (startSeconds > 0) this.seek = new SeekEnforcer(this.el, startSeconds, {}, () => {});
+    if (startSeconds > 0) this.seek = new SeekEnforcer(this.el, startSeconds);
 
     void this.el.play().catch((err: unknown) => this.reportPlayFailure(err));
   }
@@ -43,6 +43,13 @@ export class AudioBackend implements MediaBackend {
 
   pause(): void {
     if (this.dead) return;
+    this.el.pause();
+  }
+
+  standDown(): void {
+    if (this.dead) return;
+    this.seek?.cancel();
+    this.seek = null;
     this.el.pause();
   }
 

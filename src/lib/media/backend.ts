@@ -25,6 +25,10 @@ export interface MediaBackend {
   load(ref: string, startSeconds?: number): void;
   play(): void;
   pause(): void;
+  /** Another backend is taking over: pause, and drop any work still pending
+   *  for this load (a start seek), which would otherwise go on acting on an
+   *  episode nobody is listening to. */
+  standDown(): void;
   /** 0–1, like HTMLMediaElement.volume. */
   setVolume(level: number): void;
   currentTime(): number;

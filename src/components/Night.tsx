@@ -343,7 +343,7 @@ export function Night({
     // one, and on a mixed night that means the podcast's "ended" advancing a
     // night that has already moved on to a video.
     for (const off of offRef.current.splice(0)) off();
-    if (liveRef.current && liveRef.current !== next) liveRef.current.pause();
+    if (liveRef.current && liveRef.current !== next) liveRef.current.standDown();
     if (levelRef.current !== null && liveRef.current !== next) {
       next.setVolume(Math.min(1, levelRef.current * (feedTrimRef.current[ep.feedId] ?? 1.0)));
     }
@@ -573,7 +573,9 @@ export function Night({
       interactions: restRef.current?.interactionCount,
       remainingMs,
       totalSeconds: totalSecondsRef.current,
-      position: media.currentTime(),
+      // Where the episode is, not a raw reading: the backend may still be
+      // enforcing its start seek over Safari's reset (see resumeAt).
+      position: witnessRef.current.resumeAt(media.currentTime()),
       current: ep,
       playedIds: [...playedIdsRef.current],
       pool: poolRef.current,
@@ -758,7 +760,7 @@ export function Night({
       persistCounterRef.current = 0;
       persistLive();
       if (currentEpRef.current && dur > 0) {
-        rememberPosition(currentEpRef.current.id, cur, dur);
+        rememberPosition(currentEpRef.current.id, witnessRef.current.resumeAt(cur), dur);
       }
     }
   }

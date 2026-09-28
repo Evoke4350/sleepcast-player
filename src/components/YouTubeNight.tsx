@@ -450,7 +450,7 @@ export function YouTubeNight({
       interactions: restRef.current?.interactionCount,
       remainingMs,
       totalSeconds: totalSecondsRef.current,
-      position: media.currentTime(),
+      position: witnessRef.current.resumeAt(media.currentTime()),
       current: ep,
       playedIds: [...playedIdsRef.current],
       pool: poolRef.current,
@@ -591,7 +591,7 @@ export function YouTubeNight({
       persistCounterRef.current = 0;
       persistLive();
       if (currentEpRef.current && dur > 0) {
-        rememberPosition(currentEpRef.current.id, cur, dur);
+        rememberPosition(currentEpRef.current.id, witnessRef.current.resumeAt(cur), dur);
       }
     }
   }

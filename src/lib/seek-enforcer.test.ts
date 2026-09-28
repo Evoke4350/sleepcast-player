@@ -3,7 +3,6 @@ import { SeekEnforcer, type Seekable } from "./seek-enforcer";
 
 class FakeEl implements Seekable {
   currentTime = 0;
-  duration = NaN;
   paused = true;
   private listeners = new Map<string, Set<(e: Event) => void>>();
   addEventListener(t: string, f: (e: Event) => void) {
@@ -24,7 +23,7 @@ class FakeEl implements Seekable {
 }
 
 describe("SeekEnforcer", () => {
-  test("lands only once playback is rolling at the target", () => {
+  test("lands only once playback is rolling at the confirmed target", () => {
     const el = new FakeEl();
     const onLanded = vi.fn();
     const done = vi.fn();
@@ -32,11 +31,15 @@ describe("SeekEnforcer", () => {
     el.paused = false; // play() called, still loading
     el.fire("loadedmetadata");
     expect(el.currentTime).toBe(300);
+    el.fire("timeupdate"); // the seek is still in flight: proves nothing
+    expect(done).not.toHaveBeenCalled();
+    el.fire("seeked");
     el.fire("canplay"); // at the target, not playing yet: not landed
     expect(done).not.toHaveBeenCalled();
     el.currentTime = 0; // Safari resets as playback starts
     el.fire("playing");
     expect(el.currentTime).toBe(300); // re-seeked
+    el.fire("seeked");
     el.currentTime = 301;
     el.fire("timeupdate");
     expect(onLanded).toHaveBeenCalledTimes(1);
@@ -44,25 +47,38 @@ describe("SeekEnforcer", () => {
     expect(el.count()).toBe(0);
   });
 
+  test("a dropped seek is retried, not mistaken for a listener's scrub", () => {
+    const el = new FakeEl();
+    const done = vi.fn();
+    new SeekEnforcer(el, 2700, {}, done);
+    el.paused = false;
+    el.fire("loadedmetadata"); // seeks; reads 2700 at once
+    el.fire("canplay"); // still in flight
+    el.paused = true; // autoplay refused
+    el.currentTime = 0; // and the seek is dropped (no "seeked")
+    el.fire("timeupdate");
+    expect(done).not.toHaveBeenCalled();
+  });
+
   test("stands down when the listener scrubs while paused", () => {
     const el = new FakeEl();
     const done = vi.fn();
     new SeekEnforcer(el, 300, {}, done);
     el.fire("loadedmetadata"); // seeks
-    el.fire("canplay"); // reached, paused (autoplay refused)
+    el.fire("seeked"); // confirmed, paused (autoplay refused)
     el.currentTime = 60; // the listener rewinds
     el.fire("timeupdate");
     expect(el.currentTime).toBe(60);
     expect(done).toHaveBeenCalledTimes(1);
   });
 
-  test("stands down for a paused scrub when the target was reached while loading", () => {
+  test("stands down for a paused scrub when the target was confirmed while loading", () => {
     const el = new FakeEl();
     const done = vi.fn();
     new SeekEnforcer(el, 300, {}, done);
     el.paused = false; // play() pending
     el.fire("loadedmetadata"); // seeks
-    el.fire("canplay"); // reached, still loading
+    el.fire("seeked"); // confirmed, still loading
     el.paused = true; // then autoplay is refused
     el.currentTime = 60; // and the listener rewinds
     el.fire("timeupdate");
@@ -77,6 +93,7 @@ describe("SeekEnforcer", () => {
     new SeekEnforcer(el, 120, { onLanded }, done);
     el.paused = false;
     el.fire("loadedmetadata");
+    el.fire("seeked");
     el.fire("playing"); // at 120
     el.currentTime = 150; // skipped +30 before the landing timeupdate
     el.fire("timeupdate");
@@ -85,34 +102,15 @@ describe("SeekEnforcer", () => {
     expect(done).toHaveBeenCalledTimes(1);
   });
 
-  test("plays a short episode whole", () => {
-    const el = new FakeEl();
-    const done = vi.fn();
-    new SeekEnforcer(el, 300, { playWholeIf: (d) => 300 >= d - 30 }, done);
-    el.duration = 320;
-    el.fire("loadedmetadata");
-    expect(el.currentTime).toBe(0);
-    expect(done).toHaveBeenCalledTimes(1);
-  });
-
-  test("plays a short episode whole even after seeking before the duration was known", () => {
-    const el = new FakeEl();
-    const done = vi.fn();
-    new SeekEnforcer(el, 300, { playWholeIf: (d) => 300 >= d - 30 }, done);
-    el.fire("timeupdate"); // the load's own, before metadata: seeks to 300
-    expect(el.currentTime).toBe(300);
-    el.duration = 320;
-    el.fire("loadedmetadata");
-    expect(el.currentTime).toBe(0);
-    expect(done).toHaveBeenCalledTimes(1);
-  });
-
   test("gives up on a stream that never takes the seek", () => {
     const el = new FakeEl();
     const done = vi.fn();
     const enf = new SeekEnforcer(el, 300, {}, done);
     Object.defineProperty(el, "currentTime", { get: () => 0, set: () => {} });
-    for (let i = 0; i < 20; i++) el.fire("timeupdate");
+    for (let i = 0; i < 20; i++) {
+      el.fire("timeupdate");
+      el.fire("seeked");
+    }
     expect(done).toHaveBeenCalledTimes(1);
     enf.cancel(); // idempotent
     expect(done).toHaveBeenCalledTimes(1);
@@ -120,7 +118,7 @@ describe("SeekEnforcer", () => {
 
   test("cancel removes every listener", () => {
     const el = new FakeEl();
-    const enf = new SeekEnforcer(el, 300, {}, () => {});
+    const enf = new SeekEnforcer(el, 300);
     enf.cancel();
     expect(el.count()).toBe(0);
   });
