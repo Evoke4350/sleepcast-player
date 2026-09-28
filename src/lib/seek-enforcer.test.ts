@@ -65,9 +65,9 @@ describe("SeekEnforcer", () => {
   });
 
   test("waits for metadata before seeking", () => {
-    const el = new FakeEl();
-    el.readyState = 0;
+    const el = new FakeEl(); // HAVE_NOTHING, as after a new src
     new SeekEnforcer(el, 300);
+    expect(el.currentTime).toBe(0); // not at creation
     el.paused = false;
     el.fire("timeupdate"); // the load's own, before metadata: no seek
     expect(el.currentTime).toBe(0);
@@ -145,11 +145,12 @@ describe("SeekEnforcer", () => {
 
   test("an echo of its own seek on a playing element is not a landing", () => {
     const el = new FakeEl();
+    el.readyState = 1;
     const done = vi.fn();
-    new SeekEnforcer(el, 2700, {}, done);
+    new SeekEnforcer(el, 2700, {}, done); // seeks at once
+    expect(el.currentTime).toBe(2700);
     el.paused = false;
     el.fire("playing");
-    el.fire("timeupdate"); // reads 0: seeks, and now reads exactly 2700
     el.fire("timeupdate"); // the echo, unconfirmed
     expect(done).not.toHaveBeenCalled();
     el.currentTime = 2700.3; // playback there
@@ -213,13 +214,6 @@ describe("SeekEnforcer", () => {
     el.currentTime = 1200;
     new SeekEnforcer(el, 1230);
     expect(el.currentTime).toBe(1230);
-  });
-
-  test("waits for metadata when created before it", () => {
-    const el = new FakeEl();
-    el.readyState = 0;
-    new SeekEnforcer(el, 300);
-    expect(el.currentTime).toBe(0);
   });
 
   test("retarget seeks at once, and a late answer to its earlier seek isn't misread", () => {

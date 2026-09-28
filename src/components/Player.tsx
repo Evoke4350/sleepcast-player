@@ -126,6 +126,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
    *  a new load's intended start, then the element's own position whenever
    *  no seek is being enforced and it has one. */
   const knownPosRef = useRef(0);
+  /** The current episode's duration once its element has reported one: kept
+   *  across a reload (whose element knows nothing yet), reset per episode. */
+  const episodeDurRef = useRef<number | null>(null);
   const failsRef = useRef(0);
   // Whether anything has actually played this night. A night that never did
   // records nothing when it ends (see endSession).
@@ -242,6 +245,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // Only from a start near the beginning: a revive deep in is not the
     // skip's, whatever the element reads if its seek is dropped later.
     skipRef.current = stillAtStart(startAt, skipSec) ? skipSec : null;
+    episodeDurRef.current = null;
 
     watchRef.current = { src: ep.url, at: Date.now() };
     playOrWait(audio);
@@ -346,26 +350,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     knownPosRef.current = audio.currentTime;
   }
 
-  /** A seek the listener asked for (see listenerSeek). Known here, so
-   *  nothing has to guess it from events later, and the position is
-   *  recorded at once, even on a failed element in a network hold (where
-   *  the reload will land). Before playback a seek to a positive position
-   *  is enforced by retargeting the pending seek (aimAt), which also drops
-   *  the skip's announcement; otherwise any pending seek gives way to a
-   *  plain one. */
-  function seekTo(audio: HTMLAudioElement, to: number) {
-    // The listener's seek replaces the skip's, announcement and all.
-    skipSeekRef.current = null;
-    if (!epPlayedRef.current && to > 0) {
-      // Before playback, a plain seek is what Safari resets: enforce it.
-      aimAt(audio, to);
-      return;
-    }
-    pendingSeekRef.current?.cancel();
-    knownPosRef.current = to;
-    lastPosRef.current = to; // a jump, not time heard (after the cancel's rebase)
-    try { audio.currentTime = to; } catch { /* not seekable now: the reload lands there */ }
-  }
 
   /** Enforce a seek to `to`: by retargeting the one still pending (it keeps
    *  count of its own seeks in flight, so their late answers aren't
@@ -941,7 +925,10 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     const trackSeek = () => notePosition(audio);
     audio.addEventListener("seeked", trackSeek);
     // The skip-intro decides as soon as the duration is known.
-    const onDuration = () => checkSkip(audio);
+    const onDuration = () => {
+      if (Number.isFinite(audio.duration) && audio.duration > 0) episodeDurRef.current = audio.duration;
+      checkSkip(audio);
+    };
     audio.addEventListener("loadedmetadata", onDuration);
     audio.addEventListener("durationchange", onDuration);
     audio.addEventListener("playing", onPlaying);
@@ -970,7 +957,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
           // One drag sends a run of fastSeek steps, then the final seek:
           // one interaction, not one per step.
           if (!d.fastSeek) restRef.current?.noteInteraction();
-          listenerSeek(d.seekTime);
+          listenerSeek(d.seekTime, d.fastSeek === true);
         });
       } catch { /* older browsers: fine without */ }
     }
@@ -1030,14 +1017,41 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     listenerSeek(resumePosition() + seconds);
   }
 
-  /** Every listener seek (the scrubber, ±30 s, the lock screen): clamped to
-   *  the episode (never onto its very end, which would end it), and nothing
-   *  when nothing is loaded. */
-  function listenerSeek(to: number) {
+  /** The episode's duration, as far as anyone knows: the element's, or the
+   *  one it reported before a reload. */
+  function episodeDuration(audio: HTMLAudioElement): number | null {
+    if (Number.isFinite(audio.duration) && audio.duration > 0) return audio.duration;
+    return episodeDurRef.current;
+  }
+
+  /** Every listener seek (the scrubber, ±30 s, the lock screen). Known here,
+   *  so nothing has to guess it from events later, and recorded at once,
+   *  even on a failed element in a network hold (where the reload will
+   *  land). Clamped to the episode, never onto its very end (which would
+   *  end it); nothing when nothing is loaded. It replaces the skip-intro,
+   *  pending or decided. Before playback a seek to a positive position is
+   *  enforced by retargeting the pending seek (aimAt); otherwise any pending
+   *  seek gives way to a plain one (`fast`: a step of a lock-screen drag,
+   *  where the browser's fastSeek will do). */
+  function listenerSeek(to: number, fast = false) {
     const audio = audioRef.current;
     if (!audio || !audio.getAttribute("src")) return;
-    const dur = Number.isFinite(audio.duration) ? audio.duration : Infinity;
-    seekTo(audio, Math.min(Math.max(0, to), dur - 1));
+    const dur = episodeDuration(audio) ?? Infinity;
+    const at = Math.max(0, Math.min(to, dur - 1));
+    skipRef.current = null;
+    skipSeekRef.current = null;
+    if (!epPlayedRef.current && at > 0) {
+      // Before playback, a plain seek is what Safari resets: enforce it.
+      aimAt(audio, at);
+      return;
+    }
+    pendingSeekRef.current?.cancel();
+    knownPosRef.current = at;
+    lastPosRef.current = at; // a jump, not time heard (after the cancel's rebase)
+    try {
+      if (fast && typeof audio.fastSeek === "function") audio.fastSeek(at);
+      else audio.currentTime = at;
+    } catch { /* not seekable now: the reload lands there */ }
   }
 
   function extendTimer(minutes: number) {
@@ -1115,10 +1129,13 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
 
   function seekToRatio(e: React.MouseEvent<HTMLDivElement>) {
     restRef.current?.noteInteraction();
-    if (!epPos) return;
+    const audio = audioRef.current;
+    // This episode's duration, not the display's (a second behind after a
+    // track change); listenerSeek clamps the rest.
+    const dur = audio ? episodeDuration(audio) : null;
+    if (dur === null) return;
     const rect = e.currentTarget.getBoundingClientRect();
-    const ratio = (e.clientX - rect.left) / rect.width;
-    listenerSeek(Math.max(0, Math.min(1, ratio)) * epPos.dur);
+    listenerSeek(((e.clientX - rect.left) / rect.width) * dur);
     // Aiming at a position is the one moment the numbers earn their place —
     // show where you landed, then let them go back under with the moon.
     setPeekUntil(Date.now() + 4000);

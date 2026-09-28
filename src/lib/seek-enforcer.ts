@@ -72,9 +72,6 @@ export class SeekEnforcer {
   private outstanding = 0;
   private done = false;
   private target: number;
-  /** The value last assigned: what an unconfirmed reading echoes (after a
-   *  small retarget, not the target itself). */
-  private lastAssigned = NaN;
 
   /** `onDone` runs once, when it lands or stands down for any reason
    *  (including cancel()). */
@@ -132,7 +129,7 @@ export class SeekEnforcer {
     const cur = el.currentTime;
     const near = Math.abs(cur - this.at) <= SLACK_SEC;
     // The assignment's own echo, not a position the element has reached.
-    const echo = unconfirmed && Math.abs(cur - this.lastAssigned) < ECHO_SEC;
+    const echo = unconfirmed && Math.abs(cur - this.at) < ECHO_SEC;
     const playingHere = near && !echo && this.sawPlaying && !el.paused && e.type === "timeupdate";
     if (near && ((e.type === "seeked" && !unconfirmed) || playingHere)) this.reached = true;
     if (el.paused) {
@@ -159,9 +156,12 @@ export class SeekEnforcer {
     this.trySeek();
   };
 
-  /** On creation and retarget: seek now unless already there. */
+  /** On creation and retarget: seek now unless it's already there. A
+   *  reading while seeks are outstanding is only their echo, so it never
+   *  counts as there: every assignment is then the current target, which
+   *  is what an echo is measured against. */
   private seekNowIfReady(): void {
-    if (Math.abs(this.el.currentTime - this.target) <= SLACK_SEC) return;
+    if (this.outstanding === 0 && Math.abs(this.el.currentTime - this.target) <= SLACK_SEC) return;
     this.trySeek();
   }
 
@@ -176,7 +176,6 @@ export class SeekEnforcer {
     }
     try {
       this.el.currentTime = this.target;
-      this.lastAssigned = this.target;
       this.outstanding++;
     } catch {
       /* not seekable yet: a later event retries */
