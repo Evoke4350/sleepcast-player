@@ -231,6 +231,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     }
     audio.src = ep.url;
     currentEpRef.current = ep;
+    // A new episode: the last one's length means nothing now (before the
+    // start seek below reads it).
+    episodeDurRef.current = null;
     epPlayedRef.current = false;
     netHoldRef.current.cancel(); // a new episode: any wait was for the last one
     // Snapshot the new episode to storage promptly, not up to 10s later.
@@ -246,7 +249,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // Only from a start near the beginning: a revive deep in is not the
     // skip's, whatever the element reads if its seek is dropped later.
     skipRef.current = stillAtStart(startAt, skipSec) ? skipSec : null;
-    episodeDurRef.current = null;
 
     watchRef.current = { src: ep.url, at: Date.now() };
     playOrWait(audio);
@@ -338,6 +340,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       if (end === "landed") notePosition(audio);
     }, { deferSeek, duration: () => episodeDuration(audio) });
     pendingSeekRef.current = seek;
+    knownPosRef.current = seek.at; // the target, as the enforcer keeps it
     return seek;
   }
 
@@ -358,7 +361,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     const pending = pendingSeekRef.current;
     // A drag step (deferSeek) only moves the target; the next event seeks.
     if (pending && (deferSeek ? pending.moveTarget(to, hooks) : pending.retarget(to, hooks))) {
-      knownPosRef.current = to;
+      knownPosRef.current = pending.at; // the target, as the enforcer keeps it
       return pending;
     }
     return landAt(audio, to, hooks, { deferSeek });
@@ -1046,8 +1049,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       // Before playback, a plain seek is what Safari resets: enforce it. A
       // drag step only moves the target; the drag's final seek enforces.
       // (Its own hooks, none: a skip-intro's announcement isn't the
-      // listener's seek.)
-      aimAt(audio, at, {}, { deferSeek: fast });
+      // listener's seek.) The enforcer keeps it short of the end itself,
+      // on the same duration.
+      aimAt(audio, Math.max(0, to), {}, { deferSeek: fast });
       return true;
     }
     pendingSeekRef.current?.cancel();

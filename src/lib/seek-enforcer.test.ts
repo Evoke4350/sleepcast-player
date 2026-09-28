@@ -414,6 +414,30 @@ describe("SeekEnforcer", () => {
     expect(el.currentTime).toBe(599);
   });
 
+  test("assignments that keep failing still give up", () => {
+    const el = new FakeEl();
+    el.readyState = 1;
+    const done = vi.fn();
+    new SeekEnforcer(el, 50, {}, done); // placed once
+    Object.defineProperty(el, "currentTime", { get: () => 0, set: () => { throw new Error("no"); } });
+    for (let i = 0; i < 200; i++) el.fire("timeupdate");
+    expect(done).toHaveBeenCalledWith("gave-up");
+  });
+
+  test("a target found in place still gets the settling-estimate allowance", () => {
+    const el = new FakeEl();
+    el.readyState = 1;
+    el.duration = 5300;
+    el.currentTime = 5299;
+    const done = vi.fn();
+    new SeekEnforcer(el, 5370, {}, done); // clamped to 5299: already there
+    for (let d = 5298; d > 5270; d--) {
+      el.duration = d;
+      el.fire("timeupdate");
+    }
+    expect(done).not.toHaveBeenCalled();
+  });
+
   test("cancel reports cancelled", () => {
     const el = new FakeEl();
     const done = vi.fn();
