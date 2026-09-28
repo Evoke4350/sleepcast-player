@@ -97,6 +97,11 @@ export interface PlayerProps {
   wasVaried?: boolean;
 }
 
+/** Element events after which the lock screen is re-synced: play state
+ *  (play, pause, playing, waiting), position (seeked), length
+ *  (loadedmetadata, durationchange) and a new load (emptied). */
+const LOCK_SYNC_EVENTS = ["play", "pause", "playing", "waiting", "seeked", "loadedmetadata", "durationchange", "emptied"] as const;
+
 export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, skipIntroByFeedId, feedTitles, artworkByFeedId, onEnd, resume = null, leadEpisode = null, leadPosition = 0, quarterHourRule = false, wasVaried = false }: PlayerProps) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const endTimeRef = useRef<number | null>(null);
@@ -429,6 +434,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
         // night they slept through when nothing ever played.
         freezeClock();
         setPaused(true);
+        syncLockScreen(); // no "pause" event either
       }
     });
   }
@@ -718,7 +724,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // (not a reading Safari hasn't corrected yet, and not lost on a reload),
     // once per pass for the fade and the bar.
     const span = episodeSpan(audio);
-    const epRemaining = span ? span.dur - span.pos : null;
+    const epRemaining = remainingOf(audio, span);
     const driver = fadeDriverSeconds(kind, remaining, epRemaining);
 
     // The courtesy fade owns audio.volume while it runs. Without this guard
@@ -815,11 +821,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       audio.volume = 1;
     }
 
-    if ("mediaSession" in navigator) {
-      navigator.mediaSession.metadata = null;
-      navigator.mediaSession.playbackState = "none";
-      try { navigator.mediaSession.setPositionState?.(); } catch { /* nothing to clear */ }
-    }
+    if ("mediaSession" in navigator) navigator.mediaSession.metadata = null;
+    clearLockScreen(); // the stop's own "pause" event finds no src, and keeps it clear
 
     onEndRef.current();
   }
@@ -850,7 +853,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // pause handler: freeze timer unless it's an episode-end transition
     const onPause = () => {
       setPaused(true);
-      syncLockScreen();
       watchRef.current = null; // a paused track isn't a stuck track
       if (!audio.ended) freezeClock();
       persistLive(); // capture the pause with its frozen remaining time
@@ -859,7 +861,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // play handler: recompute endTime from frozen remaining
     const onPlay = () => {
       setPaused(false);
-      syncLockScreen();
       if (pausedRemainingMsRef.current !== null) {
         endTimeRef.current = Date.now() + pausedRemainingMsRef.current;
         pausedRemainingMsRef.current = null;
@@ -950,10 +951,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     audio.addEventListener("timeupdate", heardTick); // accumulates real playback for the play ledger
     // heardTick tracks the position on timeupdate; a scrub while paused
     // fires only "seeked".
-    const trackSeek = () => {
-      notePosition(audio);
-      syncLockScreen();
-    };
+    const trackSeek = () => notePosition(audio);
     audio.addEventListener("seeked", trackSeek);
     // The skip-intro decides as soon as the duration is known.
     const onDuration = () => {
@@ -966,10 +964,14 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
         if (!pendingSeekRef.current) knownPosRef.current = shortOfEnd(knownPosRef.current, dur);
       }
       checkSkip(audio);
-      syncLockScreen();
     };
     audio.addEventListener("loadedmetadata", onDuration);
     audio.addEventListener("durationchange", onDuration);
+    // The lock screen follows every element change of position or play state
+    // from one listener set (registered after the handlers above, so it sees
+    // what they recorded), rather than a call at each site that makes one.
+    const lockSync = () => syncLockScreen();
+    for (const ev of LOCK_SYNC_EVENTS) audio.addEventListener(ev, lockSync);
     audio.addEventListener("playing", onPlaying);
     audio.addEventListener("ended", onEnded);
     audio.addEventListener("error", onError);
@@ -1028,6 +1030,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       audio.removeEventListener("timeupdate", restTick);
       audio.removeEventListener("timeupdate", heardTick);
       audio.removeEventListener("seeked", trackSeek);
+      for (const ev of LOCK_SYNC_EVENTS) audio.removeEventListener(ev, lockSync);
+      clearLockScreen(); // the player is gone: no phantom control left behind
       audio.removeEventListener("loadedmetadata", onDuration);
       audio.removeEventListener("durationchange", onDuration);
       audio.removeEventListener("playing", onPlaying);
@@ -1058,8 +1062,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
    *  it is as far as anyone knows, so a reload or a pending start seek
    *  doesn't lose the fade (a new src knows no duration; Safari can read
    *  ~0 before its seek is corrected). */
-  function remainingOf(audio: HTMLAudioElement): number | null {
-    const span = episodeSpan(audio);
+  function remainingOf(audio: HTMLAudioElement, span = episodeSpan(audio)): number | null {
     return span ? span.dur - span.pos : null;
   }
 
@@ -1073,14 +1076,27 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   function syncLockScreen() {
     const audio = audioRef.current;
     if (!audio || typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+    if (!audio.getAttribute("src")) {
+      clearLockScreen();
+      return;
+    }
+    // A fresh reading first: a pause lands between timeupdates, and paused
+    // the platform no longer extrapolates.
+    notePosition(audio);
     const ms = navigator.mediaSession;
-    ms.playbackState = !audio.getAttribute("src") ? "none" : audio.paused ? "paused" : "playing";
+    ms.playbackState = audio.paused ? "paused" : "playing";
     if (!ms.setPositionState) return;
     const span = episodeSpan(audio);
     try {
       if (span) ms.setPositionState({ duration: span.dur, position: span.pos, playbackRate: audio.playbackRate || 1 });
       else ms.setPositionState();
     } catch { /* a platform that rejects it keeps its own */ }
+  }
+
+  function clearLockScreen() {
+    if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+    navigator.mediaSession.playbackState = "none";
+    try { navigator.mediaSession.setPositionState?.(); } catch { /* nothing to clear */ }
   }
 
   /** Where the episode is and how long it is, as the player sees it, with
@@ -1121,7 +1137,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       // skip-intro's announcement isn't the listener's seek.) The enforcer
       // keeps it short of the end itself, on the same duration.
       aimAt(audio, to, {}, { move: fast });
-      syncLockScreen();
+      syncLockScreen(); // at once: a paused element may not seek until played
       return true;
     }
     const at = shortOfEnd(to, episodeDuration(audio));
@@ -1135,7 +1151,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       if (useFastSeek) audio.fastSeek(at);
       else audio.currentTime = at;
     } catch { /* not seekable now: the reload lands there */ }
-    syncLockScreen();
+    syncLockScreen(); // at once: the drag's steps come faster than "seeked"
     return true;
   }
 
