@@ -8,16 +8,18 @@
 // `paused` alone is not proof: it turns false the moment play() is called,
 // while the element is still loading.
 //
-// Only a position the element has confirmed counts. currentTime reads the
-// target the instant it is assigned, before the seek completes (or is
-// dropped), so while this enforcer's own seek is in flight (until "seeked")
-// a reading at the target proves nothing.
+// Only a position the element has confirmed counts as reaching the target:
+// currentTime reads the target the instant it is assigned, before the seek
+// completes, or even if it is dropped. Confirmation is a "seeked" there, or
+// playback there. Any reading away from the target is simply retried
+// (bounded), so a seek dropped without a word is tried again.
 //
-// The listener stays in charge. Once the target has been confirmed, a later
-// paused reading away from it is the listener scrubbing (Safari's reset comes
-// as playback starts, never while paused), and so is a playing reading well
-// past it (a reset only ever goes back). Either way the seek stands down
-// rather than fight them, and without claiming it landed.
+// The listener stays in charge. A "seeked" away from the target while paused
+// is the listener scrubbing (their seek replaced this one; Safari's reset
+// comes as playback starts, never while paused), and so is any paused
+// reading away from a confirmed target, or a playing reading well past it (a
+// reset only ever goes back). Each stands the seek down rather than fight
+// them, and without claiming it landed.
 
 /** The parts of a media element this needs. */
 export interface Seekable {
@@ -39,7 +41,6 @@ const MAX_ATTEMPTS = 12;
 export class SeekEnforcer {
   private attempts = 0;
   private sawPlaying = false;
-  private ownSeekInFlight = false;
   private reached = false;
   private done = false;
 
@@ -69,14 +70,12 @@ export class SeekEnforcer {
     if (this.done) return;
     const el = this.el;
     if (e.type === "playing") this.sawPlaying = true;
-    if (e.type === "seeked") this.ownSeekInFlight = false;
-    if (this.ownSeekInFlight) return; // nothing read now is confirmed
     const cur = el.currentTime;
     const near = Math.abs(cur - this.at) <= SLACK_SEC;
-    if (near) this.reached = true;
+    if (near && (e.type === "seeked" || (this.sawPlaying && !el.paused))) this.reached = true;
     if (el.paused) {
-      if (near) return; // there, waiting for playback
-      if (this.reached) {
+      if (near) return; // there (or on its way), waiting for playback
+      if (this.reached || e.type === "seeked") {
         this.finish(); // the listener moved it
         return;
       }
@@ -103,7 +102,6 @@ export class SeekEnforcer {
   private seek(): void {
     try {
       this.el.currentTime = this.at;
-      this.ownSeekInFlight = true;
     } catch {
       /* not seekable yet: a later event retries */
     }

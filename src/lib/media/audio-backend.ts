@@ -24,8 +24,7 @@ export class AudioBackend implements MediaBackend {
 
   load(ref: string, startSeconds = 0): void {
     if (this.dead) return;
-    this.seek?.cancel();
-    this.seek = null;
+    this.dropSeek();
 
     this.el.src = ref;
 
@@ -48,9 +47,13 @@ export class AudioBackend implements MediaBackend {
 
   standDown(): void {
     if (this.dead) return;
+    this.dropSeek();
+    this.el.pause();
+  }
+
+  private dropSeek(): void {
     this.seek?.cancel();
     this.seek = null;
-    this.el.pause();
   }
 
   setVolume(level: number): void {
@@ -91,8 +94,7 @@ export class AudioBackend implements MediaBackend {
   destroy(): void {
     if (this.dead) return;
     this.dead = true;
-    this.seek?.cancel();
-    this.seek = null;
+    this.dropSeek();
     for (const off of this.detach.splice(0)) off();
     this.errorCallbacks.clear();
     this.el.pause();

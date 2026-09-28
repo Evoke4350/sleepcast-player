@@ -110,6 +110,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   /** The skip-intro target while it's undecided whether the episode is too
    *  short for it (see checkPlayWhole). */
   const playWholeRef = useRef<number | null>(null);
+  /** Minutes of a skip that landed before play-whole was decided. */
+  const skipToastPendingRef = useRef<number | null>(null);
   // Watchdog: a track that hasn't reached "playing" within the window is
   // stuck (silent play() rejection, stalled load, dead enclosure URL) —
   // skip it instead of sitting in silence. Bounded so a fully-broken pool
@@ -235,10 +237,13 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // An episode barely longer than the skip plays whole instead, decided
     // once its duration is known (see checkPlayWhole).
     playWholeRef.current = seekTo === 0 && skipSec > 0 ? skipSec : null;
+    skipToastPendingRef.current = null;
     landAt(audio, seekTo > 0 ? seekTo : skipSec, seekTo > 0 ? {} : {
       onLanded: () => {
-        setToast(`skipped the ${skipMin} min intro`);
-        setTimeout(() => setToast(""), 4200);
+        // Not while it may yet play whole (see checkPlayWhole), which then
+        // says it or doesn't.
+        if (playWholeRef.current === null) skipToast(skipMin);
+        else skipToastPendingRef.current = skipMin;
       },
     });
 
@@ -343,13 +348,24 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     const dur = audio.duration;
     if (skipSec === null || !Number.isFinite(dur) || dur <= 0) return;
     playWholeRef.current = null;
-    if (skipSec < dur - 30) return;
-    const atSkip = pendingSeekRef.current !== null || Math.abs(audio.currentTime - skipSec) <= 2;
-    pendingSeekRef.current?.cancel();
+    const toast = skipToastPendingRef.current;
+    skipToastPendingRef.current = null;
+    if (skipSec < dur - 30) {
+      if (toast !== null) skipToast(toast);
+      return;
+    }
+    const seek = pendingSeekRef.current;
+    const atSkip = seek ? seek.at === skipSec : Math.abs(audio.currentTime - skipSec) <= 2;
     if (!atSkip) return;
+    seek?.cancel();
     try { audio.currentTime = 0; } catch { /* not seekable: it plays from here */ }
     knownPosRef.current = 0;
     lastPosRef.current = 0;
+  }
+
+  function skipToast(minutes: number) {
+    setToast(`skipped the ${minutes} min intro`);
+    setTimeout(() => setToast(""), 4200);
   }
 
   /** play(), and if autoplay is refused (a track change or a reload while the

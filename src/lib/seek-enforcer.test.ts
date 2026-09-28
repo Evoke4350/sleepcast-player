@@ -31,7 +31,7 @@ describe("SeekEnforcer", () => {
     el.paused = false; // play() called, still loading
     el.fire("loadedmetadata");
     expect(el.currentTime).toBe(300);
-    el.fire("timeupdate"); // the seek is still in flight: proves nothing
+    el.fire("timeupdate"); // reads the target at once: proves nothing yet
     expect(done).not.toHaveBeenCalled();
     el.fire("seeked");
     el.fire("canplay"); // at the target, not playing yet: not landed
@@ -58,6 +58,28 @@ describe("SeekEnforcer", () => {
     el.currentTime = 0; // and the seek is dropped (no "seeked")
     el.fire("timeupdate");
     expect(done).not.toHaveBeenCalled();
+    expect(el.currentTime).toBe(2700); // retried
+  });
+
+  test("a seek before metadata doesn't stop the one at metadata", () => {
+    const el = new FakeEl();
+    new SeekEnforcer(el, 300);
+    el.paused = false;
+    el.fire("timeupdate"); // the load's own, at HAVE_NOTHING: the seek is lost
+    el.currentTime = 0;
+    el.fire("loadedmetadata");
+    expect(el.currentTime).toBe(300);
+  });
+
+  test("stands down when the listener scrubs while its own seek is still going", () => {
+    const el = new FakeEl();
+    const done = vi.fn();
+    new SeekEnforcer(el, 300, {}, done);
+    el.fire("loadedmetadata"); // seeks, paused (autoplay refused)
+    el.currentTime = 60; // the listener's seek replaces it
+    el.fire("seeked");
+    expect(el.currentTime).toBe(60);
+    expect(done).toHaveBeenCalledTimes(1);
   });
 
   test("stands down when the listener scrubs while paused", () => {
@@ -106,11 +128,9 @@ describe("SeekEnforcer", () => {
     const el = new FakeEl();
     const done = vi.fn();
     const enf = new SeekEnforcer(el, 300, {}, done);
+    el.paused = false;
     Object.defineProperty(el, "currentTime", { get: () => 0, set: () => {} });
-    for (let i = 0; i < 20; i++) {
-      el.fire("timeupdate");
-      el.fire("seeked");
-    }
+    for (let i = 0; i < 20; i++) el.fire("timeupdate"); // never a "seeked"
     expect(done).toHaveBeenCalledTimes(1);
     enf.cancel(); // idempotent
     expect(done).toHaveBeenCalledTimes(1);
