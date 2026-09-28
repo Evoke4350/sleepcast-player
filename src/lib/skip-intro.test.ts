@@ -52,5 +52,9 @@ describe("startWithSkip", () => {
     expect(startWithSkip(1800, 300)).toBe(1800);
     expect(startWithSkip(0, 0)).toBe(0);
     expect(startWithSkip(10, 5)).toBe(10); // already past the intro
+    expect(startWithSkip(15, 300)).toBe(300); // the boundary, in both rules
+    expect(startWithSkip(15.1, 300)).toBe(15.1);
+    expect(decideSkip(300, 3600, 15)).toBe("skip");
+    expect(decideSkip(300, 3600, 15.1)).toBe("none");
   });
 });

@@ -8,7 +8,7 @@ import { fadeVolume, formatTime, effectiveVolume, fadeDriverSeconds } from "../l
 import { getPlays, recordHeardPlay, saveLive, rememberPosition, forgetPosition, blockEpisode } from "../lib/store";
 import { NetworkHold, isOffline } from "../lib/network-hold";
 import { SeekEnforcer, type SeekHooks } from "../lib/seek-enforcer";
-import { decideSkip, skipMessage } from "../lib/skip-intro";
+import { decideSkip, skipMessage, stillAtStart } from "../lib/skip-intro";
 import { pickNextEpisode, HEARD_SEC } from "../lib/plays";
 import { canExtend } from "../lib/timer-feel";
 import type { NoiseSettings } from "../lib/store";
@@ -112,7 +112,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   const skipRef = useRef<number | null>(null);
   /** The skip's own seek once armed, so a reload before it lands can re-arm
    *  it with its announcement. */
-  const skipSeekRef = useRef<{ at: number; hooks: SeekHooks } | null>(null);
+  const skipSeekRef = useRef<{ seek: SeekEnforcer; hooks: SeekHooks } | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Watchdog: a track that hasn't reached "playing" within the window is
   // stuck (silent play() rejection, stalled load, dead enclosure URL) —
@@ -238,7 +238,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // and applies only near the start: a revive from a snapshot taken a
     // second in still gets it, one from mid-episode doesn't.
     landAt(audio, seekTo);
-    skipRef.current = skipSec > 0 ? skipSec : null;
+    // Only from a start near the beginning: a revive deep in is not the
+    // skip's, whatever the element reads if its seek is dropped later.
+    skipRef.current = skipSec > 0 && stillAtStart(seekTo, skipSec) ? skipSec : null;
     skipSeekRef.current = null;
 
     watchRef.current = { src: ep.url, at: Date.now() };
@@ -312,16 +314,17 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
    *  load's seek first: a leftover would force-seek this load to that spot.
    *  0 only tears down. Until the seek is done, resumePosition reads its
    *  target; after, the element's position. */
-  function landAt(audio: HTMLAudioElement, at: number, hooks: SeekHooks = {}) {
+  function landAt(audio: HTMLAudioElement, at: number, hooks: SeekHooks = {}): SeekEnforcer | null {
     pendingSeekRef.current?.cancel();
     knownPosRef.current = at;
-    if (at <= 0) return;
+    if (at <= 0) return null;
     const seek = new SeekEnforcer(audio, at, hooks, () => {
       if (pendingSeekRef.current !== seek) return;
       pendingSeekRef.current = null;
       notePosition(audio);
     });
     pendingSeekRef.current = seek;
+    return seek;
   }
 
   /** Take the element's own position as where the episode is, when it can
@@ -347,8 +350,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     skipRef.current = null;
     if (decision !== "skip") return;
     const hooks = { onLanded: () => showToast(skipMessage(skipSec)) };
-    skipSeekRef.current = { at: skipSec, hooks };
-    landAt(audio, skipSec, hooks);
+    const seek = landAt(audio, skipSec, hooks);
+    skipSeekRef.current = seek ? { seek, hooks } : null;
   }
 
   /** One toast at a time: a new one replaces the last, timer and all. */
@@ -387,10 +390,12 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     audio.src = ep.url;
     // A fresh enforcer (the old one's state belongs to the load that failed),
     // with the skip's announcement if it is the skip's seek being reloaded.
+    // The skip's seek is recognised by identity: still the pending one.
     const skip = skipSeekRef.current;
-    const reloadingSkip = skip !== null && skip.at === at && pendingSeekRef.current?.at === at;
-    landAt(audio, at, reloadingSkip ? skip.hooks : {});
-    lastPosRef.current = at; // not a jump heardTick should count
+    const reloadingSkip = skip !== null && pendingSeekRef.current === skip.seek && skip.seek.at === at;
+    const seek = landAt(audio, at, reloadingSkip ? skip.hooks : {});
+    skipSeekRef.current = reloadingSkip && seek ? { seek, hooks: skip.hooks } : null;
+    lastPosRef.current = at; // the new load's baseline (heardTick skips its seek)
     watchRef.current = { src: ep.url, at: Date.now() };
     playOrWait(audio);
     return true;
