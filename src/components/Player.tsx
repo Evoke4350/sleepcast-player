@@ -236,6 +236,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // start seek below reads it).
     episodeDurRef.current = null;
     epPlayedRef.current = false;
+    syncLockScreen(); // no length yet: clears the last episode's scrubber
     netHoldRef.current.cancel(); // a new episode: any wait was for the last one
     // Snapshot the new episode to storage promptly, not up to 10s later.
     persistCounterRef.current = 10;
@@ -713,7 +714,11 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       return;
     }
 
-    const epRemaining = remainingOf(audio);
+    // Where the episode is and how long, as the rest of the player sees it
+    // (not a reading Safari hasn't corrected yet, and not lost on a reload),
+    // once per pass for the fade and the bar.
+    const span = episodeSpan(audio);
+    const epRemaining = span ? span.dur - span.pos : null;
     const driver = fadeDriverSeconds(kind, remaining, epRemaining);
 
     // The courtesy fade owns audio.volume while it runs. Without this guard
@@ -733,18 +738,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       brownRef.current?.setGain(noiseGain(noise.on && !audio.paused ? noise.level : 0, driver, FADE_SECONDS));
     }
     setCountdown(kind === "minutes" ? remaining : 0);
-    // Where the episode is and how long, as the rest of the player sees it:
-    // not a reading Safari hasn't corrected yet, and not lost on a reload.
-    const span = episodeSpan(audio);
     setEpPos(span ? { cur: span.pos, dur: span.dur } : null);
-    // The lock screen's scrubber, from the same view as the in-app bar (the
-    // element's own reading can be ~0 while a seek is enforced or a reload
-    // loads, and a nudge of that thumb would throw the position away).
-    if (span && "mediaSession" in navigator && navigator.mediaSession.setPositionState) {
-      try {
-        navigator.mediaSession.setPositionState({ duration: span.dur, position: span.pos, playbackRate: 1 });
-      } catch { /* a platform that rejects it keeps its own */ }
-    }
 
     const w = watchRef.current;
     if (w && Date.now() - w.at > 25_000) {
@@ -823,6 +817,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
 
     if ("mediaSession" in navigator) {
       navigator.mediaSession.metadata = null;
+      navigator.mediaSession.playbackState = "none";
+      try { navigator.mediaSession.setPositionState?.(); } catch { /* nothing to clear */ }
     }
 
     onEndRef.current();
@@ -854,6 +850,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // pause handler: freeze timer unless it's an episode-end transition
     const onPause = () => {
       setPaused(true);
+      syncLockScreen();
       watchRef.current = null; // a paused track isn't a stuck track
       if (!audio.ended) freezeClock();
       persistLive(); // capture the pause with its frozen remaining time
@@ -862,6 +859,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // play handler: recompute endTime from frozen remaining
     const onPlay = () => {
       setPaused(false);
+      syncLockScreen();
       if (pausedRemainingMsRef.current !== null) {
         endTimeRef.current = Date.now() + pausedRemainingMsRef.current;
         pausedRemainingMsRef.current = null;
@@ -952,7 +950,10 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     audio.addEventListener("timeupdate", heardTick); // accumulates real playback for the play ledger
     // heardTick tracks the position on timeupdate; a scrub while paused
     // fires only "seeked".
-    const trackSeek = () => notePosition(audio);
+    const trackSeek = () => {
+      notePosition(audio);
+      syncLockScreen();
+    };
     audio.addEventListener("seeked", trackSeek);
     // The skip-intro decides as soon as the duration is known.
     const onDuration = () => {
@@ -965,6 +966,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
         if (!pendingSeekRef.current) knownPosRef.current = shortOfEnd(knownPosRef.current, dur);
       }
       checkSkip(audio);
+      syncLockScreen();
     };
     audio.addEventListener("loadedmetadata", onDuration);
     audio.addEventListener("durationchange", onDuration);
@@ -1061,6 +1063,26 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     return span ? span.dur - span.pos : null;
   }
 
+  /** The lock screen's scrubber and play state, from the player's own view
+   *  (the element's reading can be ~0 while a seek is enforced or a reload
+   *  loads, and a nudge of that thumb would throw the position away). Set
+   *  when something changes: a seek, a new length, play, pause, a new load;
+   *  the platform extrapolates in between, at the rate given, and not at
+   *  all while the state says paused. Cleared while the length is unknown
+   *  (a new episode, a stream), so no stale scrubber is left behind. */
+  function syncLockScreen() {
+    const audio = audioRef.current;
+    if (!audio || typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+    const ms = navigator.mediaSession;
+    ms.playbackState = !audio.getAttribute("src") ? "none" : audio.paused ? "paused" : "playing";
+    if (!ms.setPositionState) return;
+    const span = episodeSpan(audio);
+    try {
+      if (span) ms.setPositionState({ duration: span.dur, position: span.pos, playbackRate: audio.playbackRate || 1 });
+      else ms.setPositionState();
+    } catch { /* a platform that rejects it keeps its own */ }
+  }
+
   /** Where the episode is and how long it is, as the player sees it, with
    *  the position kept within it: the one view the bar, the lock screen and
    *  the fade all read. Null while the length is unknown. */
@@ -1099,6 +1121,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       // skip-intro's announcement isn't the listener's seek.) The enforcer
       // keeps it short of the end itself, on the same duration.
       aimAt(audio, to, {}, { move: fast });
+      syncLockScreen();
       return true;
     }
     const at = shortOfEnd(to, episodeDuration(audio));
@@ -1112,6 +1135,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       if (useFastSeek) audio.fastSeek(at);
       else audio.currentTime = at;
     } catch { /* not seekable now: the reload lands there */ }
+    syncLockScreen();
     return true;
   }
 

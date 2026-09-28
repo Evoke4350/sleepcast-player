@@ -93,6 +93,9 @@ export class SeekEnforcer {
    *  an earlier seek, possibly within the slack, and every event just
    *  seeks. */
   private placedAt: number | null = null;
+  /** The target placedAt was for: a renewal is for the same target whose
+   *  clamp moved, not a drag step or a retarget. */
+  private placedFor = NaN;
   /** Where the end is (see at): the constructor's source, or the element's. */
   private readonly duration: () => number | null;
   /** Bound renewals granted to a moving end clamp, itself bounded: a
@@ -121,7 +124,7 @@ export class SeekEnforcer {
     // "playing" it waits for has already fired and may not fire again.
     this.sawPlaying = !el.paused && el.readyState >= HAVE_FUTURE_DATA;
     for (const ev of EVENTS) el.addEventListener(ev, this.handle);
-    if (!deferSeek) this.seekNowIfReady();
+    if (!deferSeek) this.trySeek(this.at, { unlessThere: true });
   }
 
   /** Where it is putting the element: the target, kept a second short of
@@ -131,14 +134,13 @@ export class SeekEnforcer {
     return shortOfEnd(this.target, this.duration());
   }
 
-
   /** Aim at another position (the listener's seek), seeking now, and keeping
    *  the count of seeks in flight so their late answers aren't misread.
    *  Returns false if it has already ended; the caller then starts a new
    *  one. `hooks` replace the current ones when given. */
   retarget(at: number, hooks?: SeekHooks): boolean {
     if (!this.moveTarget(at, hooks)) return false;
-    this.seekNowIfReady();
+    this.trySeek(this.at, { unlessThere: true });
     return true;
   }
 
@@ -180,7 +182,7 @@ export class SeekEnforcer {
       // clamp moved by a new duration estimate (a moved target has reset
       // the bound already), not a failed attempt, so the bound isn't spent
       // on estimates settling. A failed assignment leaves nothing placed.
-      if (this.placedAt !== null && this.clampRenewals < MAX_CLAMP_RENEWALS) {
+      if (this.placedAt !== null && this.placedFor === this.target && this.clampRenewals < MAX_CLAMP_RENEWALS) {
         this.clampRenewals++;
         this.attempts = 0;
       }
@@ -224,21 +226,17 @@ export class SeekEnforcer {
     this.trySeek(at);
   };
 
-  /** On creation and retarget: seek now unless it's already there. A
-   *  reading while seeks are outstanding is only their echo, so it never
-   *  counts as there. */
-  private seekNowIfReady(): void {
-    this.trySeek(this.at, { unlessThere: true });
-  }
-
   /** One attempt, if the element can take it: not before metadata (a seek
    *  then becomes the start position, applied unasked once the media is
-   *  known), and not beyond the attempt bound. */
-  private trySeek(at: number = this.at, { unlessThere = false }: { unlessThere?: boolean } = {}): void {
+   *  known), and not beyond the attempt bound. `unlessThere` (creation and
+   *  retarget): not if it's already there, which counts as placed; a
+   *  reading while seeks are outstanding is only their echo, so never. */
+  private trySeek(at: number, { unlessThere = false }: { unlessThere?: boolean } = {}): void {
     if (this.el.readyState < HAVE_METADATA) return;
     // Already there with none of ours in flight: nothing to assign.
     if (unlessThere && this.outstanding === 0 && Math.abs(this.el.currentTime - at) <= SLACK_SEC) {
       this.placedAt = at;
+      this.placedFor = this.target;
       return;
     }
     if (this.attempts++ >= MAX_ATTEMPTS) {
@@ -248,6 +246,7 @@ export class SeekEnforcer {
     try {
       this.el.currentTime = at;
       this.placedAt = at;
+      this.placedFor = this.target;
       this.outstanding++;
     } catch {
       // Not seekable yet: a later event retries (it stays stale), and each

@@ -479,6 +479,24 @@ describe("SeekEnforcer", () => {
     expect(done).toHaveBeenCalledWith("gave-up");
   });
 
+  test("drag steps don't spend the renewals a settling duration needs", () => {
+    const el = new FakeEl();
+    el.readyState = 1;
+    el.duration = 1000;
+    const done = vi.fn();
+    const enf = new SeekEnforcer(el, 100, {}, done);
+    for (let i = 0; i < 80; i++) {
+      enf.moveTarget(100 + i); // a long drag
+      el.fire("timeupdate");
+    }
+    enf.retarget(5000); // then near the end of a settling VBR estimate
+    for (let d = 1001; d < 1040; d++) {
+      el.duration = d;
+      el.fire("durationchange");
+    }
+    expect(done).not.toHaveBeenCalled();
+  });
+
   test("cancel reports cancelled", () => {
     const el = new FakeEl();
     const done = vi.fn();
