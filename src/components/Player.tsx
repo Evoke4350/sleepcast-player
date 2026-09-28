@@ -137,7 +137,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   const knownPosRef = useRef(0);
   /** What the lock screen was last told (position, when, the rate it
    *  extrapolates at), to tell a correction from steady playback. */
-  const publishedRef = useRef<{ pos: number; atMs: number; rate: number } | "none" | null>(null);
+  const publishedRef = useRef<{ pos: number; atMs: number; rate: number } | "none">("none");
   /** The current episode's duration once its element has reported one: kept
    *  across a reload (whose element knows nothing yet), reset per episode. */
   const episodeDurRef = useRef<number | null>(null);
@@ -336,17 +336,13 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     skipSeekRef.current = null;
     knownPosRef.current = Math.max(0, at); // this load's, not the last one's
     if (at <= 0) {
-      clearSeek();
+      // No seek: tear down the last one (a leftover would force-seek this
+      // load to its spot).
+      pendingSeekRef.current?.cancel();
       return;
     }
     const seek = landAt(audio, at, skipSec !== undefined ? skipHooks(skipSec) : {});
     if (skipSec !== undefined) skipSeekRef.current = { seek, skipSec };
-  }
-
-  /** No seek for this load, which starts at 0 (startLoadAt sets that): tear
-   *  down the last one (a leftover would force-seek this load to its spot). */
-  function clearSeek() {
-    pendingSeekRef.current?.cancel();
   }
 
   /** Enforce landing at `at` (see SeekEnforcer), replacing any seek
@@ -963,11 +959,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     audio.addEventListener("timeupdate", heardTick); // accumulates real playback for the play ledger
     audio.addEventListener("timeupdate", tickGuarded); // fade + stop must survive a locked screen
     audio.addEventListener("timeupdate", restTick); // keeps the sleep detector fed while backgrounded
-    // heardTick tracks the position on timeupdate; a scrub while paused
-    // fires only "seeked".
-    // (The lock-screen listener, registered below, syncs after it.)
-    const trackSeek = () => notePosition(audio, { syncIfOff: false });
-    audio.addEventListener("seeked", trackSeek);
     // The skip-intro decides as soon as the duration is known.
     const onDuration = () => {
       const dur = knownDuration(audio.duration);
@@ -1050,7 +1041,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       audio.removeEventListener("timeupdate", tickGuarded);
       audio.removeEventListener("timeupdate", restTick);
       audio.removeEventListener("timeupdate", heardTick);
-      audio.removeEventListener("seeked", trackSeek);
       for (const ev of LOCK_SYNC_EVENTS) audio.removeEventListener(ev, lockSync);
       clearLockScreen(); // the player is gone: no phantom control left behind
       audio.removeEventListener("loadedmetadata", onDuration);
@@ -1126,7 +1116,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   function offLockScreen(pos: number): boolean {
     const p = publishedRef.current;
     if (p === "none") return false;
-    if (!p) return true;
     const expected = p.pos + ((Date.now() - p.atMs) / 1000) * p.rate;
     return Math.abs(pos - expected) > 2;
   }
