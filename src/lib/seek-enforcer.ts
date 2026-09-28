@@ -42,6 +42,11 @@ export interface SeekHooks {
 
 const EVENTS = ["loadedmetadata", "canplay", "playing", "seeked", "timeupdate"] as const;
 const SLACK_SEC = 2;
+/** HTMLMediaElement.HAVE_METADATA, without needing the DOM. */
+const HAVE_METADATA = 1;
+/** An unconfirmed reading this close to the assigned value is its echo
+ *  (engines may read it back through a time-base conversion). */
+const ECHO_SEC = 1e-3;
 const MAX_ATTEMPTS = 12;
 
 export class SeekEnforcer {
@@ -82,7 +87,7 @@ export class SeekEnforcer {
     const cur = el.currentTime;
     const near = Math.abs(cur - this.at) <= SLACK_SEC;
     // The assignment's own echo, not a position the element has reached.
-    const echo = this.unconfirmed && cur === this.at;
+    const echo = this.unconfirmed && Math.abs(cur - this.at) < ECHO_SEC;
     const playingHere = near && !echo && this.sawPlaying && !el.paused && e.type === "timeupdate";
     if (near && (e.type === "seeked" || playingHere)) this.reached = true;
     if (el.paused) {
@@ -106,7 +111,7 @@ export class SeekEnforcer {
     }
     // Not before metadata: a seek then becomes the start position, applied
     // unasked once the media is known, before skipIf could see the duration.
-    if (el.readyState < 1) return;
+    if (el.readyState < HAVE_METADATA) return;
     if (this.attempts++ >= MAX_ATTEMPTS || this.hooks.skipIf?.()) {
       this.finish(); // a stubborn stream, or a seek that would now be wrong
       return;

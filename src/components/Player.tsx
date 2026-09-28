@@ -236,12 +236,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // An episode barely longer than the skip plays whole instead (see
     // lib/skip-intro): the seek stands down if the duration already says so,
     // and checkSkip undoes it if the duration says so only later.
-    const skip = seekTo === 0 && skipSec > 0 ? new SkipIntro(skipSec) : null;
-    skipRef.current = skip;
-    landAt(audio, seekTo > 0 ? seekTo : skipSec, skip ? {
-      onLanded: () => { if (skip.landedNow()) showToast(`skipped the ${skipMin} min intro`); },
-      skipIf: () => tooShortForSkip(skipSec, audio.duration) === true,
-    } : {});
+    skipRef.current = seekTo === 0 && skipSec > 0 ? new SkipIntro(skipSec) : null;
+    const start = seekTo > 0 ? seekTo : skipSec;
+    landAt(audio, start, hooksFor(audio, start));
 
     watchRef.current = { src: ep.url, at: Date.now() };
     playOrWait(audio);
@@ -345,12 +342,24 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     const decision = skip.decide(audio.duration, pending);
     if (decision === "wait") return;
     skipRef.current = null;
-    if (decision === "announce") showToast(`skipped the ${skip.minutes} min intro`);
+    if (decision === "announce") showToast(skip.message);
     if (decision !== "play-whole") return;
     if (pending) seek.cancel();
     try { audio.currentTime = 0; } catch { /* not seekable: it plays from here */ }
     knownPosRef.current = 0;
     lastPosRef.current = 0;
+  }
+
+  /** The seek hooks for landing at `at`: the skip-intro's, when `at` is the
+   *  skip still undecided (a first load, or a reload before it landed), so
+   *  every seek to it can be stood down or announced; none otherwise. */
+  function hooksFor(audio: HTMLAudioElement, at: number): SeekHooks {
+    const skip = skipRef.current;
+    if (!skip || at !== skip.skipSec) return {};
+    return {
+      onLanded: () => { if (skip.landedNow()) showToast(skip.message); },
+      skipIf: () => tooShortForSkip(skip.skipSec, audio.duration) === true,
+    };
   }
 
   /** One toast at a time: a new one replaces the last, timer and all. */
@@ -379,10 +388,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
 
   /** Reload the current episode's source at `at`. Not playEpisode: this is
    *  the same listening resumed, so the play ledger and the rest timeline
-   *  are left alone. `hooks` only when `at` is a skip-intro still being
-   *  enforced (the CORS retry); where playback was needs none. Returns
-   *  whether it reloaded. */
-  function reloadCurrent(ep: Episode, at: number, hooks: SeekHooks = {}): boolean {
+   *  are left alone. A reload at the skip keeps the skip's hooks (hooksFor).
+   *  Returns whether it reloaded. */
+  function reloadCurrent(ep: Episode, at: number): boolean {
     const audio = audioRef.current;
     if (!audio) return false;
     // The reload reads 0 until its seek lands: close the snapshot gate until
@@ -391,7 +399,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     audio.src = ep.url;
     // Re-armed fresh, never carried over: the old enforcement's state belongs
     // to the load that failed.
-    landAt(audio, at, hooks);
+    landAt(audio, at, hooksFor(audio, at));
     lastPosRef.current = at; // not a jump heardTick should count
     watchRef.current = { src: ep.url, at: Date.now() };
     playOrWait(audio);
@@ -870,11 +878,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
         const ep = currentEpRef.current;
         if (!attachedRef.current && ep) {
           const pos = resumePosition();
-          // A seek this load is still enforcing (the skip-intro's) keeps its
-          // hooks; otherwise the retry just lands where playback was.
-          const hooks = pendingSeekRef.current?.hooks ?? {};
           audio.removeAttribute("crossorigin");
-          reloadCurrent(ep, pos, hooks);
+          reloadCurrent(ep, pos);
           return;
         }
       }
@@ -894,7 +899,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // heardTick tracks the position on timeupdate; a scrub while paused
     // fires only "seeked".
     const trackSeek = () => {
-      skipRef.current?.seeked();
+      // Only a seek no enforcer made (this runs before a pending one's own
+      // listener, and a landing ends it): the listener's.
+      if (!pendingSeekRef.current) skipRef.current?.seeked();
       notePosition(audio);
     };
     audio.addEventListener("seeked", trackSeek);
@@ -936,6 +943,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       clearStopFade();
       netHoldRef.current.cancel();
       pendingSeekRef.current?.cancel();
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
       // A hold still counting at unmount would call endSession on a player
       // that is gone, and through onEnd end whatever night came next.
       if (holdTimerRef.current) clearInterval(holdTimerRef.current);

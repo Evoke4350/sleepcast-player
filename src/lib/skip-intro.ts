@@ -9,11 +9,14 @@
 // be wrong) and once the duration is known (decide, which undoes one that
 // already happened, unless the listener has moved since).
 
+import { PLAY_WHOLE_WITHIN_SEC } from "./episode-end";
+
 /** Whether an episode is too short for its skip: null while the duration
- *  is unknown. A stream with no length (Infinity) is long. */
+ *  is unknown. A stream with no length (Infinity) is long. The same window
+ *  as Night's shouldPlayWhole. */
 export function tooShortForSkip(skipSec: number, durationSec: number): boolean | null {
   if (Number.isNaN(durationSec) || durationSec <= 0) return null;
-  return skipSec >= durationSec - 30;
+  return skipSec >= durationSec - PLAY_WHOLE_WITHIN_SEC;
 }
 
 export type SkipDecision = "wait" | "none" | "announce" | "play-whole";
@@ -26,8 +29,10 @@ export class SkipIntro {
 
   constructor(readonly skipSec: number) {}
 
-  get minutes(): number {
-    return Math.round(this.skipSec / 60);
+  /** What the listener is told once the skip stands. */
+  get message(): string {
+    const minutes = Number((this.skipSec / 60).toFixed(1));
+    return `skipped the ${minutes} min intro`;
   }
 
   /** The seek landed with playback rolling. Returns whether to say so now;
@@ -40,7 +45,7 @@ export class SkipIntro {
   }
 
   /** A seek after landing is the listener's: the skip is no longer ours to
-   *  undo. */
+   *  undo, or to announce. The caller passes only seeks it didn't make. */
   seeked(): void {
     if (this.landed) this.moved = true;
   }
@@ -54,7 +59,7 @@ export class SkipIntro {
     this.decided = true;
     const owed = this.owed;
     this.owed = false;
-    if (!short) return owed ? "announce" : "none";
+    if (!short) return owed && !this.moved ? "announce" : "none";
     return seekPending || (this.landed && !this.moved) ? "play-whole" : "none";
   }
 }

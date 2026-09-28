@@ -48,6 +48,18 @@ describe("SkipIntro", () => {
     expect(s.decide(Infinity, false)).toBe("announce");
   });
 
+  test("no announcement after the listener went back to hear the intro", () => {
+    const s = new SkipIntro(300);
+    s.landedNow();
+    s.seeked();
+    expect(s.decide(3600, false)).toBe("none");
+  });
+
+  test("one message, fractional minutes kept", () => {
+    expect(new SkipIntro(300).message).toBe("skipped the 5 min intro");
+    expect(new SkipIntro(30).message).toBe("skipped the 0.5 min intro");
+  });
+
   test("nothing to undo when the seek never happened", () => {
     expect(new SkipIntro(300).decide(240, false)).toBe("none");
   });
