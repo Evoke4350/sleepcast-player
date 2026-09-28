@@ -4,7 +4,7 @@ import { SeekEnforcer, type Seekable } from "./seek-enforcer";
 class FakeEl implements Seekable {
   currentTime = 0;
   paused = true;
-  readyState = 1; // HAVE_METADATA: most tests start there
+  readyState = 0; // HAVE_NOTHING, as after a new src; "loadedmetadata" raises it
   private listeners = new Map<string, Set<(e: Event) => void>>();
   addEventListener(t: string, f: (e: Event) => void) {
     if (!this.listeners.has(t)) this.listeners.set(t, new Set());
@@ -14,6 +14,7 @@ class FakeEl implements Seekable {
     this.listeners.get(t)?.delete(f);
   }
   fire(t: string) {
+    if (t === "loadedmetadata") this.readyState = Math.max(this.readyState, 1);
     for (const f of [...(this.listeners.get(t) ?? [])]) f(new Event(t));
   }
   count() {
@@ -133,6 +134,7 @@ describe("SeekEnforcer", () => {
     const done = vi.fn();
     const enf = new SeekEnforcer(el, 300, {}, done);
     el.paused = false;
+    el.readyState = 1;
     Object.defineProperty(el, "currentTime", { get: () => 0, set: () => {} });
     for (let i = 0; i < 20; i++) el.fire("timeupdate"); // never a "seeked"
     expect(done).toHaveBeenCalledTimes(1);
@@ -206,7 +208,8 @@ describe("SeekEnforcer", () => {
   });
 
   test("seeks at once on an element that already knows its media", () => {
-    const el = new FakeEl(); // paused, readyState 1: no event is coming
+    const el = new FakeEl();
+    el.readyState = 1; // paused, metadata known: no event is coming
     el.currentTime = 1200;
     new SeekEnforcer(el, 1230);
     expect(el.currentTime).toBe(1230);
@@ -221,6 +224,7 @@ describe("SeekEnforcer", () => {
 
   test("retarget seeks at once, and a late answer to its earlier seek isn't misread", () => {
     const el = new FakeEl();
+    el.readyState = 1;
     const done = vi.fn();
     const enf = new SeekEnforcer(el, 1200, {}, done); // seeks to 1200
     expect(enf.retarget(1230)).toBe(true); // the listener's +30
@@ -234,6 +238,7 @@ describe("SeekEnforcer", () => {
 
   test("retarget to 0 is a real seek", () => {
     const el = new FakeEl();
+    el.readyState = 1;
     const enf = new SeekEnforcer(el, 1200);
     enf.retarget(0);
     expect(el.currentTime).toBe(0);
@@ -244,6 +249,19 @@ describe("SeekEnforcer", () => {
     const enf = new SeekEnforcer(el, 300);
     enf.cancel();
     expect(enf.retarget(600)).toBe(false);
+  });
+
+  test("a small retarget doesn't take the earlier seek's echo for a landing", () => {
+    const el = new FakeEl();
+    el.readyState = 1;
+    const done = vi.fn();
+    const enf = new SeekEnforcer(el, 1230, {}, done); // assigns 1230, unconfirmed
+    enf.retarget(1231); // within the slack: no new seek
+    el.paused = false;
+    el.readyState = 4;
+    el.fire("playing");
+    el.fire("timeupdate"); // still the unlanded 1230 echo
+    expect(done).not.toHaveBeenCalled();
   });
 
   test("cancel reports cancelled", () => {

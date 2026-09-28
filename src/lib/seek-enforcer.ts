@@ -72,6 +72,9 @@ export class SeekEnforcer {
   private outstanding = 0;
   private done = false;
   private target: number;
+  /** The value last assigned: what an unconfirmed reading echoes (after a
+   *  small retarget, not the target itself). */
+  private lastAssigned = NaN;
 
   /** `onDone` runs once, when it lands or stands down for any reason
    *  (including cancel()). */
@@ -129,7 +132,7 @@ export class SeekEnforcer {
     const cur = el.currentTime;
     const near = Math.abs(cur - this.at) <= SLACK_SEC;
     // The assignment's own echo, not a position the element has reached.
-    const echo = unconfirmed && Math.abs(cur - this.at) < ECHO_SEC;
+    const echo = unconfirmed && Math.abs(cur - this.lastAssigned) < ECHO_SEC;
     const playingHere = near && !echo && this.sawPlaying && !el.paused && e.type === "timeupdate";
     if (near && ((e.type === "seeked" && !unconfirmed) || playingHere)) this.reached = true;
     if (el.paused) {
@@ -153,26 +156,27 @@ export class SeekEnforcer {
         return;
       }
     }
-    // Not before metadata: a seek then becomes the start position, applied
-    // unasked once the media is known.
-    if (el.readyState < HAVE_METADATA) return;
+    this.trySeek();
+  };
+
+  /** On creation and retarget: seek now unless already there. */
+  private seekNowIfReady(): void {
+    if (Math.abs(this.el.currentTime - this.target) <= SLACK_SEC) return;
+    this.trySeek();
+  }
+
+  /** One attempt, if the element can take it: not before metadata (a seek
+   *  then becomes the start position, applied unasked once the media is
+   *  known), and not beyond the attempt bound. */
+  private trySeek(): void {
+    if (this.el.readyState < HAVE_METADATA) return;
     if (this.attempts++ >= MAX_ATTEMPTS) {
       this.finish("gave-up"); // stop fighting a stubborn stream
       return;
     }
-    this.seek();
-  };
-
-  private seekNowIfReady(): void {
-    if (this.el.readyState < HAVE_METADATA) return;
-    if (Math.abs(this.el.currentTime - this.target) <= SLACK_SEC) return;
-    this.attempts++;
-    this.seek();
-  }
-
-  private seek(): void {
     try {
-      this.el.currentTime = this.at;
+      this.el.currentTime = this.target;
+      this.lastAssigned = this.target;
       this.outstanding++;
     } catch {
       /* not seekable yet: a later event retries */

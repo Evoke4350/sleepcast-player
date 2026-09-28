@@ -346,10 +346,13 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     knownPosRef.current = audio.currentTime;
   }
 
-  /** A seek the listener asked for (the scrubber, the ±30 s buttons). Known
-   *  here, so nothing has to guess it from events later: any seek the app
-   *  was enforcing gives way, and the position is recorded at once, even
-   *  on a failed element in a network hold (where the reload will land). */
+  /** A seek the listener asked for (see listenerSeek). Known here, so
+   *  nothing has to guess it from events later, and the position is
+   *  recorded at once, even on a failed element in a network hold (where
+   *  the reload will land). Before playback a seek to a positive position
+   *  is enforced by retargeting the pending seek (aimAt), which also drops
+   *  the skip's announcement; otherwise any pending seek gives way to a
+   *  plain one. */
   function seekTo(audio: HTMLAudioElement, to: number) {
     // The listener's seek replaces the skip's, announcement and all.
     skipSeekRef.current = null;
@@ -964,8 +967,10 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
         // not the browser's default, which would bypass it.
         navigator.mediaSession.setActionHandler("seekto", (d) => {
           if (d.seekTime === undefined) return;
-          restRef.current?.noteInteraction();
-          seekTo(audio, d.seekTime);
+          // One drag sends a run of fastSeek steps, then the final seek:
+          // one interaction, not one per step.
+          if (!d.fastSeek) restRef.current?.noteInteraction();
+          listenerSeek(d.seekTime);
         });
       } catch { /* older browsers: fine without */ }
     }
@@ -1019,13 +1024,20 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
 
   function skipBy(seconds: number) {
     restRef.current?.noteInteraction();
-    const audio = audioRef.current;
-    if (!audio || !audio.getAttribute("src")) return;
-    const dur = Number.isFinite(audio.duration) ? audio.duration : Infinity;
     // From where the episode is, not the element's reading: a failed element
     // (in a network hold), one still being put on its start, or one without
     // metadata yet may read anything.
-    seekTo(audio, Math.min(Math.max(0, resumePosition() + seconds), dur - 1));
+    listenerSeek(resumePosition() + seconds);
+  }
+
+  /** Every listener seek (the scrubber, ±30 s, the lock screen): clamped to
+   *  the episode (never onto its very end, which would end it), and nothing
+   *  when nothing is loaded. */
+  function listenerSeek(to: number) {
+    const audio = audioRef.current;
+    if (!audio || !audio.getAttribute("src")) return;
+    const dur = Number.isFinite(audio.duration) ? audio.duration : Infinity;
+    seekTo(audio, Math.min(Math.max(0, to), dur - 1));
   }
 
   function extendTimer(minutes: number) {
@@ -1103,11 +1115,10 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
 
   function seekToRatio(e: React.MouseEvent<HTMLDivElement>) {
     restRef.current?.noteInteraction();
-    const audio = audioRef.current;
-    if (!audio || !epPos) return;
+    if (!epPos) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const ratio = (e.clientX - rect.left) / rect.width;
-    seekTo(audio, Math.max(0, Math.min(1, ratio)) * epPos.dur);
+    listenerSeek(Math.max(0, Math.min(1, ratio)) * epPos.dur);
     // Aiming at a position is the one moment the numbers earn their place —
     // show where you landed, then let them go back under with the moon.
     setPeekUntil(Date.now() + 4000);

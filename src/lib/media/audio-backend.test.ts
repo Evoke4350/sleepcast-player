@@ -6,8 +6,11 @@ import { AudioBackend } from "./audio-backend";
 function fakeAudio() {
   const listeners = new Map<string, Set<EventListener>>();
   let nextPlayResult: (() => Promise<void>) | null = null;
+  let src = "";
   const el = {
-    src: "",
+    // A new src resets the element to HAVE_NOTHING, as a real one does.
+    get src() { return src; },
+    set src(v: string) { src = v; (el as unknown as { readyState: number }).readyState = 0; },
     currentTime: 0,
     duration: 0,
     volume: 1,
