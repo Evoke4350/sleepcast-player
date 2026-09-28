@@ -7,10 +7,10 @@ import type { Episode, PlayMode } from "../lib/engine";
 import { fadeVolume, formatTime, effectiveVolume, fadeDriverSeconds } from "../lib/engine";
 import { getPlays, recordHeardPlay, saveLive, rememberPosition, forgetPosition, blockEpisode } from "../lib/store";
 import { NetworkHold, isOffline } from "../lib/network-hold";
-import { SeekEnforcer, type SeekHooks } from "../lib/seek-enforcer";
-import { knownDuration, shortOfEnd } from "../lib/duration";
+import { SeekEnforcer, isPlayingThrough, type SeekHooks } from "../lib/seek-enforcer";
+import { DurationLatch, shortOfEnd } from "../lib/duration";
 import { heardDelta } from "../lib/heard";
-import { clearLockScreen, publishLockScreen } from "../lib/lock-screen";
+import { clearLockScreen, mediaSession, publishLockScreen } from "../lib/lock-screen";
 import { decideSkip, skipMessage, stillAtStart } from "../lib/skip-intro";
 import { pickNextEpisode, HEARD_SEC } from "../lib/plays";
 import { canExtend } from "../lib/timer-feel";
@@ -140,7 +140,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   const publishedRef = useRef<{ pos: number; atMs: number; rate: number } | "none">("none");
   /** The current episode's duration once its element has reported one: kept
    *  across a reload (whose element knows nothing yet), reset per episode. */
-  const episodeDurRef = useRef<number | null>(null);
+  const durationLatchRef = useRef(new DurationLatch());
   const failsRef = useRef(0);
   // Whether anything has actually played this night. A night that never did
   // records nothing when it ends (see endSession).
@@ -244,7 +244,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     currentEpRef.current = ep;
     // A new episode: the last one's length means nothing now (before the
     // start seek below reads it).
-    episodeDurRef.current = null;
+    durationLatchRef.current.reset();
     epPlayedRef.current = false;
     netHoldRef.current.cancel(); // a new episode: any wait was for the last one
     // Snapshot the new episode to storage promptly, not up to 10s later.
@@ -271,7 +271,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     heardSavedAtRef.current = -1e9;
     epStartedAtRef.current = Date.now();
 
-    if ("mediaSession" in navigator) {
+    if (mediaSession()) {
       const art = artworkRef.current[ep.feedId];
       navigator.mediaSession.metadata = new MediaMetadata({
         title: ep.title,
@@ -487,6 +487,12 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     if (gettingUpRef.current) showGettingUp(false);
     // Held for the network: this retries the reload (see NetworkHold).
     if (netHoldRef.current.resumeNow(true)) return;
+    // An episode that hasn't played yet gets its watchdog back: a pause of a
+    // loading or stalled element (the lock screen's stop) stood it down.
+    if (!epPlayedRef.current) {
+      const src = audio.getAttribute("src");
+      if (src) watchRef.current = { src, at: Date.now() };
+    }
     audio.play().catch(() => { /* the error event or the watchdog decides */ });
   }
 
@@ -555,7 +561,12 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // Not playback's steady advance (which the lock screen extrapolates),
     // but a correction: the position somewhere other than where the lock
     // screen thinks it is (a seek that didn't land, say). Publish it.
-    if (offLockScreen(knownPosRef.current)) syncLockScreen();
+    // Only on a reading that counted (with a seek pending or the element
+    // seeking, the lock screen shows the target, and nothing new is known).
+    if (!pendingSeekRef.current && !audio.seeking) {
+      const span = episodeSpan(audio);
+      if (span && offLockScreen(span.pos)) syncLockScreen();
+    }
 
     // Save on crossing the threshold, then refresh roughly every minute so the
     // ledger reflects how long a long episode actually ran. recordHeardPlay
@@ -966,14 +977,11 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     audio.addEventListener("timeupdate", restTick); // keeps the sleep detector fed while backgrounded
     // The skip-intro decides as soon as the duration is known.
     const onDuration = () => {
-      const dur = knownDuration(audio.duration);
+      const dur = durationLatchRef.current.read(audio.duration);
       // (A seek aimed before this was known is kept short of the end by
-      // the enforcer itself.)
-      if (dur !== null) {
-        episodeDurRef.current = dur;
-        // A target left behind before the length was known may lie past it.
-        if (!pendingSeekRef.current) knownPosRef.current = shortOfEnd(knownPosRef.current, dur);
-      }
+      // the enforcer itself.) A target left behind before the length was
+      // known may lie past it.
+      if (dur !== null && !pendingSeekRef.current) knownPosRef.current = shortOfEnd(knownPosRef.current, dur);
       checkSkip(audio);
     };
     audio.addEventListener("loadedmetadata", onDuration);
@@ -990,7 +998,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     audio.addEventListener("ended", onEnded);
     audio.addEventListener("error", onError);
 
-    if ("mediaSession" in navigator) {
+    if (mediaSession()) {
       navigator.mediaSession.setActionHandler("play", () => {
         restRef.current?.noteInteraction();
         // The lock screen shows "paused" while loading or stalled, so its
@@ -1054,7 +1062,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       audio.removeEventListener("playing", onPlaying);
       audio.removeEventListener("ended", onEnded);
       audio.removeEventListener("error", onError);
-      if ("mediaSession" in navigator) {
+      if (mediaSession()) {
         navigator.mediaSession.setActionHandler("play", null);
         navigator.mediaSession.setActionHandler("pause", null);
         navigator.mediaSession.setActionHandler("nexttrack", null);
@@ -1092,7 +1100,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
    *  (a new episode, a stream), so no stale scrubber is left behind. */
   function syncLockScreen() {
     const audio = audioRef.current;
-    if (!audio) return;
+    if (!audio || !mediaSession()) return;
     if (!audio.getAttribute("src")) {
       clearAllLockScreen();
       return;
@@ -1101,7 +1109,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // Only moving when it is: stalled ("waiting"), still loading after
     // play(), or seeking, it shows paused, so the platform doesn't
     // extrapolate past audio that isn't advancing (a rate of 0 isn't allowed).
-    const moving = !audio.paused && !audio.seeking && audio.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA;
+    const moving = isPlayingThrough(audio) && !audio.seeking;
     const span = episodeSpan(audio);
     const rate = audio.playbackRate || 1;
     // "none": nothing to extrapolate (no length yet, or a stream), so no
@@ -1143,7 +1151,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   /** The episode's duration, as far as anyone knows: the element's, or the
    *  one it reported before a reload. */
   function episodeDuration(audio: HTMLAudioElement): number | null {
-    return knownDuration(audio.duration) ?? episodeDurRef.current;
+    return durationLatchRef.current.read(audio.duration);
   }
 
   /** Every listener seek (the scrubber, ±30 s, the lock screen). Known here,

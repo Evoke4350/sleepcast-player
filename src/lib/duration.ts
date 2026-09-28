@@ -13,3 +13,23 @@ export function shortOfEnd(positionSec: number, durationSec: number | null): num
   const capped = durationSec === null ? positionSec : Math.min(positionSec, durationSec - 1);
   return Math.max(0, capped);
 }
+
+/** The last known duration of one load, kept through a momentary NaN or
+ *  Infinity (a reload's element knows nothing yet; some engines report
+ *  Infinity for a moment). A stream that never reports a finite length
+ *  never sets it. */
+export class DurationLatch {
+  private known: number | null = null;
+
+  /** A new load: forget the last one's length. */
+  reset(): void {
+    this.known = null;
+  }
+
+  /** Take a reading of the element's duration; the latched length. */
+  read(raw: number): number | null {
+    const d = knownDuration(raw);
+    if (d !== null) this.known = d;
+    return this.known;
+  }
+}

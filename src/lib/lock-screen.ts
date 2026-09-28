@@ -1,12 +1,13 @@
 // The OS lock screen / media widget (the Media Session API), shared so the
 // three players leave it the same way.
 
-function mediaSession(): MediaSession | null {
+/** The Media Session, where the browser has one. */
+export function mediaSession(): MediaSession | null {
   return typeof navigator !== "undefined" && "mediaSession" in navigator ? navigator.mediaSession : null;
 }
 
 /** Publish the play state and, when the length is known, the position (the
- *  platform extrapolates from it at \`rate\` while the state is "playing").
+ *  platform extrapolates from it at `rate` while the state is "playing").
  *  Without a span the position is cleared. */
 export function publishLockScreen(
   state: "playing" | "paused",

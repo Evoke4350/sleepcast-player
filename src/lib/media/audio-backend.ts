@@ -1,5 +1,5 @@
 import type { MediaBackend, Transport, ErrorInfo } from "./backend";
-import { knownDuration } from "../duration";
+import { DurationLatch, knownDuration } from "../duration";
 import { SeekEnforcer } from "../seek-enforcer";
 
 /**
@@ -16,9 +16,6 @@ export class AudioBackend implements MediaBackend {
   /** The start seek being enforced, torn down before the next load: one that
    *  outlived its episode would seek the NEXT one to this one's position. */
   private seek: SeekEnforcer | null = null;
-  /** This load's duration once the element has reported one, kept through
-   *  a momentary NaN or Infinity so the start seek's end clamp holds. */
-  private loadDuration: number | null = null;
   private detach: Array<() => void> = [];
   /** A rejected play() is not a DOM event, so it cannot ride the "error"
    *  listener subscribe() sets up. These are called directly instead. */
@@ -29,22 +26,18 @@ export class AudioBackend implements MediaBackend {
   load(ref: string, startSeconds = 0): void {
     if (this.dead) return;
     this.dropSeek();
-    this.loadDuration = null;
 
     this.el.src = ref;
 
     // Enforced, not a single seek: Safari resets a seek made before playback
     // starts (see SeekEnforcer). Cancelling a finished one is a no-op.
     if (startSeconds > 0) {
+      // This load's length, kept through a momentary NaN or Infinity so the
+      // start seek's end clamp holds (as Player's episodeDuration does).
+      const latch = new DurationLatch();
       const seek = new SeekEnforcer(this.el, startSeconds, {}, () => {
         if (this.seek === seek) this.seek = null;
-      }, {
-        duration: () => {
-          const d = knownDuration(this.el.duration);
-          if (d !== null) this.loadDuration = d;
-          return this.loadDuration;
-        },
-      });
+      }, { duration: () => latch.read(this.el.duration) });
       this.seek = seek;
     }
 

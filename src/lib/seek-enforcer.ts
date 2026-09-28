@@ -67,6 +67,12 @@ const SLACK_SEC = 2;
 const HAVE_METADATA = 1;
 /** HTMLMediaElement.HAVE_FUTURE_DATA: playing, not just loading. */
 const HAVE_FUTURE_DATA = 3;
+
+/** An element playing through, not just asked to: not paused, and with
+ *  data ahead (`paused` alone turns false the moment play() is called). */
+export function isPlayingThrough(el: { paused: boolean; readyState: number }): boolean {
+  return !el.paused && el.readyState >= HAVE_FUTURE_DATA;
+}
 /** An unconfirmed reading this close to the assigned value is its echo
  *  (engines may read it back through a time-base conversion). */
 const ECHO_SEC = 1e-3;
@@ -122,7 +128,7 @@ export class SeekEnforcer {
     if (el.seeking) this.outstanding = 1;
     // Armed mid-playback (the skip-intro, once the duration is known), the
     // "playing" it waits for has already fired and may not fire again.
-    this.sawPlaying = !el.paused && el.readyState >= HAVE_FUTURE_DATA;
+    this.sawPlaying = isPlayingThrough(el);
     for (const ev of EVENTS) el.addEventListener(ev, this.handle);
     if (!deferSeek) this.trySeek(this.at, { unlessThere: true });
   }

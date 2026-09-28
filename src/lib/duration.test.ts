@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { knownDuration, shortOfEnd } from "./duration";
+import { DurationLatch, knownDuration, shortOfEnd } from "./duration";
 
 describe("durations", () => {
   test("knownDuration: finite and positive only", () => {
@@ -13,5 +13,18 @@ describe("durations", () => {
     expect(shortOfEnd(-5, 40)).toBe(0);
     expect(shortOfEnd(60, null)).toBe(60);
     expect(shortOfEnd(10, 0.6)).toBe(0);
+  });
+});
+
+describe("DurationLatch", () => {
+  test("keeps the last known length through NaN and Infinity, until reset", () => {
+    const l = new DurationLatch();
+    expect(l.read(NaN)).toBeNull();
+    expect(l.read(600)).toBe(600);
+    expect(l.read(NaN)).toBe(600);
+    expect(l.read(Infinity)).toBe(600);
+    expect(l.read(610)).toBe(610);
+    l.reset();
+    expect(l.read(NaN)).toBeNull();
   });
 });

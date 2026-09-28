@@ -55,7 +55,7 @@ import { RestSession, revivedNightStart } from "../lib/rest/session";
 import { recordNightEnd } from "../lib/night-end";
 import { NetworkHold, isOffline } from "../lib/network-hold";
 import { heardDelta } from "../lib/heard";
-import { clearLockScreen } from "../lib/lock-screen";
+import { clearLockScreen, mediaSession } from "../lib/lock-screen";
 import { startWithSkip } from "../lib/skip-intro";
 import { PlaybackWitness, rearmsWatchdogOnTap } from "../lib/witness";
 import { applyEndedDecision, decideAfterEnded, shouldPlayWhole } from "../lib/episode-end";
@@ -396,7 +396,7 @@ export function Night({
     epStartedAtRef.current = Date.now();
     persistCounterRef.current = 10; // snapshot promptly, not up to 10s from now
 
-    if (typeof navigator !== "undefined" && "mediaSession" in navigator) {
+    if (mediaSession()) {
       const art = artworkRef.current[ep.feedId];
       navigator.mediaSession.metadata = new MediaMetadata({
         title: ep.title,
@@ -882,7 +882,7 @@ export function Night({
     // browser's default handler would play() the failed source and the tick
     // would thaw the clock over silence. (A video's embed keeps its own
     // media session inside the iframe, which the default handler can't reach.)
-    if (typeof navigator !== "undefined" && "mediaSession" in navigator) {
+    if (mediaSession()) {
       navigator.mediaSession.setActionHandler("play", () => {
         restRef.current?.noteInteraction();
         askForSoundRef.current();
@@ -1000,7 +1000,7 @@ export function Night({
       releaseBackends();
       void lockRef.current?.release();
       clearLockScreen();
-      if (typeof navigator !== "undefined" && "mediaSession" in navigator) {
+      if (mediaSession()) {
         navigator.mediaSession.setActionHandler("play", null);
         navigator.mediaSession.setActionHandler("pause", null);
       }
