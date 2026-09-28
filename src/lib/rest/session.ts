@@ -29,9 +29,10 @@ export class RestSession {
    *  are one burst (a lock-screen drag's steps, taps on ±30 s), however long
    *  the burst runs, and count once. */
   noteInteraction(now: number = Date.now()): void {
-    if (this.lastInteractionAt === null || now - this.lastInteractionAt > INTERACTION_MERGE_MS) {
-      this.interactions++;
-    }
+    // Closer than the window merges; a gap of exactly the window, or a
+    // clock stepped back (a negative gap), starts a new burst.
+    const gap = this.lastInteractionAt === null ? Infinity : now - this.lastInteractionAt;
+    if (gap < 0 || gap >= INTERACTION_MERGE_MS) this.interactions++;
     this.pendingInteraction = true;
     this.lastInteractionAt = now;
   }

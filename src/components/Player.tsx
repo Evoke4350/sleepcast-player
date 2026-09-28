@@ -336,7 +336,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       // own pause in a hold ends a seek that way). A listener's seek before
       // playback is enforced here too, and so is recorded once it lands.
       if (end === "landed") notePosition(audio);
-    }, { deferSeek });
+    }, { deferSeek, duration: () => episodeDuration(audio) });
     pendingSeekRef.current = seek;
     return seek;
   }
@@ -951,10 +951,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
         // The lock-screen scrubber: through listenerSeek like any listener
         // seek, not the browser's default, which would bypass it.
         navigator.mediaSession.setActionHandler("seekto", (d) => {
-          if (d.seekTime === undefined) return;
           // Every step marks the listener active; RestSession counts a drag's
           // burst of steps as one interaction.
-          if (listenerSeek(d.seekTime, d.fastSeek === true)) restRef.current?.noteInteraction();
+          if (listenerSeek(d.seekTime ?? NaN, d.fastSeek === true)) restRef.current?.noteInteraction();
         });
       } catch { /* older browsers: fine without */ }
     }
@@ -1053,11 +1052,12 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     }
     pendingSeekRef.current?.cancel();
     knownPosRef.current = at;
-    // A jump, not time heard (after the cancel's rebase). fastSeek lands
-    // only near `at`, so its first reading sets the baseline instead.
-    lastPosRef.current = fast ? NaN : at;
+    // A jump, not time heard (after the cancel's rebase). fastSeek, where
+    // used, lands only near `at`, so its first reading sets the baseline.
+    const useFastSeek = fast && typeof audio.fastSeek === "function";
+    lastPosRef.current = useFastSeek ? NaN : at;
     try {
-      if (fast && typeof audio.fastSeek === "function") audio.fastSeek(at);
+      if (useFastSeek) audio.fastSeek(at);
       else audio.currentTime = at;
     } catch { /* not seekable now: the reload lands there */ }
     return true;
@@ -1138,12 +1138,12 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
 
   function seekToRatio(e: React.MouseEvent<HTMLDivElement>) {
     const audio = audioRef.current;
-    // This episode's duration, not the display's (a second behind after a
-    // track change); listenerSeek clamps the rest.
-    const dur = audio ? episodeDuration(audio) : null;
-    if (dur === null) return;
+    // Scaled by the bar as drawn, so the click lands where the listener
+    // aimed; nothing while this episode's length is unknown (the bar can be
+    // a tick stale right after a track change). listenerSeek clamps.
+    if (!epPos || !audio || episodeDuration(audio) === null) return;
     const rect = e.currentTarget.getBoundingClientRect();
-    if (!listenerSeek(((e.clientX - rect.left) / rect.width) * dur)) return;
+    if (!listenerSeek(((e.clientX - rect.left) / rect.width) * epPos.dur)) return;
     restRef.current?.noteInteraction();
     // Aiming at a position is the one moment the numbers earn their place —
     // show where you landed, then let them go back under with the moon.

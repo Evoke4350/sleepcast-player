@@ -213,8 +213,16 @@ describe("RestSession interaction bursts", () => {
     for (let t = 10_000; t <= end; t += step) s.noteInteraction(t); // one drag
     expect(s.interactionCount).toBe(1);
     expect(s.wakefulness(end).msSinceLastInteraction).toBe(0);
-    s.noteInteraction(end + INTERACTION_MERGE_MS + 1); // a new touch after a pause
+    s.noteInteraction(end + INTERACTION_MERGE_MS); // exactly the window apart: new
     expect(s.interactionCount).toBe(2);
+  });
+
+  it("a clock stepped back starts a new burst", () => {
+    const s = new RestSession(0, 45);
+    s.noteInteraction(100_000);
+    s.noteInteraction(50_000);
+    expect(s.interactionCount).toBe(2);
+    expect(s.wakefulness(50_000).msSinceLastInteraction).toBe(0);
   });
 });
 

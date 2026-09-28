@@ -15,6 +15,7 @@ function fakeAudio() {
     duration: 0,
     volume: 1,
     paused: true,
+    seeking: false,
     // HAVE_NOTHING until "loadedmetadata" is fired, as after a new src.
     readyState: 0,
     play: vi.fn(() => {

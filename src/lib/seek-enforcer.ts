@@ -35,6 +35,8 @@ import { knownDuration, shortOfEnd } from "./duration";
 export interface Seekable {
   currentTime: number;
   readonly paused: boolean;
+  /** HTMLMediaElement.seeking: a seek (anyone's) is in progress. */
+  readonly seeking: boolean;
   /** NaN until known. The target is kept short of it (see at). */
   readonly duration: number;
   /** HTMLMediaElement.readyState: 0 until the element knows its media. */
@@ -82,18 +84,27 @@ export class SeekEnforcer {
    *  been assigned yet) it is stale: readings are then only echoes of an
    *  earlier seek, possibly within the slack, and every event just seeks. */
   private assigned = NaN;
+  /** The target (before the clamp) when it was last assigned. */
+  private assignedTarget = NaN;
 
   /** `onDone` runs once, when it lands or stands down for any reason
    *  (including cancel()). `deferSeek`: don't seek at creation (a drag
-   *  step); the next event does. */
+   *  step); the next event does. `duration`: where the end is, when the
+   *  caller knows better than the element (a reload's element knows
+   *  nothing yet); the element's own by default. */
   constructor(
     private readonly el: Seekable,
     at: number,
     private hooks: SeekHooks = {},
     private readonly onDone: (end: SeekEnd) => void = () => {},
-    { deferSeek = false }: { deferSeek?: boolean } = {},
+    { deferSeek = false, duration }: { deferSeek?: boolean; duration?: () => number | null } = {},
   ) {
     this.target = at;
+    this.duration = duration ?? (() => knownDuration(el.duration));
+    // A seek already in flight when it starts (a plain one the listener
+    // made, or a cancelled enforcer's) will answer with a "seeked" too:
+    // count it, so that answer isn't taken for this one's.
+    if (el.seeking) this.outstanding = 1;
     // Armed mid-playback (the skip-intro, once the duration is known), the
     // "playing" it waits for has already fired and may not fire again.
     this.sawPlaying = !el.paused && el.readyState >= HAVE_FUTURE_DATA;
@@ -105,8 +116,10 @@ export class SeekEnforcer {
    *  the end once the duration is known (a seek onto the end ends the
    *  episode), however early the target was chosen. */
   get at(): number {
-    return shortOfEnd(this.target, knownDuration(this.el.duration));
+    return shortOfEnd(this.target, this.duration());
   }
+
+  private readonly duration: () => number | null;
 
   /** Aim at another position (the listener's seek), seeking now, and keeping
    *  the count of seeks in flight so their late answers aren't misread.
@@ -149,6 +162,9 @@ export class SeekEnforcer {
     if (e.type === "seeked") this.outstanding = Math.max(0, this.outstanding - 1);
     const at = this.at;
     if (at !== this.assigned) {
+      // The same target with the clamp moved by a new duration estimate is
+      // not a failed attempt: don't spend the bound on estimates settling.
+      if (this.target === this.assignedTarget) this.attempts = 0;
       this.reached = false;
       this.trySeek();
       return;
@@ -209,6 +225,7 @@ export class SeekEnforcer {
     try {
       this.el.currentTime = at;
       this.assigned = at;
+      this.assignedTarget = this.target;
       this.outstanding++;
     } catch {
       // Not seekable yet: a later event retries (it stays stale).

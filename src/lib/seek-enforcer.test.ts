@@ -4,6 +4,7 @@ import { SeekEnforcer, type Seekable } from "./seek-enforcer";
 class FakeEl implements Seekable {
   currentTime = 0;
   paused = true;
+  seeking = false;
   duration = NaN;
   readyState = 0; // HAVE_NOTHING, as after a new src; "loadedmetadata" raises it
   private listeners = new Map<string, Set<(e: Event) => void>>();
@@ -376,6 +377,41 @@ describe("SeekEnforcer", () => {
     el.currentTime = 2400.3;
     el.fire("timeupdate"); // lands
     expect(onLanded).not.toHaveBeenCalled();
+  });
+
+  test("a seek already in flight when it starts isn't taken for its own", () => {
+    const el = new FakeEl();
+    el.readyState = 1;
+    el.seeking = true; // the listener's plain seek to 0, still going
+    const done = vi.fn();
+    new SeekEnforcer(el, 900, {}, done); // seeks to 900
+    el.fire("seeked"); // the earlier seek's answer, while it reads 900
+    el.currentTime = 0; // and then the element settles back
+    el.fire("timeupdate");
+    expect(done).not.toHaveBeenCalled(); // not confirmed, so retried
+    expect(el.currentTime).toBe(900);
+  });
+
+  test("a settling duration estimate doesn't use up the attempts", () => {
+    const el = new FakeEl();
+    el.readyState = 1;
+    el.duration = 1000;
+    const done = vi.fn();
+    const enf = new SeekEnforcer(el, 5000, {}, done); // clamped to 999
+    for (let d = 1001; d < 1030; d++) {
+      el.duration = d;
+      el.fire("timeupdate");
+    }
+    expect(done).not.toHaveBeenCalled();
+    expect(el.currentTime).toBe(enf.at);
+  });
+
+  test("the caller's duration wins over the element's", () => {
+    const el = new FakeEl();
+    el.readyState = 1;
+    const enf = new SeekEnforcer(el, 5000, {}, () => {}, { duration: () => 600 });
+    expect(enf.at).toBe(599);
+    expect(el.currentTime).toBe(599);
   });
 
   test("cancel reports cancelled", () => {
