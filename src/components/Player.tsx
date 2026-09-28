@@ -99,8 +99,9 @@ export interface PlayerProps {
 
 /** Element events after which the lock screen is re-synced: play state
  *  (play, pause, playing, waiting), position (seeked), length
- *  (loadedmetadata, durationchange) and a new load (emptied). */
-const LOCK_SYNC_EVENTS = ["play", "pause", "playing", "waiting", "seeked", "loadedmetadata", "durationchange", "emptied"] as const;
+ *  (loadedmetadata, durationchange) and a new load (loadstart, which clears
+ *  the last episode's scrubber until the new length is known). */
+const LOCK_SYNC_EVENTS = ["play", "pause", "playing", "waiting", "seeked", "loadedmetadata", "durationchange", "loadstart"] as const;
 
 export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, skipIntroByFeedId, feedTitles, artworkByFeedId, onEnd, resume = null, leadEpisode = null, leadPosition = 0, quarterHourRule = false, wasVaried = false }: PlayerProps) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -241,7 +242,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // start seek below reads it).
     episodeDurRef.current = null;
     epPlayedRef.current = false;
-    syncLockScreen(); // no length yet: clears the last episode's scrubber
     netHoldRef.current.cancel(); // a new episode: any wait was for the last one
     // Snapshot the new episode to storage promptly, not up to 10s later.
     persistCounterRef.current = 10;
@@ -365,6 +365,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       // A target left behind by a seek that didn't land is kept, as the
       // enforcer keeps it: never past the end as now known.
       else knownPosRef.current = seek.at;
+      syncLockScreen(); // the position the lock screen runs from may have changed
     }, { deferSeek, duration: () => episodeDuration(audio) });
     pendingSeekRef.current = seek;
     return seek;
@@ -821,7 +822,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       audio.volume = 1;
     }
 
-    if ("mediaSession" in navigator) navigator.mediaSession.metadata = null;
     clearLockScreen(); // the stop's own "pause" event finds no src, and keeps it clear
 
     onEndRef.current();
@@ -1080,9 +1080,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       clearLockScreen();
       return;
     }
-    // A fresh reading first: a pause lands between timeupdates, and paused
-    // the platform no longer extrapolates.
-    notePosition(audio);
+    // Display only: which readings count is notePosition's business (the
+    // element fires a timeupdate before "pause", and heardTick notes it).
     const ms = navigator.mediaSession;
     ms.playbackState = audio.paused ? "paused" : "playing";
     if (!ms.setPositionState) return;
@@ -1095,6 +1094,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
 
   function clearLockScreen() {
     if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+    navigator.mediaSession.metadata = null;
     navigator.mediaSession.playbackState = "none";
     try { navigator.mediaSession.setPositionState?.(); } catch { /* nothing to clear */ }
   }
