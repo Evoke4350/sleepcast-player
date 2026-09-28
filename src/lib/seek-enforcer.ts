@@ -35,7 +35,12 @@ export interface Seekable {
 export interface SeekHooks {
   /** When it lands with playback rolling (the skip-intro says so). */
   onLanded?: () => void;
+  /** Each time it assigns the target: a jump the caller shouldn't count as
+   *  playback. */
+  onSeek?: () => void;
 }
+
+export type SeekEnd = "landed" | "moved" | "gave-up" | "cancelled";
 
 const EVENTS = ["loadedmetadata", "canplay", "playing", "seeked", "timeupdate"] as const;
 const SLACK_SEC = 2;
@@ -62,7 +67,10 @@ export class SeekEnforcer {
     private readonly el: Seekable,
     readonly at: number,
     private readonly hooks: SeekHooks = {},
-    private readonly onDone: () => void = () => {},
+    /** "landed" or "moved" (the listener took over): the element's position
+     *  is then real. "gave-up" (a stubborn stream) or "cancelled": it may
+     *  not be. */
+    private readonly onDone: (end: SeekEnd) => void = () => {},
   ) {
     // Armed mid-playback (the skip-intro, once the duration is known), the
     // "playing" it waits for has already fired and may not fire again.
@@ -71,14 +79,14 @@ export class SeekEnforcer {
   }
 
   cancel(): void {
-    this.finish();
+    this.finish("cancelled");
   }
 
-  private finish(): void {
+  private finish(end: SeekEnd): void {
     if (this.done) return;
     this.done = true;
     for (const ev of EVENTS) this.el.removeEventListener(ev, this.handle);
-    this.onDone();
+    this.onDone(end);
   }
 
   private handle = (e: Event): void => {
@@ -95,19 +103,19 @@ export class SeekEnforcer {
     if (el.paused) {
       if (near) return; // there (or on its way), waiting for playback
       if (this.reached || e.type === "seeked") {
-        this.finish(); // the listener moved it
+        this.finish("moved"); // the listener moved it
         return;
       }
     } else {
       if (near) {
         if (playingHere) {
           this.hooks.onLanded?.();
-          this.finish(); // landed, and playback is rolling
+          this.finish("landed"); // playback is rolling there
         }
         return;
       }
       if (this.reached && cur > this.at + SLACK_SEC) {
-        this.finish(); // the listener skipped ahead
+        this.finish("moved"); // the listener skipped ahead
         return;
       }
     }
@@ -115,7 +123,7 @@ export class SeekEnforcer {
     // unasked once the media is known.
     if (el.readyState < HAVE_METADATA) return;
     if (this.attempts++ >= MAX_ATTEMPTS) {
-      this.finish(); // stop fighting a stubborn stream
+      this.finish("gave-up"); // stop fighting a stubborn stream
       return;
     }
     this.seek();
@@ -125,6 +133,7 @@ export class SeekEnforcer {
     try {
       this.el.currentTime = this.at;
       this.unconfirmed = true;
+      this.hooks.onSeek?.();
     } catch {
       /* not seekable yet: a later event retries */
     }

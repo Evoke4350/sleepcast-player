@@ -167,6 +167,19 @@ describe("SeekEnforcer", () => {
     expect(onLanded).toHaveBeenCalledTimes(1);
   });
 
+  test("reports how it ended, and each seek it makes", () => {
+    const el = new FakeEl();
+    const done = vi.fn();
+    const onSeek = vi.fn();
+    new SeekEnforcer(el, 300, { onSeek }, done);
+    el.fire("loadedmetadata");
+    expect(onSeek).toHaveBeenCalledTimes(1);
+    el.fire("seeked");
+    el.currentTime = 60;
+    el.fire("timeupdate"); // paused, away from a confirmed target
+    expect(done).toHaveBeenCalledWith("moved");
+  });
+
   test("cancel removes every listener", () => {
     const el = new FakeEl();
     const enf = new SeekEnforcer(el, 300);

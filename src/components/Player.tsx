@@ -289,11 +289,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // Read before pausing: paused already means by the listener (a paused
     // element's buffering can fail too; see NetworkHold).
     const paused = audio.paused;
-    // Where it is as the hold begins. A seek still pending at resume (the
-    // same one, or the skip decided in between) says better; without one,
-    // this does: a seek that stood down during the hold may have left only
-    // a reading of the stalled element behind.
-    const heldAt = resumePosition();
     watchRef.current = null;
     freezeClock();
     audio.pause();
@@ -305,7 +300,10 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
         // without a hold.
         if (tickHandleRef.current === null || stopFadeRef.current !== null) return false;
         if (currentEpRef.current !== ep) return false;
-        return reloadCurrent(ep, pendingSeekRef.current ? resumePosition() : heldAt);
+        // Where it is at resume: the pending seek's target (the skip may have
+        // been decided during the hold), or the last trustworthy position,
+        // which includes a scrub made during the hold.
+        return reloadCurrent(ep, resumePosition());
       },
       paused,
       // Not by itself over the get-up hold the listener opted into.
@@ -321,10 +319,13 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     pendingSeekRef.current?.cancel();
     knownPosRef.current = at;
     if (at <= 0) return null;
-    const seek = new SeekEnforcer(audio, at, hooks, () => {
+    const seek = new SeekEnforcer(audio, at, { ...hooks, onSeek: () => { lastPosRef.current = at; } }, (end) => {
+      if (skipSeekRef.current === seek) skipSeekRef.current = null;
       if (pendingSeekRef.current !== seek) return;
       pendingSeekRef.current = null;
-      notePosition(audio);
+      // Only a position it ended on for real: one that gave up may leave a
+      // stalled or failed element's reading behind.
+      if (end === "landed" || end === "moved") notePosition(audio);
     });
     pendingSeekRef.current = seek;
     return seek;
@@ -397,8 +398,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // A fresh enforcer (the old one's state belongs to the load that failed),
     // with the skip's announcement if it is the skip's seek being reloaded.
     // The skip's seek is recognised by identity: still the pending one.
-    const reloadingSkip = skipSeekRef.current !== null && pendingSeekRef.current === skipSeekRef.current;
-    const seek = landAt(audio, at, reloadingSkip ? skipHooks(at) : {});
+    const skip = skipSeekRef.current;
+    const reloadingSkip = skip !== null && pendingSeekRef.current === skip;
+    const seek = landAt(audio, at, reloadingSkip ? skipHooks(skip.at) : {});
     skipSeekRef.current = reloadingSkip ? seek : null;
     lastPosRef.current = at; // the new load's baseline (heardTick skips its seek)
     watchRef.current = { src: ep.url, at: Date.now() };
@@ -485,11 +487,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     const t = audio.currentTime;
     const delta = t - lastPosRef.current;
     lastPosRef.current = t;
-    // Not the step onto a seek's target: a jump, not time heard. Playback
-    // while a seek is still being enforced is.
-    const seek = pendingSeekRef.current;
-    const ontoTarget = seek !== null && Math.abs(t - seek.at) <= 2 && Math.abs(t - delta - seek.at) > 2;
-    if (!ontoTarget && delta > 0 && delta < 5) heardSecRef.current += delta;
+    // A seek's jump never shows here: landAt resets lastPosRef whenever the
+    // enforcer assigns its target.
+    if (delta > 0 && delta < 5) heardSecRef.current += delta;
     notePosition(audio);
 
     // Save on crossing the threshold, then refresh roughly every minute so the
