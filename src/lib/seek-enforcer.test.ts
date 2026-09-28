@@ -4,6 +4,7 @@ import { SeekEnforcer, type Seekable } from "./seek-enforcer";
 class FakeEl implements Seekable {
   currentTime = 0;
   paused = true;
+  duration = NaN;
   readyState = 0; // HAVE_NOTHING, as after a new src; "loadedmetadata" raises it
   private listeners = new Map<string, Set<(e: Event) => void>>();
   addEventListener(t: string, f: (e: Event) => void) {
@@ -285,6 +286,42 @@ describe("SeekEnforcer", () => {
     expect(enf.at).toBe(700);
     el.fire("timeupdate");
     expect(el.currentTime).toBe(700);
+  });
+
+  test("after a failed assignment, a reading near the target retries instead of waiting", () => {
+    const el = new FakeEl();
+    el.readyState = 1;
+    const enf = new SeekEnforcer(el, 1230);
+    let now = 1230;
+    let failing = true;
+    Object.defineProperty(el, "currentTime", {
+      get: () => now,
+      set: (v: number) => { if (failing) throw new Error("not seekable"); now = v; },
+    });
+    enf.retarget(1231); // throws
+    failing = false;
+    el.paused = false;
+    el.fire("timeupdate"); // near 1231 but unassigned: retried now, not 2 s later
+    expect(now).toBe(1231);
+  });
+
+  test("the target is kept short of the end once the duration is known", () => {
+    const el = new FakeEl();
+    const enf = new SeekEnforcer(el, 60); // before metadata: nothing known
+    expect(enf.at).toBe(60);
+    el.duration = 40;
+    el.fire("loadedmetadata");
+    expect(enf.at).toBe(39);
+    expect(el.currentTime).toBe(39);
+  });
+
+  test("created lazily, it waits for an event to seek", () => {
+    const el = new FakeEl();
+    el.readyState = 1;
+    new SeekEnforcer(el, 600, {}, () => {}, { seekNow: false });
+    expect(el.currentTime).toBe(0);
+    el.fire("timeupdate");
+    expect(el.currentTime).toBe(600);
   });
 
   test("cancel reports cancelled", () => {

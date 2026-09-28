@@ -4,6 +4,12 @@
 // orchestrator talks only to this and never learns which it got — which is the
 // whole point, because a mixed night switches between them mid-flight.
 
+/** A media duration, when it is one: finite and positive. NaN (unknown yet),
+ *  0 and Infinity (a stream) are not. */
+export function knownDuration(seconds: number): number | null {
+  return Number.isFinite(seconds) && seconds > 0 ? seconds : null;
+}
+
 /** What the source is actually doing. Five values, not a boolean: "hasn't
  *  started" and "paused" are different, and conflating them is what once
  *  rendered a Pause button over silence. "dead" exists for the same reason

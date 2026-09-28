@@ -8,6 +8,7 @@ import { fadeVolume, formatTime, effectiveVolume, fadeDriverSeconds } from "../l
 import { getPlays, recordHeardPlay, saveLive, rememberPosition, forgetPosition, blockEpisode } from "../lib/store";
 import { NetworkHold, isOffline } from "../lib/network-hold";
 import { SeekEnforcer, type SeekHooks } from "../lib/seek-enforcer";
+import { knownDuration } from "../lib/media/backend";
 import { heardDelta } from "../lib/heard";
 import { decideSkip, skipMessage, stillAtStart } from "../lib/skip-intro";
 import { pickNextEpisode, HEARD_SEC } from "../lib/plays";
@@ -96,6 +97,9 @@ export interface PlayerProps {
   wasVaried?: boolean;
 }
 
+/** Lock-screen seekto steps closer together than this are one drag. */
+const DRAG_GAP_MS = 3000;
+
 export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, skipIntroByFeedId, feedTitles, artworkByFeedId, onEnd, resume = null, leadEpisode = null, leadPosition = 0, quarterHourRule = false, wasVaried = false }: PlayerProps) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const endTimeRef = useRef<number | null>(null);
@@ -129,6 +133,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   /** The current episode's duration once its element has reported one: kept
    *  across a reload (whose element knows nothing yet), reset per episode. */
   const episodeDurRef = useRef<number | null>(null);
+  /** When the current lock-screen drag was last counted as an interaction. */
+  const lastDragNoteRef = useRef(0);
   const failsRef = useRef(0);
   // Whether anything has actually played this night. A night that never did
   // records nothing when it ends (see endSession).
@@ -319,7 +325,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
    *  load's seek first: a leftover would force-seek this load to that spot.
    *  0 only tears down. Until the seek is done, resumePosition reads its
    *  target; after, the element's position. */
-  function landAt(audio: HTMLAudioElement, at: number, hooks: SeekHooks = {}): SeekEnforcer | null {
+  function landAt(audio: HTMLAudioElement, at: number, hooks: SeekHooks = {}, { seekNow = true }: { seekNow?: boolean } = {}): SeekEnforcer | null {
     pendingSeekRef.current?.cancel();
     knownPosRef.current = at;
     if (at <= 0) return null;
@@ -335,7 +341,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       // own pause in a hold ends a seek that way). A listener's seek before
       // playback is enforced here too, and so is recorded once it lands.
       if (end === "landed") notePosition(audio);
-    });
+    }, { seekNow });
     pendingSeekRef.current = seek;
     return seek;
   }
@@ -350,17 +356,16 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     knownPosRef.current = audio.currentTime;
   }
 
-
   /** Enforce a seek to `to`: by retargeting the one still pending (it keeps
    *  count of its own seeks in flight, so their late answers aren't
    *  misread), else with a new one. */
-  function aimAt(audio: HTMLAudioElement, to: number, hooks: SeekHooks = {}, seekNow = true): SeekEnforcer | null {
+  function aimAt(audio: HTMLAudioElement, to: number, hooks: SeekHooks = {}, { seekNow = true }: { seekNow?: boolean } = {}): SeekEnforcer | null {
     const pending = pendingSeekRef.current;
     if (pending && pending.retarget(to, hooks, { seekNow })) {
       knownPosRef.current = to;
       return pending;
     }
-    return landAt(audio, to, hooks);
+    return landAt(audio, to, hooks, { seekNow });
   }
 
   /** Seek past the intro once the duration is known, unless the episode is
@@ -541,7 +546,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     const audio = audioRef.current;
     const ep = currentEpRef.current;
     if (!audio || !ep || !epPlayedRef.current) return; // see epPlayedRef
-    rememberPosition(ep.id, resumePosition(), audio.duration);
+    rememberPosition(ep.id, resumePosition(), episodeDuration(audio) ?? NaN);
   }
 
   // "never again": drop this episode from tonight's pool, remember the choice,
@@ -623,9 +628,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
         ? (endTimeRef.current - Date.now()) / 1000
         : Infinity;
     const epRemaining =
-      audio && elementDuration(audio) !== null
-        ? audio.duration - audio.currentTime
-        : null;
+      audio ? remainingOf(audio) : null;
     const driver = fadeDriverSeconds(kind, timerRemaining, epRemaining);
     r.tick({
       now: Date.now(),
@@ -686,10 +689,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       return;
     }
 
-    const epRemaining =
-      elementDuration(audio) !== null
-        ? audio.duration - audio.currentTime
-        : null;
+    const epDur = elementDuration(audio);
+    const epRemaining = epDur !== null ? epDur - audio.currentTime : null;
     const driver = fadeDriverSeconds(kind, remaining, epRemaining);
 
     // The courtesy fade owns audio.volume while it runs. Without this guard
@@ -790,7 +791,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     if ("mediaSession" in navigator) {
       navigator.mediaSession.metadata = null;
     }
-
 
     onEndRef.current();
   }
@@ -924,17 +924,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // The skip-intro decides as soon as the duration is known.
     const onDuration = () => {
       const dur = elementDuration(audio);
-      if (dur !== null) {
-        episodeDurRef.current = dur;
-        // A seek aimed before the duration was known (a +30 at the start of
-        // a short episode) is clamped now, short of the end, like any other.
-        const seek = pendingSeekRef.current;
-        if (seek && seek.at > dur - 1) {
-          const at = Math.max(0, dur - 1);
-          seek.retarget(at);
-          knownPosRef.current = at;
-        }
-      }
+      // (A seek aimed before this was known is kept short of the end by
+      // the enforcer itself.)
+      if (dur !== null) episodeDurRef.current = dur;
       checkSkip(audio);
     };
     audio.addEventListener("loadedmetadata", onDuration);
@@ -962,9 +954,11 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
         // seek, not the browser's default, which would bypass it.
         navigator.mediaSession.setActionHandler("seekto", (d) => {
           if (d.seekTime === undefined) return;
-          // One drag sends a run of fastSeek steps, then the final seek:
-          // one interaction, not one per step.
-          if (!d.fastSeek) restRef.current?.noteInteraction();
+          // One drag sends a run of fastSeek steps, then (usually) a final
+          // seek: one interaction per drag, even without that final seek.
+          const now = Date.now();
+          if (!d.fastSeek || now - lastDragNoteRef.current > DRAG_GAP_MS) restRef.current?.noteInteraction();
+          lastDragNoteRef.current = d.fastSeek ? now : 0;
           listenerSeek(d.seekTime, d.fastSeek === true);
         });
       } catch { /* older browsers: fine without */ }
@@ -1027,7 +1021,12 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
 
   /** The element's own duration, when it knows one. */
   function elementDuration(audio: HTMLAudioElement): number | null {
-    return Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : null;
+    return knownDuration(audio.duration);
+  }
+
+  function remainingOf(audio: HTMLAudioElement): number | null {
+    const dur = elementDuration(audio);
+    return dur !== null ? dur - audio.currentTime : null;
   }
 
   /** The episode's duration, as far as anyone knows: the element's, or the
@@ -1055,7 +1054,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     if (!epPlayedRef.current && at > 0) {
       // Before playback, a plain seek is what Safari resets: enforce it. A
       // drag step only moves the target; the drag's final seek enforces.
-      aimAt(audio, at, {}, !fast);
+      aimAt(audio, at, {}, { seekNow: !fast });
       return;
     }
     pendingSeekRef.current?.cancel();

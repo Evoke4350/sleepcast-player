@@ -1,4 +1,4 @@
-import type { MediaBackend, Transport, ErrorInfo } from "./backend";
+import { knownDuration, type MediaBackend, type Transport, type ErrorInfo } from "./backend";
 import { SeekEnforcer } from "../seek-enforcer";
 
 /**
@@ -74,7 +74,7 @@ export class AudioBackend implements MediaBackend {
   }
 
   duration(): number {
-    return Number.isFinite(this.el.duration) && this.el.duration > 0 ? this.el.duration : 0;
+    return knownDuration(this.el.duration) ?? 0;
   }
 
   transport(): Transport {

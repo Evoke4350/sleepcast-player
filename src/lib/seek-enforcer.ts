@@ -29,10 +29,14 @@
 // knows its media, rather than waiting for an event that a paused element
 // may not send.
 
+import { knownDuration } from "./media/backend";
+
 /** The parts of a media element this needs. */
 export interface Seekable {
   currentTime: number;
   readonly paused: boolean;
+  /** NaN until known. The target is kept short of it (see at). */
+  readonly duration: number;
   /** HTMLMediaElement.readyState: 0 until the element knows its media. */
   readonly readyState: number;
   addEventListener(type: string, listener: (e: Event) => void): void;
@@ -82,27 +86,31 @@ export class SeekEnforcer {
     at: number,
     private hooks: SeekHooks = {},
     private readonly onDone: (end: SeekEnd) => void = () => {},
+    { seekNow = true }: { seekNow?: boolean } = {},
   ) {
     this.target = at;
     // Armed mid-playback (the skip-intro, once the duration is known), the
     // "playing" it waits for has already fired and may not fire again.
     this.sawPlaying = !el.paused && el.readyState >= HAVE_FUTURE_DATA;
     for (const ev of EVENTS) el.addEventListener(ev, this.handle);
-    this.seekNowIfReady();
+    if (seekNow) this.seekNowIfReady();
   }
 
-  /** Where it is putting the element. */
+  /** Where it is putting the element: the target, kept a second short of
+   *  the end once the duration is known (a seek onto the end ends the
+   *  episode), however early the target was chosen. */
   get at(): number {
-    return this.target;
+    const dur = knownDuration(this.el.duration);
+    return dur === null ? this.target : Math.max(0, Math.min(this.target, dur - 1));
   }
 
   /** Aim at another position (the listener's seek), keeping the count of
    *  seeks in flight so their late answers aren't misread. Returns false if
    *  it has already ended; the caller then starts a new one. */
-  retarget(at: number, hooks: SeekHooks = {}, { seekNow = true }: { seekNow?: boolean } = {}): boolean {
+  retarget(at: number, hooks?: SeekHooks, { seekNow = true }: { seekNow?: boolean } = {}): boolean {
     if (this.done) return false;
     this.target = at;
-    this.hooks = hooks;
+    if (hooks !== undefined) this.hooks = hooks;
     this.reached = false;
     // A step of a drag (`seekNow: false`) only moves the target: the next
     // event seeks, and the attempt bound isn't renewed per step.
@@ -136,7 +144,12 @@ export class SeekEnforcer {
     // The assignment's own echo, not a position the element has reached.
     const echo = unconfirmed && Math.abs(cur - this.at) < ECHO_SEC;
     const playingHere = near && !echo && !this.unassigned && this.sawPlaying && !el.paused && e.type === "timeupdate";
-    if (near && ((e.type === "seeked" && !unconfirmed) || playingHere)) this.reached = true;
+    if (near && !this.unassigned && ((e.type === "seeked" && !unconfirmed) || playingHere)) this.reached = true;
+    // After a failed assignment nothing read is ours: just try again.
+    if (this.unassigned) {
+      this.trySeek();
+      return;
+    }
     if (el.paused) {
       if (near) return; // there (or on its way), waiting for playback
       // A "seeked" away with none of ours outstanding was someone else's
@@ -166,7 +179,7 @@ export class SeekEnforcer {
    *  counts as there: every assignment is then the current target, which
    *  is what an echo is measured against. */
   private seekNowIfReady(): void {
-    if (this.outstanding === 0 && Math.abs(this.el.currentTime - this.target) <= SLACK_SEC) return;
+    if (this.outstanding === 0 && Math.abs(this.el.currentTime - this.at) <= SLACK_SEC) return;
     this.trySeek();
   }
 
@@ -180,7 +193,7 @@ export class SeekEnforcer {
       return;
     }
     try {
-      this.el.currentTime = this.target;
+      this.el.currentTime = this.at;
       this.outstanding++;
       this.unassigned = false;
     } catch {
