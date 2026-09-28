@@ -438,6 +438,17 @@ describe("SeekEnforcer", () => {
     expect(done).not.toHaveBeenCalled();
   });
 
+  test("a new duration moving the clamp is acted on at once, even paused", () => {
+    const el = new FakeEl();
+    el.readyState = 1;
+    el.duration = 1000;
+    new SeekEnforcer(el, 5000); // clamped: 999
+    el.fire("seeked");
+    el.duration = 900; // the estimate drops below the placed position
+    el.fire("durationchange");
+    expect(el.currentTime).toBe(899);
+  });
+
   test("cancel reports cancelled", () => {
     const el = new FakeEl();
     const done = vi.fn();

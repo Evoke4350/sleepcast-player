@@ -55,7 +55,9 @@ export interface SeekHooks {
  *  stream) and "cancelled" do not. */
 export type SeekEnd = "landed" | "stood-down" | "gave-up" | "cancelled";
 
-const EVENTS = ["loadedmetadata", "canplay", "playing", "seeked", "timeupdate"] as const;
+// "durationchange": a new duration can move the end clamp (see at), which
+// is acted on at once, not at the next playback event.
+const EVENTS = ["loadedmetadata", "durationchange", "canplay", "playing", "seeked", "timeupdate"] as const;
 const SLACK_SEC = 2;
 /** HTMLMediaElement.HAVE_METADATA, without needing the DOM. */
 const HAVE_METADATA = 1;

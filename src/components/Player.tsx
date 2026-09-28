@@ -324,8 +324,10 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
    *  target; after, the element's position. */
   function landAt(audio: HTMLAudioElement, at: number, hooks: SeekHooks = {}, { deferSeek = false }: { deferSeek?: boolean } = {}): SeekEnforcer | null {
     pendingSeekRef.current?.cancel();
-    knownPosRef.current = at;
-    if (at <= 0) return null;
+    if (at <= 0) {
+      knownPosRef.current = at;
+      return null;
+    }
     const seek = new SeekEnforcer(audio, at, hooks, (end) => {
       if (skipSeekRef.current === seek) skipSeekRef.current = null;
       if (pendingSeekRef.current !== seek) return;
@@ -357,14 +359,13 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   /** Enforce a seek to `to`: by retargeting the one still pending (it keeps
    *  count of its own seeks in flight, so their late answers aren't
    *  misread), else with a new one. */
-  function aimAt(audio: HTMLAudioElement, to: number, hooks: SeekHooks = {}, { deferSeek = false }: { deferSeek?: boolean } = {}): SeekEnforcer | null {
+  function aimAt(audio: HTMLAudioElement, to: number, hooks: SeekHooks = {}): SeekEnforcer | null {
     const pending = pendingSeekRef.current;
-    // A drag step (deferSeek) only moves the target; the next event seeks.
-    if (pending && (deferSeek ? pending.moveTarget(to, hooks) : pending.retarget(to, hooks))) {
+    if (pending && pending.retarget(to, hooks)) {
       knownPosRef.current = pending.at; // the target, as the enforcer keeps it
       return pending;
     }
-    return landAt(audio, to, hooks, { deferSeek });
+    return landAt(audio, to, hooks);
   }
 
   /** Seek past the intro once the duration is known, unless the episode is
@@ -442,7 +443,11 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
    *  (see notePosition): a failed element may read 0, and a load that has
    *  not reported yet is where it was meant to start. */
   function resumePosition(): number {
-    return pendingSeekRef.current?.at ?? knownPosRef.current;
+    const audio = audioRef.current;
+    const pos = pendingSeekRef.current?.at ?? knownPosRef.current;
+    // Never past the end as now known: a target chosen before the duration
+    // arrived may have been.
+    return audio ? shortOfEnd(pos, episodeDuration(audio)) : pos;
   }
 
   /** A request for sound: the toggle's play half, the media session's, and
@@ -926,8 +931,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       // (A seek aimed before this was known is kept short of the end by
       // the enforcer itself.)
       if (dur !== null) episodeDurRef.current = dur;
-      // A stream (Infinity) has no length after all: forget the estimate.
-      else if (audio.duration === Infinity) episodeDurRef.current = null;
       checkSkip(audio);
     };
     audio.addEventListener("loadedmetadata", onDuration);
@@ -1051,7 +1054,10 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       // (Its own hooks, none: a skip-intro's announcement isn't the
       // listener's seek.) The enforcer keeps it short of the end itself,
       // on the same duration.
-      aimAt(audio, Math.max(0, to), {}, { deferSeek: fast });
+      if (!fast) aimAt(audio, to, {});
+      // A drag step only moves the target; the next event seeks.
+      else if (pendingSeekRef.current?.moveTarget(to, {})) knownPosRef.current = pendingSeekRef.current.at;
+      else landAt(audio, to, {}, { deferSeek: true });
       return true;
     }
     pendingSeekRef.current?.cancel();
