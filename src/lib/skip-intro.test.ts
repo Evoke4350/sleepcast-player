@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { decideSkip, skipMessage, startWithSkip } from "./skip-intro";
+import { decideSkip, skipMessage, startWithSkip, stillAtStart } from "./skip-intro";
 import { tooShortForStart } from "./episode-end";
 
 describe("tooShortForStart", () => {
@@ -52,9 +52,24 @@ describe("startWithSkip", () => {
     expect(startWithSkip(1800, 300)).toBe(1800);
     expect(startWithSkip(0, 0)).toBe(0);
     expect(startWithSkip(10, 5)).toBe(10); // already past the intro
-    expect(startWithSkip(15, 300)).toBe(300); // the boundary, in both rules
+    expect(startWithSkip(15, 300)).toBe(300);
     expect(startWithSkip(15.1, 300)).toBe(15.1);
+  });
+});
+
+describe("stillAtStart, the one rule", () => {
+  test("up to 15 s in, and short of the skip", () => {
+    expect(stillAtStart(15, 300)).toBe(true);
+    expect(stillAtStart(15.1, 300)).toBe(false);
+    expect(stillAtStart(10, 15)).toBe(true);
+    expect(stillAtStart(15, 15)).toBe(false);
+    expect(stillAtStart(0, 0)).toBe(false); // no skip
+  });
+
+  test("decideSkip and startWithSkip agree at the boundary", () => {
     expect(decideSkip(300, 3600, 15)).toBe("skip");
     expect(decideSkip(300, 3600, 15.1)).toBe("none");
+    expect(decideSkip(15, 3600, 10)).toBe("skip");
+    expect(startWithSkip(10, 15)).toBe(15);
   });
 });
