@@ -72,6 +72,8 @@ export class SeekEnforcer {
   private outstanding = 0;
   private done = false;
   private target: number;
+  /** The current target's assignment failed: readings are someone else's. */
+  private unassigned = false;
 
   /** `onDone` runs once, when it lands or stands down for any reason
    *  (including cancel()). */
@@ -97,12 +99,15 @@ export class SeekEnforcer {
   /** Aim at another position (the listener's seek), keeping the count of
    *  seeks in flight so their late answers aren't misread. Returns false if
    *  it has already ended; the caller then starts a new one. */
-  retarget(at: number, hooks: SeekHooks = {}): boolean {
+  retarget(at: number, hooks: SeekHooks = {}, { seekNow = true }: { seekNow?: boolean } = {}): boolean {
     if (this.done) return false;
     this.target = at;
     this.hooks = hooks;
-    this.attempts = 0;
     this.reached = false;
+    // A step of a drag (`seekNow: false`) only moves the target: the next
+    // event seeks, and the attempt bound isn't renewed per step.
+    if (!seekNow) return true;
+    this.attempts = 0;
     this.seekNowIfReady();
     return true;
   }
@@ -130,7 +135,7 @@ export class SeekEnforcer {
     const near = Math.abs(cur - this.at) <= SLACK_SEC;
     // The assignment's own echo, not a position the element has reached.
     const echo = unconfirmed && Math.abs(cur - this.at) < ECHO_SEC;
-    const playingHere = near && !echo && this.sawPlaying && !el.paused && e.type === "timeupdate";
+    const playingHere = near && !echo && !this.unassigned && this.sawPlaying && !el.paused && e.type === "timeupdate";
     if (near && ((e.type === "seeked" && !unconfirmed) || playingHere)) this.reached = true;
     if (el.paused) {
       if (near) return; // there (or on its way), waiting for playback
@@ -177,8 +182,11 @@ export class SeekEnforcer {
     try {
       this.el.currentTime = this.target;
       this.outstanding++;
+      this.unassigned = false;
     } catch {
-      /* not seekable yet: a later event retries */
+      // Not seekable yet: a later event retries. Meanwhile the element may
+      // still read an earlier target's echo, which must not count as here.
+      this.unassigned = true;
     }
   }
 }

@@ -354,9 +354,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   /** Enforce a seek to `to`: by retargeting the one still pending (it keeps
    *  count of its own seeks in flight, so their late answers aren't
    *  misread), else with a new one. */
-  function aimAt(audio: HTMLAudioElement, to: number, hooks: SeekHooks = {}): SeekEnforcer | null {
+  function aimAt(audio: HTMLAudioElement, to: number, hooks: SeekHooks = {}, seekNow = true): SeekEnforcer | null {
     const pending = pendingSeekRef.current;
-    if (pending && pending.retarget(to, hooks)) {
+    if (pending && pending.retarget(to, hooks, { seekNow })) {
       knownPosRef.current = to;
       return pending;
     }
@@ -623,7 +623,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
         ? (endTimeRef.current - Date.now()) / 1000
         : Infinity;
     const epRemaining =
-      audio && Number.isFinite(audio.duration) && audio.duration > 0
+      audio && elementDuration(audio) !== null
         ? audio.duration - audio.currentTime
         : null;
     const driver = fadeDriverSeconds(kind, timerRemaining, epRemaining);
@@ -687,7 +687,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     }
 
     const epRemaining =
-      Number.isFinite(audio.duration) && audio.duration > 0
+      elementDuration(audio) !== null
         ? audio.duration - audio.currentTime
         : null;
     const driver = fadeDriverSeconds(kind, remaining, epRemaining);
@@ -709,11 +709,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       brownRef.current?.setGain(noiseGain(noise.on && !audio.paused ? noise.level : 0, driver, FADE_SECONDS));
     }
     setCountdown(kind === "minutes" ? remaining : 0);
-    setEpPos(
-      Number.isFinite(audio.duration) && audio.duration > 0
-        ? { cur: audio.currentTime, dur: audio.duration }
-        : null
-    );
+    const shownDur = elementDuration(audio);
+    setEpPos(shownDur !== null ? { cur: audio.currentTime, dur: shownDur } : null);
 
     const w = watchRef.current;
     if (w && Date.now() - w.at > 25_000) {
@@ -926,7 +923,18 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     audio.addEventListener("seeked", trackSeek);
     // The skip-intro decides as soon as the duration is known.
     const onDuration = () => {
-      if (Number.isFinite(audio.duration) && audio.duration > 0) episodeDurRef.current = audio.duration;
+      const dur = elementDuration(audio);
+      if (dur !== null) {
+        episodeDurRef.current = dur;
+        // A seek aimed before the duration was known (a +30 at the start of
+        // a short episode) is clamped now, short of the end, like any other.
+        const seek = pendingSeekRef.current;
+        if (seek && seek.at > dur - 1) {
+          const at = Math.max(0, dur - 1);
+          seek.retarget(at);
+          knownPosRef.current = at;
+        }
+      }
       checkSkip(audio);
     };
     audio.addEventListener("loadedmetadata", onDuration);
@@ -950,8 +958,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       try {
         navigator.mediaSession.setActionHandler("seekbackward", () => skipBy(-30));
         navigator.mediaSession.setActionHandler("seekforward", () => skipBy(30));
-        // The lock-screen scrubber: through seekTo like any listener seek,
-        // not the browser's default, which would bypass it.
+        // The lock-screen scrubber: through listenerSeek like any listener
+        // seek, not the browser's default, which would bypass it.
         navigator.mediaSession.setActionHandler("seekto", (d) => {
           if (d.seekTime === undefined) return;
           // One drag sends a run of fastSeek steps, then the final seek:
@@ -1017,11 +1025,15 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     listenerSeek(resumePosition() + seconds);
   }
 
+  /** The element's own duration, when it knows one. */
+  function elementDuration(audio: HTMLAudioElement): number | null {
+    return Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : null;
+  }
+
   /** The episode's duration, as far as anyone knows: the element's, or the
    *  one it reported before a reload. */
   function episodeDuration(audio: HTMLAudioElement): number | null {
-    if (Number.isFinite(audio.duration) && audio.duration > 0) return audio.duration;
-    return episodeDurRef.current;
+    return elementDuration(audio) ?? episodeDurRef.current;
   }
 
   /** Every listener seek (the scrubber, ±30 s, the lock screen). Known here,
@@ -1041,13 +1053,16 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     skipRef.current = null;
     skipSeekRef.current = null;
     if (!epPlayedRef.current && at > 0) {
-      // Before playback, a plain seek is what Safari resets: enforce it.
-      aimAt(audio, at);
+      // Before playback, a plain seek is what Safari resets: enforce it. A
+      // drag step only moves the target; the drag's final seek enforces.
+      aimAt(audio, at, {}, !fast);
       return;
     }
     pendingSeekRef.current?.cancel();
     knownPosRef.current = at;
-    lastPosRef.current = at; // a jump, not time heard (after the cancel's rebase)
+    // A jump, not time heard (after the cancel's rebase). fastSeek lands
+    // only near `at`, so its first reading sets the baseline instead.
+    lastPosRef.current = fast ? NaN : at;
     try {
       if (fast && typeof audio.fastSeek === "function") audio.fastSeek(at);
       else audio.currentTime = at;

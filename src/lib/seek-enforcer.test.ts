@@ -164,8 +164,7 @@ describe("SeekEnforcer", () => {
     el.readyState = 4;
     el.currentTime = 2;
     const onLanded = vi.fn();
-    new SeekEnforcer(el, 90, { onLanded });
-    el.fire("timeupdate"); // seeks
+    new SeekEnforcer(el, 90, { onLanded }); // seeks at once
     el.fire("seeked");
     el.currentTime = 90.25;
     el.fire("timeupdate");
@@ -250,12 +249,42 @@ describe("SeekEnforcer", () => {
     el.readyState = 1;
     const done = vi.fn();
     const enf = new SeekEnforcer(el, 1230, {}, done); // assigns 1230, unconfirmed
-    enf.retarget(1231); // within the slack: no new seek
+    enf.retarget(1231); // within the slack, but a seek is outstanding: re-seeks
+    expect(el.currentTime).toBe(1231);
     el.paused = false;
     el.readyState = 4;
     el.fire("playing");
-    el.fire("timeupdate"); // still the unlanded 1230 echo
+    el.fire("timeupdate"); // the new target's echo, still unconfirmed
     expect(done).not.toHaveBeenCalled();
+  });
+
+  test("an earlier target's echo doesn't land a retarget whose seek failed", () => {
+    const el = new FakeEl();
+    el.readyState = 1;
+    const done = vi.fn();
+    const enf = new SeekEnforcer(el, 1230, {}, done); // assigns 1230
+    const now = el.currentTime; // 1230, the earlier target
+    Object.defineProperty(el, "currentTime", {
+      get: () => now,
+      set: () => { throw new Error("not seekable"); },
+    });
+    enf.retarget(1231); // the assignment throws; it still reads 1230
+    el.paused = false;
+    el.readyState = 4;
+    el.fire("playing");
+    el.fire("timeupdate");
+    expect(done).not.toHaveBeenCalled();
+  });
+
+  test("a drag step only moves the target; the next event seeks", () => {
+    const el = new FakeEl();
+    el.readyState = 1;
+    const enf = new SeekEnforcer(el, 600);
+    enf.retarget(700, {}, { seekNow: false });
+    expect(el.currentTime).toBe(600);
+    expect(enf.at).toBe(700);
+    el.fire("timeupdate");
+    expect(el.currentTime).toBe(700);
   });
 
   test("cancel reports cancelled", () => {
