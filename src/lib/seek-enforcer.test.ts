@@ -497,6 +497,20 @@ describe("SeekEnforcer", () => {
     expect(done).not.toHaveBeenCalled();
   });
 
+  test("a small clamp refinement doesn't re-seek an element already there", () => {
+    const el = new FakeEl();
+    el.readyState = 1;
+    el.duration = 1000;
+    new SeekEnforcer(el, 5000); // placed at 999
+    el.fire("seeked"); // none outstanding
+    let seeks = 0;
+    let now = el.currentTime;
+    Object.defineProperty(el, "currentTime", { get: () => now, set: (v: number) => { seeks++; now = v; } });
+    el.duration = 1000.5; // clamp moves to 999.5: within the slack
+    el.fire("durationchange");
+    expect(seeks).toBe(0);
+  });
+
   test("cancel reports cancelled", () => {
     const el = new FakeEl();
     const done = vi.fn();

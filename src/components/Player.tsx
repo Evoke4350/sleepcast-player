@@ -135,6 +135,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
    *  notePosition), or the target a seek left behind when it ended without
    *  landing (kept short of the known end), or a load's start of 0. */
   const knownPosRef = useRef(0);
+  /** What the lock screen was last told (position, when, the rate it
+   *  extrapolates at), to tell a correction from steady playback. */
+  const publishedRef = useRef<{ pos: number; atMs: number; rate: number } | null>(null);
   /** The current episode's duration once its element has reported one: kept
    *  across a reload (whose element knows nothing yet), reset per episode. */
   const episodeDurRef = useRef<number | null>(null);
@@ -331,6 +334,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
    *  being reloaded, which keeps its announcement. */
   function startLoadAt(audio: HTMLAudioElement, at: number, skipSec?: number) {
     skipSeekRef.current = null;
+    knownPosRef.current = Math.max(0, at); // this load's, not the last one's
     if (at <= 0) {
       clearSeek();
       return;
@@ -364,7 +368,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       // may leave a stalled or failed element's reading behind (the app's
       // own pause in a hold ends a seek that way). A listener's seek before
       // playback is enforced here too, and so is recorded once it lands.
-      if (end === "landed") notePosition(audio);
+      if (end === "landed") notePosition(audio, { syncIfOff: false });
       // A target left behind by a seek that didn't land stands, as the
       // enforcer keeps it (never past the end as now known), until the
       // element's next trustworthy reading says where it really is.
@@ -379,16 +383,16 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
    *  be trusted: not while a seek is being enforced (Safari can read ~0
    *  until it is corrected), not before the element knows its media (a new
    *  load reads 0), and not from a failed element, which can read 0 too. */
-  function notePosition(audio: HTMLAudioElement) {
+  function notePosition(audio: HTMLAudioElement, { syncIfOff = true }: { syncIfOff?: boolean } = {}) {
     // Nor mid-seek: a fastSeek's currentTime can still read where it left.
     if (pendingSeekRef.current || audio.seeking) return;
     if (audio.error || audio.readyState < HTMLMediaElement.HAVE_METADATA) return;
-    const jumped = Math.abs(audio.currentTime - knownPosRef.current) > 2;
     knownPosRef.current = audio.currentTime;
     // Not playback's steady advance (which the lock screen extrapolates),
-    // but a correction: the element somewhere other than the position last
-    // published (a seek that didn't land, say). Publish it.
-    if (jumped) syncLockScreen();
+    // but a correction: the element somewhere other than where the lock
+    // screen thinks it is (a seek that didn't land, say). Publish it,
+    // unless the caller syncs anyway.
+    if (syncIfOff && offLockScreen(audio.currentTime)) syncLockScreen();
   }
 
   /** Enforce a seek to `to`: by aiming the one still pending there (it keeps
@@ -792,6 +796,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // unless the app is the one giving up (gaveUp; see recordNightEnd).
     clearStopFade();
     netHoldRef.current.cancel();
+    pendingSeekRef.current?.cancel(); // nothing may act on the stopped element
     recordNightEnd({
       reason,
       played: hasEverPlayedRef.current,
@@ -958,7 +963,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     audio.addEventListener("timeupdate", restTick); // keeps the sleep detector fed while backgrounded
     // heardTick tracks the position on timeupdate; a scrub while paused
     // fires only "seeked".
-    const trackSeek = () => notePosition(audio);
+    // (The lock-screen listener, registered below, syncs after it.)
+    const trackSeek = () => notePosition(audio, { syncIfOff: false });
     audio.addEventListener("seeked", trackSeek);
     // The skip-intro decides as soon as the duration is known.
     const onDuration = () => {
@@ -1090,13 +1096,28 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // Display only: which readings count is notePosition's business (the
     // element fires a timeupdate before "pause", and heardTick notes it).
     const ms = navigator.mediaSession;
-    ms.playbackState = audio.paused ? "paused" : "playing";
-    if (!ms.setPositionState) return;
+    // Only moving when it is: stalled ("waiting"), still loading after
+    // play(), or seeking, it shows paused, so the platform doesn't
+    // extrapolate past audio that isn't advancing (a rate of 0 isn't allowed).
+    const moving = !audio.paused && !audio.seeking && audio.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA;
+    ms.playbackState = moving ? "playing" : "paused";
     const span = episodeSpan(audio);
+    const rate = audio.playbackRate || 1;
+    publishedRef.current = span ? { pos: span.pos, atMs: Date.now(), rate: moving ? rate : 0 } : null;
+    if (!ms.setPositionState) return;
     try {
-      if (span) ms.setPositionState({ duration: span.dur, position: span.pos, playbackRate: audio.playbackRate || 1 });
+      if (span) ms.setPositionState({ duration: span.dur, position: span.pos, playbackRate: rate });
       else ms.setPositionState();
     } catch { /* a platform that rejects it keeps its own */ }
+  }
+
+  /** Whether a reading is somewhere other than where the lock screen,
+   *  extrapolating from what was last published, thinks it is. */
+  function offLockScreen(pos: number): boolean {
+    const p = publishedRef.current;
+    if (!p) return true;
+    const expected = p.pos + ((Date.now() - p.atMs) / 1000) * p.rate;
+    return Math.abs(pos - expected) > 2;
   }
 
   /** Where the episode is and how long it is, as the player sees it, with

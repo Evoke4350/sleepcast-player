@@ -182,12 +182,15 @@ export class SeekEnforcer {
       // clamp moved by a new duration estimate (a moved target has reset
       // the bound already), not a failed attempt, so the bound isn't spent
       // on estimates settling. A failed assignment leaves nothing placed.
-      if (this.placedAt !== null && this.placedFor === this.target && this.clampRenewals < MAX_CLAMP_RENEWALS) {
+      // A moved clamp: the element may already be within the slack of the
+      // new one (a small refinement), and then there's nothing to seek.
+      const clampMoved = this.placedAt !== null && this.placedFor === this.target;
+      if (clampMoved && this.clampRenewals < MAX_CLAMP_RENEWALS) {
         this.clampRenewals++;
         this.attempts = 0;
       }
       this.reached = false;
-      this.trySeek(at);
+      this.trySeek(at, { unlessThere: clampMoved });
       return;
     }
     const cur = el.currentTime;
