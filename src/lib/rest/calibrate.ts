@@ -1,8 +1,6 @@
 import type { RestNight, DetectorParams } from "./types";
-import { DEFAULT_PARAMS } from "./detector";
+import { DEFAULT_PARAMS, LAMBDA_MAX, TICK_MS } from "./detector";
 import { loadNights, loadParams, saveParams } from "./ledger";
-
-const TICK_MS = 15_000;
 
 /** Re-estimate lambdaAwake from the user's own nights: interactions per awake
  *  tick, where "awake ticks" ≈ time-to-sleep / tick. Falls back to defaults
@@ -18,7 +16,13 @@ export function paramsFromHistory(nights: RestNight[]): DetectorParams {
     awakeTicks += Math.max(1, Math.round((n.timeToSleepMs as number) / TICK_MS));
   }
   const rate = interactions / awakeTicks;
-  const lambdaAwake = Math.min(0.5, Math.max(0.02, rate));
+  // Never below the default. A quiet listener (0 interactions) estimated at
+  // the old 0.02 floor made each quiet tick such weak evidence that the bound
+  // took ~49 min to reach: every shorter night hit its fade undecided, was
+  // never scored as slept, and so never fed a better estimate back. Quiet
+  // while awake is indistinguishable from asleep here; the fade gate, not a
+  // lower rate, is what keeps that honest.
+  const lambdaAwake = Math.min(LAMBDA_MAX, Math.max(DEFAULT_PARAMS.lambdaAwake, rate));
   return { ...DEFAULT_PARAMS, lambdaAwake };
 }
 

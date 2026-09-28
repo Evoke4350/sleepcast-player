@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { paramsFromHistory, tightenAfterFalsePositive, currentParams, recordFalsePositive } from "./calibrate";
 import { loadParams, loadNights } from "./ledger";
-import { DEFAULT_PARAMS } from "./detector";
+import { DEFAULT_PARAMS, quietTicksToDecide, TICK_MS } from "./detector";
 import type { RestNight } from "./types";
 
 const night = (interactions: number, timeToSleepMs = 300000): RestNight => ({
@@ -69,5 +69,23 @@ describe("recording a false positive", () => {
     }));
     expect(currentParams(loadParams(), busy).lambdaAwake).toBe(paramsFromHistory(busy).lambdaAwake);
     expect(paramsFromHistory(busy).lambdaAwake).not.toBe(DEFAULT_PARAMS.lambdaAwake);
+  });
+});
+
+describe("paramsFromHistory keeps the detector able to decide", () => {
+  // A listener who never touches the phone has 0 interactions per awake
+  // tick, and the estimate was clamped to 0.02. At that rate a quiet tick is
+  // such weak evidence that the bound takes ~195 ticks (~49 min), so every
+  // shorter night reached its fade undecided and was never scored as slept
+  // again, and the estimate could never recover.
+  it("never calibrates below the default rate", () => {
+    const quiet = [night(0, 450_000), night(0, 450_000), night(0, 450_000)];
+    expect(paramsFromHistory(quiet).lambdaAwake).toBe(DEFAULT_PARAMS.lambdaAwake);
+  });
+
+  it("a quiet listener's detector still decides inside a 25-minute night", () => {
+    const quiet = [night(0, 450_000), night(0, 450_000), night(0, 450_000)];
+    const ticks = quietTicksToDecide(paramsFromHistory(quiet));
+    expect(ticks * TICK_MS).toBeLessThan(25 * 60_000 - 60_000); // before the fade window
   });
 });

@@ -41,37 +41,33 @@ import {
   getPlays,
   recordHeardPlay,
   saveLive,
-  clearLive,
-  saveLastEpisode,
-  saveLastNight,
   rememberPosition,
   forgetPosition,
   blockEpisode,
   loadBlocked,
-  recordSessionEnd,
   type NoiseSettings,
 } from "../lib/store";
 import { HEARD_SEC } from "../lib/plays";
 import { canExtend } from "../lib/timer-feel";
 import { BrownNoise, noiseGain } from "../lib/noise";
 import { shouldTick } from "../lib/tick-gate";
-import { RestSession } from "../lib/rest/session";
-import { appendNight } from "../lib/rest/ledger";
+import { RestSession, revivedNightStart } from "../lib/rest/session";
+import { recordNightEnd } from "../lib/night-end";
+import { NetworkHold, isOffline } from "../lib/network-hold";
+import { heardDelta } from "../lib/heard";
+import { startWithSkip } from "../lib/skip-intro";
+import { PlaybackWitness, rearmsWatchdogOnTap } from "../lib/witness";
+import { applyEndedDecision, decideAfterEnded, shouldPlayWhole } from "../lib/episode-end";
 import type { RestNight } from "../lib/rest/types";
-import {
-  YouTubeMedia,
-  YT_EMBED_HOST,
-  type YTPlayerLike,
-  type CreatePlayerArgs,
-} from "../lib/youtube-media";
-import { loadYouTubeApi, type YTNamespace } from "../lib/youtube-api";
-import type { MediaBackend, Transport } from "../lib/media/backend";
+import { YouTubeMedia } from "../lib/youtube-media";
+import { buildYouTubePlayer } from "../lib/youtube-embed";
+import { loadYouTubeApi } from "../lib/youtube-api";
+import type { ErrorInfo, MediaBackend, Transport } from "../lib/media/backend";
 import { AudioBackend } from "../lib/media/audio-backend";
 import { preferVideoLead } from "../lib/mixed-night";
 import {
   nextPlayable,
   decideAfterError,
-  transportFor,
   shouldGiveUp,
   YT_STATE,
 } from "../lib/youtube-night";
@@ -131,6 +127,10 @@ export interface NightProps {
     remainingMs: number;
     totalSeconds: number;
     playedIds: string[];
+    /** When the revived night really began (snapshot's nightStartedAt). */
+    nightStartedAt?: number;
+    /** Transport touches before the reload. */
+    interactions?: number;
   } | null;
   leadEpisode?: Episode | null;
   leadPosition?: number;
@@ -181,6 +181,8 @@ export function Night({
   const wasVariedRef = useRef(wasVaried);
 
   const currentEpRef = useRef<Episode | null>(null);
+  /** The last episode that actually played tonight (see NightEnd.lastHeard). */
+  const lastHeardEpRef = useRef<Episode | null>(null);
   const currentFeedRef = useRef<string | null>(null);
   // Everything known not to play: blocked across nights (the uploader disabled
   // embedding, the video is gone) plus whatever failed tonight.
@@ -190,13 +192,23 @@ export function Night({
 
   const heardSecRef = useRef(0);
   const lastPosRef = useRef(0);
-  // The position seen at the previous tick, and whether this episode's has
-  // ever advanced. The watchdog needs to tell "playing" from "claims to be
-  // playing", and movement is the only honest signal: where the episode was
-  // ASKED to start is not where it necessarily is, because the start seek can
-  // silently fail to land.
-  const lastSeenPosRef = useRef(0);
-  const hasMovedRef = useRef(false);
+  /** Whether the backend was enforcing its start seek at the last tick. */
+  const wasSeekingRef = useRef(false);
+  // Whether this episode has actually made a sound (lib/witness.ts). The
+  // watchdog needs to tell "playing" from "claims to be playing", and movement
+  // is the only honest signal: where the episode was ASKED to start is not
+  // where it necessarily is, because the start seek may not have landed yet
+  // (or ever: it gives up after a few tries).
+  const witnessRef = useRef(new PlaybackWitness());
+  /** Waiting out a dropped network (see holdForNetwork). */
+  const netHoldRef = useRef(new NetworkHold());
+  /** The latest askForSound(), for handlers registered once at mount. */
+  const askForSoundRef = useRef<() => void>(() => {});
+  // The fade factor last applied to the live backend, before per-feed trim
+  // (the night's fade, or the courtesy fade). A backend that becomes live is
+  // set to it times its own episode's trim at once, rather than playing at
+  // whatever it was last given, possibly hours ago, until a tick.
+  const levelRef = useRef<number | null>(null);
   const heardSavedAtRef = useRef(-1e9);
   const epStartedAtRef = useRef(0);
   const persistCounterRef = useRef(0);
@@ -225,7 +237,14 @@ export function Night({
   // handled; the other three (unstarted, cued, buffering) left it saying
   // "playing" while nothing played, so a video waiting for a tap rendered a
   // Pause button over silence.
-  const [transport, setTransport] = useState<Transport>("buffering");
+  const [transport, setTransportState] = useState<Transport>("buffering");
+  /** The transport as last set, readable outside a render (the media
+   *  session's handlers run between them). */
+  const transportRef = useRef<Transport>("buffering");
+  function setTransport(t: Transport) {
+    transportRef.current = t;
+    setTransportState(t);
+  }
   // Whether anything has played at all this night. Autoplay refusals look
   // exactly like a dead video until you know the answer to this.
   const hasEverPlayedRef = useRef(false);
@@ -276,76 +295,31 @@ export function Night({
     }
   }
 
-  // YT.Player REPLACES the element it is handed with an iframe. So it is given
-  // a plain div created here rather than one React rendered — React never
-  // knows about the node, and cannot trip over a child that vanished from
-  // under it.
-  function buildPlayer(YT: YTNamespace, args: CreatePlayerArgs): YTPlayerLike {
-    const mount = document.createElement("div");
-    hostRef.current!.appendChild(mount);
-    const player = new YT.Player(mount, {
-      host: YT_EMBED_HOST,
-      videoId: args.videoId,
-      width: "100%",
-      height: "100%",
-      playerVars: {
-        autoplay: 1,
-        playsinline: 1,
-        // No chrome to catch a sleepy thumb, no related-video grid at the end,
-        // no keyboard, no annotations. The transport below is the transport.
-        controls: 0,
-        disablekb: 1,
-        fs: 0,
-        rel: 0,
-        iv_load_policy: 3,
-        modestbranding: 1,
-        start: Math.floor(args.startSeconds ?? 0),
-        origin: typeof location === "undefined" ? undefined : location.origin,
+  // Every state event, as YouTubeMedia hands it over (it has already let its
+  // switch guard see the event). Routed as the guard reads it: the event's own
+  // state, except during a switch, when it may be the previous video's (a
+  // PLAYING that would mark the new one played, an ENDED that would skip it).
+  function handleStateEvent(raw: number) {
+    // The player is not destroyed between episodes — it is hidden and paused
+    // behind a podcast, and it keeps emitting state changes from there. Acting
+    // on them while audio is live would report the video's transport over the
+    // podcast's and freeze the countdown over sound that is actually playing.
+    // Once both refs are null the player is gone, and "equal" must not read as
+    // "still live".
+    if (ytRef.current === null || liveRef.current !== ytRef.current) return;
+    ytRef.current.routeStateEvent(raw, {
+      transport: setTransport,
+      playing: () => {
+        netHoldRef.current.cancel(); // sound: the network is evidently fine
+        witnessRef.current.markPlayed();
+        markPlayed();
+        // The clock starts here, not at mount. It is held frozen until
+        // something actually plays, so a night that never got its tap does
+        // not run its timer down over silence.
+        unfreezeClock();
       },
-      events: {
-        onReady: (e: { target: YTPlayerLike }) => {
-          args.onReady();
-          // Starting a night IS a user gesture, but Google's script has to
-          // load first and that gap routinely outlives the gesture's grace on
-          // a phone. Ask anyway — and when the answer is no, the video sits at
-          // "unstarted" and the tap prompt takes over. It is not an error and
-          // must not be treated as one.
-          //
-          // Unless the night already moved on: a Next tapped during the gap
-          // leaves a podcast playing, and playVideo() here would start a
-          // second sound over it. The null check is not redundant —
-          // releaseBackends() sets both refs to null, and "equal" would then
-          // be true of nothing at all, so a late onReady would drive a player
-          // that has been destroyed.
-          if (ytRef.current !== null && liveRef.current === ytRef.current) e.target.playVideo();
-        },
-        onStateChange: (e: { data: number }) => {
-          // The player is not destroyed between episodes — it is hidden and
-          // paused behind a podcast, and it keeps emitting state changes from
-          // there. Acting on them while audio is live would report the video's
-          // transport over the podcast's and freeze the countdown over sound
-          // that is actually playing. Once both refs are null the player is
-          // gone, and "equal" must not read as "still live".
-          if (ytRef.current === null || liveRef.current !== ytRef.current) return;
-          setTransport(transportFor(e.data));
-          if (e.data === YT_STATE.PLAYING) {
-            watchRef.current = null;
-            retriesRef.current = 0;
-            hasEverPlayedRef.current = true;
-            // The clock starts here, not at mount. It is held frozen until
-            // something actually plays, so a night that never got its tap does
-            // not run its timer down over silence.
-            unfreezeClock();
-          } else if (e.data === YT_STATE.PAUSED) {
-            freezeClock();
-          } else if (e.data === YT_STATE.ENDED) {
-            args.onEnded();
-          }
-        },
-        onError: (e: { data: number }) => args.onError(e.data),
-      },
+      paused: freezeClock,
     });
-    return player as unknown as YTPlayerLike;
   }
 
   /** Which backend this episode belongs to. `youtubeId` is the only signal —
@@ -355,6 +329,7 @@ export function Night({
   }
 
   function startEpisode(ep: Episode, seekTo = 0) {
+    netHoldRef.current.cancel(); // a new episode: any wait was for the last one
     const next = backendFor(ep);
     // No backend for this kind of episode — the IFrame API never loaded and
     // this is a video. Retire it and move on rather than returning: the mount
@@ -372,7 +347,10 @@ export function Night({
     // one, and on a mixed night that means the podcast's "ended" advancing a
     // night that has already moved on to a video.
     for (const off of offRef.current.splice(0)) off();
-    if (liveRef.current && liveRef.current !== next) liveRef.current.pause();
+    if (liveRef.current && liveRef.current !== next) liveRef.current.standDown();
+    if (levelRef.current !== null && liveRef.current !== next) {
+      next.setVolume(Math.min(1, levelRef.current * (feedTrimRef.current[ep.feedId] ?? 1.0)));
+    }
     liveRef.current = next;
 
     offRef.current.push(
@@ -396,9 +374,10 @@ export function Night({
     setTransport("buffering");
     setShowStartPrompt(false);
 
-    // A saved position is already past any intro, so it wins over skip-intro.
+    // A saved position further along wins over skip-intro; one near the
+    // start (a revive from a snapshot a second in) still gets it, as in Player.
     const skipSec = (skipIntroRef.current[ep.feedId] ?? 0) * 60;
-    const start = seekTo > 0 ? seekTo : skipSec;
+    const start = startWithSkip(seekTo, skipSec);
     // A videoId for the embed, an enclosure URL for the element. This is the
     // last place the difference is visible.
     next.load(ep.youtubeId ?? ep.url, start);
@@ -406,10 +385,12 @@ export function Night({
     watchRef.current = { id: ep.id, at: Date.now() };
     heardSecRef.current = 0;
     lastPosRef.current = start; // so the jump to `start` is not counted as listening
-    // Seeded with the requested start rather than 0: if the seek does land,
-    // arriving at `start` is not movement and must not read as proof of sound.
-    lastSeenPosRef.current = start;
-    hasMovedRef.current = false;
+    wasSeekingRef.current = false; // a new load: the last one's seek is over
+    // Seeded with the requested start: if the seek does land, arriving at
+    // `start` is not movement and must not read as proof of sound.
+    // A saved position means it was already being listened to: an early end
+    // is then a finish, not a failure (see decideAfterEnded).
+    witnessRef.current.newEpisode(start, Date.now(), seekTo > 0);
     heardSavedAtRef.current = -1e9;
     epStartedAtRef.current = Date.now();
     persistCounterRef.current = 10; // snapshot promptly, not up to 10s from now
@@ -425,7 +406,11 @@ export function Night({
     }
   }
 
-  function playNext() {
+  /** `byListener`: Next or "never again" led here, so ending a never-played
+   *  night is the listener's choice and its snapshot goes (see recordNightEnd).
+   *  Only an end their action causes at once counts: one that fails later
+   *  (an error after load) is the app giving up, and keeps the snapshot. */
+  function playNext(byListener = false) {
     const ep = nextPlayable(
       poolRef.current,
       deadRef.current,
@@ -435,42 +420,47 @@ export function Night({
     // Nothing left that can play. Ending is the honest outcome: continuing
     // would be an hour of black screen with the timer running down.
     if (!ep) {
-      endSession("ended");
+      endSession("ended", { gaveUp: !byListener });
       return;
     }
     startEpisode(ep);
   }
 
   function handleEnded() {
+    // Always set: handleEnded is only reachable once startEpisode has set the
+    // current episode (its handlers are subscribed there). Narrows the type.
     const done = currentEpRef.current;
-    if (done) forgetPosition(done.id);
-    if (stopFadeRef.current !== null) {
-      // The listener already asked to stop and the video happened to run out
-      // underneath the courtesy fade. Starting another would resurrect a night
-      // they just ended.
-      endSession("ended");
-      return;
-    }
-    if (tickHandleRef.current === null) return;
-    // One-episode mode means one episode: the night ends with it.
-    if (modeRef.current.kind === "one-episode") {
-      endSession("faded");
-      return;
-    }
-    playNext();
+    if (!done) return;
+    const w = witnessRef.current;
+    applyEndedDecision(
+      decideAfterEnded({
+        stopping: stopFadeRef.current !== null,
+        active: tickHandleRef.current !== null,
+        playedThisEpisode: w.heard,
+        replayedFromStart: w.replayed,
+        mode: modeRef.current.kind,
+      }),
+      {
+        replay: () => void replayFromStart(),
+        endNight: (reason) => endSession(reason),
+        skipDead: () => skipDead(done, "that one ended before it played", false),
+        next: () => playNext(),
+        forgetPosition: () => forgetPosition(done.id),
+      },
+    );
   }
 
   /** Retire this episode for tonight and move on. `permanent` is only ever
    *  true for a verdict that says the episode can never play here — the
    *  ordinary case is dead tonight, eligible again tomorrow. */
-  function skipDead(ep: Episode, reason: string, permanent: boolean) {
+  function skipDead(ep: Episode, reason: string, permanent: boolean, byListener = false) {
     deadRef.current.add(ep.id);
     // Permanent means it will never play here on any night — remember it the
     // same way "never again" does, so tomorrow does not rediscover it.
     if (permanent) blockEpisode(ep.id);
     setBlockedTonight((prev) => new Set(prev).add(ep.id));
     flash(reason);
-    playNext();
+    playNext(byListener);
   }
 
   /**
@@ -492,9 +482,14 @@ export function Night({
    * 404, a host that stopped answering, a stream that will not decode — and
    * they skip, because a night that sits on one is a night of silence.
    */
-  function handleError(code: number | string) {
+  function handleError(code: number | string, info: ErrorInfo) {
     const ep = currentEpRef.current;
     if (!ep || tickHandleRef.current === null) return;
+    // Offline, every source fails: that says nothing about this episode.
+    if (isOffline() && code !== "autoplay-blocked") {
+      holdForNetwork(ep);
+      return;
+    }
 
     if (typeof code === "string") {
       if (code === "autoplay-blocked") {
@@ -513,27 +508,31 @@ export function Night({
     if (!ep.youtubeId) return;
     const decision = decideAfterError(code, retriesRef.current);
     if (decision.action === "retry") {
+      // Counted even when uncertain: a retry reloads (a new switch), so an
+      // error that always lands mid-switch would otherwise retry forever.
       retriesRef.current++;
-      liveRef.current?.load(ep.youtubeId, 0);
-      watchRef.current = { id: ep.id, at: Date.now() };
-      // The retry restarts from the top, so the watchdog's idea of "has it
-      // moved" has to restart with it.
-      lastSeenPosRef.current = 0;
-      hasMovedRef.current = false;
-      lastPosRef.current = 0;
+      // Where it was, if it ever played, else where it was meant to start (a
+      // revived position, the skip-intro): reloading at 0 restarted a long
+      // video mid-night, and a position read before it played may not be its.
+      const w = witnessRef.current;
+      reloadAt(ep, w.resumeAt(liveRef.current?.currentTime() ?? 0));
       return;
     }
-    skipDead(ep, classifyYouTubeError(code).reason, decision.permanent);
+    // Never permanent if it arrived mid-switch: it may be the previous video's
+    // (see YouTubeMedia's onError). Skipped tonight, not condemned for good.
+    skipDead(ep, classifyYouTubeError(code).reason, decision.permanent && !info.uncertain);
   }
 
-  function heardTick(cur: number) {
+  function heardTick(cur: number, seeking: boolean) {
     const ep = currentEpRef.current;
     if (!ep) return;
-    const delta = cur - lastPosRef.current;
+    const prev = lastPosRef.current;
     lastPosRef.current = cur;
-    // Outside (0, 5) seconds is a seek or a new video, not time anyone spent
-    // listening.
-    if (delta > 0 && delta < 5) heardSecRef.current += delta;
+    // The first tick after the seek ended starts the count afresh: its step
+    // from the last reading during the seek includes the landing.
+    const wasSeeking = wasSeekingRef.current;
+    wasSeekingRef.current = seeking;
+    heardSecRef.current += heardDelta(prev, cur, seeking || wasSeeking);
     if (
       heardSecRef.current >= HEARD_SEC &&
       heardSecRef.current - heardSavedAtRef.current >= 60
@@ -549,9 +548,13 @@ export function Night({
     }
   }
 
-  function restTick(driver: number) {
+  function restTick(driver: number, t: Transport | undefined) {
     const r = restRef.current;
     if (!r || pausedRemainingMsRef.current !== null || tickHandleRef.current === null) return;
+    // pausedRemainingMsRef is only set in minutes mode. In one-episode and
+    // all-night a paused (or never-started) episode kept feeding quiet ticks,
+    // and near an episode's end the detector could infer sleep during a pause.
+    if (t === "paused" || t === "awaiting-start") return;
     if (Date.now() - lastRestTickRef.current < 15_000) return;
     lastRestTickRef.current = Date.now();
     r.tick({
@@ -575,9 +578,12 @@ export function Night({
       nightStartedAt: restRef.current?.startedAt,
       timerMinutes: restRef.current?.timerMinutes,
       modeKind: modeRef.current.kind,
+      interactions: restRef.current?.interactionCount,
       remainingMs,
       totalSeconds: totalSecondsRef.current,
-      position: media.currentTime(),
+      // Where the episode is, not a raw reading: the backend may still be
+      // enforcing its start seek over Safari's reset (see resumeAt).
+      position: witnessRef.current.resumeAt(media.currentTime()),
       current: ep,
       playedIds: [...playedIdsRef.current],
       pool: poolRef.current,
@@ -632,18 +638,21 @@ export function Night({
     // the "playing" DOM event for this; behind the backend interface there is
     // no such event, so the proof is the position having MOVED.
     //
-    // Movement, not position: AudioBackend attempts its start seek once, on
-    // loadedmetadata, and gives up silently when it fails — Safari resets
-    // pre-playback seeks, duration can still be NaN there. An episode whose
-    // seek did not land plays audibly from 0:00 while the position it was
-    // asked for is five minutes away, and a predicate written against that
-    // position kills it as stalled while the listener can hear it. A hung
+    // Movement, not position: AudioBackend enforces its start seek (see
+    // SeekEnforcer), but Safari resets pre-playback seeks, so the element can
+    // play audibly from 0:00 for a moment before being put back on its start,
+    // and a stubborn stream makes the seek give up entirely. A predicate
+    // written against the asked-for position kills such an episode as stalled
+    // while the listener can hear it. The jump back onto the start is a seek,
+    // not playback (isPlaybackStep excludes it). A hung
     // enclosure never moves either way, so the hole this guard exists to close
     // stays closed.
-    const seenPos = media.currentTime();
-    if (seenPos > lastSeenPosRef.current) hasMovedRef.current = true;
-    lastSeenPosRef.current = seenPos;
-    const witnessed: Transport = t === "playing" && !hasMovedRef.current ? "buffering" : t;
+    // One position read per tick, for the played decision and everything below.
+    const cur = media.currentTime();
+    const wasPlayed = witnessRef.current.played;
+    const played = witnessRef.current.observe(cur, Date.now(), t === "playing");
+    if (played && !wasPlayed) netHoldRef.current.cancel(); // sound: the network is fine
+    const witnessed: Transport = t === "playing" && !played ? "buffering" : t;
     // From `witnessed`, not `t`: the raw value exists to be distrusted, and a
     // control reading "Pause" over an episode that has not made a sound yet is
     // the exact class of lie this file is built to avoid.
@@ -652,9 +661,7 @@ export function Night({
       // The countdown starts at the first real sound, not at mount, so a night
       // still waiting for its tap does not spend its minutes on silence. The
       // embed also does this from onStateChange; both are idempotent.
-      watchRef.current = null;
-      retriesRef.current = 0;
-      hasEverPlayedRef.current = true;
+      markPlayed();
       unfreezeClock();
     } else if (witnessed === "paused") {
       freezeClock();
@@ -678,23 +685,29 @@ export function Night({
     }
     setShowStartPrompt(needsTap);
 
-    const cur = media.currentTime();
     const dur = media.duration();
+    // Started within 30 s of its end (a skip-intro nearly as long as the
+    // episode): play it whole, as Player.tsx does, rather than let the
+    // listener catch only its last seconds. See shouldPlayWhole.
+    // Only returns if it did reload: a failed replay must not stall every tick.
+    if (shouldPlayWhole(witnessRef.current, dur) && replayFromStart()) return;
     const epRemaining = dur > 0 ? dur - cur : null;
     const driver = fadeDriverSeconds(kind, remaining, epRemaining);
 
-    restTick(driver);
-    heardTick(cur);
+    restTick(driver, t);
+    heardTick(cur, media.seeking());
 
     // The courtesy fade owns the volume while it runs; reassigning here would
     // fight it back up and produce audible stabs on the way out.
     if (stopFadeRef.current === null) {
-      media.setVolume(
-        Number.isFinite(driver)
-          ? effectiveVolume(driver, FADE_SECONDS, feedTrimRef.current[currentFeedRef.current ?? ""] ?? 1.0)
-          : 1,
-      );
-      brownRef.current?.setGain(noiseGain(noise.on ? noise.level : 0, driver, FADE_SECONDS));
+      // With no fade underway (driver Infinity) this is the feed's trim alone.
+      // A hard 1 played turned-down feeds at full volume in all-night mode.
+      levelRef.current = effectiveVolume(driver, FADE_SECONDS, 1);
+      media.setVolume(effectiveVolume(driver, FADE_SECONDS, feedTrimRef.current[currentFeedRef.current ?? ""] ?? 1.0));
+      // Silent while nothing plays: left at full level, the noise ran on under
+      // a pause with the clock frozen, so no fade would ever reach it.
+      const silent = t === "paused" || t === "awaiting-start";
+      brownRef.current?.setGain(noiseGain(noise.on && !silent ? noise.level : 0, driver, FADE_SECONDS));
     }
 
     setCountdown(kind === "minutes" ? remaining : 0);
@@ -721,11 +734,18 @@ export function Night({
         limitMs: WATCHDOG_MS,
       })
     ) {
+      if (isOffline() && currentEpRef.current) {
+        // Not stuck: the network is gone. Nothing is condemned or skipped.
+        holdForNetwork(currentEpRef.current);
+        return;
+      }
       watchRef.current = null;
       // Stuck without an error code: a blocked embed that reported nothing, a
       // region lock, a load that never finished. Dead for tonight only — we do
       // not know enough to condemn it forever.
       deadRef.current.add(w.id);
+      // Out of the lineup too, or a tap on it replaces what is playing.
+      setBlockedTonight((prev) => new Set(prev).add(w.id));
       // No failure count decides anything here. On an all-video night a run of
       // failures is evidence about the whole lineup; on a mixed one it is
       // evidence about one kind of episode, and the run is close to guaranteed:
@@ -737,13 +757,18 @@ export function Night({
       // pool shrinks with each failure and playNext ends the night the moment
       // nothing playable is left.
       playNext();
+      // cur/dur below belong to the episode just killed, while currentEpRef is
+      // now the next one: saving them would give it the killed one's position.
+      return;
     }
 
-    if (++persistCounterRef.current >= 10) {
+    // Not before this episode has made a sound: its position reads 0 until
+    // then, and writing that over a revived night's snapshot lost the position.
+    if (++persistCounterRef.current >= 10 && witnessRef.current.played) {
       persistCounterRef.current = 0;
       persistLive();
       if (currentEpRef.current && dur > 0) {
-        rememberPosition(currentEpRef.current.id, cur, dur);
+        rememberPosition(currentEpRef.current.id, witnessRef.current.resumeAt(cur), dur);
       }
     }
   }
@@ -769,22 +794,36 @@ export function Night({
     liveRef.current = null;
   }
 
-  function endSession(reason: RestNight["endedVia"] = "faded") {
+  /** `gaveUp`: the app, not the listener, is ending a night that never
+   *  played (nothing playable, or the error screen). Its snapshot is kept, so a
+   *  revived night that failed offline can still be revived. When the listener
+   *  ends it themselves, the snapshot goes. */
+  function endSession(reason: RestNight["endedVia"] = "faded", { gaveUp = false }: { gaveUp?: boolean } = {}) {
     if (tickHandleRef.current === null && reason !== "ended") return;
-    if (reason === "faded") recordSessionEnd(timerMinutes, modeRef.current.kind);
+    // A night that never played anything records nothing: it used to write an
+    // empty last night and a RestNight to the ledger, which calibration then
+    // learned from.
     clearStopFade();
-    clearLive();
-    saveLastNight({
-      pool: poolRef.current,
-      playedIds: [...playedIdsRef.current],
-      feedTitles: feedTitlesRef.current,
-      artworkByFeedId: artworkRef.current,
-      skipIntroByFeedId: skipIntroRef.current,
-      endedVia: reason,
-      endedAt: Date.now(),
-      wasVaried: wasVariedRef.current,
+    netHoldRef.current.cancel();
+    recordNightEnd({
+      reason,
+      played: hasEverPlayedRef.current,
+      gaveUp: gaveUp,
+      timerMinutes,
+      modeKind: modeRef.current.kind,
+      lastNight: {
+        pool: poolRef.current,
+        playedIds: [...playedIdsRef.current],
+        feedTitles: feedTitlesRef.current,
+        artworkByFeedId: artworkRef.current,
+        skipIntroByFeedId: skipIntroRef.current,
+        wasVaried: wasVariedRef.current,
+      },
+      lastHeard: lastHeardEpRef.current,
+      rest: restRef.current,
+      now: Date.now(),
     });
-    if (currentEpRef.current) saveLastEpisode(currentEpRef.current);
+    restRef.current = null;
     watchRef.current = null;
     if (tickHandleRef.current !== null) {
       clearInterval(tickHandleRef.current);
@@ -797,10 +836,6 @@ export function Night({
     void lockRef.current?.release();
     if (typeof navigator !== "undefined" && "mediaSession" in navigator) {
       navigator.mediaSession.metadata = null;
-    }
-    if (restRef.current) {
-      appendNight(restRef.current.finish(reason, Date.now()));
-      restRef.current = null;
     }
     onEndRef.current();
   }
@@ -816,7 +851,12 @@ export function Night({
     // the listener's minutes on a still frame.
     pausedRemainingMsRef.current =
       endTimeRef.current === null ? null : endTimeRef.current - Date.now();
-    restRef.current = new RestSession(Date.now(), timerMinutes);
+    // A revived night continues the one that began before the reload: its
+    // time-to-sleep, timeline and snapshots count from the real start, not
+    // from the tap on "keep going".
+    const nightStart = revivedNightStart(resume?.nightStartedAt, Date.now());
+    restRef.current = new RestSession(nightStart, timerMinutes);
+    restRef.current.seedInteractions(resume?.interactions ?? 0);
     deadRef.current = new Set(loadBlocked());
     if (resume) {
       totalSecondsRef.current = resume.totalSeconds;
@@ -839,6 +879,20 @@ export function Night({
       });
     };
     document.addEventListener("visibilitychange", onVis);
+    // Lock-screen and headphone play must go through the hold too: the
+    // browser's default handler would play() the failed source and the tick
+    // would thaw the clock over silence. (A video's embed keeps its own
+    // media session inside the iframe, which the default handler can't reach.)
+    if (typeof navigator !== "undefined" && "mediaSession" in navigator) {
+      navigator.mediaSession.setActionHandler("play", () => {
+        restRef.current?.noteInteraction();
+        askForSoundRef.current();
+      });
+      navigator.mediaSession.setActionHandler("pause", () => {
+        restRef.current?.noteInteraction();
+        liveRef.current?.pause();
+      });
+    }
 
     // The element exists from the first render, so its backend can too. The
     // embed cannot: it needs Google's script.
@@ -870,11 +924,26 @@ export function Night({
     loadYouTubeApi()
       .then((YT) => {
         if (cancelled || !hostRef.current) return;
-        // No constructor handlers: startEpisode subscribes and unsubscribes
-        // per episode, and a handler wired into the constructor would outlive
-        // every switch away from video and fire against a backend that is no
-        // longer the one making sound.
-        ytRef.current = new YouTubeMedia((args) => buildPlayer(YT, args));
+        // No onEnded/onError constructor handlers: startEpisode subscribes and
+        // unsubscribes those per episode, and one wired into the constructor
+        // would outlive every switch away from video and fire against a
+        // backend that is no longer the one making sound. onStateEvent is the
+        // exception, and safe: handleStateEvent returns at once unless video
+        // is the live backend.
+        ytRef.current = new YouTubeMedia(
+          (args) =>
+            buildYouTubePlayer(YT, hostRef.current!, args, {
+              // Off: onReady starts the video only if it is still the live
+              // backend. Autoplay could start it hidden under a podcast.
+              autoplay: false,
+              // Unless the night already moved on: a Next tapped during the
+              // load leaves a podcast playing. The null check is not redundant:
+              // releaseBackends() nulls both refs, and "equal" would then be
+              // true of nothing at all.
+              shouldStartOnReady: () => ytRef.current !== null && liveRef.current === ytRef.current,
+            }),
+          { onStateEvent: handleStateEvent },
+        );
         // A resumed night carries its own episode and keeps it: reviving a
         // night is a deliberate tap, and that tap is itself the gesture the
         // video lead exists to buy.
@@ -906,6 +975,13 @@ export function Night({
         // beginNight says so.
         if (cancelled) return;
         for (const e of pool) if (e.youtubeId) deadRef.current.add(e.id);
+        // Out of the lineup too: listed, they looked playable, and a tap
+        // replaced the podcast that was playing.
+        setBlockedTonight((prev) => {
+          const next = new Set(prev);
+          for (const e of pool) if (e.youtubeId) next.add(e.id);
+          return next;
+        });
         const resumable = resume?.episode && !resume.episode.youtubeId ? resume.episode : null;
         const lead = leadEpisode && !leadEpisode.youtubeId ? leadEpisode : null;
         const first =
@@ -919,16 +995,80 @@ export function Night({
       if (tickHandleRef.current !== null) clearInterval(tickHandleRef.current);
       tickHandleRef.current = null;
       clearStopFade();
+      netHoldRef.current.cancel();
       if (holdTimerRef.current) clearInterval(holdTimerRef.current);
       brownRef.current?.stop();
       releaseBackends();
       void lockRef.current?.release();
       if (typeof navigator !== "undefined" && "mediaSession" in navigator) {
         navigator.mediaSession.metadata = null;
+        navigator.mediaSession.setActionHandler("play", null);
+        navigator.mediaSession.setActionHandler("pause", null);
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /** This episode has played: stand the watchdog down and reset the retry
+   *  count. One place for the embed's PLAYING event and the tick's witness. */
+  function markPlayed() {
+    lastHeardEpRef.current = currentEpRef.current;
+    watchRef.current = null;
+    retriesRef.current = 0;
+    hasEverPlayedRef.current = true;
+  }
+
+  /** Play the current episode from 0: it ended without ever being heard, or
+   *  its start is within 30 s of its end — most likely started past or near
+   *  its end by a skip-intro (see decideAfterEnded). Once per episode. */
+  function replayFromStart(): boolean {
+    const ep = currentEpRef.current;
+    // Counted as the episode's one replay only if it actually reloaded.
+    if (!ep || !reloadAt(ep, 0)) return false;
+    witnessRef.current.markReplayed();
+    retriesRef.current = 0; // a fresh attempt, not the failed load's leftovers
+    return true;
+  }
+
+  /** Offline: hold the night instead of spending the lineup on a dropped
+   *  network (see network-hold). Clock frozen and shown paused, every time,
+   *  even when already holding (a tap in the meantime thawed it). When the
+   *  network is back, the same episode reloads where it was, or where its
+   *  load was meant to start if it never played. */
+  function holdForNetwork(ep: Episode) {
+    const media = liveRef.current;
+    const at = witnessRef.current.resumeAt(media?.currentTime() ?? 0);
+    // Read before pausing: paused already means by the listener (see
+    // NetworkHold), and the network coming back then starts nothing.
+    const paused = media?.transport() === "paused";
+    watchRef.current = null;
+    freezeClock();
+    media?.pause();
+    setTransport("paused");
+    netHoldRef.current.hold(
+      () => {
+        // Not into a night that is ending (a fade-out) or has moved on.
+        if (tickHandleRef.current === null || stopFadeRef.current !== null) return false;
+        if (currentEpRef.current !== ep) return false;
+        return reloadAt(ep, at);
+      },
+      paused,
+    );
+  }
+
+  /** Reload the current episode at `at`: a retry, or a replay. The per-load
+   *  witness, heard-time baseline and watchdog start over; per-episode state
+   *  (heard, replayed) is kept. */
+  function reloadAt(ep: Episode, at: number): boolean {
+    const media = liveRef.current;
+    if (!media) return false;
+    witnessRef.current.reset(at, Date.now());
+    lastPosRef.current = at;
+    wasSeekingRef.current = false;
+    media.load(ep.youtubeId ?? ep.url, at);
+    watchRef.current = { id: ep.id, at: Date.now() };
+    return true;
+  }
 
   // One handler for "start it" and "resume it": both are a tap asking for
   // sound, and the browser treats this tap as the gesture that permits it.
@@ -939,32 +1079,47 @@ export function Night({
     restRef.current?.noteInteraction();
     const media = liveRef.current;
     if (!media) return;
-    if (transport === "playing") {
+    if (transportRef.current === "playing") {
       media.pause();
       return;
     }
-    unfreezeClock();
+    askForSound();
+  }
+
+  /** A request for sound: the toggle's play half, and the media session's.
+   *  Read through askForSoundRef from handlers registered once at mount. */
+  function askForSound() {
+    const media = liveRef.current;
+    if (!media) return;
+    // Held for the network: this retries the reload (see NetworkHold).
+    if (netHoldRef.current.resumeNow(true)) return;
+    // The clock starts when sound is witnessed (the tick, or the embed's
+    // PLAYING), not on the tap: a tap during buffering, or on a stream that
+    // then hangs, ran the night down over silence.
+    const ep = currentEpRef.current;
+    if (ep && rearmsWatchdogOnTap(witnessRef.current.played, transportRef.current)) {
+      watchRef.current = { id: ep.id, at: Date.now() };
+    }
     media.play();
   }
+  askForSoundRef.current = askForSound;
 
   function handleNext() {
     restRef.current?.noteInteraction();
     const leaving = currentEpRef.current;
     if (leaving) restRef.current?.noteSkip(leaving.feedId);
-    playNext();
+    playNext(true);
   }
 
   function handleBlock() {
     const ep = currentEpRef.current;
     if (!ep) return;
-    blockEpisode(ep.id);
     restRef.current?.noteSkip(ep.feedId);
-    forgetPosition(ep.id);
-    deadRef.current.add(ep.id);
-    setBlockedTonight((prev) => new Set(prev).add(ep.id));
-    flash("never again");
     restRef.current?.noteInteraction();
-    playNext();
+    forgetPosition(ep.id);
+    // The listener's own choice: permanent, and ending a never-played night
+    // here clears its snapshot (see playNext's byListener).
+    skipDead(ep, "never again", true, true);
   }
 
   function extendTimer(minutes: number) {
@@ -985,6 +1140,10 @@ export function Night({
   }
 
   function holdEndStart() {
+    // A second press (another finger, a pointerdown with no pointerup) must
+    // not orphan the first timer: nothing could cancel it, and it went on to
+    // end the night the listener had let go of.
+    holdEndCancel();
     let pct = 0;
     holdTimerRef.current = setInterval(() => {
       pct += 8;
@@ -1008,6 +1167,7 @@ export function Night({
           return;
         }
         const trim = feedTrimRef.current[currentFeedRef.current ?? ""] ?? 1.0;
+        levelRef.current = effectiveVolume(left / 1000, 5, 1);
         liveRef.current.setVolume(effectiveVolume(left / 1000, 5, trim));
         brownRef.current?.setGain(noiseGain(noise.on ? noise.level : 0, left / 1000, 5));
       }, 100);
@@ -1081,7 +1241,7 @@ export function Night({
             <p className="text-sm text-[#d9c9a8]">this night didn&apos;t start.</p>
             <p className="text-xs text-[#8a7a5c]">{errorText}</p>
             <button
-              onClick={() => endSession("ended")}
+              onClick={() => endSession("ended", { gaveUp: true })}
               className="rounded-full border border-[#6e5d44] px-4 py-1.5 text-xs text-[#f0dcb8]"
             >
               back to setup
@@ -1121,7 +1281,9 @@ export function Night({
                         ? "remaining"
                         : "sleeping"}
                 </span>
-                {canExtend(extensions) ? (
+                {/* Only a timed night has a timer to stretch; elsewhere the
+                    button spent an extension and changed nothing. */}
+                {mode.kind !== "minutes" ? null : canExtend(extensions) ? (
                   <button
                     onClick={() => extendTimer(15)}
                     className="rounded-full border border-[#2e2d3a] px-3 py-1 normal-case tracking-normal text-[#7a7264] active:scale-95"

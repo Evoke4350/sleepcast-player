@@ -1,4 +1,5 @@
-import type { MediaBackend, Transport } from "./backend";
+import type { MediaBackend, Transport, ErrorInfo } from "./backend";
+import { SeekEnforcer } from "../seek-enforcer";
 
 /**
  * An <audio> element behind the backend interface.
@@ -11,38 +12,29 @@ import type { MediaBackend, Transport } from "./backend";
  */
 export class AudioBackend implements MediaBackend {
   private dead = false;
-  /** Torn down before the next load. A metadata handler that outlives its
-   *  episode seeks the NEXT one to this one's position. */
-  private seekCleanup: (() => void) | null = null;
+  /** The start seek being enforced, torn down before the next load: one that
+   *  outlived its episode would seek the NEXT one to this one's position. */
+  private seek: SeekEnforcer | null = null;
   private detach: Array<() => void> = [];
   /** A rejected play() is not a DOM event, so it cannot ride the "error"
    *  listener subscribe() sets up. These are called directly instead. */
-  private errorCallbacks = new Set<(code: number | string) => void>();
+  private errorCallbacks = new Set<(code: number | string, info: ErrorInfo) => void>();
 
   constructor(private readonly el: HTMLAudioElement) {}
 
   load(ref: string, startSeconds = 0): void {
     if (this.dead) return;
-    this.seekCleanup?.();
-    this.seekCleanup = null;
+    this.dropSeek();
 
     this.el.src = ref;
 
+    // Enforced, not a single seek: Safari resets a seek made before playback
+    // starts (see SeekEnforcer). Cancelling a finished one is a no-op.
     if (startSeconds > 0) {
-      const onMeta = () => {
-        try {
-          this.el.currentTime = startSeconds;
-        } catch {
-          /* not seekable yet; the episode simply starts at the top */
-        }
-        cleanup();
-      };
-      const cleanup = () => {
-        this.el.removeEventListener("loadedmetadata", onMeta);
-        if (this.seekCleanup === cleanup) this.seekCleanup = null;
-      };
-      this.seekCleanup = cleanup;
-      this.el.addEventListener("loadedmetadata", onMeta);
+      const seek = new SeekEnforcer(this.el, startSeconds, {}, () => {
+        if (this.seek === seek) this.seek = null;
+      });
+      this.seek = seek;
     }
 
     void this.el.play().catch((err: unknown) => this.reportPlayFailure(err));
@@ -56,6 +48,20 @@ export class AudioBackend implements MediaBackend {
   pause(): void {
     if (this.dead) return;
     this.el.pause();
+  }
+
+  seeking(): boolean {
+    return this.seek !== null;
+  }
+
+  standDown(): void {
+    this.dropSeek();
+    this.pause();
+  }
+
+  private dropSeek(): void {
+    this.seek?.cancel();
+    this.seek = null;
   }
 
   setVolume(level: number): void {
@@ -84,9 +90,9 @@ export class AudioBackend implements MediaBackend {
     return this.subscribe("ended", cb);
   }
 
-  onError(cb: (code: number | string) => void): () => void {
+  onError(cb: (code: number | string, info: ErrorInfo) => void): () => void {
     this.errorCallbacks.add(cb);
-    const offDom = this.subscribe("error", () => cb("media-error"));
+    const offDom = this.subscribe("error", () => cb("media-error", { uncertain: false }));
     return () => {
       this.errorCallbacks.delete(cb);
       offDom();
@@ -96,8 +102,7 @@ export class AudioBackend implements MediaBackend {
   destroy(): void {
     if (this.dead) return;
     this.dead = true;
-    this.seekCleanup?.();
-    this.seekCleanup = null;
+    this.dropSeek();
     for (const off of this.detach.splice(0)) off();
     this.errorCallbacks.clear();
     this.el.pause();
@@ -108,7 +113,13 @@ export class AudioBackend implements MediaBackend {
     if (this.dead) return () => {};
     const handler = () => cb();
     this.el.addEventListener(type, handler);
-    const off = () => this.el.removeEventListener(type, handler);
+    // Also drop it from `detach` once the caller unsubscribes: kept there, every
+    // episode switch added three dead entries for the rest of the night.
+    const off = () => {
+      this.el.removeEventListener(type, handler);
+      const i = this.detach.indexOf(off);
+      if (i !== -1) this.detach.splice(i, 1);
+    };
     this.detach.push(off);
     return off;
   }
@@ -132,7 +143,18 @@ export class AudioBackend implements MediaBackend {
   private reportPlayFailure(err: unknown): void {
     if (this.dead) return;
     if (err instanceof DOMException && err.name === "AbortError") return;
+    // NotSupportedError is the source failing to load, which the element also
+    // reports as its "error" event (the report of record, wired in onError).
+    // The rejection can land after that event has already moved the night on,
+    // on the NEXT episode's play(), skipping a working episode for a dead one.
+    if (err instanceof DOMException && err.name === "NotSupportedError") return;
     const code = err instanceof DOMException && err.name === "NotAllowedError" ? "autoplay-blocked" : "play-failed";
-    for (const cb of this.errorCallbacks) cb(code);
+    // Over a copy (a handler may unsubscribe and re-subscribe itself, and a
+    // Set loop would run it again), skipping any removed mid-loop and stopping
+    // if a handler destroyed this — as YouTubeMedia.dispatch does.
+    for (const cb of [...this.errorCallbacks]) {
+      if (this.dead) return;
+      if (this.errorCallbacks.has(cb)) cb(code, { uncertain: false });
+    }
   }
 }

@@ -29,8 +29,8 @@
 // below add that without touching the constructor path — YouTubeNight.tsx
 // still owns one of these all night and reads state() directly.
 
-import type { MediaBackend, Transport } from "./media/backend";
-import { transportFor } from "./youtube-night";
+import type { ErrorInfo, MediaBackend, Transport } from "./media/backend";
+import { transportFor, YT_STATE, type Transport as YTTransport } from "./youtube-night";
 
 /** The slice of YT.Player this uses. */
 export interface YTPlayerLike {
@@ -43,6 +43,9 @@ export interface YTPlayerLike {
   getCurrentTime(): number;
   getDuration(): number;
   loadVideoById(videoId: string, startSeconds?: number): void;
+  /** Which video the player has loaded. The real IFrame API has it; optional
+   *  so a player without it falls back to reading events (see inSwitch). */
+  getVideoData?(): { video_id?: string };
   destroy(): void;
 }
 
@@ -50,10 +53,19 @@ export interface CreatePlayerArgs {
   videoId: string;
   /** Where to begin. Non-zero when a snapshotted night is being revived. */
   startSeconds?: number;
-  onReady: () => void;
-  onEnded: () => void;
+  /** Returns whether the player should still be driven: false once this
+   *  wrapper is dead, so the creator must not start playback then. */
+  onReady: () => boolean;
   onError: (code: number) => void;
+  /** Every YT state change. The creator must forward these. They end a switch
+   *  only for a player that can't report its video (see inSwitch); otherwise
+   *  the video id and the player's own state decide. */
+  onStateChange: (state: number) => void;
 }
+
+/** Longest a switch is held unconfirmed, whatever the player reports: a load
+ *  dropped without an error would otherwise read as loading for good. */
+export const SWITCH_GUARD_MAX_MS = 10_000;
 
 export class YouTubeMedia implements MediaBackend {
   private player: YTPlayerLike | null = null;
@@ -61,16 +73,43 @@ export class YouTubeMedia implements MediaBackend {
   private dead = false;
   /** Issued before onReady; replayed in order when it fires. */
   private pending: Array<(p: YTPlayerLike) => void> = [];
+  /** The latest volume asked for before ready. Only the latest matters: the
+   *  night sets it every second, and queueing each one put a closure a second
+   *  in `pending` all night for a player that was slow (or never) ready. */
+  private pendingVolume: number | null = null;
   private progressTimer: ReturnType<typeof setInterval> | null = null;
   private progressSubs = new Set<() => void>();
   private endedSubs = new Set<() => void>();
-  private errorSubs = new Set<(code: number | string) => void>();
+  private errorSubs = new Set<(code: number | string, info: ErrorInfo) => void>();
+  /** Set when a switch (loadVideoById) actually runs, until inSwitch confirms
+   *  it (the requested video, freshly loaded) or gives up on it. In between, the iframe still reports the PREVIOUS
+   *  video's state, time and duration, and may still deliver its events; this
+   *  reports the new load as buffering (loading) at its start instead, so no caller can
+   *  mistake the old video's readings or events for the new one's. */
+  private switching: {
+    id: string;
+    start: number;
+    since: number;
+    /** Whether a position at `start` proves a fresh load: not when the player
+     *  was already there when the switch began (a retry at the current
+     *  position), which the old load's own reading would satisfy at once. */
+    positionCounts: boolean;
+  } | null = null;
+  /** An ENDED arrived while the guard held, so it was read as loading and
+   *  not passed on. Re-fired when the guard lets go, but only if the player
+   *  then reports the requested video and still shows ENDED, and never on the
+   *  fallback path (see releaseSwitch): otherwise a short video that played
+   *  and ended inside the hold left the night silent until the watchdog. */
+  private endedInSwitch = false;
 
   constructor(
     private readonly createPlayer: (args: CreatePlayerArgs) => YTPlayerLike,
     private readonly handlers: {
       onEnded?: () => void;
-      onError?: (code: number) => void;
+      onError?: (code: number, info: ErrorInfo) => void;
+      /** Every state event, for the caller to route (routeStateEvent). ENDED
+       *  is fired to onEnded by this wrapper either way; don't route it too. */
+      onStateEvent?: (raw: number) => void;
     } = {},
   ) {}
 
@@ -80,7 +119,21 @@ export class YouTubeMedia implements MediaBackend {
   load(videoId: string, startSeconds = 0): void {
     if (this.dead) return;
     if (this.player) {
-      this.run((p) => p.loadVideoById(videoId, startSeconds));
+      // Armed when the load runs, not when it is queued: queued before ready,
+      // it could otherwise expire, or be cleared by the first video's own
+      // startup, before the switch even began.
+      this.run((p) => {
+        let here = NaN;
+        try { here = p.getCurrentTime(); } catch { /* keep NaN */ }
+        this.switching = {
+          id: videoId,
+          start: startSeconds,
+          since: Date.now(),
+          positionCounts: !(Math.abs(here - startSeconds) < 3),
+        };
+        this.endedInSwitch = false;
+        p.loadVideoById(videoId, startSeconds);
+      });
       return;
     }
     this.player = this.createPlayer({
@@ -89,19 +142,42 @@ export class YouTubeMedia implements MediaBackend {
       onReady: () => {
         // The iframe can finish loading after the user already ended the
         // night. Flushing then would start audio with nothing left to stop it.
-        if (this.dead) return;
+        if (this.dead) return false;
         this.ready = true;
         const queued = this.pending;
         this.pending = [];
+        if (this.pendingVolume !== null) this.player!.setVolume(this.pendingVolume);
+        this.pendingVolume = null;
         for (const run of queued) run(this.player!);
-      },
-      onEnded: () => {
-        this.handlers.onEnded?.();
-        for (const s of this.endedSubs) s();
+        return true;
       },
       onError: (code) => {
-        this.handlers.onError?.(code);
-        for (const s of this.errorSubs) s(code);
+        if (this.dead) return; // late, after the night was torn down
+        // An error doesn't say which video it is about. During a switch it may
+        // be the previous video's, delivered late, or the new one's. Holding
+        // or dropping it guesses, and a wrong guess either blocks a working
+        // video or stalls a night on a dead one. So it is always delivered at
+        // once, and marked uncertain during a switch: the caller may skip the
+        // episode tonight but must not condemn it for good.
+        this.emitError(code, { uncertain: this.inSwitch() });
+      },
+      onStateChange: (state) => {
+        // Late, after the night was torn down: nothing may act on it (an ENDED
+        // would reach onEnded and could forget the episode's position).
+        if (this.dead) return;
+        // Fallback only, for a player that can't say which video it has: the
+        // new load announces itself as unstarted (-1) or cued (5), and
+        // anything else may be about the previous video. With the video id
+        // available (inSwitch), events don't decide anything.
+        if (this.shownVideoId() === null && (state === -1 || state === 5) && this.switching) {
+          this.releaseSwitch(this.switching);
+        }
+        const ended = this.eventState(state) === YT_STATE.ENDED;
+        if (state === YT_STATE.ENDED && !ended) this.endedInSwitch = true;
+        this.handlers.onStateEvent?.(state);
+        // Fired here for every event, not left to the caller's routing: a
+        // handler that returned early would otherwise lose the night's end.
+        if (ended) this.fireEnded();
       },
     });
   }
@@ -114,20 +190,39 @@ export class YouTubeMedia implements MediaBackend {
     this.run((p) => p.pauseVideo());
   }
 
+  /** The embed seeks to its start itself, in one step. */
+  seeking(): boolean {
+    return false;
+  }
+
+  standDown(): void {
+    if (this.dead) return;
+    // Commands queued before the embed was ready belong to the load being
+    // abandoned: replayed on ready, a queued loadVideoById would start the
+    // video under whatever took over.
+    this.pending = [];
+    this.pause();
+  }
+
   /** Takes 0–1, like HTMLMediaElement.volume. */
   setVolume(level: number): void {
     const clamped = Math.max(0, Math.min(1, level));
-    this.run((p) => p.setVolume(Math.round(clamped * 100)));
+    const percent = Math.round(clamped * 100);
+    if (this.dead) return;
+    if (this.ready && this.player) this.player.setVolume(percent);
+    else this.pendingVolume = percent;
   }
 
   /** 0 before ready — the countdown reads this every tick and must not be
    *  handed NaN or an exception while the iframe is still coming up. */
   currentTime(): number {
+    if (this.inSwitch()) return this.switching!.start;
     if (!this.ready || !this.player) return 0;
     return this.player.getCurrentTime() || 0;
   }
 
   duration(): number {
+    if (this.inSwitch()) return 0;
     if (!this.ready || !this.player) return 0;
     return this.player.getDuration() || 0;
   }
@@ -144,6 +239,10 @@ export class YouTubeMedia implements MediaBackend {
    * Unstarted before ready and after destroy, so a caller never has to guard.
    */
   state(): number {
+    // Loading, not unstarted: "unstarted" asks for a tap, and a switch still
+    // resolving (up to SWITCH_GUARD_MAX_MS) must not show a tap prompt over a
+    // video that may already have ended or be about to play.
+    if (this.inSwitch()) return YT_STATE.BUFFERING;
     if (!this.ready || !this.player) return -1;
     return this.player.getPlayerState();
   }
@@ -156,7 +255,7 @@ export class YouTubeMedia implements MediaBackend {
     if (this.dead) return () => {};
     this.progressSubs.add(cb);
     this.progressTimer ??= setInterval(() => {
-      for (const s of this.progressSubs) s();
+      this.dispatch(this.progressSubs);
     }, 1000);
     return () => {
       this.progressSubs.delete(cb);
@@ -173,7 +272,7 @@ export class YouTubeMedia implements MediaBackend {
     return () => void this.endedSubs.delete(cb);
   }
 
-  onError(cb: (code: number | string) => void): () => void {
+  onError(cb: (code: number | string, info: ErrorInfo) => void): () => void {
     if (this.dead) return () => {};
     this.errorSubs.add(cb);
     return () => void this.errorSubs.delete(cb);
@@ -195,6 +294,8 @@ export class YouTubeMedia implements MediaBackend {
     if (this.dead) return;
     this.dead = true;
     this.pending = [];
+    this.pendingVolume = null;
+    this.switching = null;
     const p = this.player;
     this.player = null;
     this.ready = false;
@@ -210,15 +311,138 @@ export class YouTubeMedia implements MediaBackend {
     this.errorSubs.clear();
   }
 
+  /** The event's state as the caller should act on it: the event's own value
+   *  (the player's cached state may not have caught up with the event it is
+   *  dispatching), except during a switch, when it may be about the previous
+   *  video and reads as buffering. A stale PLAYING then can't mark the new
+   *  episode played, and a stale ENDED can't skip it. */
+  eventState(raw: number): number {
+    return this.inSwitch() ? YT_STATE.BUFFERING : raw;
+  }
+
+  /** Route one state event to the caller's handlers, as eventState reads it.
+   *  Night and YouTubeNight carried copies of this dispatch, edited in
+   *  lockstep and already drifting. */
+  routeStateEvent(
+    raw: number,
+    h: { transport(t: YTTransport): void; playing(): void; paused(): void },
+  ): void {
+    const state = this.eventState(raw);
+    h.transport(transportFor(state));
+    if (state === YT_STATE.PLAYING) h.playing();
+    else if (state === YT_STATE.PAUSED) h.paused();
+    // ENDED is fired by the wrapper itself for every event (onStateChange).
+  }
+
+  private fireEnded(): void {
+    if (this.dead) return; // an earlier handler for this event ended the night
+    this.handlers.onEnded?.();
+    this.dispatch(this.endedSubs);
+  }
+
+  private emitError(code: number, info: ErrorInfo): void {
+    if (this.dead) return;
+    this.handlers.onError?.(code, info);
+    this.dispatch(this.errorSubs, code, info);
+  }
+
+  /** Call each subscriber once. Over a copy: a handler may unsubscribe and
+   *  re-subscribe itself (Night's skip starts the next episode), and a Set
+   *  loop visits entries added mid-loop, running it again against the next
+   *  episode. But skipping any removed mid-loop, and stopping once a handler
+   *  has destroyed this (the night ended). */
+  private dispatch<A extends unknown[]>(set: Set<(...args: A) => void>, ...args: A): void {
+    for (const s of [...set]) {
+      if (this.dead) return;
+      if (set.has(s)) s(...args);
+    }
+  }
+
+  /** The video id the player reports, or null if it can't report one. */
+  private shownVideoId(): string | null {
+    if (!this.ready || !this.player?.getVideoData) return null;
+    try {
+      return this.player.getVideoData()?.video_id ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Whether a switch is still unconfirmed.
+   *
+   *  Settled by the player showing the requested video AND a fresh load of it
+   *  (see showsFreshLoad: unstarted, buffering or cued; or a position at the
+   *  requested start, unless the player was already there when the switch
+   *  began). The id alone isn't enough: requesting the video already showing
+   *  (a quick A → B → A, a retry) matched before anything had restarted.
+   *
+   *  A player that can't report its video falls back to its events (see
+   *  onStateChange). Either way the guard gives up after SWITCH_GUARD_MAX_MS,
+   *  wall-clock (which keeps counting while a phone sleeps), or if the clock
+   *  jumps backwards. Past that point stale readings can reach callers; the
+   *  players' witness still requires movement, but a stale PLAYING event
+   *  would be believed. */
+  private inSwitch(): boolean {
+    const sw = this.switching;
+    if (!sw) return false;
+    const elapsed = Date.now() - sw.since;
+    if (elapsed < 0 || elapsed > SWITCH_GUARD_MAX_MS) {
+      this.releaseSwitch(sw);
+      return false;
+    }
+    const shown = this.shownVideoId();
+    if (shown === null) return true; // fallback: the events decide
+    if (shown !== sw.id || !this.showsFreshLoad(sw)) return true;
+    this.releaseSwitch(sw);
+    return false;
+  }
+
+  private releaseSwitch(sw: { id: string }): void {
+    this.switching = null;
+    if (!this.endedInSwitch) return;
+    this.endedInSwitch = false;
+    // Not from inside a getter: let the caller's reading finish first.
+    queueMicrotask(() => {
+      if (this.dead || this.switching) return;
+      // Only for the requested video, as the player reports it. A timeout on
+      // a load that never arrived leaves the PREVIOUS video showing, ended;
+      // and a player that can't report its video (the fallback) may still
+      // hold the old ENDED in its cached state. Both are left to the watchdog.
+      // The ENDED held here is usually the requested video's own (a Short
+      // requested past its end ends before its load confirms), and re-firing
+      // it is the point. Known limit: when the requested video is the SAME as
+      // the one playing out (a retry, a play-whole replay) and its reload never
+      // arrives, the old load's ENDED looks identical to the new one's, and
+      // nothing tells them apart; the players take it as the episode ending
+      // (decideAfterEnded): moving on if it was heard, one replay if not.
+      // Bounded either way.
+      if (this.shownVideoId() !== sw.id) return;
+      let raw = -1;
+      try { raw = this.player?.getPlayerState() ?? -1; } catch { /* keep -1 */ }
+      if (raw === YT_STATE.ENDED) this.fireEnded();
+    });
+  }
+
+  /** The player is at the start of a load rather than mid-way through (or at
+   *  the end of) an earlier one. ENDED doesn't count: requesting the video
+   *  that just ended (a lone survivor repeating) would confirm on the old
+   *  load's own ENDED. (A video shorter than its requested start, a Short
+   *  past a long skip-intro, ends without ever playing; the players replay
+   *  such an episode from 0, whichever way the switch resolved: see
+   *  decideAfterEnded.) */
+  private showsFreshLoad(sw: { start: number; positionCounts: boolean }): boolean {
+    try {
+      const raw = this.player!.getPlayerState();
+      if (raw === YT_STATE.UNSTARTED || raw === YT_STATE.BUFFERING || raw === YT_STATE.CUED) return true;
+      return sw.positionCounts && Math.abs((this.player!.getCurrentTime() || 0) - sw.start) < 3;
+    } catch {
+      return false;
+    }
+  }
+
   private run(command: (p: YTPlayerLike) => void): void {
     if (this.dead) return;
     if (this.ready && this.player) command(this.player);
     else this.pending.push(command);
   }
 }
-
-/** The embed origin. youtube-nocookie.com is Google's own reduced-tracking
- *  host: it still loads Google's player and Google still sees the request, but
- *  it does not set the advertising cookies the default domain does. The
- *  privacy policy states this rather than implying it away. */
-export const YT_EMBED_HOST = "https://www.youtube-nocookie.com";

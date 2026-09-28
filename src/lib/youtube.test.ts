@@ -168,3 +168,15 @@ describe("choosing a parser for a feed", () => {
     expect(feed.title).not.toBe("YouTube channel");
   });
 });
+
+describe("youtubeFeedUrl channel tabs", () => {
+  // /channel/UC…/videos (and /featured, /streams) is what the address bar
+  // shows on a channel's tab. The channel regex was anchored with $, so these
+  // fell through as "not YouTube" and were fetched as if they were RSS.
+  test.each(["videos", "featured", "streams"])("accepts /channel/UC…/%s", (tab) => {
+    expect(youtubeFeedUrl(`https://www.youtube.com/channel/UCuDUP15RMVaHsZ-ln9SyYqg/${tab}`)).toEqual({
+      kind: "feed",
+      url: "https://www.youtube.com/feeds/videos.xml?channel_id=UCuDUP15RMVaHsZ-ln9SyYqg",
+    });
+  });
+});

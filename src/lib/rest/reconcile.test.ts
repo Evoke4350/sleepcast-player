@@ -102,3 +102,11 @@ describe("settleLive", () => {
     expect(loadNights()).toHaveLength(0);
   });
 });
+
+describe("reconcileLive interactions", () => {
+  beforeEach(() => localStorage.clear());
+  it("records the snapshot's interactions, not 0", () => {
+    reconcileLive(snap({ interactions: 12 }), T0 + 10 * 60 * 60_000);
+    expect(loadNights()[0].interactions).toBe(12);
+  });
+});

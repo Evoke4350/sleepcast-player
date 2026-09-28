@@ -283,6 +283,8 @@ export interface LiveSession {
    *  (remainingMs is 0), so without this a reload could neither tell it from a
    *  finished timed night nor revive it in the right mode. */
   modeKind?: PlayMode["kind"];
+  /** Transport touches before the snapshot, carried into a revived session. */
+  interactions?: number;
 }
 
 const LIVE_POOL_CAP = 80;
@@ -354,12 +356,15 @@ export function saveLastEpisode(ep: Episode): void {
   }
 }
 
+/** Never one the listener has since said "never again" to: the lead path
+ *  plays it directly, without consulting the blocked list. Filtered here, on
+ *  read, so an episode unblocked later is offered again. */
 export function loadLastEpisode(): Episode | null {
   try {
     const raw = localStorage.getItem(KEY_LASTEP);
     if (!raw) return null;
     const ep = JSON.parse(raw) as Episode;
-    return ep && ep.url ? ep : null;
+    return ep && ep.url && !isBlocked(ep.id) ? ep : null;
   } catch {
     return null;
   }

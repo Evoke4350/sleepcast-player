@@ -12,12 +12,26 @@
  *  that cannot tell the two apart renders a tap prompt over nothing. */
 export type Transport = "playing" | "paused" | "buffering" | "awaiting-start" | "dead";
 
+/** Alongside every error. `uncertain`: it may not be about the current
+ *  episode (it arrived while switching), so skip it tonight but don't
+ *  condemn it for good. */
+export interface ErrorInfo {
+  uncertain: boolean;
+}
+
 export interface MediaBackend {
   /** An enclosure URL for audio, a videoId for YouTube. The orchestrator picks
    *  the backend from episode.youtubeId and never inspects this again. */
   load(ref: string, startSeconds?: number): void;
   play(): void;
   pause(): void;
+  /** Another backend is taking over: pause, and drop any work still pending
+   *  for this load (a start seek), which would otherwise go on acting on an
+   *  episode nobody is listening to. */
+  standDown(): void;
+  /** Whether it is still putting a new load on its start position: readings
+   *  meanwhile are seeks, not listening. */
+  seeking(): boolean;
   /** 0–1, like HTMLMediaElement.volume. */
   setVolume(level: number): void;
   currentTime(): number;
@@ -32,5 +46,5 @@ export interface MediaBackend {
    *  handler that outlives its backend fires against a dead one. */
   onProgress(cb: () => void): () => void;
   onEnded(cb: () => void): () => void;
-  onError(cb: (code: number | string) => void): () => void;
+  onError(cb: (code: number | string, info: ErrorInfo) => void): () => void;
 }

@@ -54,5 +54,8 @@ export function preferVideoLead(
 ): Episode | null {
   if (lead?.youtubeId) return lead;
   const video = chooseLead(pool, dead, plays, rand);
-  return video?.youtubeId ? video : lead ?? null;
+  // No supplied lead: chooseLead's pick stands, podcast or not. Dropping a
+  // podcast here (every video dead) left the night with nothing to play.
+  if (!lead) return video;
+  return video?.youtubeId ? video : lead;
 }

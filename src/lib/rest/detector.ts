@@ -25,6 +25,20 @@ export function boundA(p: DetectorParams): number {
   return Math.log((1 - p.beta) / p.alpha);
 }
 
+/** One observation per this long: the players feed the detector at this
+ *  cadence, and every tick-count below converts to time with it. */
+export const TICK_MS = 15_000;
+
+/** Upper limit for a calibrated lambdaAwake. The lower limit is the default
+ *  rate (see calibrate.ts). */
+export const LAMBDA_MAX = 0.5;
+
+/** Quiet ticks, from a standing start, before the evidence reaches the bound. */
+export function quietTicksToDecide(p: DetectorParams): number {
+  const quiet: SleepSignal = { t: 0, interacted: false, hidden: false, fadingOrDone: false };
+  return Math.ceil(boundA(p) / tickLogLR(quiet, p));
+}
+
 export class SleepDetector {
   private S = 0;
   // Tick t at which the accumulated evidence first reached the decision

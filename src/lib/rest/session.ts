@@ -40,6 +40,19 @@ export class RestSession {
     };
   }
 
+  /** Transport touches so far, for carrying across a reload (see seed). */
+  get interactionCount(): number {
+    return this.interactions;
+  }
+
+  /** A revived night keeps its real start (revivedNightStart), so it must keep
+   *  the touches from before the reload too: otherwise its RestNight pairs a
+   *  whole-night time-to-sleep with only the post-reload interactions, and
+   *  calibration underestimates how often this listener touches the phone. */
+  seedInteractions(n: number): void {
+    if (Number.isFinite(n) && n > 0) this.interactions += Math.floor(n);
+  }
+
   /** Called whenever an episode starts playing. */
   noteEpisode(feedId: string, episodeId: string, now: number = Date.now()): void {
     this.timeline.push({ t: now - this.startedAt, feedId, episodeId });
@@ -94,4 +107,10 @@ export class RestSession {
       ...(this.skipped.size ? { skipped: [...this.skipped] } : {}),
     };
   }
+}
+
+/** When a revived night's session should say it began: the snapshot's real
+ *  start when it has a believable one, else now. */
+export function revivedNightStart(savedStart: number | undefined, now: number): number {
+  return savedStart !== undefined && Number.isFinite(savedStart) && savedStart <= now ? savedStart : now;
 }

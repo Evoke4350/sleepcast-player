@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { loadNights, appendNight, rollup, setSelfLabel } from "./ledger";
+import { loadNights, appendNight, rollup, setSelfLabel, MIN_PLAUSIBLE_ONSET_MS, PRE_FIX_BEFORE_MS } from "./ledger";
+import { DEFAULT_PARAMS, LAMBDA_MAX, quietTicksToDecide, TICK_MS } from "./detector";
 import type { RestNight } from "./types";
 
 const night = (over: Partial<RestNight> = {}): RestNight => ({
@@ -92,5 +93,35 @@ describe("rollup and self-labels", () => {
     expect(r.nightsSlept).toBe(1);
     expect(r.bestTimeToSleepMs).toBe(600_000);
     expect(r.medianTimeToSleepMs).toBe(600_000);
+  });
+});
+
+describe("MIN_PLAUSIBLE_ONSET_MS", () => {
+  // The floor assumed the default interaction rate (~30 ticks to decide).
+  // Calibration can raise the rate to LAMBDA_MAX, where a real onset is
+  // reached in a handful of ticks, so those real fast nights were hidden.
+  it("is no higher than the fastest onset the detector can report", () => {
+    const fastest = (quietTicksToDecide({ ...DEFAULT_PARAMS, lambdaAwake: LAMBDA_MAX }) - 1) * TICK_MS;
+    expect(MIN_PLAUSIBLE_ONSET_MS).toBeLessThanOrEqual(fastest);
+  });
+
+  it("still filters the pre-fix one-minute artifacts", () => {
+    expect(MIN_PLAUSIBLE_ONSET_MS).toBeGreaterThan(60_000);
+  });
+});
+
+describe("rollup floor for nights recorded before the detector fix", () => {
+  // Pre-fix onsets were anchored at the first quiet tick after the last touch,
+  // so they can land anywhere below ~7 min, not only near zero. The derived
+  // floor is right for nights the fixed detector recorded; older nights keep
+  // the old one.
+  it("keeps the 7-minute floor for nights started before the fix shipped", () => {
+    const old = night({ startedAt: PRE_FIX_BEFORE_MS - 1, timeToSleepMs: 3 * 60_000, sleptAtMs: 3 * 60_000 });
+    expect(rollup([old]).bestTimeToSleepMs).toBeNull();
+  });
+
+  it("uses the derived floor for nights after it", () => {
+    const fresh = night({ startedAt: PRE_FIX_BEFORE_MS + 1, timeToSleepMs: 3 * 60_000, sleptAtMs: 3 * 60_000 });
+    expect(rollup([fresh]).bestTimeToSleepMs).toBe(3 * 60_000);
   });
 });

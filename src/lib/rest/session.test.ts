@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { RestSession } from "./session";
+import { RestSession, revivedNightStart } from "./session";
 
 describe("RestSession", () => {
   beforeEach(() => localStorage.clear());
@@ -191,5 +191,39 @@ describe("attributing sleep onset to what was playing", () => {
     const night = s.finish("ended", 1_100_000);
     expect(night.onsetAfterMs).toBeUndefined();
     expect("onsetAfterMs" in night).toBe(false);
+  });
+});
+
+describe("revivedNightStart", () => {
+  it("keeps a real earlier start", () => {
+    expect(revivedNightStart(1_000, 5_000)).toBe(1_000);
+  });
+  it("falls back to now when missing or in the future", () => {
+    expect(revivedNightStart(undefined, 5_000)).toBe(5_000);
+    expect(revivedNightStart(9_000, 5_000)).toBe(5_000);
+    expect(revivedNightStart(NaN, 5_000)).toBe(5_000);
+  });
+});
+
+describe("RestSession interactions across a reload", () => {
+  it("seeds the count from before the reload", () => {
+    const s = new RestSession(0, 45);
+    s.seedInteractions(8);
+    s.noteInteraction(1000);
+    expect(s.interactionCount).toBe(9);
+    expect(s.finish("faded", 2000).interactions).toBe(9);
+  });
+
+  it("ignores nonsense", () => {
+    const s = new RestSession(0, 45);
+    s.seedInteractions(NaN);
+    s.seedInteractions(-3);
+    expect(s.interactionCount).toBe(0);
+  });
+
+  it("seeding does not make the quarter-hour rule think a touch was recent", () => {
+    const s = new RestSession(0, 45);
+    s.seedInteractions(8);
+    expect(s.wakefulness(60_000).msSinceLastInteraction).toBeNull();
   });
 });

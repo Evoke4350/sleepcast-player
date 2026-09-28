@@ -189,7 +189,7 @@ describe("driving an audio element through the backend interface", () => {
     b.play();
     await Promise.resolve();
     await Promise.resolve();
-    expect(errored).toHaveBeenCalledWith("autoplay-blocked");
+    expect(errored).toHaveBeenCalledWith("autoplay-blocked", { uncertain: false });
   });
 
   it("a play() rejection that isn't autoplay is reported as play-failed", async () => {
@@ -201,7 +201,7 @@ describe("driving an audio element through the backend interface", () => {
     b.play();
     await Promise.resolve();
     await Promise.resolve();
-    expect(errored).toHaveBeenCalledWith("play-failed");
+    expect(errored).toHaveBeenCalledWith("play-failed", { uncertain: false });
   });
 
   it("an interrupted play() is not reported at all", async () => {
@@ -219,5 +219,55 @@ describe("driving an audio element through the backend interface", () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(errored).not.toHaveBeenCalled();
+  });
+});
+
+describe("AudioBackend: one failure, one report", () => {
+  // A source that can't play fires the element's "error" event AND rejects
+  // pending play() promises with NotSupportedError. The error event already
+  // moved the night on, so the rejection landed on the next episode's play()
+  // and skipped a working one. The error event is the report of record.
+  it("does not report a NotSupportedError play() rejection", async () => {
+    const { el, rejectNextPlay } = fakeAudio();
+    const b = new AudioBackend(el);
+    const errored = vi.fn();
+    b.onError(errored);
+    rejectNextPlay(new DOMException("no supported source", "NotSupportedError"));
+    b.play();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(errored).not.toHaveBeenCalled();
+  });
+
+  it("an unsubscribe is not kept for the rest of the night", () => {
+    const { el } = fakeAudio();
+    const b = new AudioBackend(el);
+    for (let i = 0; i < 100; i++) {
+      b.onProgress(() => {})();
+      b.onEnded(() => {})();
+      b.onError(() => {})();
+    }
+    expect((b as unknown as { detach: unknown[] }).detach.length).toBe(0);
+  });
+});
+
+describe("AudioBackend error dispatch", () => {
+  it("a handler that re-subscribes during dispatch runs once", async () => {
+    const { el, rejectNextPlay } = fakeAudio();
+    const b = new AudioBackend(el);
+    let calls = 0;
+    let off = () => {};
+    const handler = () => {
+      calls++;
+      if (calls > 10) return;
+      off();
+      off = b.onError(handler);
+    };
+    off = b.onError(handler);
+    rejectNextPlay(new Error("network blew up"));
+    b.play();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(calls).toBe(1);
   });
 });
