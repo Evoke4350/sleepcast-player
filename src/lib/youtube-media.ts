@@ -190,6 +190,11 @@ export class YouTubeMedia implements MediaBackend {
     this.run((p) => p.pauseVideo());
   }
 
+  /** The embed seeks to its start itself, in one step. */
+  seeking(): boolean {
+    return false;
+  }
+
   standDown(): void {
     if (this.dead) return;
     // Commands queued before the embed was ready belong to the load being

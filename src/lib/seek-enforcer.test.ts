@@ -45,6 +45,7 @@ describe("SeekEnforcer", () => {
     el.fire("timeupdate");
     expect(onLanded).toHaveBeenCalledTimes(1);
     expect(done).toHaveBeenCalledTimes(1);
+    expect(done).toHaveBeenCalledWith("landed");
     expect(el.count()).toBe(0);
   });
 
@@ -135,6 +136,7 @@ describe("SeekEnforcer", () => {
     Object.defineProperty(el, "currentTime", { get: () => 0, set: () => {} });
     for (let i = 0; i < 20; i++) el.fire("timeupdate"); // never a "seeked"
     expect(done).toHaveBeenCalledTimes(1);
+    expect(done).toHaveBeenCalledWith("gave-up");
     enf.cancel(); // idempotent
     expect(done).toHaveBeenCalledTimes(1);
   });
@@ -178,6 +180,13 @@ describe("SeekEnforcer", () => {
     el.currentTime = 60;
     el.fire("timeupdate"); // paused, away from a confirmed target
     expect(done).toHaveBeenCalledWith("moved");
+  });
+
+  test("cancel reports cancelled", () => {
+    const el = new FakeEl();
+    const done = vi.fn();
+    new SeekEnforcer(el, 300, {}, done).cancel();
+    expect(done).toHaveBeenCalledWith("cancelled");
   });
 
   test("cancel removes every listener", () => {

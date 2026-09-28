@@ -29,6 +29,9 @@ export interface MediaBackend {
    *  for this load (a start seek), which would otherwise go on acting on an
    *  episode nobody is listening to. */
   standDown(): void;
+  /** Whether it is still putting a new load on its start position: readings
+   *  meanwhile are seeks, not listening. */
+  seeking(): boolean;
   /** 0–1, like HTMLMediaElement.volume. */
   setVolume(level: number): void;
   currentTime(): number;

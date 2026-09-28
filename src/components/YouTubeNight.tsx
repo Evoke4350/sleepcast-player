@@ -393,14 +393,15 @@ export function YouTubeNight({
     playNext(byListener);
   }
 
-  function heardTick(cur: number) {
+  function heardTick(cur: number, seeking: boolean) {
     const ep = currentEpRef.current;
     if (!ep) return;
     const delta = cur - lastPosRef.current;
     lastPosRef.current = cur;
     // Outside (0, 5) seconds is a seek or a new video, not time anyone spent
-    // listening.
-    if (delta > 0 && delta < 5) heardSecRef.current += delta;
+    // listening; so is anything while the backend is still enforcing its
+    // start seek (its retries step the position forward in small jumps).
+    if (!seeking && delta > 0 && delta < 5) heardSecRef.current += delta;
     if (
       heardSecRef.current >= HEARD_SEC &&
       heardSecRef.current - heardSavedAtRef.current >= 60
@@ -541,7 +542,7 @@ export function YouTubeNight({
     const driver = fadeDriverSeconds(kind, remaining, epRemaining);
 
     restTick(driver, t);
-    heardTick(cur);
+    heardTick(cur, mediaRef.current?.seeking() ?? false);
 
     // The courtesy fade owns the volume while it runs; reassigning here would
     // fight it back up and produce audible stabs on the way out.
