@@ -58,7 +58,8 @@ export const PLAY_WHOLE_WITHIN_SEC = 30;
 /**
  * Whether to restart the current load from 0 because it was started within
  * PLAY_WHOLE_WITHIN_SEC of its end (a skip-intro nearly as long as the
- * episode), as Player.tsx does for audio. Asked once the duration is known.
+ * episode). Asked once the duration is known. (Player never has to: it
+ * decides the skip before seeking, with the same tooShortForStart.)
  *
  * It reads `heardBeforeLoad`, not the live `heard`: by the time a duration
  * arrives, this load's own first second has usually already counted as heard,

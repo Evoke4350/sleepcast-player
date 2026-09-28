@@ -39,5 +39,6 @@ describe("skipMessage", () => {
     expect(skipMessage(300)).toBe("skipped the 5 min intro");
     expect(skipMessage(90)).toBe("skipped the 1.5 min intro");
     expect(skipMessage(15)).toBe("skipped the 15 s intro");
+    expect(skipMessage(61.2)).toBe("skipped the 1 min intro");
   });
 });

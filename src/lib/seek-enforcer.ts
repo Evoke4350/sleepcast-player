@@ -41,6 +41,8 @@ const EVENTS = ["loadedmetadata", "canplay", "playing", "seeked", "timeupdate"] 
 const SLACK_SEC = 2;
 /** HTMLMediaElement.HAVE_METADATA, without needing the DOM. */
 const HAVE_METADATA = 1;
+/** HTMLMediaElement.HAVE_FUTURE_DATA: playing, not just loading. */
+const HAVE_FUTURE_DATA = 3;
 /** An unconfirmed reading this close to the assigned value is its echo
  *  (engines may read it back through a time-base conversion). */
 const ECHO_SEC = 1e-3;
@@ -59,9 +61,13 @@ export class SeekEnforcer {
   constructor(
     private readonly el: Seekable,
     readonly at: number,
+    /** Readable so a reload to the same target can re-arm the same seek. */
     readonly hooks: SeekHooks = {},
     private readonly onDone: () => void = () => {},
   ) {
+    // Armed mid-playback (the skip-intro, once the duration is known), the
+    // "playing" it waits for has already fired and may not fire again.
+    this.sawPlaying = !el.paused && el.readyState >= HAVE_FUTURE_DATA;
     for (const ev of EVENTS) el.addEventListener(ev, this.handle);
   }
 

@@ -153,6 +153,20 @@ describe("SeekEnforcer", () => {
     expect(done).toHaveBeenCalledTimes(1);
   });
 
+  test("armed mid-playback, it lands without another \"playing\"", () => {
+    const el = new FakeEl();
+    el.paused = false;
+    el.readyState = 4;
+    el.currentTime = 2;
+    const onLanded = vi.fn();
+    new SeekEnforcer(el, 90, { onLanded });
+    el.fire("timeupdate"); // seeks
+    el.fire("seeked");
+    el.currentTime = 90.25;
+    el.fire("timeupdate");
+    expect(onLanded).toHaveBeenCalledTimes(1);
+  });
+
   test("cancel removes every listener", () => {
     const el = new FakeEl();
     const enf = new SeekEnforcer(el, 300);

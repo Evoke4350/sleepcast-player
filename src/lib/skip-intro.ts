@@ -27,7 +27,6 @@ export function decideSkip(skipSec: number, durationSec: number, currentTime: nu
 /** What the listener is told once the skip lands. */
 export function skipMessage(skipSec: number): string {
   if (skipSec < 60) return `skipped the ${Math.round(skipSec)} s intro`;
-  const minutes = skipSec / 60;
-  const shown = Number.isInteger(minutes) ? String(minutes) : minutes.toFixed(1);
-  return `skipped the ${shown} min intro`;
+  const minutes = Number((skipSec / 60).toFixed(1)); // 1.02 shows as 1
+  return `skipped the ${minutes} min intro`;
 }
