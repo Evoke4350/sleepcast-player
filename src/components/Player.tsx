@@ -137,7 +137,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   const knownPosRef = useRef(0);
   /** What the lock screen was last told (position, when, the rate it
    *  extrapolates at), to tell a correction from steady playback. */
-  const publishedRef = useRef<{ pos: number; atMs: number; rate: number } | null>(null);
+  const publishedRef = useRef<{ pos: number; atMs: number; rate: number } | "none" | null>(null);
   /** The current episode's duration once its element has reported one: kept
    *  across a reload (whose element knows nothing yet), reset per episode. */
   const episodeDurRef = useRef<number | null>(null);
@@ -343,11 +343,10 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     if (skipSec !== undefined) skipSeekRef.current = { seek, skipSec };
   }
 
-  /** No seek for this load, which starts at 0: tear down the last one (a
-   *  leftover would force-seek this load to its spot). */
+  /** No seek for this load, which starts at 0 (startLoadAt sets that): tear
+   *  down the last one (a leftover would force-seek this load to its spot). */
   function clearSeek() {
     pendingSeekRef.current?.cancel();
-    knownPosRef.current = 0;
   }
 
   /** Enforce landing at `at` (see SeekEnforcer), replacing any seek
@@ -829,6 +828,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     if (audio) {
       audio.pause();
       audio.removeAttribute("src");
+      // Removing src alone keeps the resource, its buffer and connection;
+      // load() with no src releases them.
+      audio.load();
       audio.volume = 1;
     }
 
@@ -983,7 +985,13 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // The lock screen follows every element change of position or play state
     // from one listener set (registered after the handlers above, so it sees
     // what they recorded), rather than a call at each site that makes one.
-    const lockSync = () => syncLockScreen();
+    // A fresh reading first (notePosition's rules decide whether it counts):
+    // with timeupdates throttled while locked, knownPosRef can be seconds old
+    // when "playing", "waiting" or a new duration arrive.
+    const lockSync = () => {
+      notePosition(audio, { syncIfOff: false });
+      syncLockScreen();
+    };
     for (const ev of LOCK_SYNC_EVENTS) audio.addEventListener(ev, lockSync);
     audio.addEventListener("playing", onPlaying);
     audio.addEventListener("ended", onEnded);
@@ -1103,7 +1111,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     ms.playbackState = moving ? "playing" : "paused";
     const span = episodeSpan(audio);
     const rate = audio.playbackRate || 1;
-    publishedRef.current = span ? { pos: span.pos, atMs: Date.now(), rate: moving ? rate : 0 } : null;
+    // "none": nothing to extrapolate (no length yet, or a stream), so no
+    // reading can be off from it until a length arrives and syncs.
+    publishedRef.current = span ? { pos: span.pos, atMs: Date.now(), rate: moving ? rate : 0 } : "none";
     if (!ms.setPositionState) return;
     try {
       if (span) ms.setPositionState({ duration: span.dur, position: span.pos, playbackRate: rate });
@@ -1115,6 +1125,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
    *  extrapolating from what was last published, thinks it is. */
   function offLockScreen(pos: number): boolean {
     const p = publishedRef.current;
+    if (p === "none") return false;
     if (!p) return true;
     const expected = p.pos + ((Date.now() - p.atMs) / 1000) * p.rate;
     return Math.abs(pos - expected) > 2;
