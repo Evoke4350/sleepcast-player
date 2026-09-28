@@ -12,6 +12,8 @@ function fakeAudio() {
     duration: 0,
     volume: 1,
     paused: true,
+    // HAVE_NOTHING until "loadedmetadata" is fired, as after a new src.
+    readyState: 0,
     play: vi.fn(() => {
       const result = nextPlayResult;
       nextPlayResult = null;
@@ -29,7 +31,10 @@ function fakeAudio() {
   } as unknown as HTMLAudioElement;
   return {
     el,
-    fire: (t: string) => listeners.get(t)?.forEach((cb) => cb(new Event(t))),
+    fire: (t: string) => {
+      if (t === "loadedmetadata") (el as unknown as { readyState: number }).readyState = 1;
+      listeners.get(t)?.forEach((cb) => cb(new Event(t)));
+    },
     count: (t: string) => listeners.get(t)?.size ?? 0,
     /** The next (and only the next) call to play() rejects with this error
      *  instead of resolving. */
