@@ -246,8 +246,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // last episode's seek. The skip-intro waits for the duration (checkSkip),
     // and applies only near the start: a revive from a snapshot taken a
     // second in still gets it, one from mid-episode doesn't.
-    if (startAt > 0) landAt(audio, startAt);
-    else clearSeek();
+    startLoadAt(audio, startAt);
     // Only from a start near the beginning: a revive deep in is not the
     // skip's, whatever the element reads if its seek is dropped later.
     skipRef.current = stillAtStart(startAt, skipSec) ? skipSec : null;
@@ -320,6 +319,19 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     );
   }
 
+  /** Where a new load (a new episode, or a reload) starts: enforced at
+   *  `at`, or no seek at all at 0. `skipSec`: the load is the skip's seek
+   *  being reloaded, which keeps its announcement. */
+  function startLoadAt(audio: HTMLAudioElement, at: number, skipSec?: number) {
+    skipSeekRef.current = null;
+    if (at <= 0) {
+      clearSeek();
+      return;
+    }
+    const seek = landAt(audio, at, skipSec !== undefined ? skipHooks(skipSec) : {});
+    if (skipSec !== undefined) skipSeekRef.current = { seek, skipSec };
+  }
+
   /** No seek for this load, which starts at 0: tear down the last one (a
    *  leftover would force-seek this load to its spot). */
   function clearSeek() {
@@ -338,7 +350,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       pendingSeekRef.current = null;
       // heardTick's baseline: where it ended up, so the landing's own step
       // (up to the enforcer's slack past the target) isn't counted as heard.
-      lastPosRef.current = audio.currentTime;
+      lastPosRef.current = audio.seeking ? NaN : audio.currentTime;
       // Only a position it ended on for real: one that gave up or stood down
       // may leave a stalled or failed element's reading behind (the app's
       // own pause in a hold ends a seek that way). A listener's seek before
@@ -437,13 +449,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // with the skip's announcement if it is the skip's seek being reloaded:
     // skipSeekRef is set only while that seek is the pending one.
     const skip = skipSeekRef.current;
-    if (at > 0) {
-      const seek = landAt(audio, at, skip ? skipHooks(skip.skipSec) : {});
-      skipSeekRef.current = skip ? { seek, skipSec: skip.skipSec } : null;
-    } else {
-      clearSeek();
-      skipSeekRef.current = null;
-    }
+    startLoadAt(audio, at, skip?.skipSec);
     lastPosRef.current = at; // the new load's baseline, for a reload at 0 too
     watchRef.current = { src: ep.url, at: Date.now() };
     playOrWait(audio);
@@ -526,10 +532,12 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
 
     const t = audio.currentTime;
     const prev = lastPosRef.current;
-    lastPosRef.current = t;
+    // Mid-seek the reading can still be the spot the seek left: keep no
+    // baseline until it lands, so the landing's step isn't counted.
+    lastPosRef.current = audio.seeking ? NaN : t;
     // Not while a seek is being enforced: its jumps and its landing aren't
     // listening (landAt resets the baseline when it ends).
-    heardSecRef.current += heardDelta(prev, t, pendingSeekRef.current !== null);
+    heardSecRef.current += heardDelta(prev, t, pendingSeekRef.current !== null || audio.seeking);
     notePosition(audio);
 
     // Save on crossing the threshold, then refresh roughly every minute so the
@@ -1072,7 +1080,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       // target; the drag's final seek enforces. (Its own hooks, none: a
       // skip-intro's announcement isn't the listener's seek.) The enforcer
       // keeps it short of the end itself, on the same duration.
-      aimAt(audio, Math.max(0, to), {}, { move: fast });
+      aimAt(audio, to, {}, { move: fast });
       return true;
     }
     const at = shortOfEnd(to, episodeDuration(audio));

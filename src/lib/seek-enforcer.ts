@@ -11,7 +11,9 @@
 // Only a position the element has confirmed counts as reaching the target:
 // currentTime reads exactly the target the instant it is assigned, before
 // the seek completes, or even if it is dropped. Confirmation is a "seeked"
-// there, or playback reading anything but that echo. Any reading away from
+// there that doesn't read exactly the value just assigned (an earlier
+// seek's "seeked" can arrive with the echo), or playback reading anything
+// but that echo. Any reading away from
 // the target is simply retried (bounded), so a seek dropped without a word
 // is tried again.
 //
@@ -38,7 +40,8 @@ export interface Seekable {
   readonly paused: boolean;
   /** HTMLMediaElement.seeking: a seek (anyone's) is in progress. */
   readonly seeking: boolean;
-  /** NaN until known. The target is kept short of it (see at). */
+  /** NaN until known. The target is kept short of the end (see at): of this
+   *  duration unless the constructor's `duration` source says otherwise. */
   readonly duration: number;
   /** HTMLMediaElement.readyState: 0 until the element knows its media. */
   readonly readyState: number;
@@ -175,14 +178,15 @@ export class SeekEnforcer {
     const unconfirmed = this.outstanding > 0;
     const cur = el.currentTime;
     const near = Math.abs(cur - at) <= SLACK_SEC;
-    // The assignment's own echo, not a position the element has reached.
-    const echo = unconfirmed && Math.abs(cur - at) < ECHO_SEC;
-    const playingHere = near && !echo && this.sawPlaying && !el.paused && e.type === "timeupdate";
-    // A "seeked" confirms only a reading that isn't exactly the value just
-    // assigned: an earlier seek's "seeked" can be queued before this one was
-    // made (the element no longer reports it as seeking), and an exact
-    // reading then is only this seek's echo. Playback confirms the rest.
+    // Exactly the value assigned. While seeks are outstanding that is only
+    // the assignment's echo, not a position the element has reached. And a
+    // "seeked" confirms only a reading that isn't exact: an earlier seek's
+    // "seeked" can be queued before this one was made (the element no
+    // longer reports it as seeking), and then reads this seek's echo.
+    // Playback confirms the rest.
     const exact = Math.abs(cur - at) < ECHO_SEC;
+    const echo = unconfirmed && exact;
+    const playingHere = near && !echo && this.sawPlaying && !el.paused && e.type === "timeupdate";
     if (near && ((e.type === "seeked" && !unconfirmed && !exact) || playingHere)) this.reached = true;
     if (el.paused) {
       if (near) return; // there (or on its way), waiting for playback
@@ -217,7 +221,7 @@ export class SeekEnforcer {
       this.placedAt = at; // already there: nothing to assign
       return;
     }
-    this.trySeek();
+    this.trySeek(at);
   }
 
   /** One attempt, if the element can take it: not before metadata (a seek
