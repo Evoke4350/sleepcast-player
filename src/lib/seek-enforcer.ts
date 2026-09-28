@@ -67,6 +67,15 @@ export class SeekEnforcer {
     const el = this.el;
     const dur = el.duration;
     if (this.hooks.playWholeIf && Number.isFinite(dur) && dur > 0 && this.hooks.playWholeIf(dur)) {
+      // Undo a seek already made (before metadata it becomes the start
+      // position, applied once the duration is known): whole means from 0.
+      if (el.currentTime > 0) {
+        try {
+          el.currentTime = 0;
+        } catch {
+          /* not seekable: it plays from wherever it is */
+        }
+      }
       this.finish();
       return;
     }

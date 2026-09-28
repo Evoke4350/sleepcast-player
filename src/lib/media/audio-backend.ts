@@ -12,9 +12,9 @@ import { SeekEnforcer } from "../seek-enforcer";
  */
 export class AudioBackend implements MediaBackend {
   private dead = false;
-  /** Torn down before the next load. A metadata handler that outlives its
-   *  episode seeks the NEXT one to this one's position. */
-  private seekCleanup: (() => void) | null = null;
+  /** The start seek being enforced, torn down before the next load: one that
+   *  outlived its episode would seek the NEXT one to this one's position. */
+  private seek: SeekEnforcer | null = null;
   private detach: Array<() => void> = [];
   /** A rejected play() is not a DOM event, so it cannot ride the "error"
    *  listener subscribe() sets up. These are called directly instead. */
@@ -24,20 +24,14 @@ export class AudioBackend implements MediaBackend {
 
   load(ref: string, startSeconds = 0): void {
     if (this.dead) return;
-    this.seekCleanup?.();
-    this.seekCleanup = null;
+    this.seek?.cancel();
+    this.seek = null;
 
     this.el.src = ref;
 
-    if (startSeconds > 0) {
-      // Enforced, not a single seek: Safari resets a seek made before
-      // playback starts (see SeekEnforcer).
-      const seek = new SeekEnforcer(this.el, startSeconds, {}, () => {
-        if (this.seekCleanup === cancel) this.seekCleanup = null;
-      });
-      const cancel = () => seek.cancel();
-      this.seekCleanup = cancel;
-    }
+    // Enforced, not a single seek: Safari resets a seek made before playback
+    // starts (see SeekEnforcer). Cancelling a finished one is a no-op.
+    if (startSeconds > 0) this.seek = new SeekEnforcer(this.el, startSeconds, {}, () => {});
 
     void this.el.play().catch((err: unknown) => this.reportPlayFailure(err));
   }
@@ -90,8 +84,8 @@ export class AudioBackend implements MediaBackend {
   destroy(): void {
     if (this.dead) return;
     this.dead = true;
-    this.seekCleanup?.();
-    this.seekCleanup = null;
+    this.seek?.cancel();
+    this.seek = null;
     for (const off of this.detach.splice(0)) off();
     this.errorCallbacks.clear();
     this.el.pause();

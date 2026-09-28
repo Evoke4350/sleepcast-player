@@ -193,7 +193,8 @@ export function Night({
   // Whether this episode has actually made a sound (lib/witness.ts). The
   // watchdog needs to tell "playing" from "claims to be playing", and movement
   // is the only honest signal: where the episode was ASKED to start is not
-  // where it necessarily is, because the start seek can silently fail to land.
+  // where it necessarily is, because the start seek may not have landed yet
+  // (or ever: it gives up after a few tries).
   const witnessRef = useRef(new PlaybackWitness());
   /** Waiting out a dropped network (see holdForNetwork). */
   const netHoldRef = useRef(new NetworkHold());
@@ -627,12 +628,13 @@ export function Night({
     // the "playing" DOM event for this; behind the backend interface there is
     // no such event, so the proof is the position having MOVED.
     //
-    // Movement, not position: AudioBackend attempts its start seek once, on
-    // loadedmetadata, and gives up silently when it fails — Safari resets
-    // pre-playback seeks, duration can still be NaN there. An episode whose
-    // seek did not land plays audibly from 0:00 while the position it was
-    // asked for is five minutes away, and a predicate written against that
-    // position kills it as stalled while the listener can hear it. A hung
+    // Movement, not position: AudioBackend enforces its start seek (see
+    // SeekEnforcer), but Safari resets pre-playback seeks, so the element can
+    // play audibly from 0:00 for a moment before being put back on its start,
+    // and a stubborn stream makes the seek give up entirely. A predicate
+    // written against the asked-for position kills such an episode as stalled
+    // while the listener can hear it. The jump back onto the start is a seek,
+    // not playback (isPlaybackStep excludes it). A hung
     // enclosure never moves either way, so the hole this guard exists to close
     // stays closed.
     // One position read per tick, for the played decision and everything below.

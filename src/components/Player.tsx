@@ -105,7 +105,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   const feedTitlesRef = useRef(feedTitles);
   const artworkRef = useRef(artworkByFeedId);
   const onEndRef = useRef(onEnd);
-  /** The seek the current load is enforcing (see seekOnMetadata), if any. */
+  /** The seek the current load is enforcing (see landAt), if any. */
   const pendingSeekRef = useRef<SeekEnforcer | null>(null);
   // Watchdog: a track that hasn't reached "playing" within the window is
   // stuck (silent play() rejection, stalled load, dead enclosure URL) —
@@ -229,7 +229,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // Reviving a night: land where the sleeper left off (a saved position is
     // already past any intro). Else the skip-intro, if any; 0 just clears the
     // last episode's seek.
-    seekOnMetadata(audio, seekTo > 0 ? seekTo : skipSec, seekTo > 0 ? {} : {
+    landAt(audio, seekTo > 0 ? seekTo : skipSec, seekTo > 0 ? {} : {
       playWholeIf: (dur) => skipSec >= dur - 30, // barely longer than the skip
       onLanded: () => {
         setToast(`skipped the ${skipMin} min intro`);
@@ -307,7 +307,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
    *  load's seek first: a leftover would force-seek this load to that spot.
    *  0 only tears down. Until the seek is done, resumePosition reads its
    *  target; after, the element's position. */
-  function seekOnMetadata(audio: HTMLAudioElement, at: number, hooks: SeekHooks = {}) {
+  function landAt(audio: HTMLAudioElement, at: number, hooks: SeekHooks = {}) {
     pendingSeekRef.current?.cancel();
     knownPosRef.current = at;
     if (at <= 0) return;
@@ -346,15 +346,19 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
 
   /** Reload the current episode's source at `at`. Not playEpisode: this is
    *  the same listening resumed, so the play ledger and the rest timeline
-   *  are left alone. `at` is where it was, so no skip-intro applies: its
-   *  seek is re-armed plain. Returns whether it reloaded. */
-  function reloadCurrent(ep: Episode, at: number): boolean {
+   *  are left alone. `hooks` only when `at` is a skip-intro still being
+   *  enforced (the CORS retry); where playback was needs none. Returns
+   *  whether it reloaded. */
+  function reloadCurrent(ep: Episode, at: number, hooks: SeekHooks = {}): boolean {
     const audio = audioRef.current;
     if (!audio) return false;
-    // Closes the snapshot gate until it plays again, as the CORS retry does.
+    // The reload reads 0 until its seek lands: close the snapshot gate until
+    // it plays again (see epPlayedRef).
     epPlayedRef.current = false;
     audio.src = ep.url;
-    seekOnMetadata(audio, at);
+    // Re-armed fresh, never carried over: the old enforcement's state belongs
+    // to the load that failed.
+    landAt(audio, at, hooks);
     lastPosRef.current = at; // not a jump heardTick should count
     watchRef.current = { src: ep.url, at: Date.now() };
     playOrWait(audio);
@@ -364,7 +368,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   /** Where this episode is, for a reload or a snapshot: the target of a
    *  seek still being enforced (Safari can read ~0 after "playing" until it
    *  is corrected), else the last position the element itself reported
-   *  (see trackPosition): a failed element may read 0, and a load that has
+   *  (see notePosition): a failed element may read 0, and a load that has
    *  not reported yet is where it was meant to start. */
   function resumePosition(): number {
     return pendingSeekRef.current?.at ?? knownPosRef.current;
@@ -441,6 +445,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     const delta = t - lastPosRef.current;
     lastPosRef.current = t;
     if (delta > 0 && delta < 5) heardSecRef.current += delta;
+    // Where the episode is, while no seek is being enforced (resumePosition).
+    if (!pendingSeekRef.current) notePosition(audio);
 
     // Save on crossing the threshold, then refresh roughly every minute so the
     // ledger reflects how long a long episode actually ran. recordHeardPlay
@@ -829,23 +835,14 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
         if (feedId && !corsGoodFeeds.has(feedId)) corsBadFeeds.add(feedId);
         // Once attached, the element is captured and a plain retry would play
         // into a silenced node — fall through to the ordinary skip instead.
-        if (!attachedRef.current) {
-          const src = audio.getAttribute("src")!;
+        const ep = currentEpRef.current;
+        if (!attachedRef.current && ep) {
           const pos = resumePosition();
           // A seek this load is still enforcing (the skip-intro's) keeps its
           // hooks; otherwise the retry just lands where playback was.
           const hooks = pendingSeekRef.current?.hooks ?? {};
           audio.removeAttribute("crossorigin");
-          // The reload reads 0 until its seek lands: close the snapshot gate
-          // until it plays again (see epPlayedRef).
-          epPlayedRef.current = false;
-          audio.src = src;
-          // Re-armed fresh, never carried over: the old enforcement's
-          // state belongs to the load that failed.
-          seekOnMetadata(audio, pos, hooks);
-          lastPosRef.current = pos; // not a jump heardTick should count
-          watchRef.current = { src, at: Date.now() };
-          playOrWait(audio);
+          reloadCurrent(ep, pos, hooks);
           return;
         }
       }
@@ -862,13 +859,12 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     audio.addEventListener("timeupdate", tickGuarded); // fade + stop must survive a locked screen
     audio.addEventListener("timeupdate", restTick); // keeps the sleep detector fed while backgrounded
     audio.addEventListener("timeupdate", heardTick); // accumulates real playback for the play ledger
-    // Where the episode is, while no seek is being enforced (resumePosition).
-    // Not before the element knows its media: a new load reads 0 then.
-    const trackPosition = () => {
+    // heardTick tracks the position on timeupdate; a scrub while paused
+    // fires only "seeked".
+    const trackSeek = () => {
       if (!pendingSeekRef.current) notePosition(audio);
     };
-    audio.addEventListener("timeupdate", trackPosition);
-    audio.addEventListener("seeked", trackPosition);
+    audio.addEventListener("seeked", trackSeek);
     audio.addEventListener("playing", onPlaying);
     audio.addEventListener("ended", onEnded);
     audio.addEventListener("error", onError);
@@ -917,8 +913,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       audio.removeEventListener("timeupdate", tickGuarded);
       audio.removeEventListener("timeupdate", restTick);
       audio.removeEventListener("timeupdate", heardTick);
-      audio.removeEventListener("timeupdate", trackPosition);
-      audio.removeEventListener("seeked", trackPosition);
+      audio.removeEventListener("seeked", trackSeek);
       audio.removeEventListener("playing", onPlaying);
       audio.removeEventListener("ended", onEnded);
       audio.removeEventListener("error", onError);

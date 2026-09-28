@@ -95,6 +95,18 @@ describe("SeekEnforcer", () => {
     expect(done).toHaveBeenCalledTimes(1);
   });
 
+  test("plays a short episode whole even after seeking before the duration was known", () => {
+    const el = new FakeEl();
+    const done = vi.fn();
+    new SeekEnforcer(el, 300, { playWholeIf: (d) => 300 >= d - 30 }, done);
+    el.fire("timeupdate"); // the load's own, before metadata: seeks to 300
+    expect(el.currentTime).toBe(300);
+    el.duration = 320;
+    el.fire("loadedmetadata");
+    expect(el.currentTime).toBe(0);
+    expect(done).toHaveBeenCalledTimes(1);
+  });
+
   test("gives up on a stream that never takes the seek", () => {
     const el = new FakeEl();
     const done = vi.fn();
