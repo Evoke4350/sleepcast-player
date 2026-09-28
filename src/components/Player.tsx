@@ -735,8 +735,16 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     setCountdown(kind === "minutes" ? remaining : 0);
     // Where the episode is and how long, as the rest of the player sees it:
     // not a reading Safari hasn't corrected yet, and not lost on a reload.
-    const shownDur = episodeDuration(audio);
-    setEpPos(shownDur !== null ? { cur: Math.min(resumePosition(), shownDur), dur: shownDur } : null);
+    const span = episodeSpan(audio);
+    setEpPos(span ? { cur: span.pos, dur: span.dur } : null);
+    // The lock screen's scrubber, from the same view as the in-app bar (the
+    // element's own reading can be ~0 while a seek is enforced or a reload
+    // loads, and a nudge of that thumb would throw the position away).
+    if (span && "mediaSession" in navigator && navigator.mediaSession.setPositionState) {
+      try {
+        navigator.mediaSession.setPositionState({ duration: span.dur, position: span.pos, playbackRate: 1 });
+      } catch { /* a platform that rejects it keeps its own */ }
+    }
 
     const w = watchRef.current;
     if (w && Date.now() - w.at > 25_000) {
@@ -977,8 +985,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       navigator.mediaSession.setActionHandler("nexttrack", () => handleNext());
       // Lock-screen / headphone scrubbing.
       try {
-        navigator.mediaSession.setActionHandler("seekbackward", () => skipBy(-30));
-        navigator.mediaSession.setActionHandler("seekforward", () => skipBy(30));
+        // The platform's own step when it gives one (a headset's 15 s).
+        navigator.mediaSession.setActionHandler("seekbackward", (d) => skipBy(-(d.seekOffset ?? 30)));
+        navigator.mediaSession.setActionHandler("seekforward", (d) => skipBy(d.seekOffset ?? 30));
         // The lock-screen scrubber: through listenerSeek like any listener
         // seek, not the browser's default, which would bypass it.
         navigator.mediaSession.setActionHandler("seekto", (d) => {
@@ -1048,8 +1057,17 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
    *  doesn't lose the fade (a new src knows no duration; Safari can read
    *  ~0 before its seek is corrected). */
   function remainingOf(audio: HTMLAudioElement): number | null {
+    const span = episodeSpan(audio);
+    return span ? span.dur - span.pos : null;
+  }
+
+  /** Where the episode is and how long it is, as the player sees it, with
+   *  the position kept within it: the one view the bar, the lock screen and
+   *  the fade all read. Null while the length is unknown. */
+  function episodeSpan(audio: HTMLAudioElement): { pos: number; dur: number } | null {
     const dur = episodeDuration(audio);
-    return dur !== null ? Math.max(0, dur - resumePosition()) : null;
+    if (dur === null) return null;
+    return { pos: Math.min(Math.max(0, resumePosition()), dur), dur };
   }
 
   /** The episode's duration, as far as anyone knows: the element's, or the

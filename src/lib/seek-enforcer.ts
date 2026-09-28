@@ -71,6 +71,9 @@ const HAVE_FUTURE_DATA = 3;
  *  (engines may read it back through a time-base conversion). */
 const ECHO_SEC = 1e-3;
 const MAX_ATTEMPTS = 12;
+/** How many times a moving end clamp may renew the bound: plenty for an
+ *  estimate settling over a load, finite for one that never does. */
+const MAX_CLAMP_RENEWALS = 60;
 
 export class SeekEnforcer {
   private attempts = 0;
@@ -90,6 +93,11 @@ export class SeekEnforcer {
    *  an earlier seek, possibly within the slack, and every event just
    *  seeks. */
   private placedAt: number | null = null;
+  /** Where the end is (see at): the constructor's source, or the element's. */
+  private readonly duration: () => number | null;
+  /** Bound renewals granted to a moving end clamp, itself bounded: a
+   *  duration that keeps being re-estimated mustn't lift the bound. */
+  private clampRenewals = 0;
 
   /** `onDone` runs once, when it lands or stands down for any reason
    *  (including cancel()). `deferSeek`: don't seek at creation (a drag
@@ -123,7 +131,6 @@ export class SeekEnforcer {
     return shortOfEnd(this.target, this.duration());
   }
 
-  private readonly duration: () => number | null;
 
   /** Aim at another position (the listener's seek), seeking now, and keeping
    *  the count of seeks in flight so their late answers aren't misread.
@@ -161,21 +168,26 @@ export class SeekEnforcer {
     if (this.done) return;
     const el = this.el;
     if (e.type === "playing") this.sawPlaying = true;
-    // Whether this "seeked" could be ours at all, before counting it off.
+    // Seeks of ours in flight before this event (a "seeked" could be one of
+    // theirs only if any were) and after it (while any are, readings may be
+    // echoes).
     const oursOutstanding = this.outstanding > 0;
     if (e.type === "seeked") this.outstanding = Math.max(0, this.outstanding - 1);
+    const unconfirmed = this.outstanding > 0;
     const at = this.at;
     if (this.placedAt === null || at !== this.placedAt) {
       // Something was placed and the effective target has moved since: a
       // clamp moved by a new duration estimate (a moved target has reset
       // the bound already), not a failed attempt, so the bound isn't spent
       // on estimates settling. A failed assignment leaves nothing placed.
-      if (this.placedAt !== null) this.attempts = 0;
+      if (this.placedAt !== null && this.clampRenewals < MAX_CLAMP_RENEWALS) {
+        this.clampRenewals++;
+        this.attempts = 0;
+      }
       this.reached = false;
       this.trySeek(at);
       return;
     }
-    const unconfirmed = this.outstanding > 0;
     const cur = el.currentTime;
     const near = Math.abs(cur - at) <= SLACK_SEC;
     // Exactly the value assigned. While seeks are outstanding that is only
@@ -216,19 +228,19 @@ export class SeekEnforcer {
    *  reading while seeks are outstanding is only their echo, so it never
    *  counts as there. */
   private seekNowIfReady(): void {
-    const at = this.at;
-    if (this.el.readyState >= HAVE_METADATA && this.outstanding === 0 && Math.abs(this.el.currentTime - at) <= SLACK_SEC) {
-      this.placedAt = at; // already there: nothing to assign
-      return;
-    }
-    this.trySeek(at);
+    this.trySeek(this.at, { unlessThere: true });
   }
 
   /** One attempt, if the element can take it: not before metadata (a seek
    *  then becomes the start position, applied unasked once the media is
    *  known), and not beyond the attempt bound. */
-  private trySeek(at: number = this.at): void {
+  private trySeek(at: number = this.at, { unlessThere = false }: { unlessThere?: boolean } = {}): void {
     if (this.el.readyState < HAVE_METADATA) return;
+    // Already there with none of ours in flight: nothing to assign.
+    if (unlessThere && this.outstanding === 0 && Math.abs(this.el.currentTime - at) <= SLACK_SEC) {
+      this.placedAt = at;
+      return;
+    }
     if (this.attempts++ >= MAX_ATTEMPTS) {
       this.finish("gave-up"); // stop fighting a stubborn stream
       return;

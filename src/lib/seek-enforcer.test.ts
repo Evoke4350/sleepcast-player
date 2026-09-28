@@ -465,6 +465,20 @@ describe("SeekEnforcer", () => {
     expect(el.currentTime).toBe(300);
   });
 
+  test("an endlessly re-estimated duration can't lift the attempt bound", () => {
+    const el = new FakeEl();
+    el.readyState = 1;
+    el.duration = 1000;
+    const done = vi.fn();
+    new SeekEnforcer(el, 5000, {}, done); // pinned to the moving end
+    Object.defineProperty(el, "currentTime", { get: () => 0, set: () => {} }); // never takes it
+    for (let d = 1001; d < 1300; d++) {
+      el.duration = d;
+      el.fire("durationchange");
+    }
+    expect(done).toHaveBeenCalledWith("gave-up");
+  });
+
   test("cancel reports cancelled", () => {
     const el = new FakeEl();
     const done = vi.fn();
