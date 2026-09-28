@@ -55,6 +55,7 @@ import { RestSession, revivedNightStart } from "../lib/rest/session";
 import { recordNightEnd } from "../lib/night-end";
 import { NetworkHold, isOffline } from "../lib/network-hold";
 import { heardDelta } from "../lib/heard";
+import { clearLockScreen } from "../lib/lock-screen";
 import { startWithSkip } from "../lib/skip-intro";
 import { PlaybackWitness, rearmsWatchdogOnTap } from "../lib/witness";
 import { applyEndedDecision, decideAfterEnded, shouldPlayWhole } from "../lib/episode-end";
@@ -834,9 +835,7 @@ export function Night({
     pausedRemainingMsRef.current = null;
     releaseBackends();
     void lockRef.current?.release();
-    if (typeof navigator !== "undefined" && "mediaSession" in navigator) {
-      navigator.mediaSession.metadata = null;
-    }
+    clearLockScreen();
     onEndRef.current();
   }
 
@@ -1000,8 +999,8 @@ export function Night({
       brownRef.current?.stop();
       releaseBackends();
       void lockRef.current?.release();
+      clearLockScreen();
       if (typeof navigator !== "undefined" && "mediaSession" in navigator) {
-        navigator.mediaSession.metadata = null;
         navigator.mediaSession.setActionHandler("play", null);
         navigator.mediaSession.setActionHandler("pause", null);
       }

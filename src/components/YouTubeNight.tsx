@@ -48,6 +48,7 @@ import { RestSession, revivedNightStart } from "../lib/rest/session";
 import { recordNightEnd } from "../lib/night-end";
 import { NetworkHold, isOffline } from "../lib/network-hold";
 import { heardDelta } from "../lib/heard";
+import { clearLockScreen } from "../lib/lock-screen";
 import { startWithSkip } from "../lib/skip-intro";
 import { PlaybackWitness, rearmsWatchdogOnTap } from "../lib/witness";
 import { MAX_FAILS, applyEndedDecision, decideAfterEnded, shouldPlayWhole } from "../lib/episode-end";
@@ -646,9 +647,7 @@ export function YouTubeNight({
     mediaRef.current?.destroy();
     mediaRef.current = null;
     void lockRef.current?.release();
-    if (typeof navigator !== "undefined" && "mediaSession" in navigator) {
-      navigator.mediaSession.metadata = null;
-    }
+    clearLockScreen();
     onEndRef.current();
   }
 
@@ -739,9 +738,7 @@ export function YouTubeNight({
       mediaRef.current?.destroy();
       mediaRef.current = null;
       void lockRef.current?.release();
-      if (typeof navigator !== "undefined" && "mediaSession" in navigator) {
-        navigator.mediaSession.metadata = null;
-      }
+      clearLockScreen();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

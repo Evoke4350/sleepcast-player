@@ -10,6 +10,7 @@ import { NetworkHold, isOffline } from "../lib/network-hold";
 import { SeekEnforcer, type SeekHooks } from "../lib/seek-enforcer";
 import { knownDuration, shortOfEnd } from "../lib/duration";
 import { heardDelta } from "../lib/heard";
+import { clearLockScreen } from "../lib/lock-screen";
 import { decideSkip, skipMessage, stillAtStart } from "../lib/skip-intro";
 import { pickNextEpisode, HEARD_SEC } from "../lib/plays";
 import { canExtend } from "../lib/timer-feel";
@@ -357,13 +358,16 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       // heardTick's baseline: where it ended up, so the landing's own step
       // (up to the enforcer's slack past the target) isn't counted as heard.
       lastPosRef.current = audio.seeking ? NaN : audio.currentTime;
+      // Cancelled: whoever cancelled sets the position and the lock screen.
+      if (end === "cancelled") return;
       // Only a position it ended on for real: one that gave up or stood down
       // may leave a stalled or failed element's reading behind (the app's
       // own pause in a hold ends a seek that way). A listener's seek before
       // playback is enforced here too, and so is recorded once it lands.
       if (end === "landed") notePosition(audio);
-      // A target left behind by a seek that didn't land is kept, as the
-      // enforcer keeps it: never past the end as now known.
+      // A target left behind by a seek that didn't land stands, as the
+      // enforcer keeps it (never past the end as now known), until the
+      // element's next trustworthy reading says where it really is.
       else knownPosRef.current = seek.at;
       syncLockScreen(); // the position the lock screen runs from may have changed
     }, { deferSeek, duration: () => episodeDuration(audio) });
@@ -379,7 +383,12 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // Nor mid-seek: a fastSeek's currentTime can still read where it left.
     if (pendingSeekRef.current || audio.seeking) return;
     if (audio.error || audio.readyState < HTMLMediaElement.HAVE_METADATA) return;
+    const jumped = Math.abs(audio.currentTime - knownPosRef.current) > 2;
     knownPosRef.current = audio.currentTime;
+    // Not playback's steady advance (which the lock screen extrapolates),
+    // but a correction: the element somewhere other than the position last
+    // published (a seek that didn't land, say). Publish it.
+    if (jumped) syncLockScreen();
   }
 
   /** Enforce a seek to `to`: by aiming the one still pending there (it keeps
@@ -656,7 +665,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       kind === "minutes" && endTimeRef.current !== null
         ? (endTimeRef.current - Date.now()) / 1000
         : Infinity;
-    const epRemaining = audio ? remainingOf(audio) : null;
+    const epRemaining = audio ? remainingOf(episodeSpan(audio)) : null;
     const driver = fadeDriverSeconds(kind, timerRemaining, epRemaining);
     r.tick({
       now: Date.now(),
@@ -685,10 +694,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   function tick() {
     const audio = audioRef.current;
     if (!audio) return;
-    // A fresh reading before the fade and the bar read resumePosition():
-    // tick is throttled (see TICK_MIN_MS), and heardTick, which also notes
-    // the position on every timeupdate, runs after it.
-    notePosition(audio);
 
     // In one-episode and all-night modes there is no timer to run down, so the
     // countdown is Infinity and the fade is driven by the episode instead —
@@ -725,7 +730,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // (not a reading Safari hasn't corrected yet, and not lost on a reload),
     // once per pass for the fade and the bar.
     const span = episodeSpan(audio);
-    const epRemaining = remainingOf(audio, span);
+    const epRemaining = remainingOf(span);
     const driver = fadeDriverSeconds(kind, remaining, epRemaining);
 
     // The courtesy fade owns audio.volume while it runs. Without this guard
@@ -946,9 +951,11 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
 
     audio.addEventListener("pause", onPause);
     audio.addEventListener("play", onPlay);
+    // heardTick first: it notes the position, which tick (the fade, the bar)
+    // and restTick then read fresh.
+    audio.addEventListener("timeupdate", heardTick); // accumulates real playback for the play ledger
     audio.addEventListener("timeupdate", tickGuarded); // fade + stop must survive a locked screen
     audio.addEventListener("timeupdate", restTick); // keeps the sleep detector fed while backgrounded
-    audio.addEventListener("timeupdate", heardTick); // accumulates real playback for the play ledger
     // heardTick tracks the position on timeupdate; a scrub while paused
     // fires only "seeked".
     const trackSeek = () => notePosition(audio);
@@ -1062,7 +1069,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
    *  it is as far as anyone knows, so a reload or a pending start seek
    *  doesn't lose the fade (a new src knows no duration; Safari can read
    *  ~0 before its seek is corrected). */
-  function remainingOf(audio: HTMLAudioElement, span = episodeSpan(audio)): number | null {
+  function remainingOf(span: { pos: number; dur: number } | null): number | null {
     return span ? span.dur - span.pos : null;
   }
 
@@ -1090,13 +1097,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       if (span) ms.setPositionState({ duration: span.dur, position: span.pos, playbackRate: audio.playbackRate || 1 });
       else ms.setPositionState();
     } catch { /* a platform that rejects it keeps its own */ }
-  }
-
-  function clearLockScreen() {
-    if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
-    navigator.mediaSession.metadata = null;
-    navigator.mediaSession.playbackState = "none";
-    try { navigator.mediaSession.setPositionState?.(); } catch { /* nothing to clear */ }
   }
 
   /** Where the episode is and how long it is, as the player sees it, with
