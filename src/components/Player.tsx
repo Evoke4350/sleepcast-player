@@ -8,6 +8,7 @@ import { fadeVolume, formatTime, effectiveVolume, fadeDriverSeconds } from "../l
 import { getPlays, recordHeardPlay, saveLive, rememberPosition, forgetPosition, blockEpisode } from "../lib/store";
 import { NetworkHold, isOffline } from "../lib/network-hold";
 import { SeekEnforcer, type SeekHooks } from "../lib/seek-enforcer";
+import { heardDelta } from "../lib/heard";
 import { decideSkip, skipMessage, stillAtStart } from "../lib/skip-intro";
 import { pickNextEpisode, HEARD_SEC } from "../lib/plays";
 import { canExtend } from "../lib/timer-feel";
@@ -318,21 +319,18 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     pendingSeekRef.current?.cancel();
     knownPosRef.current = at;
     if (at <= 0) return null;
-    const onSeek = () => {
-      lastPosRef.current = at;
-      hooks.onSeek?.();
-    };
-    const seek = new SeekEnforcer(audio, at, { ...hooks, onSeek }, (end) => {
+    const seek = new SeekEnforcer(audio, at, hooks, (end) => {
       if (skipSeekRef.current === seek) skipSeekRef.current = null;
       if (pendingSeekRef.current !== seek) return;
       pendingSeekRef.current = null;
       // heardTick's baseline: where it ended up, so the landing's own step
       // (up to the enforcer's slack past the target) isn't counted as heard.
       lastPosRef.current = audio.currentTime;
-      // Only a position it ended on for real: one that gave up may leave a
-      // stalled or failed element's reading behind.
+      // Only a position it ended on for real: one that gave up or strayed
+      // may leave a stalled or failed element's reading behind (the app's
+      // own pause in a hold ends a seek that way).
       if (end === "landed") notePosition(audio);
-      if (end === "moved") notePosition(audio, true);
+      if (end === "scrubbed") notePosition(audio, true);
     });
     pendingSeekRef.current = seek;
     return seek;
@@ -396,11 +394,11 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     });
   }
 
-  /** Reload the current episode's source at `at`. Not playEpisode: this is
-   *  the same listening resumed, so the play ledger and the rest timeline
-   *  are left alone. Returns whether it reloaded. */
-  /** At resumePosition(): a pending seek's target (the skip's, re-armed
-   *  with its announcement), else the last trustworthy position. */
+  /** Reload the current episode's source at resumePosition(): a pending
+   *  seek's target (the skip's, re-armed with its announcement), else the
+   *  last trustworthy position. Not playEpisode: this is the same listening
+   *  resumed, so the play ledger and the rest timeline are left alone.
+   *  Returns whether it reloaded. */
   function reloadCurrent(ep: Episode): boolean {
     const audio = audioRef.current;
     if (!audio) return false;
@@ -498,11 +496,11 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     if (!audio || !ep) return;
 
     const t = audio.currentTime;
-    const delta = t - lastPosRef.current;
+    const prev = lastPosRef.current;
     lastPosRef.current = t;
     // Not while a seek is being enforced: its jumps and its landing aren't
     // listening (landAt resets the baseline when it ends).
-    if (!pendingSeekRef.current && delta > 0 && delta < 5) heardSecRef.current += delta;
+    heardSecRef.current += heardDelta(prev, t, pendingSeekRef.current !== null);
     notePosition(audio);
 
     // Save on crossing the threshold, then refresh roughly every minute so the
@@ -992,7 +990,10 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     const audio = audioRef.current;
     if (!audio || !audio.getAttribute("src")) return;
     const dur = Number.isFinite(audio.duration) ? audio.duration : Infinity;
-    audio.currentTime = Math.min(Math.max(0, audio.currentTime + seconds), dur - 1);
+    // From where the episode is: a failed element (in a network hold) or one
+    // still being put on its start may read anything.
+    const from = audio.error || pendingSeekRef.current ? resumePosition() : audio.currentTime;
+    audio.currentTime = Math.min(Math.max(0, from + seconds), dur - 1);
   }
 
   function extendTimer(minutes: number) {

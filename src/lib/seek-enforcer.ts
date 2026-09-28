@@ -35,12 +35,14 @@ export interface Seekable {
 export interface SeekHooks {
   /** When it lands with playback rolling (the skip-intro says so). */
   onLanded?: () => void;
-  /** Each time it assigns the target: a jump the caller shouldn't count as
-   *  playback. */
-  onSeek?: () => void;
 }
 
-export type SeekEnd = "landed" | "moved" | "gave-up" | "cancelled";
+/** How it ended. "landed" and "scrubbed" (a "seeked" away: the listener's
+ *  seek replaced this one) leave a position the caller can trust. "strayed"
+ *  (a reading away from a confirmed target, with no seek behind it: a
+ *  listener's skip seen late, or the app's own pause on a failed element),
+ *  "gave-up" and "cancelled" may not. */
+export type SeekEnd = "landed" | "scrubbed" | "strayed" | "gave-up" | "cancelled";
 
 const EVENTS = ["loadedmetadata", "canplay", "playing", "seeked", "timeupdate"] as const;
 const SLACK_SEC = 2;
@@ -67,9 +69,6 @@ export class SeekEnforcer {
     private readonly el: Seekable,
     readonly at: number,
     private readonly hooks: SeekHooks = {},
-    /** "landed" or "moved" (the listener took over): the element's position
-     *  is then real. "gave-up" (a stubborn stream) or "cancelled": it may
-     *  not be. */
     private readonly onDone: (end: SeekEnd) => void = () => {},
   ) {
     // Armed mid-playback (the skip-intro, once the duration is known), the
@@ -103,7 +102,7 @@ export class SeekEnforcer {
     if (el.paused) {
       if (near) return; // there (or on its way), waiting for playback
       if (this.reached || e.type === "seeked") {
-        this.finish("moved"); // the listener moved it
+        this.finish(e.type === "seeked" ? "scrubbed" : "strayed"); // not ours to fight
         return;
       }
     } else {
@@ -115,7 +114,7 @@ export class SeekEnforcer {
         return;
       }
       if (this.reached && cur > this.at + SLACK_SEC) {
-        this.finish("moved"); // the listener skipped ahead
+        this.finish(e.type === "seeked" ? "scrubbed" : "strayed"); // skipped ahead
         return;
       }
     }
@@ -133,7 +132,6 @@ export class SeekEnforcer {
     try {
       this.el.currentTime = this.at;
       this.unconfirmed = true;
-      this.hooks.onSeek?.();
     } catch {
       /* not seekable yet: a later event retries */
     }

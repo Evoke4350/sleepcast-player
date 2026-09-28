@@ -169,17 +169,25 @@ describe("SeekEnforcer", () => {
     expect(onLanded).toHaveBeenCalledTimes(1);
   });
 
-  test("reports how it ended, and each seek it makes", () => {
+  test("a reading away with no seek behind it has strayed, not been scrubbed", () => {
     const el = new FakeEl();
     const done = vi.fn();
-    const onSeek = vi.fn();
-    new SeekEnforcer(el, 300, { onSeek }, done);
+    new SeekEnforcer(el, 300, {}, done);
     el.fire("loadedmetadata");
-    expect(onSeek).toHaveBeenCalledTimes(1);
     el.fire("seeked");
+    el.currentTime = 0; // a failed element, paused by the app
+    el.fire("timeupdate");
+    expect(done).toHaveBeenCalledWith("strayed");
+  });
+
+  test("a seeked away is the listener's scrub", () => {
+    const el = new FakeEl();
+    const done = vi.fn();
+    new SeekEnforcer(el, 300, {}, done);
+    el.fire("loadedmetadata");
     el.currentTime = 60;
-    el.fire("timeupdate"); // paused, away from a confirmed target
-    expect(done).toHaveBeenCalledWith("moved");
+    el.fire("seeked");
+    expect(done).toHaveBeenCalledWith("scrubbed");
   });
 
   test("cancel reports cancelled", () => {

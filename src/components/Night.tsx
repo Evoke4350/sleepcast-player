@@ -54,6 +54,7 @@ import { shouldTick } from "../lib/tick-gate";
 import { RestSession, revivedNightStart } from "../lib/rest/session";
 import { recordNightEnd } from "../lib/night-end";
 import { NetworkHold, isOffline } from "../lib/network-hold";
+import { heardDelta } from "../lib/heard";
 import { startWithSkip } from "../lib/skip-intro";
 import { PlaybackWitness, rearmsWatchdogOnTap } from "../lib/witness";
 import { applyEndedDecision, decideAfterEnded, shouldPlayWhole } from "../lib/episode-end";
@@ -522,12 +523,9 @@ export function Night({
   function heardTick(cur: number, seeking: boolean) {
     const ep = currentEpRef.current;
     if (!ep) return;
-    const delta = cur - lastPosRef.current;
+    const prev = lastPosRef.current;
     lastPosRef.current = cur;
-    // Outside (0, 5) seconds is a seek or a new video, not time anyone spent
-    // listening; so is anything while the backend is still enforcing its
-    // start seek (its retries step the position forward in small jumps).
-    if (!seeking && delta > 0 && delta < 5) heardSecRef.current += delta;
+    heardSecRef.current += heardDelta(prev, cur, seeking);
     if (
       heardSecRef.current >= HEARD_SEC &&
       heardSecRef.current - heardSavedAtRef.current >= 60
