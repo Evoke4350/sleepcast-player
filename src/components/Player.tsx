@@ -10,7 +10,7 @@ import { NetworkHold, isOffline } from "../lib/network-hold";
 import { SeekEnforcer, type SeekHooks } from "../lib/seek-enforcer";
 import { knownDuration, shortOfEnd } from "../lib/duration";
 import { heardDelta } from "../lib/heard";
-import { clearLockScreen } from "../lib/lock-screen";
+import { clearLockScreen, publishLockScreen } from "../lib/lock-screen";
 import { decideSkip, skipMessage, stillAtStart } from "../lib/skip-intro";
 import { pickNextEpisode, HEARD_SEC } from "../lib/plays";
 import { canExtend } from "../lib/timer-feel";
@@ -363,12 +363,14 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       // may leave a stalled or failed element's reading behind (the app's
       // own pause in a hold ends a seek that way). A listener's seek before
       // playback is enforced here too, and so is recorded once it lands.
-      if (end === "landed") notePosition(audio, { syncIfOff: false });
       // A target left behind by a seek that didn't land stands, as the
       // enforcer keeps it (never past the end as now known), until the
       // element's next trustworthy reading says where it really is.
-      else knownPosRef.current = seek.at;
-      syncLockScreen(); // the position the lock screen runs from may have changed
+      if (end !== "landed") knownPosRef.current = seek.at;
+      // The position the lock screen runs from may have changed (a landing
+      // takes a fresh reading first).
+      if (end === "landed") refreshLockScreen(audio);
+      else syncLockScreen();
     }, { deferSeek, duration: () => episodeDuration(audio) });
     pendingSeekRef.current = seek;
     return seek;
@@ -378,16 +380,11 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
    *  be trusted: not while a seek is being enforced (Safari can read ~0
    *  until it is corrected), not before the element knows its media (a new
    *  load reads 0), and not from a failed element, which can read 0 too. */
-  function notePosition(audio: HTMLAudioElement, { syncIfOff = true }: { syncIfOff?: boolean } = {}) {
+  function notePosition(audio: HTMLAudioElement) {
     // Nor mid-seek: a fastSeek's currentTime can still read where it left.
     if (pendingSeekRef.current || audio.seeking) return;
     if (audio.error || audio.readyState < HTMLMediaElement.HAVE_METADATA) return;
     knownPosRef.current = audio.currentTime;
-    // Not playback's steady advance (which the lock screen extrapolates),
-    // but a correction: the element somewhere other than where the lock
-    // screen thinks it is (a seek that didn't land, say). Publish it,
-    // unless the caller syncs anyway.
-    if (syncIfOff && offLockScreen(audio.currentTime)) syncLockScreen();
   }
 
   /** Enforce a seek to `to`: by aiming the one still pending there (it keeps
@@ -555,6 +552,10 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // listening (landAt resets the baseline when it ends).
     heardSecRef.current += heardDelta(prev, t, pendingSeekRef.current !== null || audio.seeking);
     notePosition(audio);
+    // Not playback's steady advance (which the lock screen extrapolates),
+    // but a correction: the position somewhere other than where the lock
+    // screen thinks it is (a seek that didn't land, say). Publish it.
+    if (offLockScreen(knownPosRef.current)) syncLockScreen();
 
     // Save on crossing the threshold, then refresh roughly every minute so the
     // ledger reflects how long a long episode actually ran. recordHeardPlay
@@ -749,7 +750,11 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       brownRef.current?.setGain(noiseGain(noise.on && !audio.paused ? noise.level : 0, driver, FADE_SECONDS));
     }
     setCountdown(kind === "minutes" ? remaining : 0);
-    setEpPos(span ? { cur: span.pos, dur: span.dur } : null);
+    // Only when it changed: paused or held, a new object every second
+    // re-rendered the whole player for nothing.
+    setEpPos((prev) =>
+      span === null ? null : prev && prev.cur === span.pos && prev.dur === span.dur ? prev : { cur: span.pos, dur: span.dur },
+    );
 
     const w = watchRef.current;
     if (w && Date.now() - w.at > 25_000) {
@@ -830,7 +835,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       audio.volume = 1;
     }
 
-    clearLockScreen(); // the stop's own "pause" event finds no src, and keeps it clear
+    clearAllLockScreen(); // the stop's own "pause" event finds no src, and keeps it clear
 
     onEndRef.current();
   }
@@ -979,10 +984,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // A fresh reading first (notePosition's rules decide whether it counts):
     // with timeupdates throttled while locked, knownPosRef can be seconds old
     // when "playing", "waiting" or a new duration arrive.
-    const lockSync = () => {
-      notePosition(audio, { syncIfOff: false });
-      syncLockScreen();
-    };
+    const lockSync = () => refreshLockScreen(audio);
     for (const ev of LOCK_SYNC_EVENTS) audio.addEventListener(ev, lockSync);
     audio.addEventListener("playing", onPlaying);
     audio.addEventListener("ended", onEnded);
@@ -991,7 +993,11 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     if ("mediaSession" in navigator) {
       navigator.mediaSession.setActionHandler("play", () => {
         restRef.current?.noteInteraction();
-        askForSoundRef.current();
+        // The lock screen shows "paused" while loading or stalled, so its
+        // play button is the only one offered then: on an element that is
+        // in fact trying to play, the tap means stop.
+        if (!audio.paused) audio.pause();
+        else askForSoundRef.current();
       });
       navigator.mediaSession.setActionHandler("pause", () => { restRef.current?.noteInteraction(); audio.pause(); });
       // Routed through handleNext, not playNext directly: a lock-screen or
@@ -1042,7 +1048,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       audio.removeEventListener("timeupdate", restTick);
       audio.removeEventListener("timeupdate", heardTick);
       for (const ev of LOCK_SYNC_EVENTS) audio.removeEventListener(ev, lockSync);
-      clearLockScreen(); // the player is gone: no phantom control left behind
+      clearAllLockScreen(); // the player is gone: no phantom control left behind
       audio.removeEventListener("loadedmetadata", onDuration);
       audio.removeEventListener("durationchange", onDuration);
       audio.removeEventListener("playing", onPlaying);
@@ -1086,29 +1092,34 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
    *  (a new episode, a stream), so no stale scrubber is left behind. */
   function syncLockScreen() {
     const audio = audioRef.current;
-    if (!audio || typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+    if (!audio) return;
     if (!audio.getAttribute("src")) {
-      clearLockScreen();
+      clearAllLockScreen();
       return;
     }
-    // Display only: which readings count is notePosition's business (the
-    // element fires a timeupdate before "pause", and heardTick notes it).
-    const ms = navigator.mediaSession;
+    // Display only: which readings count is notePosition's business.
     // Only moving when it is: stalled ("waiting"), still loading after
     // play(), or seeking, it shows paused, so the platform doesn't
     // extrapolate past audio that isn't advancing (a rate of 0 isn't allowed).
     const moving = !audio.paused && !audio.seeking && audio.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA;
-    ms.playbackState = moving ? "playing" : "paused";
     const span = episodeSpan(audio);
     const rate = audio.playbackRate || 1;
     // "none": nothing to extrapolate (no length yet, or a stream), so no
     // reading can be off from it until a length arrives and syncs.
     publishedRef.current = span ? { pos: span.pos, atMs: Date.now(), rate: moving ? rate : 0 } : "none";
-    if (!ms.setPositionState) return;
-    try {
-      if (span) ms.setPositionState({ duration: span.dur, position: span.pos, playbackRate: rate });
-      else ms.setPositionState();
-    } catch { /* a platform that rejects it keeps its own */ }
+    publishLockScreen(moving ? "playing" : "paused", span, rate);
+  }
+
+  /** Clear the lock screen, and what the player remembers publishing. */
+  function clearAllLockScreen() {
+    publishedRef.current = "none";
+    clearLockScreen();
+  }
+
+  /** A fresh reading (by notePosition's rules), then the lock screen from it. */
+  function refreshLockScreen(audio: HTMLAudioElement) {
+    notePosition(audio);
+    syncLockScreen();
   }
 
   /** Whether a reading is somewhere other than where the lock screen,

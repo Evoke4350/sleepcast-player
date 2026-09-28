@@ -16,6 +16,9 @@ export class AudioBackend implements MediaBackend {
   /** The start seek being enforced, torn down before the next load: one that
    *  outlived its episode would seek the NEXT one to this one's position. */
   private seek: SeekEnforcer | null = null;
+  /** This load's duration once the element has reported one, kept through
+   *  a momentary NaN or Infinity so the start seek's end clamp holds. */
+  private loadDuration: number | null = null;
   private detach: Array<() => void> = [];
   /** A rejected play() is not a DOM event, so it cannot ride the "error"
    *  listener subscribe() sets up. These are called directly instead. */
@@ -26,6 +29,7 @@ export class AudioBackend implements MediaBackend {
   load(ref: string, startSeconds = 0): void {
     if (this.dead) return;
     this.dropSeek();
+    this.loadDuration = null;
 
     this.el.src = ref;
 
@@ -34,6 +38,12 @@ export class AudioBackend implements MediaBackend {
     if (startSeconds > 0) {
       const seek = new SeekEnforcer(this.el, startSeconds, {}, () => {
         if (this.seek === seek) this.seek = null;
+      }, {
+        duration: () => {
+          const d = knownDuration(this.el.duration);
+          if (d !== null) this.loadDuration = d;
+          return this.loadDuration;
+        },
       });
       this.seek = seek;
     }
