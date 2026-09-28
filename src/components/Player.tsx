@@ -8,7 +8,7 @@ import { fadeVolume, formatTime, effectiveVolume, fadeDriverSeconds } from "../l
 import { getPlays, recordHeardPlay, saveLive, rememberPosition, forgetPosition, blockEpisode } from "../lib/store";
 import { NetworkHold, isOffline } from "../lib/network-hold";
 import { SeekEnforcer, type SeekHooks } from "../lib/seek-enforcer";
-import { knownDuration } from "../lib/media/backend";
+import { knownDuration, shortOfEnd } from "../lib/duration";
 import { heardDelta } from "../lib/heard";
 import { decideSkip, skipMessage, stillAtStart } from "../lib/skip-intro";
 import { pickNextEpisode, HEARD_SEC } from "../lib/plays";
@@ -320,7 +320,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
    *  load's seek first: a leftover would force-seek this load to that spot.
    *  0 only tears down. Until the seek is done, resumePosition reads its
    *  target; after, the element's position. */
-  function landAt(audio: HTMLAudioElement, at: number, hooks: SeekHooks = {}, { lazy = false }: { lazy?: boolean } = {}): SeekEnforcer | null {
+  function landAt(audio: HTMLAudioElement, at: number, hooks: SeekHooks = {}, { deferSeek = false }: { deferSeek?: boolean } = {}): SeekEnforcer | null {
     pendingSeekRef.current?.cancel();
     knownPosRef.current = at;
     if (at <= 0) return null;
@@ -336,7 +336,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       // own pause in a hold ends a seek that way). A listener's seek before
       // playback is enforced here too, and so is recorded once it lands.
       if (end === "landed") notePosition(audio);
-    }, { lazy });
+    }, { deferSeek });
     pendingSeekRef.current = seek;
     return seek;
   }
@@ -354,13 +354,14 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   /** Enforce a seek to `to`: by retargeting the one still pending (it keeps
    *  count of its own seeks in flight, so their late answers aren't
    *  misread), else with a new one. */
-  function aimAt(audio: HTMLAudioElement, to: number, hooks: SeekHooks = {}): SeekEnforcer | null {
+  function aimAt(audio: HTMLAudioElement, to: number, hooks: SeekHooks = {}, { deferSeek = false }: { deferSeek?: boolean } = {}): SeekEnforcer | null {
     const pending = pendingSeekRef.current;
-    if (pending && pending.retarget(to, hooks)) {
+    // A drag step (deferSeek) only moves the target; the next event seeks.
+    if (pending && (deferSeek ? pending.moveTarget(to, hooks) : pending.retarget(to, hooks))) {
       knownPosRef.current = to;
       return pending;
     }
-    return landAt(audio, to, hooks);
+    return landAt(audio, to, hooks, { deferSeek });
   }
 
   /** Seek past the intro once the duration is known, unless the episode is
@@ -918,7 +919,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     audio.addEventListener("seeked", trackSeek);
     // The skip-intro decides as soon as the duration is known.
     const onDuration = () => {
-      const dur = elementDuration(audio);
+      const dur = knownDuration(audio.duration);
       // (A seek aimed before this was known is kept short of the end by
       // the enforcer itself.)
       if (dur !== null) episodeDurRef.current = dur;
@@ -1012,11 +1013,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     if (listenerSeek(resumePosition() + seconds)) restRef.current?.noteInteraction();
   }
 
-  /** The element's own duration, when it knows one. */
-  function elementDuration(audio: HTMLAudioElement): number | null {
-    return knownDuration(audio.duration);
-  }
-
   /** Time left in the episode, for the fade: from where it is and how long
    *  it is as far as anyone knows, so a reload or a pending start seek
    *  doesn't lose the fade (a new src knows no duration; Safari can read
@@ -1029,7 +1025,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   /** The episode's duration, as far as anyone knows: the element's, or the
    *  one it reported before a reload. */
   function episodeDuration(audio: HTMLAudioElement): number | null {
-    return elementDuration(audio) ?? episodeDurRef.current;
+    return knownDuration(audio.duration) ?? episodeDurRef.current;
   }
 
   /** Every listener seek (the scrubber, ±30 s, the lock screen). Known here,
@@ -1043,17 +1039,16 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
    *  where the browser's fastSeek will do). */
   function listenerSeek(to: number, fast = false): boolean {
     const audio = audioRef.current;
-    if (!audio || !audio.getAttribute("src")) return false;
-    const dur = episodeDuration(audio) ?? Infinity;
-    const at = Math.max(0, Math.min(to, dur - 1));
+    if (!audio || !audio.getAttribute("src") || !Number.isFinite(to)) return false;
+    const at = shortOfEnd(to, episodeDuration(audio));
     skipRef.current = null;
     skipSeekRef.current = null;
     if (!epPlayedRef.current && at > 0) {
       // Before playback, a plain seek is what Safari resets: enforce it. A
       // drag step only moves the target; the drag's final seek enforces.
-      if (!fast) aimAt(audio, at);
-      else if (pendingSeekRef.current?.moveTarget(at)) knownPosRef.current = at;
-      else landAt(audio, at, {}, { lazy: true });
+      // (Its own hooks, none: a skip-intro's announcement isn't the
+      // listener's seek.)
+      aimAt(audio, at, {}, { deferSeek: fast });
       return true;
     }
     pendingSeekRef.current?.cancel();

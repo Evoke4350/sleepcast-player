@@ -318,7 +318,7 @@ describe("SeekEnforcer", () => {
   test("created lazily, it waits for an event to seek", () => {
     const el = new FakeEl();
     el.readyState = 1;
-    new SeekEnforcer(el, 600, {}, () => {}, { lazy: true });
+    new SeekEnforcer(el, 600, {}, () => {}, { deferSeek: true });
     expect(el.currentTime).toBe(0);
     el.fire("timeupdate");
     expect(el.currentTime).toBe(600);
@@ -357,10 +357,25 @@ describe("SeekEnforcer", () => {
     const el = new FakeEl();
     el.readyState = 1;
     const done = vi.fn();
-    new SeekEnforcer(el, 900, {}, done, { lazy: true });
+    new SeekEnforcer(el, 900, {}, done, { deferSeek: true });
     el.fire("seeked"); // someone's earlier seek, reading 0
     expect(done).not.toHaveBeenCalled();
     expect(el.currentTime).toBe(900); // it seeks instead
+  });
+
+  test("a drag step given its own hooks drops the old announcement", () => {
+    const el = new FakeEl();
+    el.readyState = 1;
+    const onLanded = vi.fn();
+    const enf = new SeekEnforcer(el, 120, { onLanded }); // the skip-intro
+    enf.moveTarget(2400, {}); // the listener drags away
+    el.paused = false;
+    el.readyState = 4;
+    el.fire("playing"); // seeks to 2400
+    el.fire("seeked");
+    el.currentTime = 2400.3;
+    el.fire("timeupdate"); // lands
+    expect(onLanded).not.toHaveBeenCalled();
   });
 
   test("cancel reports cancelled", () => {

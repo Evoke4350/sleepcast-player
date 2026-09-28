@@ -24,17 +24,13 @@ export class RestSession {
   }
 
   private lastInteractionAt: number | null = null;
-  /** When a touch last counted: touches closer together than
-   *  INTERACTION_MERGE_MS are one intent (a lock-screen drag's steps, a
-   *  double tap on ±30 s) and count once. */
-  private lastCountedAt: number | null = null;
-
   /** Any transport touch since the last tick. Every touch marks the listener
-   *  active now; a burst counts as one interaction. */
+   *  active now. Touches closer than INTERACTION_MERGE_MS to the one before
+   *  are one burst (a lock-screen drag's steps, taps on ±30 s), however long
+   *  the burst runs, and count once. */
   noteInteraction(now: number = Date.now()): void {
-    if (this.lastCountedAt === null || now - this.lastCountedAt > INTERACTION_MERGE_MS) {
+    if (this.lastInteractionAt === null || now - this.lastInteractionAt > INTERACTION_MERGE_MS) {
       this.interactions++;
-      this.lastCountedAt = now;
     }
     this.pendingInteraction = true;
     this.lastInteractionAt = now;

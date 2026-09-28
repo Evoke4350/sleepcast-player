@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { RestSession, revivedNightStart } from "./session";
+import { INTERACTION_MERGE_MS, RestSession, revivedNightStart } from "./session";
 
 describe("RestSession", () => {
   beforeEach(() => localStorage.clear());
@@ -206,12 +206,14 @@ describe("revivedNightStart", () => {
 });
 
 describe("RestSession interaction bursts", () => {
-  it("a burst counts once but keeps the listener active", () => {
+  it("a burst counts once, however long it runs, but keeps the listener active", () => {
     const s = new RestSession(0, 45);
-    for (let t = 0; t <= 2000; t += 250) s.noteInteraction(10_000 + t); // one drag
+    const step = INTERACTION_MERGE_MS / 4;
+    const end = 10_000 + 3 * INTERACTION_MERGE_MS; // longer than one window
+    for (let t = 10_000; t <= end; t += step) s.noteInteraction(t); // one drag
     expect(s.interactionCount).toBe(1);
-    expect(s.wakefulness(12_000).msSinceLastInteraction).toBe(0);
-    s.noteInteraction(20_000);
+    expect(s.wakefulness(end).msSinceLastInteraction).toBe(0);
+    s.noteInteraction(end + INTERACTION_MERGE_MS + 1); // a new touch after a pause
     expect(s.interactionCount).toBe(2);
   });
 });

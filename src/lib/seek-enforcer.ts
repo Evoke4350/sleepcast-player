@@ -29,7 +29,7 @@
 // knows its media, rather than waiting for an event that a paused element
 // may not send.
 
-import { knownDuration } from "./media/backend";
+import { knownDuration, shortOfEnd } from "./duration";
 
 /** The parts of a media element this needs. */
 export interface Seekable {
@@ -77,36 +77,35 @@ export class SeekEnforcer {
   private done = false;
   private target: number;
   /** The value last assigned (or found already in place). Whenever the
-   *  effective target differs from it (an assignment failed, a lazy drag
+   *  effective target differs from it (an assignment failed, a drag
    *  step moved the target, a new duration moved its clamp, or nothing has
    *  been assigned yet) it is stale: readings are then only echoes of an
    *  earlier seek, possibly within the slack, and every event just seeks. */
   private assigned = NaN;
 
   /** `onDone` runs once, when it lands or stands down for any reason
-   *  (including cancel()). `lazy`: don't seek at creation (a drag step);
-   *  the next event does. */
+   *  (including cancel()). `deferSeek`: don't seek at creation (a drag
+   *  step); the next event does. */
   constructor(
     private readonly el: Seekable,
     at: number,
     private hooks: SeekHooks = {},
     private readonly onDone: (end: SeekEnd) => void = () => {},
-    { lazy = false }: { lazy?: boolean } = {},
+    { deferSeek = false }: { deferSeek?: boolean } = {},
   ) {
     this.target = at;
     // Armed mid-playback (the skip-intro, once the duration is known), the
     // "playing" it waits for has already fired and may not fire again.
     this.sawPlaying = !el.paused && el.readyState >= HAVE_FUTURE_DATA;
     for (const ev of EVENTS) el.addEventListener(ev, this.handle);
-    if (!lazy) this.seekNowIfReady();
+    if (!deferSeek) this.seekNowIfReady();
   }
 
   /** Where it is putting the element: the target, kept a second short of
    *  the end once the duration is known (a seek onto the end ends the
    *  episode), however early the target was chosen. */
   get at(): number {
-    const dur = knownDuration(this.el.duration);
-    return dur === null ? this.target : Math.max(0, Math.min(this.target, dur - 1));
+    return shortOfEnd(this.target, knownDuration(this.el.duration));
   }
 
   /** Aim at another position (the listener's seek), seeking now, and keeping
@@ -114,16 +113,17 @@ export class SeekEnforcer {
    *  Returns false if it has already ended; the caller then starts a new
    *  one. `hooks` replace the current ones when given. */
   retarget(at: number, hooks?: SeekHooks): boolean {
-    if (!this.moveTarget(at)) return false;
-    if (hooks !== undefined) this.hooks = hooks;
+    if (!this.moveTarget(at, hooks)) return false;
     this.seekNowIfReady();
     return true;
   }
 
-  /** A step of a drag: only move the target (the next event seeks). */
-  moveTarget(at: number): boolean {
+  /** A step of a drag: only move the target (the next event seeks).
+   *  `hooks` replace the current ones when given. */
+  moveTarget(at: number, hooks?: SeekHooks): boolean {
     if (this.done) return false;
     this.target = at;
+    if (hooks !== undefined) this.hooks = hooks;
     this.reached = false;
     this.attempts = 0;
     return true;

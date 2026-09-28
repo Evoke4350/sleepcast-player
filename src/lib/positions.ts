@@ -7,7 +7,7 @@
 //
 // This is a separate, longer-lived map: episode id -> seconds.
 
-import { knownDuration } from "./media/backend";
+import { knownDuration } from "./duration";
 
 export type Positions = Record<string, number>;
 

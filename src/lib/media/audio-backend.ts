@@ -1,4 +1,5 @@
-import { knownDuration, type MediaBackend, type Transport, type ErrorInfo } from "./backend";
+import type { MediaBackend, Transport, ErrorInfo } from "./backend";
+import { knownDuration } from "../duration";
 import { SeekEnforcer } from "../seek-enforcer";
 
 /**
