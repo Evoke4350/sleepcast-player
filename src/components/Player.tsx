@@ -204,7 +204,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   useEffect(() => { feedTrimRef.current = feedTrim; }, [feedTrim]);
   useEffect(() => { levelingRef.current = leveling; }, [leveling]);
 
-  function playEpisode(ep: Episode, seekTo = 0) {
+  function playEpisode(ep: Episode, startAt = 0) {
     const audio = audioRef.current;
     if (!audio) return;
 
@@ -238,10 +238,10 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // last episode's seek. The skip-intro waits for the duration (checkSkip),
     // and applies only near the start: a revive from a snapshot taken a
     // second in still gets it, one from mid-episode doesn't.
-    landAt(audio, seekTo);
+    landAt(audio, startAt);
     // Only from a start near the beginning: a revive deep in is not the
     // skip's, whatever the element reads if its seek is dropped later.
-    skipRef.current = stillAtStart(seekTo, skipSec) ? skipSec : null;
+    skipRef.current = stillAtStart(startAt, skipSec) ? skipSec : null;
 
     watchRef.current = { src: ep.url, at: Date.now() };
     playOrWait(audio);
@@ -352,9 +352,15 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
    *  was enforcing gives way, and the position is recorded at once, even
    *  on a failed element in a network hold (where the reload will land). */
   function seekTo(audio: HTMLAudioElement, to: number) {
+    lastPosRef.current = to; // a jump, not time heard
+    if (!epPlayedRef.current) {
+      // Before playback, a plain seek is what Safari resets: enforce it,
+      // replacing whatever seek was pending.
+      landAt(audio, to);
+      return;
+    }
     pendingSeekRef.current?.cancel();
     knownPosRef.current = to;
-    lastPosRef.current = to; // a jump, not time heard
     try { audio.currentTime = to; } catch { /* not seekable now: the reload lands there */ }
   }
 
@@ -495,9 +501,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   // ledger. Driven by "timeupdate" (~4Hz) rather than the 1s interval, because
   // that keeps firing while the phone is locked — the dominant sleep case.
   //
-  // Deltas outside (0, 5) seconds are discarded: a negative or huge jump is a
-  // seek, a scrub, or the reset to 0 on a new source, none of which is time
-  // anyone spent listening.
+  // What counts as listening is lib/heard's heardDelta.
   function heardTick() {
     const audio = audioRef.current;
     const ep = currentEpRef.current;
@@ -998,10 +1002,10 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     const audio = audioRef.current;
     if (!audio || !audio.getAttribute("src")) return;
     const dur = Number.isFinite(audio.duration) ? audio.duration : Infinity;
-    // From where the episode is: a failed element (in a network hold) or one
-    // still being put on its start may read anything.
-    const from = audio.error || pendingSeekRef.current ? resumePosition() : audio.currentTime;
-    seekTo(audio, Math.min(Math.max(0, from + seconds), dur - 1));
+    // From where the episode is, not the element's reading: a failed element
+    // (in a network hold), one still being put on its start, or one without
+    // metadata yet may read anything.
+    seekTo(audio, Math.min(Math.max(0, resumePosition() + seconds), dur - 1));
   }
 
   function extendTimer(minutes: number) {

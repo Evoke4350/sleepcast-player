@@ -75,15 +75,15 @@ describe("SeekEnforcer", () => {
     expect(el.currentTime).toBe(300);
   });
 
-  test("stands down when the listener scrubs while its own seek is still going", () => {
+  test("its own seek answered away (clamped) is retried, not taken as someone else's", () => {
     const el = new FakeEl();
     const done = vi.fn();
-    new SeekEnforcer(el, 300, {}, done);
+    new SeekEnforcer(el, 2400, {}, done);
     el.fire("loadedmetadata"); // seeks, paused (autoplay refused)
-    el.currentTime = 60; // the listener's seek replaces it
-    el.fire("seeked");
-    expect(el.currentTime).toBe(60);
-    expect(done).toHaveBeenCalledTimes(1);
+    el.currentTime = 60; // no byte ranges: clamped
+    el.fire("seeked"); // the answer to ours
+    expect(done).not.toHaveBeenCalled();
+    expect(el.currentTime).toBe(2400);
   });
 
   test("stands down when the listener scrubs while paused", () => {
@@ -169,7 +169,7 @@ describe("SeekEnforcer", () => {
     expect(onLanded).toHaveBeenCalledTimes(1);
   });
 
-  test("a reading away with no seek behind it has strayed, not been scrubbed", () => {
+  test("a paused reading away from a confirmed target stands it down, vouching for nothing", () => {
     const el = new FakeEl();
     const done = vi.fn();
     new SeekEnforcer(el, 300, {}, done);
@@ -177,17 +177,18 @@ describe("SeekEnforcer", () => {
     el.fire("seeked");
     el.currentTime = 0; // a failed element, paused by the app
     el.fire("timeupdate");
-    expect(done).toHaveBeenCalledWith("strayed");
+    expect(done).toHaveBeenCalledWith("stood-down");
   });
 
-  test("a seeked away is the listener's scrub", () => {
+  test("a seeked away with none of its own outstanding stands it down", () => {
     const el = new FakeEl();
     const done = vi.fn();
     new SeekEnforcer(el, 300, {}, done);
     el.fire("loadedmetadata");
+    el.fire("seeked"); // ours, answered at the target
     el.currentTime = 60;
-    el.fire("seeked");
-    expect(done).toHaveBeenCalledWith("scrubbed");
+    el.fire("seeked"); // someone else's
+    expect(done).toHaveBeenCalledWith("stood-down");
   });
 
   test("a late seeked from an earlier seek doesn't confirm a newer one", () => {

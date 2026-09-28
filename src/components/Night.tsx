@@ -385,6 +385,7 @@ export function Night({
     watchRef.current = { id: ep.id, at: Date.now() };
     heardSecRef.current = 0;
     lastPosRef.current = start; // so the jump to `start` is not counted as listening
+    wasSeekingRef.current = false; // a new load: the last one's seek is over
     // Seeded with the requested start: if the seek does land, arriving at
     // `start` is not movement and must not read as proof of sound.
     // A saved position means it was already being listened to: an early end
@@ -1063,6 +1064,7 @@ export function Night({
     if (!media) return false;
     witnessRef.current.reset(at, Date.now());
     lastPosRef.current = at;
+    wasSeekingRef.current = false;
     media.load(ep.youtubeId ?? ep.url, at);
     watchRef.current = { id: ep.id, at: Date.now() };
     return true;

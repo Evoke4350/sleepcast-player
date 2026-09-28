@@ -15,12 +15,13 @@
 // the target is simply retried (bounded), so a seek dropped without a word
 // is tried again.
 //
-// The listener stays in charge. A "seeked" away from the target while paused
-// is the listener scrubbing (their seek replaced this one; Safari's reset
-// comes as playback starts, never while paused), and so is any paused
-// reading away from a confirmed target, or a playing reading well past it (a
-// reset only ever goes back). Each stands the seek down rather than fight
-// them, and without claiming it landed.
+// It doesn't fight what isn't its own. A "seeked" away from the target while
+// paused, with none of its seeks outstanding, was someone else's seek; so is
+// a paused reading away from a confirmed target (Safari's reset comes as
+// playback starts, never while paused), or a playing reading well past it (a
+// reset only ever goes back). Each stands the seek down, without claiming it
+// landed, and without vouching for where the element now is: a caller that
+// knows a seek is the listener's cancels this first.
 
 /** The parts of a media element this needs. */
 export interface Seekable {
@@ -37,12 +38,10 @@ export interface SeekHooks {
   onLanded?: () => void;
 }
 
-/** How it ended. "landed" and "scrubbed" (a "seeked" away: the listener's
- *  seek replaced this one) leave a position the caller can trust. "strayed"
- *  (a reading away from a confirmed target, with no seek behind it: a
- *  listener's skip seen late, or the app's own pause on a failed element),
- *  "gave-up" and "cancelled" may not. */
-export type SeekEnd = "landed" | "scrubbed" | "strayed" | "gave-up" | "cancelled";
+/** How it ended. Only "landed" vouches for the element's position.
+ *  "stood-down" (something else moved it: see above), "gave-up" (a stubborn
+ *  stream) and "cancelled" do not. */
+export type SeekEnd = "landed" | "stood-down" | "gave-up" | "cancelled";
 
 const EVENTS = ["loadedmetadata", "canplay", "playing", "seeked", "timeupdate"] as const;
 const SLACK_SEC = 2;
@@ -96,6 +95,8 @@ export class SeekEnforcer {
     if (this.done) return;
     const el = this.el;
     if (e.type === "playing") this.sawPlaying = true;
+    // Whether this "seeked" could be ours at all, before counting it off.
+    const oursOutstanding = this.outstanding > 0;
     if (e.type === "seeked") this.outstanding = Math.max(0, this.outstanding - 1);
     const unconfirmed = this.outstanding > 0;
     const cur = el.currentTime;
@@ -106,10 +107,10 @@ export class SeekEnforcer {
     if (near && ((e.type === "seeked" && !unconfirmed) || playingHere)) this.reached = true;
     if (el.paused) {
       if (near) return; // there (or on its way), waiting for playback
-      // A "seeked" away with none of ours outstanding was someone else's seek;
-      // with ours outstanding, a late answer to a clamped one: retried.
-      if (this.reached || (e.type === "seeked" && !unconfirmed)) {
-        this.finish(e.type === "seeked" ? "scrubbed" : "strayed"); // not ours to fight
+      // A "seeked" away with none of ours outstanding was someone else's
+      // seek; one answering ours (clamped, or late) is retried.
+      if (this.reached || (e.type === "seeked" && !oursOutstanding)) {
+        this.finish("stood-down"); // not ours to fight
         return;
       }
     } else {
@@ -121,7 +122,7 @@ export class SeekEnforcer {
         return;
       }
       if (this.reached && cur > this.at + SLACK_SEC) {
-        this.finish(e.type === "seeked" ? "scrubbed" : "strayed"); // skipped ahead
+        this.finish("stood-down"); // something skipped it ahead
         return;
       }
     }
