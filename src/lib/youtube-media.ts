@@ -196,7 +196,6 @@ export class YouTubeMedia implements MediaBackend {
     // abandoned: replayed on ready, a queued loadVideoById would start the
     // video under whatever took over.
     this.pending = [];
-    this.switching = null;
     this.pause();
   }
 

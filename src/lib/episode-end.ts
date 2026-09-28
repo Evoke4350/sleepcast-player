@@ -66,13 +66,15 @@ export const PLAY_WHOLE_WITHIN_SEC = 30;
  * retry near its end, a revived night) is left alone.
  */
 export function shouldPlayWhole(w: PlaybackWitness, durationSec: number): boolean {
-  return (
-    !w.heardBeforeLoad &&
-    !w.replayed &&
-    w.startSec > 0 &&
-    durationSec > 0 &&
-    w.startSec >= durationSec - PLAY_WHOLE_WITHIN_SEC
-  );
+  return !w.heardBeforeLoad && !w.replayed && w.startSec > 0 && tooShortForStart(w.startSec, durationSec) === true;
+}
+
+/** Whether starting at `startSec` would land within PLAY_WHOLE_WITHIN_SEC of
+ *  the end: null while the duration is unknown. A stream with no length
+ *  (Infinity) is long. Night's play-whole and Player's skip-intro share it. */
+export function tooShortForStart(startSec: number, durationSec: number): boolean | null {
+  if (Number.isNaN(durationSec) || durationSec <= 0) return null;
+  return startSec >= durationSec - PLAY_WHOLE_WITHIN_SEC;
 }
 
 /** What each outcome does, supplied by the player. */

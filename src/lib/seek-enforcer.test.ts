@@ -64,18 +64,14 @@ describe("SeekEnforcer", () => {
 
   test("waits for metadata before seeking", () => {
     const el = new FakeEl();
-    let tooShort = false;
-    const done = vi.fn();
-    new SeekEnforcer(el, 300, { skipIf: () => tooShort }, done);
+    new SeekEnforcer(el, 300);
     el.paused = false;
     el.readyState = 0;
     el.fire("timeupdate"); // the load's own, before metadata: no seek
     expect(el.currentTime).toBe(0);
     el.readyState = 1;
-    tooShort = true; // the duration, now known, is too short for the skip
     el.fire("loadedmetadata");
-    expect(el.currentTime).toBe(0);
-    expect(done).toHaveBeenCalledTimes(1);
+    expect(el.currentTime).toBe(300);
   });
 
   test("stands down when the listener scrubs while its own seek is still going", () => {
@@ -155,17 +151,6 @@ describe("SeekEnforcer", () => {
     el.currentTime = 2700.3; // playback there
     el.fire("timeupdate");
     expect(done).toHaveBeenCalledTimes(1);
-  });
-
-  test("skipIf stands it down before seeking", () => {
-    const el = new FakeEl();
-    const done = vi.fn();
-    let tooShort = true;
-    new SeekEnforcer(el, 300, { skipIf: () => tooShort }, done);
-    el.fire("loadedmetadata");
-    expect(el.currentTime).toBe(0);
-    expect(done).toHaveBeenCalledTimes(1);
-    tooShort = false;
   });
 
   test("cancel removes every listener", () => {

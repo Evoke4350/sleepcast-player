@@ -35,9 +35,6 @@ export interface Seekable {
 export interface SeekHooks {
   /** When it lands with playback rolling (the skip-intro says so). */
   onLanded?: () => void;
-  /** Checked before each seek: true stands it down without seeking (the
-   *  skip-intro on an episode now known to be too short for it). */
-  skipIf?: () => boolean;
 }
 
 const EVENTS = ["loadedmetadata", "canplay", "playing", "seeked", "timeupdate"] as const;
@@ -110,10 +107,10 @@ export class SeekEnforcer {
       }
     }
     // Not before metadata: a seek then becomes the start position, applied
-    // unasked once the media is known, before skipIf could see the duration.
+    // unasked once the media is known.
     if (el.readyState < HAVE_METADATA) return;
-    if (this.attempts++ >= MAX_ATTEMPTS || this.hooks.skipIf?.()) {
-      this.finish(); // a stubborn stream, or a seek that would now be wrong
+    if (this.attempts++ >= MAX_ATTEMPTS) {
+      this.finish(); // stop fighting a stubborn stream
       return;
     }
     this.seek();
