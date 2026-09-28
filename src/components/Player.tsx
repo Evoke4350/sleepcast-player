@@ -326,11 +326,10 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       // heardTick's baseline: where it ended up, so the landing's own step
       // (up to the enforcer's slack past the target) isn't counted as heard.
       lastPosRef.current = audio.currentTime;
-      // Only a position it ended on for real: one that gave up or strayed
+      // Only a position it ended on for real: one that gave up or stood down
       // may leave a stalled or failed element's reading behind (the app's
-      // own pause in a hold ends a seek that way).
-      // (The listener's own seeks go through seekTo, which cancels this
-      // first, so none of them ends here.)
+      // own pause in a hold ends a seek that way). A listener's seek before
+      // playback is enforced here too, and so is recorded once it lands.
       if (end === "landed") notePosition(audio);
     });
     pendingSeekRef.current = seek;
@@ -352,16 +351,29 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
    *  was enforcing gives way, and the position is recorded at once, even
    *  on a failed element in a network hold (where the reload will land). */
   function seekTo(audio: HTMLAudioElement, to: number) {
-    lastPosRef.current = to; // a jump, not time heard
-    if (!epPlayedRef.current) {
-      // Before playback, a plain seek is what Safari resets: enforce it,
-      // replacing whatever seek was pending.
-      landAt(audio, to);
+    // The listener's seek replaces the skip's, announcement and all.
+    skipSeekRef.current = null;
+    if (!epPlayedRef.current && to > 0) {
+      // Before playback, a plain seek is what Safari resets: enforce it.
+      aimAt(audio, to);
       return;
     }
     pendingSeekRef.current?.cancel();
     knownPosRef.current = to;
+    lastPosRef.current = to; // a jump, not time heard (after the cancel's rebase)
     try { audio.currentTime = to; } catch { /* not seekable now: the reload lands there */ }
+  }
+
+  /** Enforce a seek to `to`: by retargeting the one still pending (it keeps
+   *  count of its own seeks in flight, so their late answers aren't
+   *  misread), else with a new one. */
+  function aimAt(audio: HTMLAudioElement, to: number, hooks: SeekHooks = {}): SeekEnforcer | null {
+    const pending = pendingSeekRef.current;
+    if (pending && pending.retarget(to, hooks)) {
+      knownPosRef.current = to;
+      return pending;
+    }
+    return landAt(audio, to, hooks);
   }
 
   /** Seek past the intro once the duration is known, unless the episode is
@@ -376,7 +388,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     if (decision === "wait") return;
     skipRef.current = null;
     if (decision !== "skip") return;
-    skipSeekRef.current = landAt(audio, skipSec, skipHooks(skipSec));
+    skipSeekRef.current = aimAt(audio, skipSec, skipHooks(skipSec));
   }
 
   /** The skip's seek hooks: it says so when it lands. */
@@ -948,6 +960,13 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       try {
         navigator.mediaSession.setActionHandler("seekbackward", () => skipBy(-30));
         navigator.mediaSession.setActionHandler("seekforward", () => skipBy(30));
+        // The lock-screen scrubber: through seekTo like any listener seek,
+        // not the browser's default, which would bypass it.
+        navigator.mediaSession.setActionHandler("seekto", (d) => {
+          if (d.seekTime === undefined) return;
+          restRef.current?.noteInteraction();
+          seekTo(audio, d.seekTime);
+        });
       } catch { /* older browsers: fine without */ }
     }
 
@@ -991,6 +1010,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
         try {
           navigator.mediaSession.setActionHandler("seekbackward", null);
           navigator.mediaSession.setActionHandler("seekforward", null);
+          navigator.mediaSession.setActionHandler("seekto", null);
         } catch { /* symmetric with setup */ }
       }
     };

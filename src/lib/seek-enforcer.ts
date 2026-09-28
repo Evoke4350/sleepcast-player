@@ -20,8 +20,14 @@
 // a paused reading away from a confirmed target (Safari's reset comes as
 // playback starts, never while paused), or a playing reading well past it (a
 // reset only ever goes back). Each stands the seek down, without claiming it
-// landed, and without vouching for where the element now is: a caller that
-// knows a seek is the listener's cancels this first.
+// landed, and without vouching for where the element now is. A caller that
+// knows the listener wants another position retargets this one (it keeps
+// count of its own seeks still in flight, which a fresh enforcer couldn't)
+// or cancels it.
+//
+// It seeks at once when created or retargeted on an element that already
+// knows its media, rather than waiting for an event that a paused element
+// may not send.
 
 /** The parts of a media element this needs. */
 export interface Seekable {
@@ -65,19 +71,40 @@ export class SeekEnforcer {
    *  paused reading away is retried rather than taken as the listener's. */
   private outstanding = 0;
   private done = false;
+  private target: number;
 
   /** `onDone` runs once, when it lands or stands down for any reason
    *  (including cancel()). */
   constructor(
     private readonly el: Seekable,
-    readonly at: number,
-    private readonly hooks: SeekHooks = {},
+    at: number,
+    private hooks: SeekHooks = {},
     private readonly onDone: (end: SeekEnd) => void = () => {},
   ) {
+    this.target = at;
     // Armed mid-playback (the skip-intro, once the duration is known), the
     // "playing" it waits for has already fired and may not fire again.
     this.sawPlaying = !el.paused && el.readyState >= HAVE_FUTURE_DATA;
     for (const ev of EVENTS) el.addEventListener(ev, this.handle);
+    this.seekNowIfReady();
+  }
+
+  /** Where it is putting the element. */
+  get at(): number {
+    return this.target;
+  }
+
+  /** Aim at another position (the listener's seek), keeping the count of
+   *  seeks in flight so their late answers aren't misread. Returns false if
+   *  it has already ended; the caller then starts a new one. */
+  retarget(at: number, hooks: SeekHooks = {}): boolean {
+    if (this.done) return false;
+    this.target = at;
+    this.hooks = hooks;
+    this.attempts = 0;
+    this.reached = false;
+    this.seekNowIfReady();
+    return true;
   }
 
   cancel(): void {
@@ -135,6 +162,13 @@ export class SeekEnforcer {
     }
     this.seek();
   };
+
+  private seekNowIfReady(): void {
+    if (this.el.readyState < HAVE_METADATA) return;
+    if (Math.abs(this.el.currentTime - this.target) <= SLACK_SEC) return;
+    this.attempts++;
+    this.seek();
+  }
 
   private seek(): void {
     try {

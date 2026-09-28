@@ -65,9 +65,9 @@ describe("SeekEnforcer", () => {
 
   test("waits for metadata before seeking", () => {
     const el = new FakeEl();
+    el.readyState = 0;
     new SeekEnforcer(el, 300);
     el.paused = false;
-    el.readyState = 0;
     el.fire("timeupdate"); // the load's own, before metadata: no seek
     expect(el.currentTime).toBe(0);
     el.readyState = 1;
@@ -203,6 +203,47 @@ describe("SeekEnforcer", () => {
     el.fire("timeupdate"); // not a confirmed target: retried, not abandoned
     expect(done).not.toHaveBeenCalled();
     expect(el.currentTime).toBe(300);
+  });
+
+  test("seeks at once on an element that already knows its media", () => {
+    const el = new FakeEl(); // paused, readyState 1: no event is coming
+    el.currentTime = 1200;
+    new SeekEnforcer(el, 1230);
+    expect(el.currentTime).toBe(1230);
+  });
+
+  test("waits for metadata when created before it", () => {
+    const el = new FakeEl();
+    el.readyState = 0;
+    new SeekEnforcer(el, 300);
+    expect(el.currentTime).toBe(0);
+  });
+
+  test("retarget seeks at once, and a late answer to its earlier seek isn't misread", () => {
+    const el = new FakeEl();
+    const done = vi.fn();
+    const enf = new SeekEnforcer(el, 1200, {}, done); // seeks to 1200
+    expect(enf.retarget(1230)).toBe(true); // the listener's +30
+    expect(el.currentTime).toBe(1230);
+    expect(enf.at).toBe(1230);
+    el.currentTime = 1200; // the first seek's answer arrives late
+    el.fire("seeked");
+    expect(done).not.toHaveBeenCalled();
+    expect(el.currentTime).toBe(1230); // retried, not abandoned
+  });
+
+  test("retarget to 0 is a real seek", () => {
+    const el = new FakeEl();
+    const enf = new SeekEnforcer(el, 1200);
+    enf.retarget(0);
+    expect(el.currentTime).toBe(0);
+  });
+
+  test("retarget after it ended says so", () => {
+    const el = new FakeEl();
+    const enf = new SeekEnforcer(el, 300);
+    enf.cancel();
+    expect(enf.retarget(600)).toBe(false);
   });
 
   test("cancel reports cancelled", () => {
