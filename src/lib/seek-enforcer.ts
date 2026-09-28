@@ -76,8 +76,14 @@ export class SeekEnforcer {
   private outstanding = 0;
   private done = false;
   private target: number;
-  /** The current target's assignment failed: readings are someone else's. */
-  private unassigned = false;
+  /** The effective target isn't the value last assigned: an assignment
+   *  failed, a drag step moved the target lazily, or a new duration moved
+   *  its clamp. Until the next successful assignment, readings (echoes of
+   *  an earlier one, possibly within the slack) are not evidence: every
+   *  event just seeks. */
+  private stale = false;
+  /** The effective target when last looked at, to notice a clamp move. */
+  private lastAt = NaN;
 
   /** `onDone` runs once, when it lands or stands down for any reason
    *  (including cancel()). */
@@ -89,6 +95,7 @@ export class SeekEnforcer {
     { seekNow = true }: { seekNow?: boolean } = {},
   ) {
     this.target = at;
+    this.lastAt = this.at;
     // Armed mid-playback (the skip-intro, once the duration is known), the
     // "playing" it waits for has already fired and may not fire again.
     this.sawPlaying = !el.paused && el.readyState >= HAVE_FUTURE_DATA;
@@ -110,12 +117,16 @@ export class SeekEnforcer {
   retarget(at: number, hooks?: SeekHooks, { seekNow = true }: { seekNow?: boolean } = {}): boolean {
     if (this.done) return false;
     this.target = at;
+    this.lastAt = this.at;
     if (hooks !== undefined) this.hooks = hooks;
     this.reached = false;
-    // A step of a drag (`seekNow: false`) only moves the target: the next
-    // event seeks, and the attempt bound isn't renewed per step.
-    if (!seekNow) return true;
     this.attempts = 0;
+    // A step of a drag (`seekNow: false`) only moves the target: the next
+    // event seeks. Until then nothing read counts.
+    if (!seekNow) {
+      this.stale = true;
+      return true;
+    }
     this.seekNowIfReady();
     return true;
   }
@@ -143,13 +154,20 @@ export class SeekEnforcer {
     const near = Math.abs(cur - this.at) <= SLACK_SEC;
     // The assignment's own echo, not a position the element has reached.
     const echo = unconfirmed && Math.abs(cur - this.at) < ECHO_SEC;
-    const playingHere = near && !echo && !this.unassigned && this.sawPlaying && !el.paused && e.type === "timeupdate";
-    if (near && !this.unassigned && ((e.type === "seeked" && !unconfirmed) || playingHere)) this.reached = true;
-    // After a failed assignment nothing read is ours: just try again.
-    if (this.unassigned) {
+    // A new duration can move the clamped target after it was assigned (a
+    // VBR estimate settling): treat that as a new target.
+    const at = this.at;
+    if (at !== this.lastAt) {
+      this.lastAt = at;
+      this.reached = false;
+      this.stale = true;
+    }
+    if (this.stale) {
       this.trySeek();
       return;
     }
+    const playingHere = near && !echo && this.sawPlaying && !el.paused && e.type === "timeupdate";
+    if (near && ((e.type === "seeked" && !unconfirmed) || playingHere)) this.reached = true;
     if (el.paused) {
       if (near) return; // there (or on its way), waiting for playback
       // A "seeked" away with none of ours outstanding was someone else's
@@ -193,13 +211,14 @@ export class SeekEnforcer {
       return;
     }
     try {
-      this.el.currentTime = this.at;
+      const at = this.at;
+      this.el.currentTime = at;
+      this.lastAt = at;
       this.outstanding++;
-      this.unassigned = false;
+      this.stale = false;
     } catch {
-      // Not seekable yet: a later event retries. Meanwhile the element may
-      // still read an earlier target's echo, which must not count as here.
-      this.unassigned = true;
+      // Not seekable yet: a later event retries (see stale).
+      this.stale = true;
     }
   }
 }

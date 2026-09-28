@@ -324,6 +324,35 @@ describe("SeekEnforcer", () => {
     expect(el.currentTime).toBe(600);
   });
 
+  test("a drag step inside the slack doesn't let the old assignment's echo land", () => {
+    const el = new FakeEl();
+    el.readyState = 1;
+    const done = vi.fn();
+    const enf = new SeekEnforcer(el, 1200, {}, done); // assigned, unconfirmed
+    enf.retarget(1201, undefined, { seekNow: false });
+    el.paused = false;
+    el.readyState = 4;
+    el.fire("playing"); // re-seeks to 1201 rather than trusting 1200
+    expect(el.currentTime).toBe(1201);
+    el.fire("timeupdate"); // the new assignment's echo
+    expect(done).not.toHaveBeenCalled();
+  });
+
+  test("a duration that moves the clamp after confirmation re-seeks, not stands down", () => {
+    const el = new FakeEl();
+    el.duration = 5300;
+    el.fire("loadedmetadata");
+    const done = vi.fn();
+    const enf = new SeekEnforcer(el, 5370, {}, done); // clamped: 5299
+    expect(el.currentTime).toBe(5299);
+    el.fire("seeked"); // confirmed at 5299
+    el.duration = 5400; // the estimate settles
+    el.fire("timeupdate");
+    expect(done).not.toHaveBeenCalled();
+    expect(enf.at).toBe(5370);
+    expect(el.currentTime).toBe(5370);
+  });
+
   test("cancel reports cancelled", () => {
     const el = new FakeEl();
     const done = vi.fn();

@@ -627,8 +627,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       kind === "minutes" && endTimeRef.current !== null
         ? (endTimeRef.current - Date.now()) / 1000
         : Infinity;
-    const epRemaining =
-      audio ? remainingOf(audio) : null;
+    const epRemaining = audio ? remainingOf(audio) : null;
     const driver = fadeDriverSeconds(kind, timerRemaining, epRemaining);
     r.tick({
       now: Date.now(),
@@ -689,8 +688,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       return;
     }
 
-    const epDur = elementDuration(audio);
-    const epRemaining = epDur !== null ? epDur - audio.currentTime : null;
+    const epRemaining = remainingOf(audio);
     const driver = fadeDriverSeconds(kind, remaining, epRemaining);
 
     // The courtesy fade owns audio.volume while it runs. Without this guard
@@ -954,12 +952,13 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
         // seek, not the browser's default, which would bypass it.
         navigator.mediaSession.setActionHandler("seekto", (d) => {
           if (d.seekTime === undefined) return;
+          if (!listenerSeek(d.seekTime, d.fastSeek === true)) return;
           // One drag sends a run of fastSeek steps, then (usually) a final
-          // seek: one interaction per drag, even without that final seek.
+          // seek: one interaction per drag, with or without that final seek.
           const now = Date.now();
-          if (!d.fastSeek || now - lastDragNoteRef.current > DRAG_GAP_MS) restRef.current?.noteInteraction();
+          const inDrag = now - lastDragNoteRef.current <= DRAG_GAP_MS;
+          if (!inDrag) restRef.current?.noteInteraction();
           lastDragNoteRef.current = d.fastSeek ? now : 0;
-          listenerSeek(d.seekTime, d.fastSeek === true);
         });
       } catch { /* older browsers: fine without */ }
     }
@@ -1012,11 +1011,10 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   }, []);
 
   function skipBy(seconds: number) {
-    restRef.current?.noteInteraction();
     // From where the episode is, not the element's reading: a failed element
     // (in a network hold), one still being put on its start, or one without
     // metadata yet may read anything.
-    listenerSeek(resumePosition() + seconds);
+    if (listenerSeek(resumePosition() + seconds)) restRef.current?.noteInteraction();
   }
 
   /** The element's own duration, when it knows one. */
@@ -1024,9 +1022,13 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     return knownDuration(audio.duration);
   }
 
+  /** Time left in the episode, for the fade: from where it is and how long
+   *  it is as far as anyone knows, so a reload or a pending start seek
+   *  doesn't lose the fade (a new src knows no duration; Safari can read
+   *  ~0 before its seek is corrected). */
   function remainingOf(audio: HTMLAudioElement): number | null {
-    const dur = elementDuration(audio);
-    return dur !== null ? dur - audio.currentTime : null;
+    const dur = episodeDuration(audio);
+    return dur !== null ? Math.max(0, dur - resumePosition()) : null;
   }
 
   /** The episode's duration, as far as anyone knows: the element's, or the
@@ -1044,9 +1046,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
    *  enforced by retargeting the pending seek (aimAt); otherwise any pending
    *  seek gives way to a plain one (`fast`: a step of a lock-screen drag,
    *  where the browser's fastSeek will do). */
-  function listenerSeek(to: number, fast = false) {
+  function listenerSeek(to: number, fast = false): boolean {
     const audio = audioRef.current;
-    if (!audio || !audio.getAttribute("src")) return;
+    if (!audio || !audio.getAttribute("src")) return false;
     const dur = episodeDuration(audio) ?? Infinity;
     const at = Math.max(0, Math.min(to, dur - 1));
     skipRef.current = null;
@@ -1055,7 +1057,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       // Before playback, a plain seek is what Safari resets: enforce it. A
       // drag step only moves the target; the drag's final seek enforces.
       aimAt(audio, at, {}, { seekNow: !fast });
-      return;
+      return true;
     }
     pendingSeekRef.current?.cancel();
     knownPosRef.current = at;
@@ -1066,6 +1068,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       if (fast && typeof audio.fastSeek === "function") audio.fastSeek(at);
       else audio.currentTime = at;
     } catch { /* not seekable now: the reload lands there */ }
+    return true;
   }
 
   function extendTimer(minutes: number) {
@@ -1142,14 +1145,14 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   }
 
   function seekToRatio(e: React.MouseEvent<HTMLDivElement>) {
-    restRef.current?.noteInteraction();
     const audio = audioRef.current;
     // This episode's duration, not the display's (a second behind after a
     // track change); listenerSeek clamps the rest.
     const dur = audio ? episodeDuration(audio) : null;
     if (dur === null) return;
     const rect = e.currentTarget.getBoundingClientRect();
-    listenerSeek(((e.clientX - rect.left) / rect.width) * dur);
+    if (!listenerSeek(((e.clientX - rect.left) / rect.width) * dur)) return;
+    restRef.current?.noteInteraction();
     // Aiming at a position is the one moment the numbers earn their place —
     // show where you landed, then let them go back under with the moon.
     setPeekUntil(Date.now() + 4000);
