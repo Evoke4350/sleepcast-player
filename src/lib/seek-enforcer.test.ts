@@ -94,6 +94,7 @@ describe("SeekEnforcer", () => {
     const done = vi.fn();
     new SeekEnforcer(el, 300, {}, done);
     el.fire("loadedmetadata"); // seeks
+    el.currentTime = 300.2; // lands on a frame boundary
     el.fire("seeked"); // confirmed, paused (autoplay refused)
     el.currentTime = 60; // the listener rewinds
     el.fire("timeupdate");
@@ -107,6 +108,7 @@ describe("SeekEnforcer", () => {
     new SeekEnforcer(el, 300, {}, done);
     el.paused = false; // play() pending
     el.fire("loadedmetadata"); // seeks
+    el.currentTime = 300.2; // lands on a frame boundary
     el.fire("seeked"); // confirmed, still loading
     el.paused = true; // then autoplay is refused
     el.currentTime = 60; // and the listener rewinds
@@ -122,6 +124,7 @@ describe("SeekEnforcer", () => {
     new SeekEnforcer(el, 120, { onLanded }, done);
     el.paused = false;
     el.fire("loadedmetadata");
+    el.currentTime = 120.2;
     el.fire("seeked");
     el.fire("playing"); // at 120
     el.currentTime = 150; // skipped +30 before the landing timeupdate
@@ -178,7 +181,8 @@ describe("SeekEnforcer", () => {
     const done = vi.fn();
     new SeekEnforcer(el, 300, {}, done);
     el.fire("loadedmetadata");
-    el.fire("seeked");
+    el.currentTime = 300.2;
+    el.fire("seeked"); // confirmed
     el.currentTime = 0; // a failed element, paused by the app
     el.fire("timeupdate");
     expect(done).toHaveBeenCalledWith("stood-down");
@@ -447,6 +451,18 @@ describe("SeekEnforcer", () => {
     el.duration = 900; // the estimate drops below the placed position
     el.fire("durationchange");
     expect(el.currentTime).toBe(899);
+  });
+
+  test("a seeked reading exactly the value just assigned doesn't confirm it", () => {
+    const el = new FakeEl();
+    el.readyState = 1;
+    const done = vi.fn();
+    new SeekEnforcer(el, 300, {}, done); // assigns 300
+    el.fire("seeked"); // an earlier seek's, queued before this one: reads the echo
+    el.currentTime = 0; // this seek is dropped
+    el.fire("timeupdate"); // paused, away: not confirmed, so retried
+    expect(done).not.toHaveBeenCalled();
+    expect(el.currentTime).toBe(300);
   });
 
   test("cancel reports cancelled", () => {

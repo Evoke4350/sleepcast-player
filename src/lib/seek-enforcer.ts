@@ -178,7 +178,12 @@ export class SeekEnforcer {
     // The assignment's own echo, not a position the element has reached.
     const echo = unconfirmed && Math.abs(cur - at) < ECHO_SEC;
     const playingHere = near && !echo && this.sawPlaying && !el.paused && e.type === "timeupdate";
-    if (near && ((e.type === "seeked" && !unconfirmed) || playingHere)) this.reached = true;
+    // A "seeked" confirms only a reading that isn't exactly the value just
+    // assigned: an earlier seek's "seeked" can be queued before this one was
+    // made (the element no longer reports it as seeking), and an exact
+    // reading then is only this seek's echo. Playback confirms the rest.
+    const exact = Math.abs(cur - at) < ECHO_SEC;
+    if (near && ((e.type === "seeked" && !unconfirmed && !exact) || playingHere)) this.reached = true;
     if (el.paused) {
       if (near) return; // there (or on its way), waiting for playback
       // A "seeked" away with none of ours outstanding was someone else's

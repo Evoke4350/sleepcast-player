@@ -247,7 +247,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // and applies only near the start: a revive from a snapshot taken a
     // second in still gets it, one from mid-episode doesn't.
     if (startAt > 0) landAt(audio, startAt);
-    else clearSeek(0);
+    else clearSeek();
     // Only from a start near the beginning: a revive deep in is not the
     // skip's, whatever the element reads if its seek is dropped later.
     skipRef.current = stillAtStart(startAt, skipSec) ? skipSec : null;
@@ -320,11 +320,11 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     );
   }
 
-  /** No seek for this load: tear down the last one (a leftover would
-   *  force-seek this load to its spot) and start from `at`. */
-  function clearSeek(at: number) {
+  /** No seek for this load, which starts at 0: tear down the last one (a
+   *  leftover would force-seek this load to its spot). */
+  function clearSeek() {
     pendingSeekRef.current?.cancel();
-    knownPosRef.current = at;
+    knownPosRef.current = 0;
   }
 
   /** Enforce landing at `at` (see SeekEnforcer), replacing any seek
@@ -357,7 +357,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
    *  until it is corrected), not before the element knows its media (a new
    *  load reads 0), and not from a failed element, which can read 0 too. */
   function notePosition(audio: HTMLAudioElement) {
-    if (pendingSeekRef.current) return;
+    // Nor mid-seek: a fastSeek's currentTime can still read where it left.
+    if (pendingSeekRef.current || audio.seeking) return;
     if (audio.error || audio.readyState < HTMLMediaElement.HAVE_METADATA) return;
     knownPosRef.current = audio.currentTime;
   }
@@ -436,8 +437,13 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // with the skip's announcement if it is the skip's seek being reloaded:
     // skipSeekRef is set only while that seek is the pending one.
     const skip = skipSeekRef.current;
-    const seek = at > 0 ? landAt(audio, at, skip ? skipHooks(skip.skipSec) : {}) : (clearSeek(0), null);
-    skipSeekRef.current = skip && seek ? { seek, skipSec: skip.skipSec } : null;
+    if (at > 0) {
+      const seek = landAt(audio, at, skip ? skipHooks(skip.skipSec) : {});
+      skipSeekRef.current = skip ? { seek, skipSec: skip.skipSec } : null;
+    } else {
+      clearSeek();
+      skipSeekRef.current = null;
+    }
     lastPosRef.current = at; // the new load's baseline, for a reload at 0 too
     watchRef.current = { src: ep.url, at: Date.now() };
     playOrWait(audio);
@@ -663,8 +669,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   function tick() {
     const audio = audioRef.current;
     if (!audio) return;
-    // This event's reading, before the fade and the bar read resumePosition()
-    // (heardTick runs after tick on each timeupdate).
+    // A fresh reading before the fade and the bar read resumePosition():
+    // tick is throttled (see TICK_MIN_MS), and heardTick, which also notes
+    // the position on every timeupdate, runs after it.
     notePosition(audio);
 
     // In one-episode and all-night modes there is no timer to run down, so the
@@ -1048,14 +1055,14 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
    *  even on a failed element in a network hold (where the reload will
    *  land). Clamped to the episode, never onto its very end (which would
    *  end it); nothing when nothing is loaded. It replaces the skip-intro,
-   *  pending or decided. Before playback a seek to a positive position is
-   *  enforced by retargeting the pending seek (aimAt); otherwise any pending
-   *  seek gives way to a plain one (`fast`: a step of a lock-screen drag,
-   *  where the browser's fastSeek will do). */
+   *  pending or decided. Before playback every seek, back to 0 included, is
+   *  enforced through aimAt: the pending seek retargeted, or a new one (a
+   *  lock-screen drag step, `fast`, only moves the target, the next event
+   *  seeking). After playback any pending seek gives way to a plain one,
+   *  where a drag step can use the browser's fastSeek. */
   function listenerSeek(to: number, fast = false): boolean {
     const audio = audioRef.current;
     if (!audio || !audio.getAttribute("src") || !Number.isFinite(to)) return false;
-    const at = shortOfEnd(to, episodeDuration(audio));
     skipRef.current = null;
     skipSeekRef.current = null;
     if (!epPlayedRef.current) {
@@ -1068,6 +1075,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       aimAt(audio, Math.max(0, to), {}, { move: fast });
       return true;
     }
+    const at = shortOfEnd(to, episodeDuration(audio));
     pendingSeekRef.current?.cancel();
     knownPosRef.current = at;
     // A jump, not time heard (after the cancel's rebase). fastSeek, where
