@@ -9,10 +9,11 @@
 // while the element is still loading.
 //
 // Only a position the element has confirmed counts as reaching the target:
-// currentTime reads the target the instant it is assigned, before the seek
-// completes, or even if it is dropped. Confirmation is a "seeked" there, or
-// playback there. Any reading away from the target is simply retried
-// (bounded), so a seek dropped without a word is tried again.
+// currentTime reads exactly the target the instant it is assigned, before
+// the seek completes, or even if it is dropped. Confirmation is a "seeked"
+// there, or playback reading anything but that echo. Any reading away from
+// the target is simply retried (bounded), so a seek dropped without a word
+// is tried again.
 //
 // The listener stays in charge. A "seeked" away from the target while paused
 // is the listener scrubbing (their seek replaced this one; Safari's reset
@@ -25,6 +26,8 @@
 export interface Seekable {
   currentTime: number;
   readonly paused: boolean;
+  /** HTMLMediaElement.readyState: 0 until the element knows its media. */
+  readonly readyState: number;
   addEventListener(type: string, listener: (e: Event) => void): void;
   removeEventListener(type: string, listener: (e: Event) => void): void;
 }
@@ -32,6 +35,9 @@ export interface Seekable {
 export interface SeekHooks {
   /** When it lands with playback rolling (the skip-intro says so). */
   onLanded?: () => void;
+  /** Checked before each seek: true stands it down without seeking (the
+   *  skip-intro on an episode now known to be too short for it). */
+  skipIf?: () => boolean;
 }
 
 const EVENTS = ["loadedmetadata", "canplay", "playing", "seeked", "timeupdate"] as const;
@@ -42,6 +48,8 @@ export class SeekEnforcer {
   private attempts = 0;
   private sawPlaying = false;
   private reached = false;
+  /** An assignment not yet confirmed by "seeked". */
+  private unconfirmed = false;
   private done = false;
 
   /** `onDone` runs once, when it lands or stands down for any reason
@@ -70,9 +78,13 @@ export class SeekEnforcer {
     if (this.done) return;
     const el = this.el;
     if (e.type === "playing") this.sawPlaying = true;
+    if (e.type === "seeked") this.unconfirmed = false;
     const cur = el.currentTime;
     const near = Math.abs(cur - this.at) <= SLACK_SEC;
-    if (near && (e.type === "seeked" || (this.sawPlaying && !el.paused))) this.reached = true;
+    // The assignment's own echo, not a position the element has reached.
+    const echo = this.unconfirmed && cur === this.at;
+    const playingHere = near && !echo && this.sawPlaying && !el.paused && e.type === "timeupdate";
+    if (near && (e.type === "seeked" || playingHere)) this.reached = true;
     if (el.paused) {
       if (near) return; // there (or on its way), waiting for playback
       if (this.reached || e.type === "seeked") {
@@ -81,7 +93,7 @@ export class SeekEnforcer {
       }
     } else {
       if (near) {
-        if (this.sawPlaying && e.type === "timeupdate") {
+        if (playingHere) {
           this.hooks.onLanded?.();
           this.finish(); // landed, and playback is rolling
         }
@@ -92,8 +104,11 @@ export class SeekEnforcer {
         return;
       }
     }
-    if (this.attempts++ >= MAX_ATTEMPTS) {
-      this.finish(); // stop fighting a stubborn stream
+    // Not before metadata: a seek then becomes the start position, applied
+    // unasked once the media is known, before skipIf could see the duration.
+    if (el.readyState < 1) return;
+    if (this.attempts++ >= MAX_ATTEMPTS || this.hooks.skipIf?.()) {
+      this.finish(); // a stubborn stream, or a seek that would now be wrong
       return;
     }
     this.seek();
@@ -102,6 +117,7 @@ export class SeekEnforcer {
   private seek(): void {
     try {
       this.el.currentTime = this.at;
+      this.unconfirmed = true;
     } catch {
       /* not seekable yet: a later event retries */
     }

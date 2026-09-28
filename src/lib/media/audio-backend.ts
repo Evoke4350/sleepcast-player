@@ -46,9 +46,8 @@ export class AudioBackend implements MediaBackend {
   }
 
   standDown(): void {
-    if (this.dead) return;
     this.dropSeek();
-    this.el.pause();
+    this.pause();
   }
 
   private dropSeek(): void {

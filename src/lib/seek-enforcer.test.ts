@@ -4,6 +4,7 @@ import { SeekEnforcer, type Seekable } from "./seek-enforcer";
 class FakeEl implements Seekable {
   currentTime = 0;
   paused = true;
+  readyState = 1; // HAVE_METADATA: most tests start there
   private listeners = new Map<string, Set<(e: Event) => void>>();
   addEventListener(t: string, f: (e: Event) => void) {
     if (!this.listeners.has(t)) this.listeners.set(t, new Set());
@@ -61,14 +62,20 @@ describe("SeekEnforcer", () => {
     expect(el.currentTime).toBe(2700); // retried
   });
 
-  test("a seek before metadata doesn't stop the one at metadata", () => {
+  test("waits for metadata before seeking", () => {
     const el = new FakeEl();
-    new SeekEnforcer(el, 300);
+    let tooShort = false;
+    const done = vi.fn();
+    new SeekEnforcer(el, 300, { skipIf: () => tooShort }, done);
     el.paused = false;
-    el.fire("timeupdate"); // the load's own, at HAVE_NOTHING: the seek is lost
-    el.currentTime = 0;
+    el.readyState = 0;
+    el.fire("timeupdate"); // the load's own, before metadata: no seek
+    expect(el.currentTime).toBe(0);
+    el.readyState = 1;
+    tooShort = true; // the duration, now known, is too short for the skip
     el.fire("loadedmetadata");
-    expect(el.currentTime).toBe(300);
+    expect(el.currentTime).toBe(0);
+    expect(done).toHaveBeenCalledTimes(1);
   });
 
   test("stands down when the listener scrubs while its own seek is still going", () => {
@@ -134,6 +141,31 @@ describe("SeekEnforcer", () => {
     expect(done).toHaveBeenCalledTimes(1);
     enf.cancel(); // idempotent
     expect(done).toHaveBeenCalledTimes(1);
+  });
+
+  test("an echo of its own seek on a playing element is not a landing", () => {
+    const el = new FakeEl();
+    const done = vi.fn();
+    new SeekEnforcer(el, 2700, {}, done);
+    el.paused = false;
+    el.fire("playing");
+    el.fire("timeupdate"); // reads 0: seeks, and now reads exactly 2700
+    el.fire("timeupdate"); // the echo, unconfirmed
+    expect(done).not.toHaveBeenCalled();
+    el.currentTime = 2700.3; // playback there
+    el.fire("timeupdate");
+    expect(done).toHaveBeenCalledTimes(1);
+  });
+
+  test("skipIf stands it down before seeking", () => {
+    const el = new FakeEl();
+    const done = vi.fn();
+    let tooShort = true;
+    new SeekEnforcer(el, 300, { skipIf: () => tooShort }, done);
+    el.fire("loadedmetadata");
+    expect(el.currentTime).toBe(0);
+    expect(done).toHaveBeenCalledTimes(1);
+    tooShort = false;
   });
 
   test("cancel removes every listener", () => {

@@ -191,6 +191,12 @@ export class YouTubeMedia implements MediaBackend {
   }
 
   standDown(): void {
+    if (this.dead) return;
+    // Commands queued before the embed was ready belong to the load being
+    // abandoned: replayed on ready, a queued loadVideoById would start the
+    // video under whatever took over.
+    this.pending = [];
+    this.switching = null;
     this.pause();
   }
 

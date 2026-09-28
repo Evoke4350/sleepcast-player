@@ -8,6 +8,7 @@ import { fadeVolume, formatTime, effectiveVolume, fadeDriverSeconds } from "../l
 import { getPlays, recordHeardPlay, saveLive, rememberPosition, forgetPosition, blockEpisode } from "../lib/store";
 import { NetworkHold, isOffline } from "../lib/network-hold";
 import { SeekEnforcer, type SeekHooks } from "../lib/seek-enforcer";
+import { SkipIntro, tooShortForSkip } from "../lib/skip-intro";
 import { pickNextEpisode, HEARD_SEC } from "../lib/plays";
 import { canExtend } from "../lib/timer-feel";
 import type { NoiseSettings } from "../lib/store";
@@ -107,11 +108,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   const onEndRef = useRef(onEnd);
   /** The seek the current load is enforcing (see landAt), if any. */
   const pendingSeekRef = useRef<SeekEnforcer | null>(null);
-  /** The skip-intro target while it's undecided whether the episode is too
-   *  short for it (see checkPlayWhole). */
-  const playWholeRef = useRef<number | null>(null);
-  /** Minutes of a skip that landed before play-whole was decided. */
-  const skipToastPendingRef = useRef<number | null>(null);
+  /** The current load's skip-intro, until it is decided (see checkSkip). */
+  const skipRef = useRef<SkipIntro | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Watchdog: a track that hasn't reached "playing" within the window is
   // stuck (silent play() rejection, stalled load, dead enclosure URL) —
   // skip it instead of sitting in silence. Bounded so a fully-broken pool
@@ -234,18 +233,15 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // Reviving a night: land where the sleeper left off (a saved position is
     // already past any intro). Else the skip-intro, if any; 0 just clears the
     // last episode's seek.
-    // An episode barely longer than the skip plays whole instead, decided
-    // once its duration is known (see checkPlayWhole).
-    playWholeRef.current = seekTo === 0 && skipSec > 0 ? skipSec : null;
-    skipToastPendingRef.current = null;
-    landAt(audio, seekTo > 0 ? seekTo : skipSec, seekTo > 0 ? {} : {
-      onLanded: () => {
-        // Not while it may yet play whole (see checkPlayWhole), which then
-        // says it or doesn't.
-        if (playWholeRef.current === null) skipToast(skipMin);
-        else skipToastPendingRef.current = skipMin;
-      },
-    });
+    // An episode barely longer than the skip plays whole instead (see
+    // lib/skip-intro): the seek stands down if the duration already says so,
+    // and checkSkip undoes it if the duration says so only later.
+    const skip = seekTo === 0 && skipSec > 0 ? new SkipIntro(skipSec) : null;
+    skipRef.current = skip;
+    landAt(audio, seekTo > 0 ? seekTo : skipSec, skip ? {
+      onLanded: () => { if (skip.landedNow()) showToast(`skipped the ${skipMin} min intro`); },
+      skipIf: () => tooShortForSkip(skipSec, audio.duration) === true,
+    } : {});
 
     watchRef.current = { src: ep.url, at: Date.now() };
     playOrWait(audio);
@@ -339,33 +335,29 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     knownPosRef.current = audio.currentTime;
   }
 
-  /** The skip-intro on an episode barely longer than the skip: play it whole.
-   *  Decided once, as soon as the duration is known, which can be after the
-   *  seek has landed (Safari can report NaN at loadedmetadata). Only undoes
-   *  the skip itself: a listener who has moved elsewhere is left there. */
-  function checkPlayWhole(audio: HTMLAudioElement) {
-    const skipSec = playWholeRef.current;
-    const dur = audio.duration;
-    if (skipSec === null || !Number.isFinite(dur) || dur <= 0) return;
-    playWholeRef.current = null;
-    const toast = skipToastPendingRef.current;
-    skipToastPendingRef.current = null;
-    if (skipSec < dur - 30) {
-      if (toast !== null) skipToast(toast);
-      return;
-    }
+  /** Settle the skip-intro once the duration is known (see lib/skip-intro):
+   *  announce it, or undo it on an episode too short for it. */
+  function checkSkip(audio: HTMLAudioElement) {
+    const skip = skipRef.current;
+    if (!skip) return;
     const seek = pendingSeekRef.current;
-    const atSkip = seek ? seek.at === skipSec : Math.abs(audio.currentTime - skipSec) <= 2;
-    if (!atSkip) return;
-    seek?.cancel();
+    const pending = seek !== null && seek.at === skip.skipSec;
+    const decision = skip.decide(audio.duration, pending);
+    if (decision === "wait") return;
+    skipRef.current = null;
+    if (decision === "announce") showToast(`skipped the ${skip.minutes} min intro`);
+    if (decision !== "play-whole") return;
+    if (pending) seek.cancel();
     try { audio.currentTime = 0; } catch { /* not seekable: it plays from here */ }
     knownPosRef.current = 0;
     lastPosRef.current = 0;
   }
 
-  function skipToast(minutes: number) {
-    setToast(`skipped the ${minutes} min intro`);
-    setTimeout(() => setToast(""), 4200);
+  /** One toast at a time: a new one replaces the last, timer and all. */
+  function showToast(message: string) {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToast(message);
+    toastTimerRef.current = setTimeout(() => setToast(""), 4200);
   }
 
   /** play(), and if autoplay is refused (a track change or a reload while the
@@ -486,7 +478,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     const delta = t - lastPosRef.current;
     lastPosRef.current = t;
     if (delta > 0 && delta < 5) heardSecRef.current += delta;
-    checkPlayWhole(audio);
+    checkSkip(audio);
     notePosition(audio);
 
     // Save on crossing the threshold, then refresh roughly every minute so the
@@ -532,8 +524,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // The spread renders the pool PROP, so it also has to be told — otherwise
     // the blocked title stays in tonight's list and tapping it plays it.
     setBlockedTonight((prev) => new Set(prev).add(ep.id));
-    setToast("never again");
-    setTimeout(() => setToast(""), 4200);
+    showToast("never again");
     restRef.current?.noteInteraction();
     playNext();
   }
@@ -902,7 +893,10 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     audio.addEventListener("timeupdate", heardTick); // accumulates real playback for the play ledger
     // heardTick tracks the position on timeupdate; a scrub while paused
     // fires only "seeked".
-    const trackSeek = () => notePosition(audio);
+    const trackSeek = () => {
+      skipRef.current?.seeked();
+      notePosition(audio);
+    };
     audio.addEventListener("seeked", trackSeek);
     audio.addEventListener("playing", onPlaying);
     audio.addEventListener("ended", onEnded);
@@ -987,12 +981,11 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     setTotalSeconds((t) => t + minutes * 60);
     const used = extensions + 1;
     setExtensions(used);
-    setToast(
+    showToast(
       canExtend(used)
         ? "a little longer — sleep when you're ready"
         : "that's the last stretch. resting counts too.",
     );
-    setTimeout(() => setToast(""), 4200);
   }
 
   // End must survive 2am thumbs: press and hold for a full second, a ring
