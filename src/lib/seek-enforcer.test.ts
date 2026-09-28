@@ -56,6 +56,35 @@ describe("SeekEnforcer", () => {
     expect(done).toHaveBeenCalledTimes(1);
   });
 
+  test("stands down for a paused scrub when the target was reached while loading", () => {
+    const el = new FakeEl();
+    const done = vi.fn();
+    new SeekEnforcer(el, 300, {}, done);
+    el.paused = false; // play() pending
+    el.fire("loadedmetadata"); // seeks
+    el.fire("canplay"); // reached, still loading
+    el.paused = true; // then autoplay is refused
+    el.currentTime = 60; // and the listener rewinds
+    el.fire("timeupdate");
+    expect(el.currentTime).toBe(60);
+    expect(done).toHaveBeenCalledTimes(1);
+  });
+
+  test("a listener's skip ahead is not claimed as the landing", () => {
+    const el = new FakeEl();
+    const onLanded = vi.fn();
+    const done = vi.fn();
+    new SeekEnforcer(el, 120, { onLanded }, done);
+    el.paused = false;
+    el.fire("loadedmetadata");
+    el.fire("playing"); // at 120
+    el.currentTime = 150; // skipped +30 before the landing timeupdate
+    el.fire("timeupdate");
+    expect(el.currentTime).toBe(150);
+    expect(onLanded).not.toHaveBeenCalled();
+    expect(done).toHaveBeenCalledTimes(1);
+  });
+
   test("plays a short episode whole", () => {
     const el = new FakeEl();
     const done = vi.fn();

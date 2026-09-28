@@ -1,4 +1,5 @@
 import type { MediaBackend, Transport, ErrorInfo } from "./backend";
+import { SeekEnforcer } from "../seek-enforcer";
 
 /**
  * An <audio> element behind the backend interface.
@@ -29,20 +30,13 @@ export class AudioBackend implements MediaBackend {
     this.el.src = ref;
 
     if (startSeconds > 0) {
-      const onMeta = () => {
-        try {
-          this.el.currentTime = startSeconds;
-        } catch {
-          /* not seekable yet; the episode simply starts at the top */
-        }
-        cleanup();
-      };
-      const cleanup = () => {
-        this.el.removeEventListener("loadedmetadata", onMeta);
-        if (this.seekCleanup === cleanup) this.seekCleanup = null;
-      };
-      this.seekCleanup = cleanup;
-      this.el.addEventListener("loadedmetadata", onMeta);
+      // Enforced, not a single seek: Safari resets a seek made before
+      // playback starts (see SeekEnforcer).
+      const seek = new SeekEnforcer(this.el, startSeconds, {}, () => {
+        if (this.seekCleanup === cancel) this.seekCleanup = null;
+      });
+      const cancel = () => seek.cancel();
+      this.seekCleanup = cancel;
     }
 
     void this.el.play().catch((err: unknown) => this.reportPlayFailure(err));

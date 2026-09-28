@@ -121,7 +121,7 @@ describe("NetworkHold", () => {
   it("a tap whose resume no longer applies does not settle the reading", () => {
     const h = new NetworkHold();
     h.hold(() => false, true); // the listener's pause; the resume then declines
-    h.resumeNow(true);
+    expect(h.resumeNow(true)).toBe(false); // so the caller plays the ordinary way
     const again = vi.fn(() => true);
     h.hold(again, false);
     online();

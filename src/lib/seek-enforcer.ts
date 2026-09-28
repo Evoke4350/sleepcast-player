@@ -8,10 +8,11 @@
 // not proof: it turns false the moment play() is called, while the element
 // is still loading.
 //
-// The listener stays in charge. Once the target has been reached while
-// paused (a refused autoplay, say), a later paused reading away from it is
-// the listener scrubbing (Safari's reset comes as playback starts), and the
-// seek stands down rather than fight them.
+// The listener stays in charge. Once the target has been reached, a later
+// paused reading away from it is the listener scrubbing (Safari's reset comes
+// as playback starts, never while paused), and so is a playing reading well
+// past it (a reset only ever goes back). Either way the seek stands down
+// rather than fight them, and without claiming it landed.
 
 /** The parts of a media element this needs. */
 export interface Seekable {
@@ -36,7 +37,7 @@ const MAX_ATTEMPTS = 12;
 export class SeekEnforcer {
   private attempts = 0;
   private sawPlaying = false;
-  private reachedWhilePaused = false;
+  private reached = false;
   private done = false;
 
   /** `onDone` runs once, when it lands or stands down for any reason
@@ -71,22 +72,26 @@ export class SeekEnforcer {
     }
     if (e.type === "playing") this.sawPlaying = true;
     const cur = el.currentTime;
-    const there = cur >= this.at - SLACK_SEC;
+    const near = Math.abs(cur - this.at) <= SLACK_SEC;
+    if (near) this.reached = true;
     if (el.paused) {
-      if (this.reachedWhilePaused && Math.abs(cur - this.at) > SLACK_SEC) {
+      if (near) return; // there, waiting for playback
+      if (this.reached) {
         this.finish(); // the listener moved it
         return;
       }
-      if (there) {
-        this.reachedWhilePaused = true;
+    } else {
+      if (near) {
+        if (this.sawPlaying && e.type === "timeupdate") {
+          this.hooks.onLanded?.();
+          this.finish(); // landed, and playback is rolling
+        }
         return;
       }
-    } else if (there) {
-      if (this.sawPlaying && e.type === "timeupdate") {
-        this.hooks.onLanded?.();
-        this.finish(); // landed, and playback is rolling
+      if (this.reached && cur > this.at + SLACK_SEC) {
+        this.finish(); // the listener skipped ahead
+        return;
       }
-      return;
     }
     if (this.attempts++ >= MAX_ATTEMPTS) {
       this.finish(); // stop fighting a stubborn stream

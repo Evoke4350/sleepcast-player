@@ -28,10 +28,10 @@ export class NetworkHold {
    *  listener's pause either). */
   private pausedAtHold: boolean | null = null;
 
-  /** `paused`: whether the player was paused as the hold begins. Ignored
-   *  after the first hold until cancel() (see pausedAtHold). */
   /** `resume` returns whether it actually reloaded: it may find the hold no
-   *  longer applies (a fade-out, the night moved on). */
+   *  longer applies (a fade-out, the night moved on). `paused`: whether the
+   *  player was paused as the hold begins; ignored after the first hold until
+   *  cancel() (see pausedAtHold). */
   hold(resume: () => boolean, paused: boolean, allow: () => boolean = () => true): void {
     this.disarm();
     this.pausedAtHold ??= paused;
@@ -43,7 +43,9 @@ export class NetworkHold {
     this.off = () => window.removeEventListener("online", onOnline);
   }
 
-  /** Run the pending resume now. Returns whether there was one. `asked`:
+  /** Run the pending resume now. Returns whether it reloaded: false when
+   *  nothing was pending or the resume declined, and the caller then asks for
+   *  sound the ordinary way. `asked`:
    *  the listener asked for sound, which settles the reading once the resume
    *  actually reloads — should that attempt fail too, the network coming
    *  back may resume by itself. */
@@ -51,8 +53,9 @@ export class NetworkHold {
     const resume = this.pending;
     if (!resume) return false;
     this.disarm();
-    if (resume() && asked) this.pausedAtHold = false;
-    return true;
+    const reloaded = resume();
+    if (reloaded && asked) this.pausedAtHold = false;
+    return reloaded;
   }
 
   /** Something played, a new episode started, or the night ended. */

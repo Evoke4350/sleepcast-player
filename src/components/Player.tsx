@@ -314,9 +314,17 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     const seek = new SeekEnforcer(audio, at, hooks, () => {
       if (pendingSeekRef.current !== seek) return;
       pendingSeekRef.current = null;
-      if (audio.readyState >= HTMLMediaElement.HAVE_METADATA) knownPosRef.current = audio.currentTime;
+      notePosition(audio);
     });
     pendingSeekRef.current = seek;
+  }
+
+  /** Take the element's own position as where the episode is, when it can
+   *  be trusted: not before it knows its media (a new load reads 0), and
+   *  not from a failed element, which can read 0 too. */
+  function notePosition(audio: HTMLAudioElement) {
+    if (audio.error || audio.readyState < HTMLMediaElement.HAVE_METADATA) return;
+    knownPosRef.current = audio.currentTime;
   }
 
   /** play(), and if autoplay is refused (a track change or a reload while the
@@ -857,9 +865,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // Where the episode is, while no seek is being enforced (resumePosition).
     // Not before the element knows its media: a new load reads 0 then.
     const trackPosition = () => {
-      if (!pendingSeekRef.current && audio.readyState >= HTMLMediaElement.HAVE_METADATA) {
-        knownPosRef.current = audio.currentTime;
-      }
+      if (!pendingSeekRef.current) notePosition(audio);
     };
     audio.addEventListener("timeupdate", trackPosition);
     audio.addEventListener("seeked", trackPosition);
@@ -900,6 +906,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       if (tickHandleRef.current !== null) clearInterval(tickHandleRef.current);
       clearStopFade();
       netHoldRef.current.cancel();
+      pendingSeekRef.current?.cancel();
       // A hold still counting at unmount would call endSession on a player
       // that is gone, and through onEnd end whatever night came next.
       if (holdTimerRef.current) clearInterval(holdTimerRef.current);
