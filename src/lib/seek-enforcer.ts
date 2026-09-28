@@ -167,7 +167,7 @@ export class SeekEnforcer {
       // on estimates settling. (A failed assignment leaves nothing placed.)
       if (this.placed !== null && this.placed.target === this.target) this.attempts = 0;
       this.reached = false;
-      this.trySeek();
+      this.trySeek(at);
       return;
     }
     const unconfirmed = this.outstanding > 0;
@@ -198,7 +198,7 @@ export class SeekEnforcer {
         return;
       }
     }
-    this.trySeek();
+    this.trySeek(at);
   };
 
   /** On creation and retarget: seek now unless it's already there. A
@@ -216,13 +216,12 @@ export class SeekEnforcer {
   /** One attempt, if the element can take it: not before metadata (a seek
    *  then becomes the start position, applied unasked once the media is
    *  known), and not beyond the attempt bound. */
-  private trySeek(): void {
+  private trySeek(at: number = this.at): void {
     if (this.el.readyState < HAVE_METADATA) return;
     if (this.attempts++ >= MAX_ATTEMPTS) {
       this.finish("gave-up"); // stop fighting a stubborn stream
       return;
     }
-    const at = this.at;
     try {
       this.el.currentTime = at;
       this.placed = { at, target: this.target };
