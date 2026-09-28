@@ -54,6 +54,7 @@ import { shouldTick } from "../lib/tick-gate";
 import { RestSession, revivedNightStart } from "../lib/rest/session";
 import { recordNightEnd } from "../lib/night-end";
 import { NetworkHold, isOffline } from "../lib/network-hold";
+import { startWithSkip } from "../lib/skip-intro";
 import { PlaybackWitness, rearmsWatchdogOnTap } from "../lib/witness";
 import { applyEndedDecision, decideAfterEnded, shouldPlayWhole } from "../lib/episode-end";
 import type { RestNight } from "../lib/rest/types";
@@ -370,9 +371,10 @@ export function Night({
     setTransport("buffering");
     setShowStartPrompt(false);
 
-    // A saved position is already past any intro, so it wins over skip-intro.
+    // A saved position further along wins over skip-intro; one near the
+    // start (a revive from a snapshot a second in) still gets it, as in Player.
     const skipSec = (skipIntroRef.current[ep.feedId] ?? 0) * 60;
-    const start = seekTo > 0 ? seekTo : skipSec;
+    const start = startWithSkip(seekTo, skipSec);
     // A videoId for the embed, an enclosure URL for the element. This is the
     // last place the difference is visible.
     next.load(ep.youtubeId ?? ep.url, start);

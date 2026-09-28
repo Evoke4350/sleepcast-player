@@ -110,6 +110,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   const pendingSeekRef = useRef<SeekEnforcer | null>(null);
   /** The episode's skip-intro, in seconds, until it is decided (checkSkip). */
   const skipRef = useRef<number | null>(null);
+  /** The skip's own seek once armed, so a reload before it lands can re-arm
+   *  it with its announcement. */
+  const skipSeekRef = useRef<{ at: number; hooks: SeekHooks } | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Watchdog: a track that hasn't reached "playing" within the window is
   // stuck (silent play() rejection, stalled load, dead enclosure URL) —
@@ -236,6 +239,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // second in still gets it, one from mid-episode doesn't.
     landAt(audio, seekTo);
     skipRef.current = skipSec > 0 ? skipSec : null;
+    skipSeekRef.current = null;
 
     watchRef.current = { src: ep.url, at: Date.now() };
     playOrWait(audio);
@@ -283,7 +287,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // Read before pausing: paused already means by the listener (a paused
     // element's buffering can fail too; see NetworkHold).
     const paused = audio.paused;
-    const at = resumePosition();
     watchRef.current = null;
     freezeClock();
     audio.pause();
@@ -295,7 +298,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
         // without a hold.
         if (tickHandleRef.current === null || stopFadeRef.current !== null) return false;
         if (currentEpRef.current !== ep) return false;
-        return reloadCurrent(ep, at);
+        // Where it is now, not when the hold began: the skip may have been
+        // decided in between, and its seek is then the place to reload at.
+        return reloadCurrent(ep, resumePosition());
       },
       paused,
       // Not by itself over the get-up hold the listener opted into.
@@ -341,8 +346,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     if (decision === "wait") return;
     skipRef.current = null;
     if (decision !== "skip") return;
-    landAt(audio, skipSec, { onLanded: () => showToast(skipMessage(skipSec)) });
-    lastPosRef.current = skipSec; // a jump, not time heard
+    const hooks = { onLanded: () => showToast(skipMessage(skipSec)) };
+    skipSeekRef.current = { at: skipSec, hooks };
+    landAt(audio, skipSec, hooks);
   }
 
   /** One toast at a time: a new one replaces the last, timer and all. */
@@ -379,12 +385,11 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // it plays again (see epPlayedRef).
     epPlayedRef.current = false;
     audio.src = ep.url;
-    // Re-armed fresh, never carried over: the old enforcement's state belongs
-    // to the load that failed.
-    // The same seek, if one is still being enforced there (the skip's, with
-    // its announcement); a plain one otherwise.
-    const pending = pendingSeekRef.current;
-    landAt(audio, at, pending && pending.at === at ? pending.hooks : {});
+    // A fresh enforcer (the old one's state belongs to the load that failed),
+    // with the skip's announcement if it is the skip's seek being reloaded.
+    const skip = skipSeekRef.current;
+    const reloadingSkip = skip !== null && skip.at === at && pendingSeekRef.current?.at === at;
+    landAt(audio, at, reloadingSkip ? skip.hooks : {});
     lastPosRef.current = at; // not a jump heardTick should count
     watchRef.current = { src: ep.url, at: Date.now() };
     playOrWait(audio);
@@ -470,8 +475,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     const t = audio.currentTime;
     const delta = t - lastPosRef.current;
     lastPosRef.current = t;
-    if (delta > 0 && delta < 5) heardSecRef.current += delta;
-    checkSkip(audio);
+    // Not while a seek is being enforced: its jumps are not time heard.
+    if (!pendingSeekRef.current && delta > 0 && delta < 5) heardSecRef.current += delta;
     notePosition(audio);
 
     // Save on crossing the threshold, then refresh roughly every minute so the

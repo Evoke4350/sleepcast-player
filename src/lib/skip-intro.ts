@@ -24,9 +24,18 @@ export function decideSkip(skipSec: number, durationSec: number, currentTime: nu
   return currentTime <= SKIP_STILL_AT_START_SEC && currentTime < skipSec ? "skip" : "none";
 }
 
+/** Where Night and YouTubeNight start a load, by the same rule: the skip
+ * applies at a start near the beginning (a first play, or a revive from a
+ * snapshot taken a second in), not to a saved position further along. (They
+ * check a too-short episode afterwards, with shouldPlayWhole.) */
+export function startWithSkip(seekTo: number, skipSec: number): number {
+  return skipSec > seekTo && seekTo <= SKIP_STILL_AT_START_SEC ? skipSec : seekTo;
+}
+
 /** What the listener is told once the skip lands. */
 export function skipMessage(skipSec: number): string {
-  if (skipSec < 60) return `skipped the ${Math.round(skipSec)} s intro`;
+  const seconds = Math.max(1, Math.round(skipSec));
+  if (seconds < 60) return `skipped the ${seconds} s intro`;
   const minutes = Number((skipSec / 60).toFixed(1)); // 1.02 shows as 1
   return `skipped the ${minutes} min intro`;
 }

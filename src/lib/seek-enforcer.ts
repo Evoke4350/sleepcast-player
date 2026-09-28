@@ -61,8 +61,7 @@ export class SeekEnforcer {
   constructor(
     private readonly el: Seekable,
     readonly at: number,
-    /** Readable so a reload to the same target can re-arm the same seek. */
-    readonly hooks: SeekHooks = {},
+    private readonly hooks: SeekHooks = {},
     private readonly onDone: () => void = () => {},
   ) {
     // Armed mid-playback (the skip-intro, once the duration is known), the

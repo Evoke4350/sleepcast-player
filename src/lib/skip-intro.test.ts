@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { decideSkip, skipMessage } from "./skip-intro";
+import { decideSkip, skipMessage, startWithSkip } from "./skip-intro";
 import { tooShortForStart } from "./episode-end";
 
 describe("tooShortForStart", () => {
@@ -40,5 +40,17 @@ describe("skipMessage", () => {
     expect(skipMessage(90)).toBe("skipped the 1.5 min intro");
     expect(skipMessage(15)).toBe("skipped the 15 s intro");
     expect(skipMessage(61.2)).toBe("skipped the 1 min intro");
+    expect(skipMessage(59.7)).toBe("skipped the 1 min intro");
+    expect(skipMessage(0.3)).toBe("skipped the 1 s intro");
+  });
+});
+
+describe("startWithSkip", () => {
+  test("the skip near the start, a saved position further along", () => {
+    expect(startWithSkip(0, 300)).toBe(300);
+    expect(startWithSkip(3, 300)).toBe(300);
+    expect(startWithSkip(1800, 300)).toBe(1800);
+    expect(startWithSkip(0, 0)).toBe(0);
+    expect(startWithSkip(10, 5)).toBe(10); // already past the intro
   });
 });
