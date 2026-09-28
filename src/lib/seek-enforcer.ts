@@ -27,7 +27,8 @@
 //
 // It seeks at once when created or retargeted on an element that already
 // knows its media, rather than waiting for an event that a paused element
-// may not send.
+// may not send; except when asked not to (a drag step: moveTarget, or
+// creation with deferSeek), where the next event seeks.
 
 import { knownDuration, shortOfEnd } from "./duration";
 
@@ -80,12 +81,12 @@ export class SeekEnforcer {
   private outstanding = 0;
   private done = false;
   private target: number;
-  /** The position last put in place (assigned, or found already there) and
-   *  the target it was for; null before any, or after a failed assignment.
-   *  Whenever the effective target differs from it, it is stale: readings
-   *  are then only echoes of an earlier seek, possibly within the slack,
-   *  and every event just seeks. */
-  private placed: { at: number; target: number } | null = null;
+  /** The position last put in place (assigned, or found already there);
+   *  null before any, or after a failed assignment. Whenever the effective
+   *  target differs from it, it is stale: readings are then only echoes of
+   *  an earlier seek, possibly within the slack, and every event just
+   *  seeks. */
+  private placedAt: number | null = null;
 
   /** `onDone` runs once, when it lands or stands down for any reason
    *  (including cancel()). `deferSeek`: don't seek at creation (a drag
@@ -161,11 +162,12 @@ export class SeekEnforcer {
     const oursOutstanding = this.outstanding > 0;
     if (e.type === "seeked") this.outstanding = Math.max(0, this.outstanding - 1);
     const at = this.at;
-    if (this.placed === null || at !== this.placed.at) {
-      // The same target, placed before, with only its clamp moved by a new
-      // duration estimate: not a failed attempt, so the bound isn't spent
-      // on estimates settling. (A failed assignment leaves nothing placed.)
-      if (this.placed !== null && this.placed.target === this.target) this.attempts = 0;
+    if (this.placedAt === null || at !== this.placedAt) {
+      // Something was placed and the effective target has moved since: a
+      // clamp moved by a new duration estimate (a moved target has reset
+      // the bound already), not a failed attempt, so the bound isn't spent
+      // on estimates settling. A failed assignment leaves nothing placed.
+      if (this.placedAt !== null) this.attempts = 0;
       this.reached = false;
       this.trySeek(at);
       return;
@@ -207,7 +209,7 @@ export class SeekEnforcer {
   private seekNowIfReady(): void {
     const at = this.at;
     if (this.el.readyState >= HAVE_METADATA && this.outstanding === 0 && Math.abs(this.el.currentTime - at) <= SLACK_SEC) {
-      this.placed = { at, target: this.target }; // already there: nothing to assign
+      this.placedAt = at; // already there: nothing to assign
       return;
     }
     this.trySeek();
@@ -224,12 +226,12 @@ export class SeekEnforcer {
     }
     try {
       this.el.currentTime = at;
-      this.placed = { at, target: this.target };
+      this.placedAt = at;
       this.outstanding++;
     } catch {
       // Not seekable yet: a later event retries (it stays stale), and each
       // such retry spends the bound.
-      this.placed = null;
+      this.placedAt = null;
     }
   }
 }

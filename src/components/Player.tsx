@@ -123,9 +123,10 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   const watchRef = useRef<{ src: string; at: number } | null>(null);
   /** Waiting out a dropped network (see holdForNetwork). */
   const netHoldRef = useRef(new NetworkHold());
-  /** Where the episode is, as far as anyone can tell (see resumePosition):
-   *  a new load's intended start, then the element's own position whenever
-   *  no seek is being enforced and it has one. */
+  /** Where the episode is, as far as anyone can tell (see resumePosition),
+   *  when no seek is pending: the element's own trustworthy reading (see
+   *  notePosition), or the target a seek left behind when it ended without
+   *  landing (kept short of the known end), or a load's start of 0. */
   const knownPosRef = useRef(0);
   /** The current episode's duration once its element has reported one: kept
    *  across a reload (whose element knows nothing yet), reset per episode. */
@@ -245,7 +246,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // last episode's seek. The skip-intro waits for the duration (checkSkip),
     // and applies only near the start: a revive from a snapshot taken a
     // second in still gets it, one from mid-episode doesn't.
-    landAt(audio, startAt);
+    if (startAt > 0) landAt(audio, startAt);
+    else clearSeek(0);
     // Only from a start near the beginning: a revive deep in is not the
     // skip's, whatever the element reads if its seek is dropped later.
     skipRef.current = stillAtStart(startAt, skipSec) ? skipSec : null;
@@ -318,16 +320,18 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     );
   }
 
-  /** Land the new load at `at` (see SeekEnforcer), tearing down the last
-   *  load's seek first: a leftover would force-seek this load to that spot.
-   *  0 only tears down. Until the seek is done, resumePosition reads its
-   *  target; after, the element's position. */
-  function landAt(audio: HTMLAudioElement, at: number, hooks: SeekHooks = {}, { deferSeek = false }: { deferSeek?: boolean } = {}): SeekEnforcer | null {
+  /** No seek for this load: tear down the last one (a leftover would
+   *  force-seek this load to its spot) and start from `at`. */
+  function clearSeek(at: number) {
     pendingSeekRef.current?.cancel();
-    if (at <= 0) {
-      knownPosRef.current = at;
-      return null;
-    }
+    knownPosRef.current = at;
+  }
+
+  /** Enforce landing at `at` (see SeekEnforcer), replacing any seek
+   *  pending. While it is pending, resumePosition reads its target; after,
+   *  the element's position if it landed, else the target it leaves behind. */
+  function landAt(audio: HTMLAudioElement, at: number, hooks: SeekHooks = {}, { deferSeek = false }: { deferSeek?: boolean } = {}): SeekEnforcer {
+    pendingSeekRef.current?.cancel();
     const seek = new SeekEnforcer(audio, at, hooks, (end) => {
       if (skipSeekRef.current?.seek === seek) skipSeekRef.current = null;
       if (pendingSeekRef.current !== seek) return;
@@ -340,12 +344,11 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       // own pause in a hold ends a seek that way). A listener's seek before
       // playback is enforced here too, and so is recorded once it lands.
       if (end === "landed") notePosition(audio);
-      // A target left behind by a seek that didn't land is kept, but never
-      // past the end as now known (it may have been chosen before).
-      else knownPosRef.current = shortOfEnd(knownPosRef.current, episodeDuration(audio));
+      // A target left behind by a seek that didn't land is kept, as the
+      // enforcer keeps it: never past the end as now known.
+      else knownPosRef.current = seek.at;
     }, { deferSeek, duration: () => episodeDuration(audio) });
     pendingSeekRef.current = seek;
-    knownPosRef.current = seek.at; // the target, as the enforcer keeps it
     return seek;
   }
 
@@ -359,19 +362,13 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     knownPosRef.current = audio.currentTime;
   }
 
-  /** Enforce a seek to `to`: by retargeting the one still pending (it keeps
-   *  count of its own seeks in flight, so their late answers aren't
-   *  misread), else with a new one. */
   /** Enforce a seek to `to`: by aiming the one still pending there (it keeps
    *  count of its own seeks in flight, so their late answers aren't
    *  misread), else with a new one. `move`: a drag step, which only moves
    *  the target (the next event seeks). */
-  function aimAt(audio: HTMLAudioElement, to: number, hooks: SeekHooks = {}, { move = false }: { move?: boolean } = {}): SeekEnforcer | null {
+  function aimAt(audio: HTMLAudioElement, to: number, hooks: SeekHooks = {}, { move = false }: { move?: boolean } = {}): SeekEnforcer {
     const pending = pendingSeekRef.current;
-    if (pending && (move ? pending.moveTarget(to, hooks) : pending.retarget(to, hooks))) {
-      knownPosRef.current = pending.at; // the target, as the enforcer keeps it
-      return pending;
-    }
+    if (pending && (move ? pending.moveTarget(to, hooks) : pending.retarget(to, hooks))) return pending;
     return landAt(audio, to, hooks, { deferSeek: move });
   }
 
@@ -390,7 +387,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     skipRef.current = null;
     if (decision !== "skip") return;
     const seek = aimAt(audio, skipSec, skipHooks(skipSec));
-    skipSeekRef.current = seek ? { seek, skipSec } : null;
+    skipSeekRef.current = { seek, skipSec };
   }
 
   /** The skip's seek hooks: it says so when it lands. */
@@ -439,7 +436,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // with the skip's announcement if it is the skip's seek being reloaded:
     // skipSeekRef is set only while that seek is the pending one.
     const skip = skipSeekRef.current;
-    const seek = landAt(audio, at, skip ? skipHooks(skip.skipSec) : {});
+    const seek = at > 0 ? landAt(audio, at, skip ? skipHooks(skip.skipSec) : {}) : (clearSeek(0), null);
     skipSeekRef.current = skip && seek ? { seek, skipSec: skip.skipSec } : null;
     lastPosRef.current = at; // the new load's baseline, for a reload at 0 too
     watchRef.current = { src: ep.url, at: Date.now() };
@@ -666,6 +663,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   function tick() {
     const audio = audioRef.current;
     if (!audio) return;
+    // This event's reading, before the fade and the bar read resumePosition()
+    // (heardTick runs after tick on each timeupdate).
+    notePosition(audio);
 
     // In one-episode and all-night modes there is no timer to run down, so the
     // countdown is Infinity and the fade is driven by the episode instead —
@@ -1058,13 +1058,14 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     const at = shortOfEnd(to, episodeDuration(audio));
     skipRef.current = null;
     skipSeekRef.current = null;
-    if (!epPlayedRef.current && at > 0) {
-      // Before playback, a plain seek is what Safari resets: enforce it. A
-      // drag step only moves the target; the drag's final seek enforces.
-      // (Its own hooks, none: a skip-intro's announcement isn't the
-      // listener's seek.) The enforcer keeps it short of the end itself,
-      // on the same duration.
-      aimAt(audio, to, {}, { move: fast });
+    if (!epPlayedRef.current) {
+      // Before playback, a plain seek is what Safari resets: enforce it,
+      // back to 0 too (a plain seek there would leave a "seeked" in flight
+      // for the next enforcer to misread). A drag step only moves the
+      // target; the drag's final seek enforces. (Its own hooks, none: a
+      // skip-intro's announcement isn't the listener's seek.) The enforcer
+      // keeps it short of the end itself, on the same duration.
+      aimAt(audio, Math.max(0, to), {}, { move: fast });
       return true;
     }
     pendingSeekRef.current?.cancel();
