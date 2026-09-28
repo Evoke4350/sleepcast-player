@@ -76,31 +76,29 @@ export class SeekEnforcer {
   private outstanding = 0;
   private done = false;
   private target: number;
-  /** The effective target isn't the value last assigned: an assignment
-   *  failed, a drag step moved the target lazily, or a new duration moved
-   *  its clamp. Until the next successful assignment, readings (echoes of
-   *  an earlier one, possibly within the slack) are not evidence: every
-   *  event just seeks. */
-  private stale = false;
-  /** The effective target when last looked at, to notice a clamp move. */
-  private lastAt = NaN;
+  /** The value last assigned (or found already in place). Whenever the
+   *  effective target differs from it (an assignment failed, a lazy drag
+   *  step moved the target, a new duration moved its clamp, or nothing has
+   *  been assigned yet) it is stale: readings are then only echoes of an
+   *  earlier seek, possibly within the slack, and every event just seeks. */
+  private assigned = NaN;
 
   /** `onDone` runs once, when it lands or stands down for any reason
-   *  (including cancel()). */
+   *  (including cancel()). `lazy`: don't seek at creation (a drag step);
+   *  the next event does. */
   constructor(
     private readonly el: Seekable,
     at: number,
     private hooks: SeekHooks = {},
     private readonly onDone: (end: SeekEnd) => void = () => {},
-    { seekNow = true }: { seekNow?: boolean } = {},
+    { lazy = false }: { lazy?: boolean } = {},
   ) {
     this.target = at;
-    this.lastAt = this.at;
     // Armed mid-playback (the skip-intro, once the duration is known), the
     // "playing" it waits for has already fired and may not fire again.
     this.sawPlaying = !el.paused && el.readyState >= HAVE_FUTURE_DATA;
     for (const ev of EVENTS) el.addEventListener(ev, this.handle);
-    if (seekNow) this.seekNowIfReady();
+    if (!lazy) this.seekNowIfReady();
   }
 
   /** Where it is putting the element: the target, kept a second short of
@@ -111,23 +109,23 @@ export class SeekEnforcer {
     return dur === null ? this.target : Math.max(0, Math.min(this.target, dur - 1));
   }
 
-  /** Aim at another position (the listener's seek), keeping the count of
-   *  seeks in flight so their late answers aren't misread. Returns false if
-   *  it has already ended; the caller then starts a new one. */
-  retarget(at: number, hooks?: SeekHooks, { seekNow = true }: { seekNow?: boolean } = {}): boolean {
+  /** Aim at another position (the listener's seek), seeking now, and keeping
+   *  the count of seeks in flight so their late answers aren't misread.
+   *  Returns false if it has already ended; the caller then starts a new
+   *  one. `hooks` replace the current ones when given. */
+  retarget(at: number, hooks?: SeekHooks): boolean {
+    if (!this.moveTarget(at)) return false;
+    if (hooks !== undefined) this.hooks = hooks;
+    this.seekNowIfReady();
+    return true;
+  }
+
+  /** A step of a drag: only move the target (the next event seeks). */
+  moveTarget(at: number): boolean {
     if (this.done) return false;
     this.target = at;
-    this.lastAt = this.at;
-    if (hooks !== undefined) this.hooks = hooks;
     this.reached = false;
     this.attempts = 0;
-    // A step of a drag (`seekNow: false`) only moves the target: the next
-    // event seeks. Until then nothing read counts.
-    if (!seekNow) {
-      this.stale = true;
-      return true;
-    }
-    this.seekNowIfReady();
     return true;
   }
 
@@ -149,23 +147,17 @@ export class SeekEnforcer {
     // Whether this "seeked" could be ours at all, before counting it off.
     const oursOutstanding = this.outstanding > 0;
     if (e.type === "seeked") this.outstanding = Math.max(0, this.outstanding - 1);
-    const unconfirmed = this.outstanding > 0;
-    const cur = el.currentTime;
-    const near = Math.abs(cur - this.at) <= SLACK_SEC;
-    // The assignment's own echo, not a position the element has reached.
-    const echo = unconfirmed && Math.abs(cur - this.at) < ECHO_SEC;
-    // A new duration can move the clamped target after it was assigned (a
-    // VBR estimate settling): treat that as a new target.
     const at = this.at;
-    if (at !== this.lastAt) {
-      this.lastAt = at;
+    if (at !== this.assigned) {
       this.reached = false;
-      this.stale = true;
-    }
-    if (this.stale) {
       this.trySeek();
       return;
     }
+    const unconfirmed = this.outstanding > 0;
+    const cur = el.currentTime;
+    const near = Math.abs(cur - at) <= SLACK_SEC;
+    // The assignment's own echo, not a position the element has reached.
+    const echo = unconfirmed && Math.abs(cur - at) < ECHO_SEC;
     const playingHere = near && !echo && this.sawPlaying && !el.paused && e.type === "timeupdate";
     if (near && ((e.type === "seeked" && !unconfirmed) || playingHere)) this.reached = true;
     if (el.paused) {
@@ -184,7 +176,7 @@ export class SeekEnforcer {
         }
         return;
       }
-      if (this.reached && cur > this.at + SLACK_SEC) {
+      if (this.reached && cur > at + SLACK_SEC) {
         this.finish("stood-down"); // something skipped it ahead
         return;
       }
@@ -194,10 +186,13 @@ export class SeekEnforcer {
 
   /** On creation and retarget: seek now unless it's already there. A
    *  reading while seeks are outstanding is only their echo, so it never
-   *  counts as there: every assignment is then the current target, which
-   *  is what an echo is measured against. */
+   *  counts as there. */
   private seekNowIfReady(): void {
-    if (this.outstanding === 0 && Math.abs(this.el.currentTime - this.at) <= SLACK_SEC) return;
+    const at = this.at;
+    if (this.el.readyState >= HAVE_METADATA && this.outstanding === 0 && Math.abs(this.el.currentTime - at) <= SLACK_SEC) {
+      this.assigned = at; // already in place: nothing to assign
+      return;
+    }
     this.trySeek();
   }
 
@@ -210,15 +205,14 @@ export class SeekEnforcer {
       this.finish("gave-up"); // stop fighting a stubborn stream
       return;
     }
+    const at = this.at;
     try {
-      const at = this.at;
       this.el.currentTime = at;
-      this.lastAt = at;
+      this.assigned = at;
       this.outstanding++;
-      this.stale = false;
     } catch {
-      // Not seekable yet: a later event retries (see stale).
-      this.stale = true;
+      // Not seekable yet: a later event retries (it stays stale).
+      this.assigned = NaN;
     }
   }
 }

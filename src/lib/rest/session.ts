@@ -3,6 +3,9 @@ import { SleepDetector } from "./detector";
 import { loadNights, loadParams } from "./ledger";
 import { currentParams } from "./calibrate";
 
+/** Touches closer together than this are one interaction (see noteInteraction). */
+export const INTERACTION_MERGE_MS = 3000;
+
 export class RestSession {
   private detector: SleepDetector;
   private onset: SleepOnset | null = null;
@@ -21,10 +24,18 @@ export class RestSession {
   }
 
   private lastInteractionAt: number | null = null;
+  /** When a touch last counted: touches closer together than
+   *  INTERACTION_MERGE_MS are one intent (a lock-screen drag's steps, a
+   *  double tap on ±30 s) and count once. */
+  private lastCountedAt: number | null = null;
 
-  /** Any transport touch since the last tick. */
+  /** Any transport touch since the last tick. Every touch marks the listener
+   *  active now; a burst counts as one interaction. */
   noteInteraction(now: number = Date.now()): void {
-    this.interactions++;
+    if (this.lastCountedAt === null || now - this.lastCountedAt > INTERACTION_MERGE_MS) {
+      this.interactions++;
+      this.lastCountedAt = now;
+    }
     this.pendingInteraction = true;
     this.lastInteractionAt = now;
   }

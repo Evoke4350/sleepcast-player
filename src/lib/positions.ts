@@ -1,3 +1,4 @@
+import { knownDuration } from "./media/backend";
 // Per-episode resume points.
 //
 // The player already snapshots the *live* night (store.ts saveLive), but that
@@ -25,7 +26,7 @@ export const POSITIONS_CAP = 300;
  */
 export function shouldRemember(positionSec: number, durationSec: number): boolean {
   if (!Number.isFinite(positionSec) || positionSec < MIN_POSITION_SEC) return false;
-  if (!Number.isFinite(durationSec) || durationSec <= 0) return true;
+  if (knownDuration(durationSec) === null) return true;
   return positionSec < durationSec - END_MARGIN_SEC;
 }
 

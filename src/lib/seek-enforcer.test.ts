@@ -281,7 +281,7 @@ describe("SeekEnforcer", () => {
     const el = new FakeEl();
     el.readyState = 1;
     const enf = new SeekEnforcer(el, 600);
-    enf.retarget(700, {}, { seekNow: false });
+    enf.moveTarget(700);
     expect(el.currentTime).toBe(600);
     expect(enf.at).toBe(700);
     el.fire("timeupdate");
@@ -318,7 +318,7 @@ describe("SeekEnforcer", () => {
   test("created lazily, it waits for an event to seek", () => {
     const el = new FakeEl();
     el.readyState = 1;
-    new SeekEnforcer(el, 600, {}, () => {}, { seekNow: false });
+    new SeekEnforcer(el, 600, {}, () => {}, { lazy: true });
     expect(el.currentTime).toBe(0);
     el.fire("timeupdate");
     expect(el.currentTime).toBe(600);
@@ -329,7 +329,7 @@ describe("SeekEnforcer", () => {
     el.readyState = 1;
     const done = vi.fn();
     const enf = new SeekEnforcer(el, 1200, {}, done); // assigned, unconfirmed
-    enf.retarget(1201, undefined, { seekNow: false });
+    enf.moveTarget(1201);
     el.paused = false;
     el.readyState = 4;
     el.fire("playing"); // re-seeks to 1201 rather than trusting 1200
@@ -351,6 +351,16 @@ describe("SeekEnforcer", () => {
     expect(done).not.toHaveBeenCalled();
     expect(enf.at).toBe(5370);
     expect(el.currentTime).toBe(5370);
+  });
+
+  test("created lazily, a stray seeked can't stand it down or confirm it", () => {
+    const el = new FakeEl();
+    el.readyState = 1;
+    const done = vi.fn();
+    new SeekEnforcer(el, 900, {}, done, { lazy: true });
+    el.fire("seeked"); // someone's earlier seek, reading 0
+    expect(done).not.toHaveBeenCalled();
+    expect(el.currentTime).toBe(900); // it seeks instead
   });
 
   test("cancel reports cancelled", () => {
