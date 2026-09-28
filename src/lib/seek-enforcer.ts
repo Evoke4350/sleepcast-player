@@ -59,8 +59,12 @@ export class SeekEnforcer {
   private attempts = 0;
   private sawPlaying = false;
   private reached = false;
-  /** An assignment not yet confirmed by "seeked". */
-  private unconfirmed = false;
+  /** Assignments not yet answered by a "seeked". Counted, not flagged: a
+   *  late "seeked" from an earlier (clamped) seek must not confirm a newer
+   *  one. Browsers that coalesce seeks answer only the last, which leaves
+   *  this above 0: confirmation then comes from playback alone, and a
+   *  paused reading away is retried rather than taken as the listener's. */
+  private outstanding = 0;
   private done = false;
 
   /** `onDone` runs once, when it lands or stands down for any reason
@@ -92,16 +96,19 @@ export class SeekEnforcer {
     if (this.done) return;
     const el = this.el;
     if (e.type === "playing") this.sawPlaying = true;
-    if (e.type === "seeked") this.unconfirmed = false;
+    if (e.type === "seeked") this.outstanding = Math.max(0, this.outstanding - 1);
+    const unconfirmed = this.outstanding > 0;
     const cur = el.currentTime;
     const near = Math.abs(cur - this.at) <= SLACK_SEC;
     // The assignment's own echo, not a position the element has reached.
-    const echo = this.unconfirmed && Math.abs(cur - this.at) < ECHO_SEC;
+    const echo = unconfirmed && Math.abs(cur - this.at) < ECHO_SEC;
     const playingHere = near && !echo && this.sawPlaying && !el.paused && e.type === "timeupdate";
-    if (near && (e.type === "seeked" || playingHere)) this.reached = true;
+    if (near && ((e.type === "seeked" && !unconfirmed) || playingHere)) this.reached = true;
     if (el.paused) {
       if (near) return; // there (or on its way), waiting for playback
-      if (this.reached || e.type === "seeked") {
+      // A "seeked" away with none of ours outstanding was someone else's seek;
+      // with ours outstanding, a late answer to a clamped one: retried.
+      if (this.reached || (e.type === "seeked" && !unconfirmed)) {
         this.finish(e.type === "seeked" ? "scrubbed" : "strayed"); // not ours to fight
         return;
       }
@@ -131,7 +138,7 @@ export class SeekEnforcer {
   private seek(): void {
     try {
       this.el.currentTime = this.at;
-      this.unconfirmed = true;
+      this.outstanding++;
     } catch {
       /* not seekable yet: a later event retries */
     }

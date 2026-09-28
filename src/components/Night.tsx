@@ -192,6 +192,8 @@ export function Night({
 
   const heardSecRef = useRef(0);
   const lastPosRef = useRef(0);
+  /** Whether the backend was enforcing its start seek at the last tick. */
+  const wasSeekingRef = useRef(false);
   // Whether this episode has actually made a sound (lib/witness.ts). The
   // watchdog needs to tell "playing" from "claims to be playing", and movement
   // is the only honest signal: where the episode was ASKED to start is not
@@ -525,7 +527,11 @@ export function Night({
     if (!ep) return;
     const prev = lastPosRef.current;
     lastPosRef.current = cur;
-    heardSecRef.current += heardDelta(prev, cur, seeking);
+    // The first tick after the seek ended starts the count afresh: its step
+    // from the last reading during the seek includes the landing.
+    const wasSeeking = wasSeekingRef.current;
+    wasSeekingRef.current = seeking;
+    heardSecRef.current += heardDelta(prev, cur, seeking || wasSeeking);
     if (
       heardSecRef.current >= HEARD_SEC &&
       heardSecRef.current - heardSavedAtRef.current >= 60
@@ -688,7 +694,7 @@ export function Night({
     const driver = fadeDriverSeconds(kind, remaining, epRemaining);
 
     restTick(driver, t);
-    heardTick(cur, liveRef.current?.seeking() ?? false);
+    heardTick(cur, media.seeking());
 
     // The courtesy fade owns the volume while it runs; reassigning here would
     // fight it back up and produce audible stabs on the way out.

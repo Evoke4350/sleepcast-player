@@ -329,8 +329,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       // Only a position it ended on for real: one that gave up or strayed
       // may leave a stalled or failed element's reading behind (the app's
       // own pause in a hold ends a seek that way).
+      // (The listener's own seeks go through seekTo, which cancels this
+      // first, so none of them ends here.)
       if (end === "landed") notePosition(audio);
-      if (end === "scrubbed") notePosition(audio, true);
     });
     pendingSeekRef.current = seek;
     return seek;
@@ -340,14 +341,21 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
    *  be trusted: not while a seek is being enforced (Safari can read ~0
    *  until it is corrected), not before the element knows its media (a new
    *  load reads 0), and not from a failed element, which can read 0 too. */
-  function notePosition(audio: HTMLAudioElement, listenerSeek = false) {
+  function notePosition(audio: HTMLAudioElement) {
     if (pendingSeekRef.current) return;
-    if (audio.readyState < HTMLMediaElement.HAVE_METADATA) return;
-    // A failed element's own readings aren't trusted, but a seek the
-    // listener made on it (a scrub during a network hold) is where they want
-    // to be.
-    if (audio.error && !listenerSeek) return;
+    if (audio.error || audio.readyState < HTMLMediaElement.HAVE_METADATA) return;
     knownPosRef.current = audio.currentTime;
+  }
+
+  /** A seek the listener asked for (the scrubber, the ±30 s buttons). Known
+   *  here, so nothing has to guess it from events later: any seek the app
+   *  was enforcing gives way, and the position is recorded at once, even
+   *  on a failed element in a network hold (where the reload will land). */
+  function seekTo(audio: HTMLAudioElement, to: number) {
+    pendingSeekRef.current?.cancel();
+    knownPosRef.current = to;
+    lastPosRef.current = to; // a jump, not time heard
+    try { audio.currentTime = to; } catch { /* not seekable now: the reload lands there */ }
   }
 
   /** Seek past the intro once the duration is known, unless the episode is
@@ -911,7 +919,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     audio.addEventListener("timeupdate", heardTick); // accumulates real playback for the play ledger
     // heardTick tracks the position on timeupdate; a scrub while paused
     // fires only "seeked".
-    const trackSeek = () => notePosition(audio, true);
+    const trackSeek = () => notePosition(audio);
     audio.addEventListener("seeked", trackSeek);
     // The skip-intro decides as soon as the duration is known.
     const onDuration = () => checkSkip(audio);
@@ -993,7 +1001,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // From where the episode is: a failed element (in a network hold) or one
     // still being put on its start may read anything.
     const from = audio.error || pendingSeekRef.current ? resumePosition() : audio.currentTime;
-    audio.currentTime = Math.min(Math.max(0, from + seconds), dur - 1);
+    seekTo(audio, Math.min(Math.max(0, from + seconds), dur - 1));
   }
 
   function extendTimer(minutes: number) {
@@ -1075,7 +1083,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     if (!audio || !epPos) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const ratio = (e.clientX - rect.left) / rect.width;
-    audio.currentTime = Math.max(0, Math.min(1, ratio)) * epPos.dur;
+    seekTo(audio, Math.max(0, Math.min(1, ratio)) * epPos.dur);
     // Aiming at a position is the one moment the numbers earn their place —
     // show where you landed, then let them go back under with the moon.
     setPeekUntil(Date.now() + 4000);

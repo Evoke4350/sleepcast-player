@@ -190,6 +190,20 @@ describe("SeekEnforcer", () => {
     expect(done).toHaveBeenCalledWith("scrubbed");
   });
 
+  test("a late seeked from an earlier seek doesn't confirm a newer one", () => {
+    const el = new FakeEl();
+    const done = vi.fn();
+    new SeekEnforcer(el, 300, {}, done);
+    el.fire("loadedmetadata"); // seek 1
+    el.currentTime = 0; // clamped
+    el.fire("timeupdate"); // retry: seek 2, reads 300
+    el.fire("seeked"); // seek 1's, late
+    el.currentTime = 0; // seek 2 clamped too
+    el.fire("timeupdate"); // not a confirmed target: retried, not abandoned
+    expect(done).not.toHaveBeenCalled();
+    expect(el.currentTime).toBe(300);
+  });
+
   test("cancel reports cancelled", () => {
     const el = new FakeEl();
     const done = vi.fn();
