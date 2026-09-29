@@ -100,8 +100,9 @@ export interface YouTubeNightProps {
     playedIds: string[];
     /** When the revived night really began (snapshot's nightStartedAt). */
     nightStartedAt?: number;
-    /** Transport touches before the reload. */
+    /** Transport touches before the reload, merged and not (see RestSession). */
     interactions?: number;
+    touches?: number;
   } | null;
   leadEpisode?: Episode | null;
   leadPosition?: number;
@@ -445,6 +446,7 @@ export function YouTubeNight({
       timerMinutes: restRef.current?.timerMinutes,
       modeKind: modeRef.current.kind,
       interactions: restRef.current?.interactionCount,
+      touches: restRef.current?.touchCount,
       remainingMs,
       totalSeconds: totalSecondsRef.current,
       position: witnessRef.current.resumeAt(media.currentTime()),
@@ -660,7 +662,7 @@ export function YouTubeNight({
     // from the tap on "keep going".
     const nightStart = revivedNightStart(resume?.nightStartedAt, Date.now());
     restRef.current = new RestSession(nightStart, timerMinutes);
-    restRef.current.seedInteractions(resume?.interactions ?? 0);
+    restRef.current.seedInteractions(resume?.interactions ?? 0, resume?.touches ?? resume?.interactions ?? 0);
     deadRef.current = new Set(loadBlocked());
     if (resume) {
       totalSecondsRef.current = resume.totalSeconds;

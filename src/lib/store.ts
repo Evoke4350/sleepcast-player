@@ -285,6 +285,8 @@ export interface LiveSession {
   modeKind?: PlayMode["kind"];
   /** Transport touches before the snapshot, carried into a revived session. */
   interactions?: number;
+  /** The same, unmerged (wakefulness counts every touch). */
+  touches?: number;
 }
 
 const LIVE_POOL_CAP = 80;

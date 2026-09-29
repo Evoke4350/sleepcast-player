@@ -24,6 +24,7 @@ function fakeAudio() {
       return result ? result() : Promise.resolve();
     }),
     pause: vi.fn(),
+    load: vi.fn(),
     removeAttribute: vi.fn(),
     addEventListener: (t: string, cb: EventListener) => {
       if (!listeners.has(t)) listeners.set(t, new Set());
@@ -89,15 +90,15 @@ describe("driving an audio element through the backend interface", () => {
     expect(el.volume).toBe(0);
   });
 
-  it("keeps a load's known length through a momentary NaN, and forgets it on the next load", () => {
+  it("reports a known length, and none for a stream or before metadata", () => {
     const { el } = fakeAudio();
     const b = new AudioBackend(el);
     b.load("https://x.test/a.mp3");
     (el as { duration: number }).duration = 600;
     expect(b.duration()).toBe(600);
+    (el as { duration: number }).duration = Infinity;
+    expect(b.duration()).toBe(0);
     (el as { duration: number }).duration = NaN;
-    expect(b.duration()).toBe(600);
-    b.load("https://x.test/b.mp3");
     expect(b.duration()).toBe(0);
   });
 
@@ -169,6 +170,8 @@ describe("driving an audio element through the backend interface", () => {
     expect(cb).not.toHaveBeenCalled();
     b.play();
     expect(el.play).not.toHaveBeenCalled();
+    // The resource, its buffer and connection released, not just src removed.
+    expect(el.load).toHaveBeenCalled();
   });
 
   it("destroy is idempotent", () => {

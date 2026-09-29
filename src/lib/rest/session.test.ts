@@ -235,6 +235,10 @@ describe("RestSession interactions across a reload", () => {
     expect(s.interactionCount).toBe(9);
     expect(s.finish("faded", 2000).interactions).toBe(9);
     expect(s.wakefulness(2000).interactions).toBe(9);
+    const t = new RestSession(0, 45);
+    t.seedInteractions(1, 5); // one merged burst of five touches
+    expect(t.interactionCount).toBe(1);
+    expect(t.wakefulness(0).interactions).toBe(5);
   });
 
   it("ignores nonsense", () => {

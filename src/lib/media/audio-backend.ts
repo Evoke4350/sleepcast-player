@@ -1,5 +1,5 @@
 import type { MediaBackend, Transport, ErrorInfo } from "./backend";
-import { DurationLatch } from "../duration";
+import { knownDuration } from "../duration";
 import { SeekEnforcer } from "../seek-enforcer";
 import { mediaTransport } from "./transport";
 
@@ -17,26 +17,16 @@ export class AudioBackend implements MediaBackend {
   /** The start seek being enforced, torn down before the next load: one that
    *  outlived its episode would seek the NEXT one to this one's position. */
   private startSeek: SeekEnforcer | null = null;
-  /** This load's length, kept through NaN (Infinity, a stream, forgets it): for the
-   *  start seek's end clamp and for duration() alike. Reset per load. */
-  private readonly latch = new DurationLatch();
   private detach: Array<() => void> = [];
   /** A rejected play() is not a DOM event, so it cannot ride the "error"
    *  listener subscribe() sets up. These are called directly instead. */
   private errorCallbacks = new Set<(code: number | string, info: ErrorInfo) => void>();
 
-  constructor(private readonly el: HTMLAudioElement) {
-    // Every length the element reports passes through the latch (Infinity
-    // forgetting it included), not only those a reader happens to poll.
-    el.addEventListener("durationchange", this.onLength);
-  }
-
-  private readonly onLength = () => void this.knownLength();
+  constructor(private readonly el: HTMLAudioElement) {}
 
   load(ref: string, startSeconds = 0): void {
     if (this.dead) return;
     this.dropSeek();
-    this.latch.reset();
 
     this.el.src = ref;
 
@@ -89,9 +79,11 @@ export class AudioBackend implements MediaBackend {
     return this.knownLength() ?? 0;
   }
 
-  /** This load's length through the latch, for the start seek and duration(). */
+  /** This load's length, for the start seek's end clamp and duration(). No
+   *  latch: the element's duration is NaN only at a new load (which knows
+   *  nothing of the last one's length anyway), and Infinity is a stream. */
   private knownLength(): number | null {
-    return this.latch.read(this.el.duration);
+    return knownDuration(this.el.duration);
   }
 
   transport(): Transport {
@@ -121,10 +113,12 @@ export class AudioBackend implements MediaBackend {
     this.dead = true;
     this.dropSeek();
     for (const off of this.detach.splice(0)) off();
-    this.el.removeEventListener("durationchange", this.onLength);
     this.errorCallbacks.clear();
     this.el.pause();
     this.el.removeAttribute("src");
+    // Removing src alone keeps the resource, its buffer and connection;
+    // load() with no src releases them (as Player's endSession does).
+    this.el.load();
   }
 
   private subscribe(type: string, cb: () => void): () => void {

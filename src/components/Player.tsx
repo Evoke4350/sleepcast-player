@@ -87,8 +87,9 @@ export interface PlayerProps {
     playedIds: string[];
     /** When the revived night really began (snapshot's nightStartedAt). */
     nightStartedAt?: number;
-    /** Transport touches before the reload. */
+    /** Transport touches before the reload, merged and not (see RestSession). */
     interactions?: number;
+    touches?: number;
   } | null;
   // "the exact one again": lead a fresh night with this episode (the same show
   // the returning listener drifted off to), then shuffle on as usual.
@@ -651,6 +652,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       timerMinutes: restRef.current?.timerMinutes,
       modeKind: modeRef.current.kind,
       interactions: restRef.current?.interactionCount,
+      touches: restRef.current?.touchCount,
       remainingMs,
       totalSeconds: totalSecondsRef.current,
       position: resumePosition(),
@@ -859,7 +861,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       audio.volume = 1;
     }
 
-    clearAllLockScreen(); // the stop's own "pause" event finds no src, and leaves it
+    // Cleared here: load() drops the stop's queued "pause" event, so neither
+    // onPause nor the lock-screen listener runs for it.
+    clearAllLockScreen();
 
     onEndRef.current();
   }
@@ -876,7 +880,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // from the tap on "keep going".
     const nightStart = revivedNightStart(resume?.nightStartedAt, Date.now());
     restRef.current = new RestSession(nightStart, timerMinutes);
-    restRef.current.seedInteractions(resume?.interactions ?? 0);
+    restRef.current.seedInteractions(resume?.interactions ?? 0, resume?.touches ?? resume?.interactions ?? 0);
     nightStartedAtRef.current = nightStart; // the quarter-hour rule's clock too
     if (resume) {
       totalSecondsRef.current = resume.totalSeconds;
@@ -891,10 +895,14 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     const onPause = () => {
       setPaused(true);
       watchRef.current = null; // a paused track isn't a stuck track
-      if (!audio.ended) freezeClock();
-      // A fresh reading first (lockSync's comes after this handler): a
-      // locked phone's throttled timeupdates can leave it seconds old.
-      notePosition(audio);
+      if (!audio.ended) {
+        freezeClock();
+        // A fresh reading first (lockSync's comes after this handler): a
+        // locked phone's throttled timeupdates can leave it seconds old. Not
+        // at an end, whose reading is the very end: the next episode's
+        // snapshot follows.
+        notePosition(audio);
+      }
       persistLive(); // capture the pause with its frozen remaining time
     };
 

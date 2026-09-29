@@ -59,14 +59,21 @@ export class RestSession {
     return this.interactions;
   }
 
+  /** Every touch so far, unmerged (wakefulness), for carrying across a reload. */
+  get touchCount(): number {
+    return this.touches;
+  }
+
   /** A revived night keeps its real start (revivedNightStart), so it must keep
    *  the touches from before the reload too: otherwise its RestNight pairs a
    *  whole-night time-to-sleep with only the post-reload interactions, and
    *  calibration underestimates how often this listener touches the phone. */
-  seedInteractions(n: number): void {
-    if (!Number.isFinite(n) || n <= 0) return;
-    this.interactions += Math.floor(n);
-    this.touches += Math.floor(n);
+  seedInteractions(n: number, touches: number = n): void {
+    const count = (x: number) => (Number.isFinite(x) && x > 0 ? Math.floor(x) : 0);
+    this.interactions += count(n);
+    // Wakefulness's unmerged count; a snapshot from before it was kept
+    // carries only the merged one.
+    this.touches += count(touches);
   }
 
   /** Called whenever an episode starts playing. */
