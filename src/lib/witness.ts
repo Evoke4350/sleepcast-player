@@ -98,7 +98,8 @@ export class PlaybackWitness {
     this.replayedEp = true;
   }
 
-  /** Witnessed playing since the last (re)load: the snapshot gate. */
+  /** Witnessed playing since the last (re)load: the periodic snapshot's and
+   *  resume points' gate. */
   get played(): boolean {
     return this.seen;
   }

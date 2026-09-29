@@ -12,7 +12,8 @@ import type { RestNight } from "./rest/types";
 
 export interface NightEnd {
   reason: RestNight["endedVia"];
-  /** Whether anything actually played this night. */
+  /** Whether anything actually played this night (a revived night's part
+   *  before the reload included). */
   played: boolean;
   /** The app, not the listener, is ending a night that never played (nothing
    *  playable, an error screen). Its live snapshot is kept, so a revived night
@@ -39,8 +40,8 @@ export function recordNightEnd(e: NightEnd): void {
   // "faded" is the natural end — stamp it so setup can offer a smaller re-arm.
   if (e.reason === "faded") recordSessionEnd(e.timerMinutes, e.modeKind);
   saveLastNight({ ...e.lastNight, endedVia: e.reason, endedAt: e.now });
-  // For "the exact one again" (a blocked one is hidden when read back).
-  // Always set here: whatever made `played` true also set it.
+  // For "the exact one again" (a blocked one is hidden when read back);
+  // none when nothing sounded in this page (a revived night ended early).
   if (e.lastHeard) saveLastEpisode(e.lastHeard);
   if (e.rest) appendNight(e.rest.finish(e.reason, e.now));
 }

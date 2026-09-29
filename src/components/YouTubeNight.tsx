@@ -293,9 +293,12 @@ export function YouTubeNight({
     lastPosRef.current = start; // so the jump to `start` is not counted as listening
     heardSavedAtRef.current = -1e9;
     epStartedAtRef.current = Date.now();
-    persistCounterRef.current = 10; // snapshot promptly, not up to 10s from now
+    persistCounterRef.current = 10; // the periodic snapshot as soon as it plays
 
     publishLockScreenMetadata(ep.title, feedTitlesRef.current[ep.feedId], artworkRef.current[ep.feedId]);
+    // And a snapshot now, at its start: a kill while it loads must not
+    // revive the last one (one just blocked, say).
+    persistLive();
   }
 
   /** `byListener`: Next or "never again" led here, so ending a never-played
@@ -362,7 +365,7 @@ export function YouTubeNight({
       // Where it was, if it ever played, else where it was meant to start (a
       // revived position, the skip-intro): reloading at 0 restarted a
       // four-hour video mid-night, and a position read before it played may
-      // not be its. The reload closes the snapshot gate until it plays again.
+      // not be its. Until the reload plays, no periodic snapshot.
       const w = witnessRef.current;
       reloadAt(ep, w.resumeAt(mediaRef.current?.currentTime() ?? 0));
       return;
@@ -431,11 +434,12 @@ export function YouTubeNight({
         ? 0
         : pausedRemainingMsRef.current ?? endTimeRef.current - Date.now();
     if (endTimeRef.current !== null && remainingMs <= 0) return false;
-    // Not for a night that has never played (nothing to revive or
-    // reconcile), unless it is a revived one. The position is
-    // witness.resumeAt (the load's start until it has played),
+    // Only once something has played in this page: before that there is
+    // nothing of its own to record, and a revived night's stored snapshot
+    // (the one it was revived from) stays as it is, to be revived again.
+    // The position is witness.resumeAt (the load's start until it has played),
     // never a new load's 0.
-    if (!hasEverPlayedRef.current && !resume) return false;
+    if (!hasEverPlayedRef.current) return false;
     return saveLive({
       savedAt: Date.now(),
       nightStartedAt: restRef.current?.startedAt,
@@ -611,7 +615,10 @@ export function YouTubeNight({
     netHoldRef.current.cancel();
     recordNightEnd({
       reason,
-      played: hasEverPlayedRef.current,
+      // A revived night ended by the listener before it sounded still
+      // played before the reload: recorded, not dropped. (One the app gives
+      // up on keeps its snapshot, to be revived again.)
+      played: hasEverPlayedRef.current || (resume != null && !gaveUp),
       gaveUp: gaveUp,
       timerMinutes,
       modeKind: modeRef.current.kind,

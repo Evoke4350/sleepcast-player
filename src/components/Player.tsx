@@ -257,7 +257,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     durationLatchRef.current.reset();
     epPlayedRef.current = false;
     netHoldRef.current.cancel(); // a new episode: any wait was for the last one
-    // Snapshot the new episode to storage promptly, not up to 10s later.
+    // The periodic snapshot as soon as it plays, not up to 10 s later.
     persistCounterRef.current = 10;
 
     const skipMin = skipIntroRef.current[ep.feedId] ?? 0;
@@ -282,6 +282,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     epStartedAtRef.current = Date.now();
 
     publishLockScreenMetadata(ep.title, feedTitlesRef.current[ep.feedId], artworkRef.current[ep.feedId]);
+    // And a snapshot now, at its start: a kill while it loads must not
+    // revive the last one (one just blocked, say).
+    persistLive();
   }
 
   /** Count one more consecutive failure (a stuck track, a source error). Past
@@ -459,8 +462,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   function reloadCurrent(ep: Episode): boolean {
     const audio = audioRef.current;
     if (!audio) return false;
-    // The reload reads 0 until its seek lands: close the snapshot gate until
-    // it plays again (see epPlayedRef).
+    // The reload reads 0 until its seek lands: until it plays again, no
+    // resume point or periodic snapshot (see epPlayedRef).
     epPlayedRef.current = false;
     const at = resumePosition();
     audio.src = ep.url;
@@ -638,11 +641,12 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
         ? 0
         : pausedRemainingMsRef.current ?? endTimeRef.current - Date.now();
     if (endTimeRef.current !== null && remainingMs <= 0) return false;
-    // Not for a night that has never played (nothing to revive or
-    // reconcile), unless it is a revived one. The position is
-    // resumePosition() (the load's start, or its pending seek's target,
+    // Only once something has played in this page: before that there is
+    // nothing of its own to record, and a revived night's stored snapshot
+    // (the one it was revived from) stays as it is, to be revived again.
+    // The position is resumePosition() (the load's start, or its pending seek's target,
     // until a trustworthy reading), never a new load's 0.
-    if (!hasEverPlayedRef.current && !resume) return false;
+    if (!hasEverPlayedRef.current) return false;
     return saveLive({
       savedAt: Date.now(),
       nightStartedAt: restRef.current?.startedAt,
@@ -830,7 +834,10 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     pendingSeekRef.current?.cancel(); // nothing may act on the stopped element
     recordNightEnd({
       reason,
-      played: hasEverPlayedRef.current,
+      // A revived night ended by the listener before it sounded still
+      // played before the reload: recorded, not dropped. (One the app gives
+      // up on keeps its snapshot, to be revived again.)
+      played: hasEverPlayedRef.current || (resume != null && !gaveUp),
       gaveUp,
       timerMinutes,
       modeKind: modeRef.current.kind,

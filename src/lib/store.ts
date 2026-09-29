@@ -308,6 +308,7 @@ type ResumeFields = Omit<LiveSession, "current" | NightSessionField>;
  *  `resume`: one copy of each. One list, for the type and for resumeFrom. */
 const NIGHT_SESSION_FIELDS = [
   "pool", "skipIntroByFeedId", "feedTitles", "artworkByFeedId", "wasVaried", "timerMinutes", "modeKind",
+  "savedAt", // settleLive's and isRevivable's, not the players'
 ] as const satisfies readonly (keyof LiveSession)[];
 type NightSessionField = (typeof NIGHT_SESSION_FIELDS)[number];
 
