@@ -33,6 +33,7 @@
 // creation with deferSeek), where the next event seeks.
 
 import { knownDuration, shortOfEnd } from "./duration";
+import { isPlayingThrough } from "./media/transport";
 
 /** The parts of a media element this needs. */
 export interface Seekable {
@@ -65,22 +66,6 @@ const EVENTS = ["loadedmetadata", "durationchange", "canplay", "playing", "seeke
 const SLACK_SEC = 2;
 /** HTMLMediaElement.HAVE_METADATA, without needing the DOM. */
 const HAVE_METADATA = 1;
-/** HTMLMediaElement.HAVE_FUTURE_DATA: playing, not just loading. */
-const HAVE_FUTURE_DATA = 3;
-
-/** An element playing through, not just asked to: not paused, and with
- *  data ahead (`paused` alone turns false the moment play() is called). */
-export function isPlayingThrough(el: { paused: boolean; readyState: number }): boolean {
-  return !el.paused && el.readyState >= HAVE_FUTURE_DATA;
-}
-
-/** A media element's transport, the one rule for every audio player:
- *  paused; playing through; or asked to play but not moving (loading,
- *  stalled, seeking), which is buffering. */
-export function mediaTransport(el: { paused: boolean; readyState: number; seeking: boolean }): "paused" | "playing" | "buffering" {
-  if (el.paused) return "paused";
-  return isPlayingThrough(el) && !el.seeking ? "playing" : "buffering";
-}
 /** An unconfirmed reading this close to the assigned value is its echo
  *  (engines may read it back through a time-base conversion). */
 const ECHO_SEC = 1e-3;

@@ -48,7 +48,7 @@ import { RestSession, revivedNightStart } from "../lib/rest/session";
 import { recordNightEnd } from "../lib/night-end";
 import { NetworkHold, isOffline } from "../lib/network-hold";
 import { heardDelta } from "../lib/heard";
-import { clearLockScreen, mediaSession } from "../lib/lock-screen";
+import { clearLockScreen, publishLockScreenMetadata } from "../lib/lock-screen";
 import { startWithSkip } from "../lib/skip-intro";
 import { PlaybackWitness, rearmsWatchdogOnTap } from "../lib/witness";
 import { MAX_FAILS, applyEndedDecision, decideAfterEnded, shouldPlayWhole } from "../lib/episode-end";
@@ -299,16 +299,7 @@ export function YouTubeNight({
     epStartedAtRef.current = Date.now();
     persistCounterRef.current = 10; // snapshot promptly, not up to 10s from now
 
-    const ms = mediaSession();
-    if (ms) {
-      const art = artworkRef.current[ep.feedId];
-      ms.metadata = new MediaMetadata({
-        title: ep.title,
-        artist: feedTitlesRef.current[ep.feedId] ?? "sleepcast",
-        album: "sleepcast",
-        ...(art ? { artwork: [{ src: art, sizes: "512x512" }] } : {}),
-      });
-    }
+    publishLockScreenMetadata(ep.title, feedTitlesRef.current[ep.feedId], artworkRef.current[ep.feedId]);
   }
 
   /** `byListener`: Next or "never again" led here, so ending a never-played

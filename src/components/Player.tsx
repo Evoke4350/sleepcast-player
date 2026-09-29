@@ -7,11 +7,12 @@ import type { Episode, PlayMode } from "../lib/engine";
 import { fadeVolume, formatTime, effectiveVolume, fadeDriverSeconds } from "../lib/engine";
 import { getPlays, recordHeardPlay, saveLive, rememberPosition, forgetPosition, blockEpisode } from "../lib/store";
 import { NetworkHold, isOffline } from "../lib/network-hold";
-import { SeekEnforcer, mediaTransport, type SeekHooks } from "../lib/seek-enforcer";
+import { SeekEnforcer, type SeekHooks } from "../lib/seek-enforcer";
+import { mediaTransport } from "../lib/media/transport";
 import { DurationLatch, shortOfEnd } from "../lib/duration";
 import { heardDelta } from "../lib/heard";
 import { rearmsWatchdogOnTap } from "../lib/witness";
-import { clearLockScreen, mediaSession, publishLockScreen } from "../lib/lock-screen";
+import { clearActionHandlers, clearLockScreen, mediaSession, publishLockScreen, publishLockScreenMetadata } from "../lib/lock-screen";
 import { decideSkip, skipMessage, stillAtStart } from "../lib/skip-intro";
 import { pickNextEpisode, HEARD_SEC } from "../lib/plays";
 import { canExtend } from "../lib/timer-feel";
@@ -139,16 +140,15 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   const knownPosRef = useRef(0);
   /** What the lock screen was last told: state, length and rate (to skip a
    *  publish that would change nothing), and the position with when it was
-   *  published and the rate it moves at (to tell a correction from steady
-   *  playback). pos null: no length, so no position published. Null when
-   *  nothing is published. */
+   *  published (to tell a correction from steady playback, which moves at
+   *  the rate only while the state is "playing"). pos null: no length, so
+   *  no position published. Null when nothing is published. */
   const publishedRef = useRef<{
     state: "playing" | "paused";
     dur: number | null;
     rate: number;
     pos: number | null;
     atMs: number;
-    moves: number;
   } | null>(null);
   /** The current episode's duration once its element has reported one: kept
    *  across a reload (whose element knows nothing yet), reset per episode. */
@@ -284,16 +284,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     heardSavedAtRef.current = -1e9;
     epStartedAtRef.current = Date.now();
 
-    const ms = mediaSession();
-    if (ms) {
-      const art = artworkRef.current[ep.feedId];
-      ms.metadata = new MediaMetadata({
-        title: ep.title,
-        artist: feedTitlesRef.current[ep.feedId] ?? "sleepcast",
-        album: "sleepcast",
-        ...(art ? { artwork: [{ src: art, sizes: "512x512" }] } : {}),
-      });
-    }
+    publishLockScreenMetadata(ep.title, feedTitlesRef.current[ep.feedId], artworkRef.current[ep.feedId]);
   }
 
   /** Count one more consecutive failure (a stuck track, a source error). Past
@@ -575,12 +566,11 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     heardSecRef.current += heardDelta(prev, t, pendingSeekRef.current !== null || audio.seeking);
     // Not playback's steady advance (which the lock screen extrapolates),
     // but a correction: the position somewhere other than where the lock
-    // screen thinks it is (a seek that didn't land, say). Publish it. Only
-    // on a reading that counted, and only if something was published.
-    if (notePosition(audio)) {
-      const span = episodeSpan(audio);
-      if (span && offLockScreen(span.pos)) syncLockScreen();
-    }
+    // screen thinks it is (a seek that didn't land, say), or a play state
+    // that has changed without an event. Only on a reading that counted.
+    // (syncLockScreen publishes only what changed: the state, or a position
+    // off its extrapolation.)
+    if (notePosition(audio)) syncLockScreen();
 
     // Save on crossing the threshold, then refresh roughly every minute so the
     // ledger reflects how long a long episode actually ran. recordHeardPlay
@@ -1001,16 +991,16 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     audio.addEventListener("loadedmetadata", onDuration);
     audio.addEventListener("durationchange", onDuration);
     // The lock screen follows every element change of position or play state
-    // from one listener set (registered after the handlers above, so it sees
-    // what they recorded), rather than a call at each site that makes one.
+    // from one listener set (registered after every other element handler,
+    // so it sees what they recorded), rather than a call at each site.
     // A fresh reading first (notePosition's rules decide whether it counts):
     // with timeupdates throttled while locked, knownPosRef can be seconds old
     // when "playing", "waiting" or a new duration arrive.
     const lockSync = () => refreshLockScreen(audio);
-    for (const ev of LOCK_SYNC_EVENTS) audio.addEventListener(ev, lockSync);
     audio.addEventListener("playing", onPlaying);
     audio.addEventListener("ended", onEnded);
     audio.addEventListener("error", onError);
+    for (const ev of LOCK_SYNC_EVENTS) audio.addEventListener(ev, lockSync);
 
     const ms = mediaSession();
     if (ms) {
@@ -1077,17 +1067,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       audio.removeEventListener("playing", onPlaying);
       audio.removeEventListener("ended", onEnded);
       audio.removeEventListener("error", onError);
-      const ms = mediaSession();
-      if (ms) {
-        ms.setActionHandler("play", null);
-        ms.setActionHandler("pause", null);
-        ms.setActionHandler("nexttrack", null);
-        try {
-          ms.setActionHandler("seekbackward", null);
-          ms.setActionHandler("seekforward", null);
-          ms.setActionHandler("seekto", null);
-        } catch { /* symmetric with setup */ }
-      }
+      clearActionHandlers(["play", "pause", "nexttrack", "seekbackward", "seekforward", "seekto"]);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1136,7 +1116,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
         (span === null || !offLockScreen(span.pos))) return;
     publishedRef.current = {
       state, dur: span?.dur ?? null, rate,
-      pos: span?.pos ?? null, atMs: Date.now(), moves: moving ? rate : 0,
+      pos: span?.pos ?? null, atMs: Date.now(),
     };
     publishLockScreen(state, span, rate);
   }
@@ -1160,8 +1140,11 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // Nothing published, or no position (no length yet, a stream): nothing
     // to be off from until a length arrives and syncs.
     if (!p || p.pos === null) return false;
-    const expected = p.pos + ((Date.now() - p.atMs) / 1000) * p.moves;
-    return Math.abs(pos - expected) > 2;
+    // Playing, it drifts by the extrapolation's slack; paused, any change is
+    // real (a listener's own small seek must be published).
+    const moving = p.state === "playing";
+    const expected = p.pos + (moving ? ((Date.now() - p.atMs) / 1000) * p.rate : 0);
+    return Math.abs(pos - expected) > (moving ? 2 : 0.25);
   }
 
   /** Where the episode is and how long it is, as the player sees it, with

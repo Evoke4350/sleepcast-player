@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
-import { SeekEnforcer, mediaTransport, type Seekable } from "./seek-enforcer";
+import { SeekEnforcer, type Seekable } from "./seek-enforcer";
+import { mediaTransport } from "./media/transport";
 
 class FakeEl implements Seekable {
   currentTime = 0;

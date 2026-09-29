@@ -25,6 +25,32 @@ export function publishLockScreen(
   }
 }
 
+/** What's playing: the episode and its feed (or "sleepcast"), with the
+ *  feed's artwork when there is one. */
+export function publishLockScreenMetadata(title: string, feedTitle: string | undefined, artwork: string | undefined): void {
+  const ms = mediaSession();
+  if (!ms) return;
+  ms.metadata = new MediaMetadata({
+    title,
+    artist: feedTitle ?? "sleepcast",
+    album: "sleepcast",
+    ...(artwork ? { artwork: [{ src: artwork, sizes: "512x512" }] } : {}),
+  });
+}
+
+/** Remove the action handlers a player registered, the same list it set up. */
+export function clearActionHandlers(actions: readonly MediaSessionAction[]): void {
+  const ms = mediaSession();
+  if (!ms) return;
+  for (const action of actions) {
+    try {
+      ms.setActionHandler(action, null);
+    } catch {
+      /* an action this browser doesn't know */
+    }
+  }
+}
+
 /** Clear everything a player put there: title and artwork, play state and
  *  position. When the night ends or the player goes away, nothing is left
  *  behind to show or to tap. */

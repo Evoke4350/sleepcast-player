@@ -1,6 +1,7 @@
 import type { MediaBackend, Transport, ErrorInfo } from "./backend";
 import { DurationLatch } from "../duration";
-import { SeekEnforcer, mediaTransport } from "../seek-enforcer";
+import { SeekEnforcer } from "../seek-enforcer";
+import { mediaTransport } from "./transport";
 
 /**
  * An <audio> element behind the backend interface.
