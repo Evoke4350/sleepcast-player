@@ -606,8 +606,16 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
       const work = (async () => {
         const vecs = await embedTexts(
           candidates.map((e) => e.title),
-          (done, total) => setVariedNote(`reading titles… ${done}/${total}`),
-          (pct) => setVariedNote(`fetching the mixer… ${pct}%`)
+          // Stops the work (a throw out of the loop) once the screen has
+          // gone: its pick would be dropped anyway.
+          (done, total) => {
+            if (!mountedRef.current) throw new Error("setup closed");
+            setVariedNote(`reading titles… ${done}/${total}`);
+          },
+          (pct) => {
+            if (!mountedRef.current) throw new Error("setup closed");
+            setVariedNote(`fetching the mixer… ${pct}%`);
+          }
         );
         return diversePick(vecs, VARIED_N).map((i) => candidates[i]);
       })();

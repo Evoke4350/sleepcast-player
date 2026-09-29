@@ -141,16 +141,19 @@ export function AppPlayer() {
     setLeveling(settings.leveling);
   }
 
-  /** Starting over: a snapshotted night still stored is over, and recorded.
-   *  A new night supersedes any prior last night; the recorded one's own is
-   *  kept, for a re-anchor if the new one never plays. Read from storage,
-   *  not the resume card's state: a recorded snapshot is removed there, so a
-   *  late second call records nothing twice. Any stored one: the card's, or
-   *  one settleLive left because it was seconds old (one tab in practice). */
-  function recordStoredNight() {
-    clearLastNight();
+  /** A snapshotted night still stored is over, and recorded: the card's,
+   *  or one settleLive left because it was seconds old (one tab in
+   *  practice). Read from storage, not the resume card's state: a recorded
+   *  snapshot is removed there, so a late second call records nothing twice.
+   *  Any prior last night goes. `keepItsLastNight`: starting a night, the
+   *  recorded one's own last night stays, for a re-anchor if the new one
+   *  never plays; declining it ("or start fresh"), it goes too, so no
+   *  re-anchor offers the night just turned down. */
+  function recordStoredNight(keepItsLastNight: boolean) {
+    if (keepItsLastNight) clearLastNight();
     const stored = loadLive();
     if (stored) reconcileLive(stored, Date.now());
+    if (!keepItsLastNight) clearLastNight();
     setLive(null);
   }
 
@@ -166,7 +169,7 @@ export function AppPlayer() {
     modeOverride?: PlayMode
   ) {
     setResume(null); // a fresh night, not a revival
-    recordStoredNight();
+    recordStoredNight(true);
     applyNightSettings(modeOverride ?? loadState().settings.mode);
     setSession({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artworkByFeedId, leadEpisode, wasVaried, leadPosition });
   }
@@ -318,7 +321,7 @@ export function AppPlayer() {
               ▶ keep going
             </button>
             <button
-              onClick={recordStoredNight}
+              onClick={() => recordStoredNight(false)}
               className="mt-2 block w-full text-center text-xs text-[#4a4540] underline decoration-[#2a2620] underline-offset-4 transition-colors hover:text-[#8a7a5c]"
             >
               or start fresh
