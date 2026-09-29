@@ -36,11 +36,10 @@ export function useNightExtensions(initial: number, persist: () => boolean, cloc
 
   useEffect(() => {
     if (extensions === storedCountRef.current) return;
-    const minutes = unstoredMinutesRef.current;
-    const night = clockRef.current.night();
     if (!persistRef.current()) {
+      const night = clockRef.current.night();
       if (!night) return; // kept unstored: the next write carries it
-      stretchLive(night, minutes, extensions);
+      stretchLive(night, unstoredMinutesRef.current, extensions);
     }
     unstoredMinutesRef.current = 0;
     storedCountRef.current = extensions;

@@ -335,8 +335,8 @@ export interface LiveNight {
 }
 
 /** Change the stored snapshot at once, for what a night must not lose
- *  while no full snapshot can be written (paused, or an episode not yet
- *  played). Only this night's: one it wrote (its start), or, before it has
+ *  while no full snapshot can be written (an episode not yet played, or a
+ *  failed write). Only this night's: one it wrote (its start), or, before it has
  *  written one, the very snapshot it was revived from (by when that was
  *  saved); a snapshot left by another (one that gave up keeps its own) is
  *  not. `change` returns null for nothing to write. */

@@ -741,10 +741,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       const w = restRef.current.wakefulness(now);
       if (shouldSuggestGettingUp({ elapsedMs: now - nightStartedAtRef.current, ...w })) {
         ruleSpentRef.current = true;
-        // Playing a played episode, the pause's own snapshot records it;
-        // otherwise (already paused, or nothing snapshotted yet for this
-        // episode) mark the stored one now.
-        if (audio.paused || !epPlayedRef.current) {
+        // Stored at once, not left to the pause's own snapshot (its event
+        // can be dropped by a reload): a full snapshot, else the mark.
+        if (!persistLive()) {
           const night = liveNightOf(restRef.current?.startedAt, resume?.savedAt);
           if (night) markLiveRuleSpent(night);
         }
