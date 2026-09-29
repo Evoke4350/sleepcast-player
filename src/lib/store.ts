@@ -402,12 +402,12 @@ export function clearLive(): void {
 // ---------------------------------------------------------------------------
 const KEY_LASTEP = "sleepcast2.lastep";
 
-/** Written only through noteSounded's rule. Whether it was written. */
-function saveLastEpisode(ep: Episode): boolean {
+/** Written only through noteSounded's rule. */
+function saveLastEpisode(ep: Episode): void {
   try {
-    return writeMakingRoom(KEY_LASTEP, JSON.stringify(ep));
+    writeMakingRoom(KEY_LASTEP, JSON.stringify(ep));
   } catch {
-    return false;
+    /* ignore */
   }
 }
 
@@ -416,11 +416,13 @@ function saveLastEpisode(ep: Episode): boolean {
  *  moment it first sounds, so a killed tab or a revived night that never
  *  sounds again still offers it. Not simply the current one at a night's
  *  end: a night that ends on a run of failures would offer one that never
- *  played. Returns what is now saved, for the caller to pass back. */
+ *  played. Returns the episode it was tried for, for the caller to pass back. */
 export function noteSounded(last: Episode | null, ep: Episode | null): Episode | null {
   if (!ep || last?.id === ep.id) return last;
-  // Not saved (storage full): unchanged, so its next sound tries again.
-  return saveLastEpisode(ep) ? ep : last;
+  // One attempt per episode: a write that fails (storage full of what
+  // can't be evicted) isn't retried on every sound (Night's tick is 1 Hz).
+  saveLastEpisode(ep);
+  return ep;
 }
 
 /** Never one the listener has since said "never again" to: the lead path

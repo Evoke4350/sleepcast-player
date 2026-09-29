@@ -759,12 +759,19 @@ describe("the last episode (the exact one again)", () => {
     unblockEpisode("a");
     expect(loadLastEpisode()?.id).toBe("a");
   });
-  it("a failed save leaves it unsaved, to be tried at the next sound", () => {
+  it("a failed save is tried once per episode, not on every sound", () => {
     const spy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new DOMException("full", "QuotaExceededError");
     });
-    expect(noteSounded(z, a)).toBe(z);
-    spy.mockRestore();
-    expect(noteSounded(z, a)?.id).toBe("a");
+    try {
+      const tried = noteSounded(z, a);
+      expect(tried?.id).toBe("a");
+      spy.mockClear();
+      expect(noteSounded(tried, a)).toBe(tried);
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+    expect(loadLastEpisode()?.id).toBe("z");
   });
 });

@@ -35,10 +35,11 @@ describe("recordNightEnd", () => {
   });
 
   it("a never-played night the listener ends clears the snapshot and records nothing", () => {
+    noteSounded(null, older); // an earlier night's pick stands
     recordNightEnd(end({ played: false, reason: "ended" }));
     expect(loadLive()).toBeNull();
     expect(loadLastNight()).toBeNull();
-    expect(loadLastEpisode()).toBeNull();
+    expect(loadLastEpisode()?.id).toBe(older.id);
     expect(loadNights()).toHaveLength(0);
   });
 
