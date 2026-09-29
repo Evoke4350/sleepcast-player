@@ -6,7 +6,6 @@
 // differs per player; the bookkeeping does not.
 import type { Episode, PlayMode } from "./engine";
 import { clearLive, loadLive, recordSessionEnd, saveLastEpisode, saveLastNight, type LastNight } from "./store";
-import { reconcileLive } from "./rest/reconcile";
 import { appendNight } from "./rest/ledger";
 import type { RestSession } from "./rest/session";
 import type { RestNight } from "./rest/types";
@@ -15,8 +14,10 @@ export interface NightEnd {
   reason: RestNight["endedVia"];
   /** Whether anything actually played this night, in this page. */
   played: boolean;
-  /** A revived night: what played before the reload is in its snapshot. */
-  revived: boolean;
+  /** A revived night: when the snapshot it was revived from was saved. What
+   *  played before the reload counts, while that snapshot is still the
+   *  stored one (another tab hasn't reconciled or replaced it). */
+  revivedFrom?: number;
   /** The app, not the listener, is ending a night that never played (nothing
    *  playable, an error screen). Its live snapshot is kept, so a revived night
    *  that failed offline can be revived again. */
@@ -36,23 +37,24 @@ export interface NightEnd {
 
 export function recordNightEnd(e: NightEnd): void {
   if (!e.played) {
-    // A revived night that never sounded here, ended any way but the app
-    // giving up: what played before the reload is recorded from its
-    // snapshot, as a killed tab's would be (nothing if another tab already
-    // has). Otherwise a night that never played records nothing: no re-arm
-    // stamp, no empty last night, no RestNight for calibration to learn
-    // from; its snapshot is cleared, or kept when the app gives up.
-    const l = e.revived && !e.gaveUp ? loadLive() : null;
-    if (l) reconcileLive(l, e.now);
-    else if (!e.gaveUp) clearLive();
-    return;
+    const revivedIntact = e.revivedFrom !== undefined && loadLive()?.savedAt === e.revivedFrom;
+    // A revived night that never sounded here but played before the
+    // reload, ended any way but the app giving up, is recorded like any
+    // played night (its RestSession carries the start and touches). Else a
+    // night that never played records nothing: no re-arm stamp, no empty
+    // last night, no RestNight for calibration to learn from. Its snapshot
+    // is kept when the app gives up, or when it is no longer this night's.
+    if (!revivedIntact || e.gaveUp) {
+      if (!e.gaveUp && e.revivedFrom === undefined) clearLive();
+      return;
+    }
   }
   clearLive();
   // "faded" is the natural end — stamp it so setup can offer a smaller re-arm.
   if (e.reason === "faded") recordSessionEnd(e.timerMinutes, e.modeKind);
   saveLastNight({ ...e.lastNight, endedVia: e.reason, endedAt: e.now });
-  // For "the exact one again" (a blocked one is hidden when read back).
-  // Always set here: whatever made `played` true also set it.
+  // For "the exact one again" (a blocked one is hidden when read back);
+  // none when nothing sounded in this page.
   if (e.lastHeard) saveLastEpisode(e.lastHeard);
   if (e.rest) appendNight(e.rest.finish(e.reason, e.now));
 }

@@ -257,7 +257,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     durationLatchRef.current.reset();
     epPlayedRef.current = false;
     netHoldRef.current.cancel(); // a new episode: any wait was for the last one
-    persistCounterRef.current = 0; // the snapshot at the end stands for the first
 
     const skipMin = skipIntroRef.current[ep.feedId] ?? 0;
     const skipSec = skipMin * 60;
@@ -282,8 +281,10 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
 
     publishLockScreenMetadata(ep.title, feedTitlesRef.current[ep.feedId], artworkRef.current[ep.feedId]);
     // And a snapshot now, at its start: a kill while it loads must not
-    // revive the last one (one just blocked, say).
-    persistLive();
+    // revive the last one (one just blocked, say). Written, it stands for
+    // the first periodic one; not (a fresh night's first episode), the
+    // periodic one lands as soon as it plays.
+    persistCounterRef.current = persistLive() ? 0 : 10;
   }
 
   /** Count one more consecutive failure (a stuck track, a source error). Past
@@ -660,8 +661,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       totalSeconds: totalSecondsRef.current,
       position: resumePosition(),
       current: ep,
-      // With the current one: the state that adds it may not have synced yet.
-      playedIds: [...new Set([...playedIdsRef.current, ep.id])],
+      playedIds: [...playedIdsRef.current],
       pool: poolRef.current,
       skipIntroByFeedId: skipIntroRef.current,
       feedTitles: feedTitlesRef.current,
@@ -835,7 +835,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     recordNightEnd({
       reason,
       played: hasEverPlayedRef.current,
-      revived: resume != null,
+      revivedFrom: resume?.savedAt,
       gaveUp,
       timerMinutes,
       modeKind: modeRef.current.kind,

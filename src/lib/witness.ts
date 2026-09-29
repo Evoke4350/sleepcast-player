@@ -147,6 +147,13 @@ export class PlaybackWitness {
     return spanOf(this.shownAt(currentTime, startPending), duration);
   }
 
+  /** Where a snapshot records the episode: resumeAt once it has been heard,
+   *  else 0, not the skip-intro start it was loaded at, which a revive would
+   *  take for a saved position (listening). */
+  snapshotAt(currentTime: number): number {
+    return this.heardEp ? this.resumeAt(currentTime) : 0;
+  }
+
   /** Where the current load was asked to start. */
   get startSec(): number {
     return this.start;

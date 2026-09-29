@@ -11,7 +11,7 @@ const live: LiveSession = {
   playedIds: [], pool: [ep], skipIntroByFeedId: {}, feedTitles: {}, artworkByFeedId: {},
 };
 const end = (over: Partial<NightEnd> = {}): NightEnd => ({
-  reason: "faded", played: true, revived: false, timerMinutes: 45, modeKind: "minutes",
+  reason: "faded", played: true, timerMinutes: 45, modeKind: "minutes",
   lastNight: { pool: [ep], playedIds: ["a"], feedTitles: {}, artworkByFeedId: {}, skipIntroByFeedId: {}, wasVaried: false },
   lastHeard: ep, rest: new RestSession(1_000, 45), now: 5_000,
   ...over,
@@ -49,16 +49,23 @@ describe("recordNightEnd", () => {
     expect(loadNights()).toHaveLength(0);
   });
 
-  it("a revived night ended before it sounded records its snapshot, as a killed tab's", () => {
-    recordNightEnd(end({ played: false, revived: true, reason: "ended" }));
+  it("a revived night ended before it sounded is recorded, with its own reason", () => {
+    recordNightEnd(end({ played: false, revivedFrom: 1, reason: "ended", lastHeard: null }));
     expect(loadLive()).toBeNull();
-    expect(loadNights()).toHaveLength(1); // reconciled from the snapshot
-    expect(loadNights()[0].detector).toBe("none");
+    expect(loadNights()).toHaveLength(1);
+    expect(loadLastNight()?.endedVia).toBe("ended");
   });
 
   it("a revived night the app gives up on before it sounded keeps its snapshot", () => {
-    recordNightEnd(end({ played: false, revived: true, reason: "ended", gaveUp: true }));
+    recordNightEnd(end({ played: false, revivedFrom: 1, reason: "ended", gaveUp: true }));
     expect(loadLive()).not.toBeNull();
+    expect(loadNights()).toHaveLength(0);
+  });
+
+  it("a revived night whose snapshot another tab has replaced records nothing and leaves it", () => {
+    saveLive({ ...live, savedAt: 99 });
+    recordNightEnd(end({ played: false, revivedFrom: 1, reason: "ended" }));
+    expect(loadLive()?.savedAt).toBe(99);
     expect(loadNights()).toHaveLength(0);
   });
 

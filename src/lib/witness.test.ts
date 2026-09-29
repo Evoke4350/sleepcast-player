@@ -128,6 +128,18 @@ describe("PlaybackWitness.resumeAt", () => {
   });
 });
 
+describe("PlaybackWitness.snapshotAt", () => {
+  test("0 for an episode never heard (not its skip-intro start); resumeAt once heard", () => {
+    const w = new PlaybackWitness();
+    w.newEpisode(120, 0); // loaded at a skip-intro start
+    expect(w.snapshotAt(0)).toBe(0);
+    w.newEpisode(1800, 0, true); // a saved position: heard
+    expect(w.snapshotAt(0)).toBe(1800);
+    w.markPlayed();
+    expect(w.snapshotAt(1900)).toBe(1900);
+  });
+});
+
 describe("PlaybackWitness.shownAt", () => {
   test("the load's start until it has played and its start seek is done, then the reading", () => {
     const w = new PlaybackWitness();

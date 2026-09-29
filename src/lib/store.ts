@@ -308,7 +308,6 @@ type ResumeFields = Omit<LiveSession, "current" | NightSessionField>;
  *  `resume`: one copy of each. One list, for the type and for resumeFrom. */
 const NIGHT_SESSION_FIELDS = [
   "pool", "skipIntroByFeedId", "feedTitles", "artworkByFeedId", "wasVaried", "timerMinutes", "modeKind",
-  "savedAt", // settleLive's and isRevivable's, not the players'
 ] as const satisfies readonly (keyof LiveSession)[];
 type NightSessionField = (typeof NIGHT_SESSION_FIELDS)[number];
 
@@ -335,7 +334,10 @@ export function saveLive(s: LiveSession): boolean {
   // Keep the current episode plus a bounded remainder — enough to keep the
   // shuffle going after a resume without serialising thousands of episodes.
   const rest = s.pool.filter((e) => e.id !== s.current.id).slice(0, LIVE_POOL_CAP - 1);
-  const bounded: LiveSession = { ...s, pool: [s.current, ...rest] };
+  // The current episode counts as played (the state that adds it may not
+  // have reached the writer yet).
+  const playedIds = s.playedIds.includes(s.current.id) ? s.playedIds : [...s.playedIds, s.current.id];
+  const bounded: LiveSession = { ...s, playedIds, pool: [s.current, ...rest] };
   try {
     return writeMakingRoom(KEY_LIVE, JSON.stringify(bounded));
   } catch {
