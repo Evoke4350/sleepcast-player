@@ -301,14 +301,20 @@ export interface LiveSession {
  *  there can't be dropped on the way. */
 export type ResumeDescriptor = Omit<LiveSession, "current" | NightSessionFields> & { episode: Episode };
 
-/** Snapshot fields a revived night takes through its session (the pool and
- *  the feeds' settings), not through `resume`: one copy of each. */
-type NightSessionFields = "pool" | "skipIntroByFeedId" | "feedTitles" | "artworkByFeedId";
+/** Snapshot fields a revived night takes through its session and mode (the
+ *  pool, the feeds' settings, the mix, the timer and the mode), not through
+ *  `resume`: one copy of each. */
+type NightSessionFields =
+  | "pool" | "skipIntroByFeedId" | "feedTitles" | "artworkByFeedId"
+  | "wasVaried" | "timerMinutes" | "modeKind";
 
 /** The snapshot as a ResumeDescriptor: all of it but the session's fields,
  *  the playing episode as `episode`. */
 export function resumeFrom(l: LiveSession): ResumeDescriptor {
-  const { current, pool: _pool, skipIntroByFeedId: _skip, feedTitles: _titles, artworkByFeedId: _art, ...rest } = l;
+  const {
+    current, pool: _pool, skipIntroByFeedId: _skip, feedTitles: _titles, artworkByFeedId: _art,
+    wasVaried: _varied, timerMinutes: _timer, modeKind: _mode, ...rest
+  } = l;
   return { ...rest, episode: current, playedIds: l.playedIds ?? [] };
 }
 
@@ -321,9 +327,13 @@ export function nightTimerMinutes(l: LiveSession): number {
 /** Mark the stored snapshot's quarter-hour rule spent at once: a snapshot
  *  may not be written again for a while (paused, or an episode not yet
  *  played), and a revive from it would prompt a second time. */
-export function markLiveRuleSpent(): void {
+export function markLiveRuleSpent(nightStartedAt: number): void {
   const l = loadLive();
-  if (l && !l.ruleSpent) writeMakingRoom(KEY_LIVE, JSON.stringify({ ...l, ruleSpent: true }));
+  // Only this night's: a snapshot left by another (one that gave up keeps
+  // its own) is not this one's to mark.
+  if (l && !l.ruleSpent && l.nightStartedAt === nightStartedAt) {
+    writeMakingRoom(KEY_LIVE, JSON.stringify({ ...l, ruleSpent: true }));
+  }
 }
 
 const LIVE_POOL_CAP = 80;

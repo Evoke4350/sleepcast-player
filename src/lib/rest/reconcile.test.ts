@@ -44,6 +44,11 @@ describe("reconcileLive", () => {
     expect(loadLastNight()?.playedIds).toEqual(["a", "b"]);
   });
 
+  it("keeps whether the night was a varied mix", () => {
+    reconcileLive(snap({ wasVaried: true }), T0 + 10 * 60 * 60_000);
+    expect(loadLastNight()?.wasVaried).toBe(true);
+  });
+
   it("clears the snapshot so the night is recorded once", () => {
     saveLive(snap());
     reconcileLive(snap(), T0 + 10 * 60 * 60_000);

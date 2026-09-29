@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useLazyRef } from "../lib/use-lazy-ref";
+import { useNightExtensions } from "../lib/use-night-extensions";
 
 // The drift game (three.js) loads only when opened — the player's own
 // bundle stays featherweight.
@@ -202,16 +203,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   const [holdPct, setHoldPct] = useState(0);
   const [drifting, setDrifting] = useState(false);
   // Stretches used this night (see canExtend). Resets with the component.
-  const [extensions, setExtensions] = useState(resume?.extensions ?? 0); // capped per night, reloads included
-  const extensionsRef = useRef(extensions); // for the snapshot, written from long-lived handlers
-  extensionsRef.current = extensions;
-  // An extension is snapshotted at once, after the render that counts it:
-  // paused and backgrounded, the next periodic snapshot may never come, and
-  // a revive would lose the stretch and reset the cap.
-  useEffect(() => {
-    if (extensions > 0) persistLive();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [extensions]);
+  const [extensions, setExtensions, extensionsRef] = useNightExtensions(resume?.extensions ?? 0, persistLive);
   const [blockedTonight, setBlockedTonight] = useState<ReadonlySet<string>>(new Set());
   // The quarter-hour rule has fired and playback is held. Once dismissed it
   // does not fire again for the rest of the night.
@@ -748,7 +740,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
         // Playing a played episode, the pause's own snapshot records it;
         // otherwise (already paused, or nothing snapshotted yet for this
         // episode) mark the stored one now.
-        if (audio.paused || !epPlayedRef.current) markLiveRuleSpent();
+        if (audio.paused || !epPlayedRef.current) markLiveRuleSpent(nightStartedAtRef.current);
         audio.pause();
         setPaused(true);
         showGettingUp(true);

@@ -36,6 +36,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useLazyRef } from "../lib/use-lazy-ref";
+import { useNightExtensions } from "../lib/use-night-extensions";
 import type { Episode, PlayMode } from "../lib/engine";
 import { formatTime, effectiveVolume, fadeDriverSeconds } from "../lib/engine";
 import { barPosition, remainingOf } from "../lib/duration";
@@ -250,16 +251,7 @@ export function Night({
   const [epPos, setEpPos] = useState<{ cur: number; dur: number } | null>(null);
   const [toast, setToast] = useState("");
   const [holdPct, setHoldPct] = useState(0);
-  const [extensions, setExtensions] = useState(resume?.extensions ?? 0); // capped per night, reloads included
-  const extensionsRef = useRef(extensions); // for the snapshot, written from long-lived handlers
-  extensionsRef.current = extensions;
-  // An extension is snapshotted at once, after the render that counts it:
-  // paused and backgrounded, the next periodic snapshot may never come, and
-  // a revive would lose the stretch and reset the cap.
-  useEffect(() => {
-    if (extensions > 0) persistLive();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [extensions]);
+  const [extensions, setExtensions, extensionsRef] = useNightExtensions(resume?.extensions ?? 0, persistLive);
   // null until the request settles. false means the browser refused, and the
   // listener needs to know: without it the screen sleeps and a YouTube night
   // simply stops, silently, which is the failure this whole file guards.
@@ -563,6 +555,9 @@ export function Night({
     const media = liveRef.current;
     const ep = currentEpRef.current;
     if (!media || !ep || tickHandleRef.current === null) return;
+    // Not before this episode has played (as Player and YouTubeNight): a
+    // night that never played isn't one to revive or reconcile.
+    if (!witnessRef.current.played) return;
     const remainingMs =
       endTimeRef.current === null
         ? 0

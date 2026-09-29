@@ -32,7 +32,7 @@ export function reconcileLive(l: LiveSession, now: number): void {
     skipIntroByFeedId: l.skipIntroByFeedId,
     endedVia: "faded",
     endedAt,
-    wasVaried: false, // not snapshotted; only steers which lineup a re-anchor continues
+    wasVaried: l.wasVaried ?? false, // steers which lineup a re-anchor continues
   });
   appendNight({
     startedAt,
