@@ -38,12 +38,13 @@ describe("spans", () => {
 });
 
 describe("DurationLatch", () => {
-  test("keeps the last known length through NaN and Infinity, until reset", () => {
+  test("keeps the last known length through NaN until reset; Infinity (a stream) forgets it", () => {
     const l = new DurationLatch();
     expect(l.read(NaN)).toBeNull();
     expect(l.read(600)).toBe(600);
     expect(l.read(NaN)).toBe(600);
-    expect(l.read(Infinity)).toBe(600);
+    expect(l.read(Infinity)).toBeNull();
+    expect(l.read(NaN)).toBeNull();
     expect(l.read(610)).toBe(610);
     l.reset();
     expect(l.read(NaN)).toBeNull();

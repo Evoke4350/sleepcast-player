@@ -39,10 +39,10 @@ export function remainingOf(span: { pos: number; dur: number } | null): number |
   return span ? span.dur - span.pos : null;
 }
 
-/** The last known duration of one load, kept through a momentary NaN or
- *  Infinity (a reload's element knows nothing yet; some engines report
- *  Infinity for a moment). A stream that never reports a finite length
- *  never sets it. */
+/** The last known duration of one load, kept through NaN (a reload's
+ *  element knows nothing yet). Infinity forgets it: the element says it is
+ *  a stream, and a finite estimate kept past that would fade and clamp to
+ *  a phantom end. A finite reading after sets it again. */
 export class DurationLatch {
   private known: number | null = null;
 
@@ -53,6 +53,7 @@ export class DurationLatch {
 
   /** Take a reading of the element's duration; the latched length. */
   read(raw: number): number | null {
+    if (raw === Infinity) this.known = null;
     const d = knownDuration(raw);
     if (d !== null) this.known = d;
     return this.known;

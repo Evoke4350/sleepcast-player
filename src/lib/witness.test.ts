@@ -128,6 +128,18 @@ describe("PlaybackWitness.resumeAt", () => {
   });
 });
 
+describe("PlaybackWitness.shownAt", () => {
+  test("the load's start until it has played and its start seek is done, then the reading", () => {
+    const w = new PlaybackWitness();
+    w.newEpisode(1800, 0);
+    expect(w.shownAt(0, true)).toBe(1800);
+    w.markPlayed();
+    expect(w.shownAt(0.9, true)).toBe(1800); // played from 0 while the start seek retries
+    expect(w.shownAt(1805, false)).toBe(1805);
+    expect(w.shownAt(600, false)).toBe(600); // a listener's seek back before the start
+  });
+});
+
 describe("rearmsWatchdogOnTap", () => {
   test("only for an unplayed episode that is not already buffering", () => {
     expect(rearmsWatchdogOnTap(false, "paused")).toBe(true);

@@ -119,6 +119,15 @@ export class PlaybackWitness {
     return this.seen ? Math.max(this.start, currentTime) : this.start;
   }
 
+  /** Where the bar shows the episode: where this load was meant to start
+   *  until it has played and its start seek (startPending) is done, the
+   *  element reading ~0 or wherever the seek left it till then; after, the
+   *  reading, a listener's seek back before the start included (unlike
+   *  resumeAt). */
+  shownAt(currentTime: number, startPending: boolean): number {
+    return this.seen && !startPending ? currentTime : this.start;
+  }
+
   /** Where the current load was asked to start. */
   get startSec(): number {
     return this.start;

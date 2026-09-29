@@ -531,12 +531,8 @@ export function YouTubeNight({
     // listener catch only its last seconds. See shouldPlayWhole.
     // Only returns if it did reload: a failed replay must not stall every tick.
     if (shouldPlayWhole(witnessRef.current, dur) && replayFromStart()) return;
-    // The same rule as Player's: a known length, and where the episode is
-    // (where this load was meant to start until it has played, the reading
-    // ~0 till then), kept within it. Not resumeAt, which never goes back
-    // before the start: a listener's seek back must show.
-    const w0 = witnessRef.current;
-    const span = spanOf(w0.played ? cur : w0.startSec, dur);
+    // A known length, and where the episode is (see shownAt), kept within it.
+    const span = spanOf(witnessRef.current.shownAt(cur, media.seeking()), dur);
     const epRemaining = remainingOf(span);
     const driver = fadeDriverSeconds(kind, remaining, epRemaining);
 

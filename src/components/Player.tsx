@@ -105,9 +105,10 @@ export interface PlayerProps {
 const LOCK_RETRY_MS = 10_000;
 /** Element events after which the lock screen is re-synced: play state
  *  (play, pause, playing, waiting), position (seeked), length
- *  (loadedmetadata, durationchange) and a new load (loadstart, which clears
+ *  (loadedmetadata, durationchange), rate (ratechange: the platform
+ *  extrapolates at it) and a new load (loadstart, which clears
  *  the last episode's scrubber until the new length is known). */
-const LOCK_SYNC_EVENTS = ["play", "pause", "playing", "waiting", "seeked", "loadedmetadata", "durationchange", "loadstart"] as const;
+const LOCK_SYNC_EVENTS = ["play", "pause", "playing", "waiting", "seeked", "loadedmetadata", "durationchange", "ratechange", "loadstart"] as const;
 
 export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, skipIntroByFeedId, feedTitles, artworkByFeedId, onEnd, resume = null, leadEpisode = null, leadPosition = 0, quarterHourRule = false, wasVaried = false }: PlayerProps) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -993,7 +994,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     audio.addEventListener("timeupdate", restTick); // keeps the sleep detector fed while backgrounded
     // The skip-intro decides as soon as the duration is known.
     const onDuration = () => {
-      const dur = durationLatchRef.current.read(audio.duration);
+      const dur = episodeDuration(audio);
       // (A seek aimed before this was known is kept short of the end by
       // the enforcer itself.) A target left behind before the length was
       // known may lie past it.

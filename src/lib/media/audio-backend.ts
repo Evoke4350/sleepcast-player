@@ -39,7 +39,7 @@ export class AudioBackend implements MediaBackend {
     if (startSeconds > 0) {
       const seek = new SeekEnforcer(this.el, startSeconds, {}, () => {
         if (this.startSeek === seek) this.startSeek = null;
-      }, { duration: () => this.latch.read(this.el.duration) });
+      }, { duration: () => this.knownLength() });
       this.startSeek = seek;
     }
 
@@ -80,7 +80,12 @@ export class AudioBackend implements MediaBackend {
   }
 
   duration(): number {
-    return this.latch.read(this.el.duration) ?? 0;
+    return this.knownLength() ?? 0;
+  }
+
+  /** This load's length through the latch, for the start seek and duration(). */
+  private knownLength(): number | null {
+    return this.latch.read(this.el.duration);
   }
 
   transport(): Transport {
