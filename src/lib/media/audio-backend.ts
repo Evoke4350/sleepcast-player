@@ -1,5 +1,5 @@
 import type { MediaBackend, Transport, ErrorInfo } from "./backend";
-import { DurationLatch, knownDuration, shortOfEnd } from "../duration";
+import { DurationLatch } from "../duration";
 import { SeekEnforcer, mediaTransport } from "../seek-enforcer";
 
 /**
@@ -85,17 +85,6 @@ export class AudioBackend implements MediaBackend {
   transport(): Transport {
     if (this.dead) return "dead";
     return mediaTransport(this.el);
-  }
-
-  seek(seconds: number): void {
-    if (this.dead || !Number.isFinite(seconds)) return;
-    this.dropSeek();
-    const dur = knownDuration(this.el.duration);
-    try {
-      this.el.currentTime = shortOfEnd(seconds, dur);
-    } catch {
-      /* not seekable now */
-    }
   }
 
   onProgress(cb: () => void): () => void {

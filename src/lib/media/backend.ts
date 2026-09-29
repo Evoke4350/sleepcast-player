@@ -32,9 +32,6 @@ export interface MediaBackend {
   /** Whether it is still putting a new load on its start position: readings
    *  meanwhile are seeks, not listening. */
   seeking(): boolean;
-  /** A seek the listener asked for (the lock screen): any start seek still
-   *  pending gives way, so it can't pull the position back. */
-  seek(seconds: number): void;
   /** 0–1, like HTMLMediaElement.volume. */
   setVolume(level: number): void;
   currentTime(): number;

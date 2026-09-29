@@ -137,12 +137,19 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
    *  notePosition), or the target a seek left behind when it ended without
    *  landing (kept short of the known end), or a load's start of 0. */
   const knownPosRef = useRef(0);
-  /** What the lock screen was last told (position, when, the rate it
-   *  extrapolates at), to tell a correction from steady playback. */
-  const publishedRef = useRef<{ pos: number; atMs: number; rate: number } | "none">("none");
-  /** The state, length and rate last published, to skip a publish that
-   *  would change nothing. */
-  const lastPublishRef = useRef<{ state: "playing" | "paused"; dur: number | null; rate: number } | null>(null);
+  /** What the lock screen was last told: state, length and rate (to skip a
+   *  publish that would change nothing), and the position with when it was
+   *  published and the rate it moves at (to tell a correction from steady
+   *  playback). pos null: no length, so no position published. Null when
+   *  nothing is published. */
+  const publishedRef = useRef<{
+    state: "playing" | "paused";
+    dur: number | null;
+    rate: number;
+    pos: number | null;
+    atMs: number;
+    moves: number;
+  } | null>(null);
   /** The current episode's duration once its element has reported one: kept
    *  across a reload (whose element knows nothing yet), reset per episode. */
   const durationLatchRef = useRef<DurationLatch>(null!);
@@ -1121,23 +1128,22 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     const moving = mediaTransport(audio) === "playing";
     const span = episodeSpan(audio);
     const rate = audio.playbackRate || 1;
-    // "none": nothing to extrapolate (no length yet, or a stream), so no
-    // reading can be off from it until a length arrives and syncs.
     // Nothing to publish when it would say what the lock screen already
     // shows ("play" then "playing", loadedmetadata then durationchange).
     const state = moving ? "playing" : "paused";
-    const last = lastPublishRef.current;
+    const last = publishedRef.current;
     if (last && last.state === state && last.dur === (span?.dur ?? null) && last.rate === rate &&
         (span === null || !offLockScreen(span.pos))) return;
-    lastPublishRef.current = { state, dur: span?.dur ?? null, rate };
-    publishedRef.current = span ? { pos: span.pos, atMs: Date.now(), rate: moving ? rate : 0 } : "none";
+    publishedRef.current = {
+      state, dur: span?.dur ?? null, rate,
+      pos: span?.pos ?? null, atMs: Date.now(), moves: moving ? rate : 0,
+    };
     publishLockScreen(state, span, rate);
   }
 
   /** Clear the lock screen, and what the player remembers publishing. */
   function clearAllLockScreen() {
-    publishedRef.current = "none";
-    lastPublishRef.current = null;
+    publishedRef.current = null;
     clearLockScreen();
   }
 
@@ -1151,8 +1157,10 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
    *  extrapolating from what was last published, thinks it is. */
   function offLockScreen(pos: number): boolean {
     const p = publishedRef.current;
-    if (p === "none") return false;
-    const expected = p.pos + ((Date.now() - p.atMs) / 1000) * p.rate;
+    // Nothing published, or no position (no length yet, a stream): nothing
+    // to be off from until a length arrives and syncs.
+    if (!p || p.pos === null) return false;
+    const expected = p.pos + ((Date.now() - p.atMs) / 1000) * p.moves;
     return Math.abs(pos - expected) > 2;
   }
 

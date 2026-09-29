@@ -101,19 +101,6 @@ describe("driving an audio element through the backend interface", () => {
     expect(b.duration()).toBe(0);
   });
 
-  it("a listener's seek gives way over a pending start seek, short of the end", () => {
-    const { el, fire } = fakeAudio();
-    const b = new AudioBackend(el);
-    b.load("https://x.test/a.mp3", 1800);
-    (el as { duration: number }).duration = 3600;
-    b.seek(2700);
-    expect(el.currentTime).toBe(2700);
-    fire("loadedmetadata"); // the start seek, had it survived, would pull back
-    expect(el.currentTime).toBe(2700);
-    b.seek(9999);
-    expect(el.currentTime).toBe(3599);
-  });
-
   it("reports position and duration, and never NaN", () => {
     const { el } = fakeAudio();
     const b = new AudioBackend(el);
