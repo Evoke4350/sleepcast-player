@@ -331,10 +331,12 @@ const LIVE_POOL_CAP = 80;
 
 /** A snapshot's played episodes, the current one included. */
 export function withCurrentPlayed(l: Pick<LiveSession, "playedIds" | "current">): string[] {
-  return l.playedIds.includes(l.current.id) ? l.playedIds : [...l.playedIds, l.current.id];
+  const ids = l.playedIds ?? []; // an older snapshot may lack it
+  return ids.includes(l.current.id) ? ids : [...ids, l.current.id];
 }
 
-/** Snapshots are written every this many ticks while an episode plays. */
+/** Snapshots are written every this many ticks while an episode plays
+ *  (about every 10 s in the foreground; see SNAPSHOT_FRESH_MS). */
 export const SNAPSHOT_EVERY_TICKS = 10;
 
 /** Whether it was written. */

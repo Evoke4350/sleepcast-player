@@ -90,15 +90,18 @@ describe("driving an audio element through the backend interface", () => {
     expect(el.volume).toBe(0);
   });
 
-  it("reports a known length, and none for a stream or before metadata", () => {
+  it("keeps an episode's length through a reload of it, not into another episode", () => {
     const { el } = fakeAudio();
     const b = new AudioBackend(el);
     b.load("https://x.test/a.mp3");
     (el as { duration: number }).duration = 600;
     expect(b.duration()).toBe(600);
-    (el as { duration: number }).duration = Infinity;
-    expect(b.duration()).toBe(0);
+    b.load("https://x.test/a.mp3", 300); // a retry: NaN until its metadata
     (el as { duration: number }).duration = NaN;
+    expect(b.duration()).toBe(600);
+    b.load("https://x.test/b.mp3");
+    expect(b.duration()).toBe(0);
+    (el as { duration: number }).duration = Infinity; // a stream
     expect(b.duration()).toBe(0);
   });
 

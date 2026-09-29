@@ -1,5 +1,5 @@
 import type { MediaBackend, Transport, ErrorInfo } from "./backend";
-import { knownDuration } from "../duration";
+import { DurationLatch } from "../duration";
 import { SeekEnforcer } from "../seek-enforcer";
 import { mediaTransport } from "./transport";
 
@@ -18,6 +18,12 @@ export class AudioBackend implements MediaBackend {
    *  outlived its episode would seek the NEXT one to this one's position. */
   private startSeek: SeekEnforcer | null = null;
   private detach: Array<() => void> = [];
+  /** The episode's length, kept through a reload of the same episode (a
+   *  retry, the network hold's resume), whose element reads NaN until its
+   *  metadata: without it a fade in progress jumped back to full. Reset for
+   *  another episode; Infinity (a stream) forgets it. */
+  private readonly latch = new DurationLatch();
+  private loadedRef: string | null = null;
   /** A rejected play() is not a DOM event, so it cannot ride the "error"
    *  listener subscribe() sets up. These are called directly instead. */
   private errorCallbacks = new Set<(code: number | string, info: ErrorInfo) => void>();
@@ -27,6 +33,8 @@ export class AudioBackend implements MediaBackend {
   load(ref: string, startSeconds = 0): void {
     if (this.dead) return;
     this.dropSeek();
+    if (ref !== this.loadedRef) this.latch.reset();
+    this.loadedRef = ref;
 
     this.el.src = ref;
 
@@ -35,7 +43,7 @@ export class AudioBackend implements MediaBackend {
     if (startSeconds > 0) {
       const seek = new SeekEnforcer(this.el, startSeconds, {}, () => {
         if (this.startSeek === seek) this.startSeek = null;
-      });
+      }, { duration: () => this.latch.read(this.el.duration) });
       this.startSeek = seek;
     }
 
@@ -76,10 +84,7 @@ export class AudioBackend implements MediaBackend {
   }
 
   duration(): number {
-    // No latch: the element's duration is NaN only at a new load (which
-    // knows nothing of the last one's length anyway), and Infinity is a
-    // stream. The start seek's own default reads the same.
-    return knownDuration(this.el.duration) ?? 0;
+    return this.latch.read(this.el.duration) ?? 0;
   }
 
   transport(): Transport {

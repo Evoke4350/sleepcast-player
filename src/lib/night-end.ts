@@ -36,8 +36,10 @@ export interface NightEnd {
 }
 
 export function recordNightEnd(e: NightEnd): void {
+  let lastHeard = e.lastHeard;
   if (!e.played) {
-    const revivedIntact = e.revivedFrom !== undefined && loadLive()?.savedAt === e.revivedFrom;
+    const stored = e.revivedFrom !== undefined ? loadLive() : null;
+    const revivedIntact = stored !== null && stored.savedAt === e.revivedFrom;
     // A revived night that never sounded here but played before the
     // reload, ended any way but the app giving up, is recorded like any
     // played night (its RestSession carries the start and touches). Else a
@@ -48,13 +50,15 @@ export function recordNightEnd(e: NightEnd): void {
       if (!e.gaveUp && e.revivedFrom === undefined) clearLive();
       return;
     }
+    // Its last sound was before the reload: the snapshot's episode, if it
+    // had been heard there (a position past its start).
+    if (stored.position > 0) lastHeard = stored.current;
   }
   clearLive();
   // "faded" is the natural end — stamp it so setup can offer a smaller re-arm.
   if (e.reason === "faded") recordSessionEnd(e.timerMinutes, e.modeKind);
   saveLastNight({ ...e.lastNight, endedVia: e.reason, endedAt: e.now });
-  // For "the exact one again" (a blocked one is hidden when read back);
-  // none when nothing sounded in this page.
-  if (e.lastHeard) saveLastEpisode(e.lastHeard);
+  // For "the exact one again" (a blocked one is hidden when read back).
+  if (lastHeard) saveLastEpisode(lastHeard);
   if (e.rest) appendNight(e.rest.finish(e.reason, e.now));
 }

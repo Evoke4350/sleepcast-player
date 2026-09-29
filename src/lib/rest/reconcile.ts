@@ -11,8 +11,9 @@ import { clearLive, isRevivable, nightTimerMinutes, saveLastNight, withCurrentPl
 import { appendNight } from "./ledger";
 
 /** A snapshot younger than this may belong to a night still playing in
- *  another tab (snapshots are rewritten every ~10 s). Leave it alone: that
- *  night will record itself when it ends. */
+ *  another tab (snapshots are rewritten every SNAPSHOT_EVERY_TICKS ticks,
+ *  ~10 s in the foreground). Leave it alone: that night will record itself
+ *  when it ends. */
 export const SNAPSHOT_FRESH_MS = 30_000;
 
 export function reconcileLive(l: LiveSession, now: number): void {

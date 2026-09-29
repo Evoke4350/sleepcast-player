@@ -54,6 +54,7 @@ describe("recordNightEnd", () => {
     expect(loadLive()).toBeNull();
     expect(loadNights()).toHaveLength(1);
     expect(loadLastNight()?.endedVia).toBe("ended");
+    expect(loadLastEpisode()?.id).toBe("a"); // heard before the reload
   });
 
   it("a revived night the app gives up on before it sounded keeps its snapshot", () => {

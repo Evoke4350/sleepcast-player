@@ -153,14 +153,12 @@ export function AppPlayer() {
     modeOverride?: PlayMode
   ) {
     setResume(null); // a fresh night, not a revival
-    // Starting over: a snapshotted night still stored is over. The resume
-    // card's, or one kept after it was revived (the app gave up on it) with
-    // no card left to show.
-    const kept = live ?? loadLive();
-    if (kept) reconcileLive(kept, Date.now());
+    clearLastNight(); // a new night supersedes any prior faded one
+    // Starting over: the resume card's snapshotted night is over, recorded
+    // (its last night kept, for a re-anchor if this one never plays).
+    if (live) reconcileLive(live, Date.now());
     setLive(null);
     applyNightSettings(modeOverride ?? loadState().settings.mode);
-    clearLastNight(); // a new night supersedes any prior faded one
     setSession({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artworkByFeedId, leadEpisode, wasVaried, leadPosition });
   }
 
@@ -184,6 +182,9 @@ export function AppPlayer() {
   function handleEnd() {
     setResume(null);
     setSession(null);
+    // A snapshot the night kept (the app gave up on a revived night) comes
+    // back as the resume card, or is recorded if too old to revive.
+    setLive(settleLive(loadLive(), Date.now()));
   }
 
   // Continue the spread as a fresh clock-blind night, led by the next unplayed
