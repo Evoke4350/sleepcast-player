@@ -107,6 +107,8 @@ describe("settleLive", () => {
     saveLive(s);
     expect(settleLive(s, s.savedAt - 60 * 60_000)).toBeNull();
     expect(loadNights()).toHaveLength(1);
+    // Its start is never after its end (now, here).
+    expect(loadNights()[0].startedAt).toBeLessThanOrEqual(loadLastNight()!.endedAt);
     expect(loadLive()).toBeNull();
   });
 

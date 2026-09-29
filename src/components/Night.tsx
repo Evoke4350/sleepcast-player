@@ -177,9 +177,9 @@ export function Night({
   const wasVariedRef = useRef(wasVaried);
 
   const currentEpRef = useRef<Episode | null>(null);
-  /** The episode last saved as "the exact one again" (see noteSounded),
-   *  so the save runs once per episode, not on every sound. */
-  const savedEpRef = useRef<Episode | null>(null);
+  /** The episode last tried as "the exact one again" (see noteSounded),
+   *  so the save is tried once per episode, not on every sound. */
+  const triedEpRef = useRef<Episode | null>(null);
   const currentFeedRef = useRef<string | null>(null);
   // Everything known not to play: blocked across nights (the uploader disabled
   // embedding, the video is gone) plus whatever failed tonight.
@@ -1009,7 +1009,7 @@ export function Night({
   /** This episode has played: stand the watchdog down and reset the retry
    *  count. One place for the embed's PLAYING event and the tick's witness. */
   function markPlayed() {
-    savedEpRef.current = noteSounded(savedEpRef.current, currentEpRef.current);
+    triedEpRef.current = noteSounded(triedEpRef.current, currentEpRef.current);
     watchRef.current = null;
     retriesRef.current = 0;
     hasEverPlayedRef.current = true;

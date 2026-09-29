@@ -18,11 +18,13 @@ export const SNAPSHOT_FRESH_MS = 30_000;
 
 export function reconcileLive(l: LiveSession, now: number): void {
   const elapsedMs = Math.max(0, l.totalSeconds * 1000 - Math.max(0, l.remainingMs));
-  const startedAt = l.nightStartedAt ?? l.savedAt - elapsedMs;
   const timerMinutes = nightTimerMinutes(l);
   // As if it faded on schedule. A timerless night (one-episode, all-night)
   // snapshots no remaining time, so it ends where it was last seen alive.
   const endedAt = Math.min(now, l.savedAt + Math.max(0, l.remainingMs));
+  // Never after its end: a clock stepped back since the snapshot leaves
+  // savedAt, and the start, in the future.
+  const startedAt = Math.min(l.nightStartedAt ?? l.savedAt - elapsedMs, endedAt);
   const playedIds = withCurrentPlayed(l);
 
   saveLastNight({
