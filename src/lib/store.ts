@@ -285,8 +285,27 @@ export interface LiveSession {
   modeKind?: PlayMode["kind"];
   /** Transport touches before the snapshot, carried into a revived session. */
   interactions?: number;
-  /** The same, unmerged (wakefulness counts every touch). */
+  /** Player only (the quarter-hour rule's input): the same, unmerged
+   *  (wakefulness counts every touch), and whether the rule was spent. */
   touches?: number;
+  ruleSpent?: boolean;
+}
+
+/** What a revived night resumes from: a LiveSession as the players take it. */
+export interface ResumeDescriptor {
+  episode: Episode;
+  position: number;
+  remainingMs: number;
+  totalSeconds: number;
+  playedIds: string[];
+  /** When the revived night really began (snapshot's nightStartedAt). */
+  nightStartedAt?: number;
+  /** Transport touches before the reload (see RestSession.seedInteractions). */
+  interactions?: number;
+  /** Player only: the unmerged touches, and whether the quarter-hour rule
+   *  was spent (it fires at most once a night, reloads included). */
+  touches?: number;
+  ruleSpent?: boolean;
 }
 
 const LIVE_POOL_CAP = 80;

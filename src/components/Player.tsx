@@ -17,7 +17,7 @@ import { clearLockScreen, mediaSession, publishLockScreen, publishLockScreenMeta
 import { decideSkip, skipMessage, stillAtStart } from "../lib/skip-intro";
 import { pickNextEpisode, HEARD_SEC } from "../lib/plays";
 import { canExtend } from "../lib/timer-feel";
-import type { NoiseSettings } from "../lib/store";
+import type { NoiseSettings, ResumeDescriptor } from "../lib/store";
 import { BrownNoise, noiseGain } from "../lib/noise";
 import { Leveler } from "../lib/leveler";
 import { shouldTick } from "../lib/tick-gate";
@@ -79,18 +79,7 @@ export interface PlayerProps {
   onEnd: () => void;
   // Present when reviving a night after a reload: start from this episode at
   // this position with this much time left, instead of a fresh spin + timer.
-  resume?: {
-    episode: Episode;
-    position: number;
-    remainingMs: number;
-    totalSeconds: number;
-    playedIds: string[];
-    /** When the revived night really began (snapshot's nightStartedAt). */
-    nightStartedAt?: number;
-    /** Transport touches before the reload, merged and not (see RestSession). */
-    interactions?: number;
-    touches?: number;
-  } | null;
+  resume?: ResumeDescriptor | null;
   // "the exact one again": lead a fresh night with this episode (the same show
   // the returning listener drifted off to), then shuffle on as usual.
   leadEpisode?: Episode | null;
@@ -653,6 +642,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       modeKind: modeRef.current.kind,
       interactions: restRef.current?.interactionCount,
       touches: restRef.current?.touchCount,
+      ruleSpent: ruleSpentRef.current,
       remainingMs,
       totalSeconds: totalSecondsRef.current,
       position: resumePosition(),
@@ -880,7 +870,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // from the tap on "keep going".
     const nightStart = revivedNightStart(resume?.nightStartedAt, Date.now());
     restRef.current = new RestSession(nightStart, timerMinutes);
-    restRef.current.seedInteractions(resume?.interactions ?? 0, resume?.touches ?? resume?.interactions ?? 0);
+    restRef.current.seedInteractions(resume?.interactions ?? 0, resume?.touches);
+    ruleSpentRef.current = resume?.ruleSpent === true; // at most once a night, reloads included
     nightStartedAtRef.current = nightStart; // the quarter-hour rule's clock too
     if (resume) {
       totalSecondsRef.current = resume.totalSeconds;
@@ -895,14 +886,10 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     const onPause = () => {
       setPaused(true);
       watchRef.current = null; // a paused track isn't a stuck track
-      if (!audio.ended) {
-        freezeClock();
-        // A fresh reading first (lockSync's comes after this handler): a
-        // locked phone's throttled timeupdates can leave it seconds old. Not
-        // at an end, whose reading is the very end: the next episode's
-        // snapshot follows.
-        notePosition(audio);
-      }
+      if (!audio.ended) freezeClock();
+      // A fresh reading first (lockSync's comes after this handler): a
+      // locked phone's throttled timeupdates can leave it seconds old.
+      notePosition(audio);
       persistLive(); // capture the pause with its frozen remaining time
     };
 

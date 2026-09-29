@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import type { Episode } from "../lib/engine";
 import { formatTime } from "../lib/engine";
-import { loadLive, clearLastNight, loadLastNight, type LiveSession, type LastNight, loadState, isRevivable, resumeMode } from "../lib/store";
+import { loadLive, clearLastNight, loadLastNight, type LiveSession, type LastNight, type ResumeDescriptor, loadState, isRevivable, resumeMode } from "../lib/store";
 import type { PlayMode } from "../lib/engine";
 import type { NoiseSettings } from "../lib/store";
 import { shouldReanchor, nextInSpread } from "../lib/rest/reanchor";
@@ -18,16 +18,6 @@ import { shouldGreetGoodbye, markGoodbyeSeen, fmtDuration } from "../lib/rest/su
 import { loadNights, loadQuietUntil, saveQuietUntil, loadStepBackAsked, markStepBackAsked } from "../lib/rest/ledger";
 import { qualifiesForStepBack, isQuiet, quietUntilFrom } from "../lib/rest/stepback";
 
-interface ResumeDescriptor {
-  episode: Episode;
-  position: number;
-  remainingMs: number;
-  totalSeconds: number;
-  playedIds: string[];
-  nightStartedAt?: number;
-  interactions?: number;
-  touches?: number;
-}
 
 interface SessionState {
   pool: Episode[];
@@ -186,6 +176,7 @@ export function AppPlayer() {
       nightStartedAt: live.nightStartedAt,
       interactions: live.interactions,
       touches: live.touches,
+      ruleSpent: live.ruleSpent,
     });
     setSession({
       pool: live.pool,
