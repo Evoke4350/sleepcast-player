@@ -463,7 +463,7 @@ describe("quarter-hour rule opt-in", () => {
 });
 
 import { recordSessionEnd, REARM_WINDOW_MS } from "./store";
-import { isRevivable, LIVE_MAX_AGE_MS, resumeMode, resumeFrom, nightTimerMinutes, markLiveRuleSpent, recordStretch, type LiveSession, saveLive, loadLive, saveLastNight, loadLastNight, clampTimerMinutes } from "./store";
+import { isRevivable, LIVE_MAX_AGE_MS, resumeMode, resumeFrom, nightTimerMinutes, markLiveRuleSpent, stretchLive, type LiveSession, saveLive, loadLive, saveLastNight, loadLastNight, clampTimerMinutes } from "./store";
 
 describe("settings migration", () => {
   beforeEach(() => localStorage.clear());
@@ -672,15 +672,15 @@ describe("timerless snapshots", () => {
 
   it("patches a stretch into this night's stored snapshot", () => {
     localStorage.clear();
-    const stretched = { extensions: 1, remainingMs: 950_000, totalSeconds: 60 * 60 };
+    const stretched = { extensions: 1, remainingMs: 50_000 + 15 * 60_000, totalSeconds: 60 * 60 };
     saveLive(live({ nightStartedAt: 4, remainingMs: 50_000, totalSeconds: 45 * 60 }));
-    recordStretch({ startedAt: 5 }, stretched); // not this night's
+    stretchLive({ startedAt: 5 }, 15, 1); // not this night's
     expect(loadLive()?.extensions).toBeUndefined();
-    recordStretch({ startedAt: 4 }, stretched);
-    expect(loadLive()).toMatchObject(stretched);
+    stretchLive({ startedAt: 4 }, 15, 1);
+    expect(loadLive()).toMatchObject({ ...stretched, savedAt: 1_000_000 }); // still as of when saved
     // A revived night, before its own snapshot: the one it was revived from.
-    saveLive(live({ nightStartedAt: 4 }));
-    recordStretch({ startedAt: 9, revivedSavedAt: 1_000_000 }, stretched);
+    saveLive(live({ nightStartedAt: 4, remainingMs: 50_000, totalSeconds: 45 * 60 }));
+    stretchLive({ startedAt: 9, revivedSavedAt: 1_000_000 }, 15, 1);
     expect(loadLive()).toMatchObject(stretched);
   });
 

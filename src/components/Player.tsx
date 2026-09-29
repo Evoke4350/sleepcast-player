@@ -7,7 +7,7 @@ import { useNightExtensions } from "../lib/use-night-extensions";
 const DriftGame = lazy(() => import("./DriftGame"));
 import type { Episode, PlayMode } from "../lib/engine";
 import { fadeVolume, formatTime, effectiveVolume, fadeDriverSeconds } from "../lib/engine";
-import { getPlays, recordHeardPlay, saveLive, markLiveRuleSpent, rememberPosition, forgetPosition, blockEpisode } from "../lib/store";
+import { getPlays, recordHeardPlay, saveLive, markLiveRuleSpent, liveNightOf, rememberPosition, forgetPosition, blockEpisode } from "../lib/store";
 import { NetworkHold, isOffline } from "../lib/network-hold";
 import { SeekEnforcer, type SeekHooks } from "../lib/seek-enforcer";
 import { mediaTransport } from "../lib/media/transport";
@@ -202,8 +202,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   const [holdPct, setHoldPct] = useState(0);
   const [drifting, setDrifting] = useState(false);
   // Stretches used this night (see useNightExtensions), kept across a revive.
-  const { canExtendMore, extend, extensionsRef, liveNight } = useNightExtensions(resume?.extensions ?? 0, persistLive, {
-    endTimeRef, pausedRemainingMsRef, totalSecondsRef, setTotalSeconds, restRef, revivedSavedAt: resume?.savedAt,
+  const { canExtendMore, extend, extensionsRef } = useNightExtensions(resume?.extensions ?? 0, persistLive, {
+    endTimeRef, pausedRemainingMsRef, totalSecondsRef, setTotalSeconds,
+    night: () => liveNightOf(restRef.current?.startedAt, resume?.savedAt),
   });
   const [blockedTonight, setBlockedTonight] = useState<ReadonlySet<string>>(new Set());
   // The quarter-hour rule has fired and playback is held. Once dismissed it
@@ -639,7 +640,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
         ? 0
         : pausedRemainingMsRef.current ?? endTimeRef.current - Date.now();
     if (endTimeRef.current !== null && remainingMs <= 0) return false;
-    saveLive({
+    return saveLive({
       savedAt: Date.now(),
       nightStartedAt: restRef.current?.startedAt,
       timerMinutes: restRef.current?.timerMinutes,
@@ -659,7 +660,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       feedTitles: feedTitlesRef.current,
       artworkByFeedId: artworkRef.current,
     });
-    return true;
   }
 
   // Feed the sleep detector at a wall-clock 15s cadence, driven by BOTH the 1s
@@ -745,7 +745,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
         // otherwise (already paused, or nothing snapshotted yet for this
         // episode) mark the stored one now.
         if (audio.paused || !epPlayedRef.current) {
-          const night = liveNight();
+          const night = liveNightOf(restRef.current?.startedAt, resume?.savedAt);
           if (night) markLiveRuleSpent(night);
         }
         audio.pause();

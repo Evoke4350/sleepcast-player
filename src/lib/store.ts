@@ -342,9 +342,9 @@ export interface LiveNight {
  *  not. `change` returns null for nothing to write. */
 function patchOwnLive(night: LiveNight, change: (l: LiveSession) => LiveSession | null): void {
   const l = loadLive();
-  const ours = l !== null &&
-    (l.nightStartedAt === night.startedAt || (night.revivedSavedAt !== undefined && l.savedAt === night.revivedSavedAt));
-  if (!l || !ours) return;
+  if (!l) return;
+  const revivedFrom = night.revivedSavedAt !== undefined && l.savedAt === night.revivedSavedAt;
+  if (l.nightStartedAt !== night.startedAt && !revivedFrom) return;
   const next = change(l);
   if (next) writeMakingRoom(KEY_LIVE, JSON.stringify(next));
 }
@@ -354,27 +354,39 @@ export function markLiveRuleSpent(night: LiveNight): void {
   patchOwnLive(night, (l) => (l.ruleSpent ? null : { ...l, ruleSpent: true }));
 }
 
-/** A stretch taken where no full snapshot can be written: the night's
- *  count, total and time left as they now are, so a revive keeps the
- *  stretch and the cap. */
-export function recordStretch(
-  night: LiveNight,
-  clock: { extensions: number; totalSeconds: number; remainingMs: number },
-): void {
-  patchOwnLive(night, (l) => ({ ...l, ...clock }));
+/** `minutes` stretched where no full snapshot can be written (`extensions`
+ *  now used): the stored time left and total grow by them, so the snapshot
+ *  still means what it did when saved, and a revive keeps the stretch and
+ *  the cap. */
+export function stretchLive(night: LiveNight, minutes: number, extensions: number): void {
+  patchOwnLive(night, (l) => ({
+    ...l,
+    extensions,
+    totalSeconds: l.totalSeconds + minutes * 60,
+    remainingMs: l.remainingMs + minutes * 60_000,
+  }));
+}
+
+/** This night's identity for patching its stored snapshot: its start (its
+ *  RestSession's), and the snapshot it was revived from, if it was. Null
+ *  before the night begins. */
+export function liveNightOf(startedAt: number | undefined, revivedSavedAt: number | undefined): LiveNight | null {
+  return startedAt === undefined ? null : { startedAt, revivedSavedAt };
 }
 
 const LIVE_POOL_CAP = 80;
 
-export function saveLive(s: LiveSession): void {
+/** Whether it was written. */
+export function saveLive(s: LiveSession): boolean {
   // Keep the current episode plus a bounded remainder — enough to keep the
   // shuffle going after a resume without serialising thousands of episodes.
   const rest = s.pool.filter((e) => e.id !== s.current.id).slice(0, LIVE_POOL_CAP - 1);
   const bounded: LiveSession = { ...s, pool: [s.current, ...rest] };
   try {
-    writeMakingRoom(KEY_LIVE, JSON.stringify(bounded));
+    return writeMakingRoom(KEY_LIVE, JSON.stringify(bounded));
   } catch {
     // Quota or private mode: a lost resume is not worth throwing over.
+    return false;
   }
 }
 

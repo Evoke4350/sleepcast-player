@@ -43,6 +43,7 @@ import {
   loadBlocked,
   type NoiseSettings,
   type ResumeDescriptor,
+  liveNightOf,
 } from "../lib/store";
 import { HEARD_SEC } from "../lib/plays";
 import { BrownNoise, noiseGain } from "../lib/noise";
@@ -196,7 +197,8 @@ export function YouTubeNight({
   const [toast, setToast] = useState("");
   const [holdPct, setHoldPct] = useState(0);
   const { canExtendMore, extend, extensionsRef } = useNightExtensions(resume?.extensions ?? 0, persistLive, {
-    endTimeRef, pausedRemainingMsRef, totalSecondsRef, setTotalSeconds, restRef, revivedSavedAt: resume?.savedAt,
+    endTimeRef, pausedRemainingMsRef, totalSecondsRef, setTotalSeconds,
+    night: () => liveNightOf(restRef.current?.startedAt, resume?.savedAt),
   });
   // null until the request settles. false means the browser refused, and the
   // listener needs to know: without it the screen sleeps and a YouTube night
@@ -433,7 +435,7 @@ export function YouTubeNight({
         ? 0
         : pausedRemainingMsRef.current ?? endTimeRef.current - Date.now();
     if (endTimeRef.current !== null && remainingMs <= 0) return false;
-    saveLive({
+    return saveLive({
       savedAt: Date.now(),
       nightStartedAt: restRef.current?.startedAt,
       timerMinutes: restRef.current?.timerMinutes,
@@ -451,7 +453,6 @@ export function YouTubeNight({
       feedTitles: feedTitlesRef.current,
       artworkByFeedId: artworkRef.current,
     });
-    return true;
   }
 
   // The single interval is the ONLY clock here. A podcast night also rides the
