@@ -410,6 +410,18 @@ export function saveLastEpisode(ep: Episode): void {
   }
 }
 
+/** An episode has just made a sound: saved as "the exact one again" when
+ *  it is another episode than `last` (the one saved before, by id), at the
+ *  moment it first sounds, so a killed tab or a revived night that never
+ *  sounds again still offers it. Not simply the current one at a night's
+ *  end: a night that ends on a run of failures would offer one that never
+ *  played. Returns what is now saved, for the caller to pass back. */
+export function noteSounded(last: Episode | null, ep: Episode | null): Episode | null {
+  if (!ep || last?.id === ep.id) return last;
+  saveLastEpisode(ep);
+  return ep;
+}
+
 /** Never one the listener has since said "never again" to: the lead path
  *  plays it directly, without consulting the blocked list. Filtered here, on
  *  read, so an episode unblocked later is offered again. */

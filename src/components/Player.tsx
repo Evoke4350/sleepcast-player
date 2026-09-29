@@ -7,7 +7,7 @@ import { useNightExtensions } from "../lib/use-night-extensions";
 const DriftGame = lazy(() => import("./DriftGame"));
 import type { Episode, PlayMode } from "../lib/engine";
 import { fadeVolume, formatTime, effectiveVolume, fadeDriverSeconds } from "../lib/engine";
-import { getPlays, recordHeardPlay, saveLive, saveLastEpisode, SNAPSHOT_EVERY_TICKS, rememberPosition, forgetPosition, blockEpisode } from "../lib/store";
+import { getPlays, recordHeardPlay, saveLive, noteSounded, SNAPSHOT_EVERY_TICKS, rememberPosition, forgetPosition, blockEpisode } from "../lib/store";
 import { NetworkHold, isOffline } from "../lib/network-hold";
 import { SeekEnforcer, type SeekHooks } from "../lib/seek-enforcer";
 import { mediaTransport } from "../lib/media/transport";
@@ -164,10 +164,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   // revive it), the live timer total, and a throttle so we snapshot the night
   // to storage every ~10s rather than every tick.
   const currentEpRef = useRef<Episode | null>(null);
-  /** The last episode that actually made a sound tonight: saved as "the
-   *  exact one again" the moment a new one first sounds (so a killed tab or a
-   *  revived night still offers it). Not simply the current one: a night that
-   *  ends on a run of failures would offer one that never played. */
+  /** The episode last saved as "the exact one again" (see noteSounded),
+   *  so the save runs once per episode, not on every sound. */
   const lastHeardEpRef = useRef<Episode | null>(null);
   const totalSecondsRef = useRef(timerMinutes * 60);
   const persistCounterRef = useRef(0);
@@ -952,10 +950,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       failsRef.current = 0;
       hasEverPlayedRef.current = true;
       epPlayedRef.current = true;
-      if (currentEpRef.current && lastHeardEpRef.current !== currentEpRef.current) {
-        lastHeardEpRef.current = currentEpRef.current;
-        saveLastEpisode(currentEpRef.current);
-      }
+      lastHeardEpRef.current = noteSounded(lastHeardEpRef.current, currentEpRef.current);
       const feedId = currentFeedRef.current;
       if (feedId && audio.crossOrigin === "anonymous") corsGoodFeeds.add(feedId);
       // Conservative gate: attach only once every feed in the pool has already

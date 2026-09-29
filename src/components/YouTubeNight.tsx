@@ -44,7 +44,7 @@ import {
   type NoiseSettings,
   type ResumeDescriptor,
   SNAPSHOT_EVERY_TICKS,
-  saveLastEpisode,
+  noteSounded,
 } from "../lib/store";
 import { HEARD_SEC } from "../lib/plays";
 import { BrownNoise, noiseGain } from "../lib/noise";
@@ -137,10 +137,8 @@ export function YouTubeNight({
   const wasVariedRef = useRef(wasVaried);
 
   const currentEpRef = useRef<Episode | null>(null);
-  /** The last episode that actually made a sound tonight: saved as "the
-   *  exact one again" the moment a new one first sounds (so a killed tab or a
-   *  revived night still offers it). Not simply the current one: a night that
-   *  ends on a run of failures would offer one that never played. */
+  /** The episode last saved as "the exact one again" (see noteSounded),
+   *  so the save runs once per episode, not on every sound. */
   const lastHeardEpRef = useRef<Episode | null>(null);
   const currentFeedRef = useRef<string | null>(null);
   // Everything known not to play: blocked across nights (the uploader disabled
@@ -747,10 +745,7 @@ export function YouTubeNight({
   /** This episode has played: stand the watchdog down and reset the failure
    *  counts. One place for the PLAYING event and the tick's witness. */
   function markPlayed() {
-    if (currentEpRef.current && lastHeardEpRef.current !== currentEpRef.current) {
-      lastHeardEpRef.current = currentEpRef.current;
-      saveLastEpisode(currentEpRef.current);
-    }
+    lastHeardEpRef.current = noteSounded(lastHeardEpRef.current, currentEpRef.current);
     watchRef.current = null;
     failsRef.current = 0;
     retriesRef.current = 0;

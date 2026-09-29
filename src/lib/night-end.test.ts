@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { recordNightEnd, type NightEnd } from "./night-end";
-import { blockEpisode, unblockEpisode, saveLastEpisode, saveLive, loadLive, loadLastNight, loadLastEpisode, loadState, type LiveSession } from "./store";
+import { blockEpisode, unblockEpisode, noteSounded, saveLastEpisode, saveLive, loadLive, loadLastNight, loadLastEpisode, loadState, type LiveSession } from "./store";
 import { loadNights } from "./rest/ledger";
 import { RestSession } from "./rest/session";
 
@@ -95,6 +95,14 @@ describe("the last episode (the exact one again)", () => {
     expect(loadLastEpisode()).toBeNull();
     unblockEpisode(ep.id);
     expect(loadLastEpisode()?.id).toBe(ep.id);
+  });
+  it("noteSounded saves a new episode once, not the same one again", () => {
+    const first = noteSounded(null, ep);
+    expect(loadLastEpisode()?.id).toBe(ep.id);
+    saveLastEpisode(older); // were it saved again, this would be overwritten
+    expect(noteSounded(first, { ...ep })).toBe(first); // same id, another object
+    expect(loadLastEpisode()?.id).toBe(older.id);
+    expect(noteSounded(first, null)).toBe(first);
   });
   it("ending a night doesn't touch it", () => {
     saveLive(live);
