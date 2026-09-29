@@ -154,9 +154,12 @@ export function AppPlayer() {
   ) {
     setResume(null); // a fresh night, not a revival
     clearLastNight(); // a new night supersedes any prior faded one
-    // Starting over: the resume card's snapshotted night is over, recorded
-    // (its last night kept, for a re-anchor if this one never plays).
-    if (live) reconcileLive(live, Date.now());
+    // Starting over: a snapshotted night still stored is over, recorded (its
+    // last night kept, for a re-anchor if this one never plays). The resume
+    // card's, or one settleLive left because it was seconds old (one tab in
+    // practice, so no other night is writing it).
+    const stored = live ?? loadLive();
+    if (stored) reconcileLive(stored, Date.now());
     setLive(null);
     applyNightSettings(modeOverride ?? loadState().settings.mode);
     setSession({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artworkByFeedId, leadEpisode, wasVaried, leadPosition });

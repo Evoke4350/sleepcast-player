@@ -1115,8 +1115,9 @@ export function Night({
     restRef.current?.noteSkip(ep.feedId);
     restRef.current?.noteInteraction();
     forgetPosition(ep.id);
-    // The listener's own choice: permanent, and ending a never-played night
-    // here clears its snapshot (see playNext's byListener).
+    // The listener's own choice: permanent, and a never-played night it ends
+    // is ended by the listener, not the app giving up (see playNext's
+    // byListener and recordNightEnd).
     skipDead(ep, "never again", true, true);
   }
 

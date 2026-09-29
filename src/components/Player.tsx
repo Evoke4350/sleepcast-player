@@ -1138,9 +1138,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     if (last && last.state === state && (last.span?.dur ?? null) === (span?.dur ?? null) && last.rate === rate) {
       const since = Date.now() - last.atMs;
       // Rejected: the same publish again only after a while (at once if the
-      // clock stepped back).
+      // clock stepped back, or for a listener's own seek).
       if (!last.taken) {
-        if (since >= 0 && since < LOCK_RETRY_MS) return;
+        if (!moved && since >= 0 && since < LOCK_RETRY_MS) return;
       } else {
         // No length (a stream, not yet known), so no position, on both
         // sides (the same length): nothing to be off from until a length
