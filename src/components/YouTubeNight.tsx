@@ -196,7 +196,9 @@ export function YouTubeNight({
   const [epPos, setEpPos] = useState<{ cur: number; dur: number } | null>(null);
   const [toast, setToast] = useState("");
   const [holdPct, setHoldPct] = useState(0);
-  const [extensions, setExtensions, extensionsRef] = useNightExtensions(resume?.extensions ?? 0, persistLive);
+  const [extensions, extend, extensionsRef] = useNightExtensions(resume?.extensions ?? 0, persistLive, {
+    endTimeRef, pausedRemainingMsRef, totalSecondsRef, setTotalSeconds,
+  });
   // null until the request settles. false means the browser refused, and the
   // listener needs to know: without it the screen sleeps and a YouTube night
   // simply stops, silently, which is the failure this whole file guards.
@@ -852,20 +854,10 @@ export function YouTubeNight({
   }
 
   function extendTimer(minutes: number) {
-    if (!canExtend(extensions)) return;
+    const said = extend(minutes);
+    if (said === null) return;
     restRef.current?.noteInteraction();
-    const ms = minutes * 60 * 1000;
-    if (pausedRemainingMsRef.current !== null) pausedRemainingMsRef.current += ms;
-    else if (endTimeRef.current !== null) endTimeRef.current += ms;
-    totalSecondsRef.current += minutes * 60;
-    setTotalSeconds((t) => t + minutes * 60);
-    const used = extensions + 1;
-    setExtensions(used);
-    flash(
-      canExtend(used)
-        ? "a little longer — sleep when you're ready"
-        : "that's the last stretch. resting counts too.",
-    );
+    flash(said);
   }
 
   function holdEndStart() {

@@ -203,7 +203,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   const [holdPct, setHoldPct] = useState(0);
   const [drifting, setDrifting] = useState(false);
   // Stretches used this night (see canExtend), kept across a revive.
-  const [extensions, setExtensions, extensionsRef] = useNightExtensions(resume?.extensions ?? 0, persistLive);
+  const [extensions, extend, extensionsRef] = useNightExtensions(resume?.extensions ?? 0, persistLive, {
+    endTimeRef, pausedRemainingMsRef, totalSecondsRef, setTotalSeconds,
+  });
   const [blockedTonight, setBlockedTonight] = useState<ReadonlySet<string>>(new Set());
   // The quarter-hour rule has fired and playback is held. Once dismissed it
   // does not fire again for the rest of the night.
@@ -342,8 +344,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       pendingSeekRef.current?.cancel();
       return;
     }
-    const seek = landAt(audio, at, skipSec !== undefined ? skipHooks(skipSec) : {});
-    if (skipSec !== undefined) skipSeekRef.current = { seek, skipSec };
+    if (skipSec !== undefined) armSkip(skipSec, (hooks) => landAt(audio, at, hooks));
+    else landAt(audio, at);
   }
 
   /** Enforce landing at `at` (see SeekEnforcer), replacing any seek
@@ -415,13 +417,14 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     if (decision === "wait") return;
     skipRef.current = null;
     if (decision !== "skip") return;
-    const seek = aimAt(audio, skipSec, skipHooks(skipSec));
-    skipSeekRef.current = { seek, skipSec };
+    armSkip(skipSec, (hooks) => aimAt(audio, skipSec, hooks));
   }
 
-  /** The skip's seek hooks: it says so when it lands. */
-  function skipHooks(skipSec: number): SeekHooks {
-    return { onLanded: () => showToast(skipMessage(skipSec)) };
+  /** The skip's seek, the one way it is armed (first, and again on a
+   *  reload): made with its announcement, and remembered with its skipSec. */
+  function armSkip(skipSec: number, seekWith: (hooks: SeekHooks) => SeekEnforcer) {
+    const seek = seekWith({ onLanded: () => showToast(skipMessage(skipSec)) });
+    skipSeekRef.current = { seek, skipSec };
   }
 
   /** One toast at a time: a new one replaces the last, timer and all. */
@@ -1196,39 +1199,30 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       // skip-intro's announcement isn't the listener's seek.) The enforcer
       // keeps it short of the end itself, on the same duration.
       aimAt(audio, to, {}, { move: fast });
-      syncLockScreen(true); // at once: a paused element may not seek until played
-      return true;
+    } else {
+      const at = shortOfEnd(to, episodeDuration(audio));
+      pendingSeekRef.current?.cancel();
+      knownPosRef.current = at;
+      // A jump, not time heard (after the cancel's rebase). fastSeek, where
+      // used, lands only near `at`, so its first reading sets the baseline.
+      const useFastSeek = fast && typeof audio.fastSeek === "function";
+      lastPosRef.current = useFastSeek ? NaN : at;
+      try {
+        if (useFastSeek) audio.fastSeek(at);
+        else audio.currentTime = at;
+      } catch { /* not seekable now: the reload lands there */ }
     }
-    const at = shortOfEnd(to, episodeDuration(audio));
-    pendingSeekRef.current?.cancel();
-    knownPosRef.current = at;
-    // A jump, not time heard (after the cancel's rebase). fastSeek, where
-    // used, lands only near `at`, so its first reading sets the baseline.
-    const useFastSeek = fast && typeof audio.fastSeek === "function";
-    lastPosRef.current = useFastSeek ? NaN : at;
-    try {
-      if (useFastSeek) audio.fastSeek(at);
-      else audio.currentTime = at;
-    } catch { /* not seekable now: the reload lands there */ }
-    syncLockScreen(true); // at once: the drag's steps come faster than "seeked"
+    // At once: a paused element may not seek until played, and a drag's
+    // steps come faster than "seeked".
+    syncLockScreen(true);
     return true;
   }
 
   function extendTimer(minutes: number) {
-    if (!canExtend(extensions)) return;
+    const said = extend(minutes);
+    if (said === null) return;
     restRef.current?.noteInteraction();
-    const ms = minutes * 60 * 1000;
-    if (pausedRemainingMsRef.current !== null) pausedRemainingMsRef.current += ms;
-    else if (endTimeRef.current !== null) endTimeRef.current += ms;
-    totalSecondsRef.current += minutes * 60;
-    setTotalSeconds((t) => t + minutes * 60);
-    const used = extensions + 1;
-    setExtensions(used);
-    showToast(
-      canExtend(used)
-        ? "a little longer — sleep when you're ready"
-        : "that's the last stretch. resting counts too.",
-    );
+    showToast(said);
   }
 
   // End must survive 2am thumbs: press and hold for a full second, a ring
