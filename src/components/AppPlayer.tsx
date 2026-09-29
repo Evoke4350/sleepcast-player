@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import type { Episode } from "../lib/engine";
 import { formatTime } from "../lib/engine";
-import { loadLive, clearLastNight, loadLastNight, type LiveSession, type LastNight, type ResumeDescriptor, loadState, isRevivable, resumeMode } from "../lib/store";
+import { loadLive, clearLastNight, loadLastNight, type LiveSession, type LastNight, type ResumeDescriptor, resumeFrom, nightTimerMinutes, loadState, isRevivable, resumeMode } from "../lib/store";
 import type { PlayMode } from "../lib/engine";
 import type { NoiseSettings } from "../lib/store";
 import { shouldReanchor, nextInSpread } from "../lib/rest/reanchor";
@@ -17,7 +17,6 @@ import { ReanchorView } from "./ReanchorView";
 import { shouldGreetGoodbye, markGoodbyeSeen, fmtDuration } from "../lib/rest/surface";
 import { loadNights, loadQuietUntil, saveQuietUntil, loadStepBackAsked, markStepBackAsked } from "../lib/rest/ledger";
 import { qualifiesForStepBack, isQuiet, quietUntilFrom } from "../lib/rest/stepback";
-
 
 interface SessionState {
   pool: Episode[];
@@ -167,20 +166,11 @@ export function AppPlayer() {
   function handleResume() {
     if (!live) return;
     applyNightSettings(resumeMode(live));
-    setResume({
-      episode: live.current,
-      position: live.position,
-      remainingMs: live.remainingMs,
-      totalSeconds: live.totalSeconds,
-      playedIds: live.playedIds ?? [],
-      nightStartedAt: live.nightStartedAt,
-      interactions: live.interactions,
-      touches: live.touches,
-      ruleSpent: live.ruleSpent,
-    });
+    setResume(resumeFrom(live));
     setSession({
       pool: live.pool,
-      timerMinutes: Math.max(1, Math.round(live.totalSeconds / 60)),
+      timerMinutes: nightTimerMinutes(live),
+      wasVaried: live.wasVaried,
       skipIntroByFeedId: live.skipIntroByFeedId,
       feedTitles: live.feedTitles,
       artworkByFeedId: live.artworkByFeedId,

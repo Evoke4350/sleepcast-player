@@ -6,7 +6,7 @@ import { useLazyRef } from "../lib/use-lazy-ref";
 const DriftGame = lazy(() => import("./DriftGame"));
 import type { Episode, PlayMode } from "../lib/engine";
 import { fadeVolume, formatTime, effectiveVolume, fadeDriverSeconds } from "../lib/engine";
-import { getPlays, recordHeardPlay, saveLive, rememberPosition, forgetPosition, blockEpisode } from "../lib/store";
+import { getPlays, recordHeardPlay, saveLive, markLiveRuleSpent, rememberPosition, forgetPosition, blockEpisode } from "../lib/store";
 import { NetworkHold, isOffline } from "../lib/network-hold";
 import { SeekEnforcer, type SeekHooks } from "../lib/seek-enforcer";
 import { mediaTransport } from "../lib/media/transport";
@@ -202,7 +202,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   const [holdPct, setHoldPct] = useState(0);
   const [drifting, setDrifting] = useState(false);
   // Stretches used this night (see canExtend). Resets with the component.
-  const [extensions, setExtensions] = useState(0);
+  const [extensions, setExtensions] = useState(resume?.extensions ?? 0); // capped per night, reloads included
+  const extensionsRef = useRef(extensions); // for the snapshot, written from long-lived handlers
+  extensionsRef.current = extensions;
   const [blockedTonight, setBlockedTonight] = useState<ReadonlySet<string>>(new Set());
   // The quarter-hour rule has fired and playback is held. Once dismissed it
   // does not fire again for the rest of the night.
@@ -641,6 +643,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       timerMinutes: restRef.current?.timerMinutes,
       modeKind: modeRef.current.kind,
       interactions: restRef.current?.interactionCount,
+      extensions: extensionsRef.current,
+      wasVaried,
       touches: restRef.current?.touchCount,
       ruleSpent: ruleSpentRef.current,
       remainingMs,
@@ -734,6 +738,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       const w = restRef.current.wakefulness(now);
       if (shouldSuggestGettingUp({ elapsedMs: now - nightStartedAtRef.current, ...w })) {
         ruleSpentRef.current = true;
+        markLiveRuleSpent();
         audio.pause();
         setPaused(true);
         showGettingUp(true);

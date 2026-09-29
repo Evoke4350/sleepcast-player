@@ -7,7 +7,7 @@
 // The detector never saw the night finish, so there is no onset to report:
 // the ledger gets a detector:"none" night, which keeps the night count honest
 // without claiming a time-to-sleep.
-import { clearLive, isRevivable, saveLastNight, type LiveSession } from "../store";
+import { clearLive, isRevivable, nightTimerMinutes, saveLastNight, type LiveSession } from "../store";
 import { appendNight } from "./ledger";
 
 /** A snapshot younger than this may belong to a night still playing in
@@ -18,7 +18,7 @@ export const SNAPSHOT_FRESH_MS = 30_000;
 export function reconcileLive(l: LiveSession, now: number): void {
   const elapsedMs = Math.max(0, l.totalSeconds * 1000 - Math.max(0, l.remainingMs));
   const startedAt = l.nightStartedAt ?? l.savedAt - elapsedMs;
-  const timerMinutes = l.timerMinutes ?? Math.max(1, Math.round(l.totalSeconds / 60));
+  const timerMinutes = nightTimerMinutes(l);
   // As if it faded on schedule. A timerless night (one-episode, all-night)
   // snapshots no remaining time, so it ends where it was last seen alive.
   const endedAt = Math.min(now, l.savedAt + Math.max(0, l.remainingMs));

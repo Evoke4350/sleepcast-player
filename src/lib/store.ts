@@ -289,23 +289,36 @@ export interface LiveSession {
    *  (wakefulness counts every touch), and whether the rule was spent. */
   touches?: number;
   ruleSpent?: boolean;
+  /** Timer extensions used (capped per night, reloads included). */
+  extensions?: number;
+  /** Whether the night was a varied mix (lastNight, and the re-anchor's
+   *  follow-on night, carry it). */
+  wasVaried?: boolean;
 }
 
-/** What a revived night resumes from: a LiveSession as the players take it. */
-export interface ResumeDescriptor {
-  episode: Episode;
-  position: number;
-  remainingMs: number;
-  totalSeconds: number;
-  playedIds: string[];
-  /** When the revived night really began (snapshot's nightStartedAt). */
-  nightStartedAt?: number;
-  /** Transport touches before the reload (see RestSession.seedInteractions). */
-  interactions?: number;
-  /** Player only: the unmerged touches, and whether the quarter-hour rule
-   *  was spent (it fires at most once a night, reloads included). */
-  touches?: number;
-  ruleSpent?: boolean;
+/** What a revived night resumes from: the snapshot, as the players take it.
+ *  Derived from LiveSession (see resumeFrom), so a per-night field added
+ *  there can't be dropped on the way. */
+export type ResumeDescriptor = Omit<LiveSession, "current"> & { episode: Episode };
+
+/** The snapshot as a ResumeDescriptor: all of it, the playing episode as
+ *  `episode`. */
+export function resumeFrom(l: LiveSession): ResumeDescriptor {
+  return { ...l, episode: l.current, playedIds: l.playedIds ?? [] };
+}
+
+/** The night's own timer length: the snapshot's, else estimated from its
+ *  total (which includes extensions) for a snapshot from before it was kept. */
+export function nightTimerMinutes(l: LiveSession): number {
+  return l.timerMinutes ?? Math.max(1, Math.round(l.totalSeconds / 60));
+}
+
+/** Mark the stored snapshot's quarter-hour rule spent at once: a snapshot
+ *  may not be written again for a while (paused, or an episode not yet
+ *  played), and a revive from it would prompt a second time. */
+export function markLiveRuleSpent(): void {
+  const l = loadLive();
+  if (l && !l.ruleSpent) writeMakingRoom(KEY_LIVE, JSON.stringify({ ...l, ruleSpent: true }));
 }
 
 const LIVE_POOL_CAP = 80;
@@ -793,7 +806,7 @@ export function recordSessionEnd(
  *  timed night of its original length (remainingMs carries the time left). */
 export function resumeMode(l: LiveSession): PlayMode {
   if (l.modeKind === "one-episode" || l.modeKind === "all-night") return { kind: l.modeKind };
-  return { kind: "minutes", minutes: Math.max(1, Math.round(l.totalSeconds / 60)) };
+  return { kind: "minutes", minutes: nightTimerMinutes(l) };
 }
 
 /**

@@ -195,7 +195,9 @@ export function YouTubeNight({
   const [epPos, setEpPos] = useState<{ cur: number; dur: number } | null>(null);
   const [toast, setToast] = useState("");
   const [holdPct, setHoldPct] = useState(0);
-  const [extensions, setExtensions] = useState(0);
+  const [extensions, setExtensions] = useState(resume?.extensions ?? 0); // capped per night, reloads included
+  const extensionsRef = useRef(extensions); // for the snapshot, written from long-lived handlers
+  extensionsRef.current = extensions;
   // null until the request settles. false means the browser refused, and the
   // listener needs to know: without it the screen sleeps and a YouTube night
   // simply stops, silently, which is the failure this whole file guards.
@@ -436,6 +438,8 @@ export function YouTubeNight({
       timerMinutes: restRef.current?.timerMinutes,
       modeKind: modeRef.current.kind,
       interactions: restRef.current?.interactionCount,
+      extensions: extensionsRef.current,
+      wasVaried,
       remainingMs,
       totalSeconds: totalSecondsRef.current,
       position: witnessRef.current.resumeAt(media.currentTime()),

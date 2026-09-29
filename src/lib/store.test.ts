@@ -463,7 +463,7 @@ describe("quarter-hour rule opt-in", () => {
 });
 
 import { recordSessionEnd, REARM_WINDOW_MS } from "./store";
-import { isRevivable, LIVE_MAX_AGE_MS, resumeMode, type LiveSession, saveLive, loadLive, saveLastNight, loadLastNight, clampTimerMinutes } from "./store";
+import { isRevivable, LIVE_MAX_AGE_MS, resumeMode, resumeFrom, nightTimerMinutes, markLiveRuleSpent, type LiveSession, saveLive, loadLive, saveLastNight, loadLastNight, clampTimerMinutes } from "./store";
 
 describe("settings migration", () => {
   beforeEach(() => localStorage.clear());
@@ -642,6 +642,23 @@ describe("timerless snapshots", () => {
     expect(resumeMode(live({ modeKind: "one-episode" }))).toEqual({ kind: "one-episode" });
     expect(resumeMode(live({ modeKind: "minutes", remainingMs: 20 * 60_000, totalSeconds: 75 * 60 }))).toEqual({ kind: "minutes", minutes: 75 });
     expect(resumeMode(live({ remainingMs: 20 * 60_000 }))).toEqual({ kind: "minutes", minutes: 45 });
+    // Its own timer length, not the total its extensions grew it to.
+    expect(resumeMode(live({ modeKind: "minutes", timerMinutes: 45, totalSeconds: 75 * 60 }))).toEqual({ kind: "minutes", minutes: 45 });
+    expect(nightTimerMinutes(live({ timerMinutes: 45, totalSeconds: 75 * 60 }))).toBe(45);
+  });
+
+  it("revives with every per-night field the snapshot carries", () => {
+    const r = resumeFrom(live({ extensions: 2, wasVaried: true, ruleSpent: true, touches: 7 }));
+    expect(r).toMatchObject({ episode: ep, extensions: 2, wasVaried: true, ruleSpent: true, touches: 7, playedIds: [] });
+  });
+
+  it("marks the stored snapshot's quarter-hour rule spent", () => {
+    localStorage.clear();
+    markLiveRuleSpent(); // nothing stored: nothing to mark
+    expect(loadLive()).toBeNull();
+    saveLive(live());
+    markLiveRuleSpent();
+    expect(loadLive()?.ruleSpent).toBe(true);
   });
 });
 
