@@ -73,6 +73,14 @@ const HAVE_FUTURE_DATA = 3;
 export function isPlayingThrough(el: { paused: boolean; readyState: number }): boolean {
   return !el.paused && el.readyState >= HAVE_FUTURE_DATA;
 }
+
+/** A media element's transport, the one rule for every audio player:
+ *  paused; playing through; or asked to play but not moving (loading,
+ *  stalled, seeking), which is buffering. */
+export function mediaTransport(el: { paused: boolean; readyState: number; seeking: boolean }): "paused" | "playing" | "buffering" {
+  if (el.paused) return "paused";
+  return isPlayingThrough(el) && !el.seeking ? "playing" : "buffering";
+}
 /** An unconfirmed reading this close to the assigned value is its echo
  *  (engines may read it back through a time-base conversion). */
 const ECHO_SEC = 1e-3;

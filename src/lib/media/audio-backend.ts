@@ -1,6 +1,6 @@
 import type { MediaBackend, Transport, ErrorInfo } from "./backend";
-import { DurationLatch } from "../duration";
-import { SeekEnforcer } from "../seek-enforcer";
+import { DurationLatch, knownDuration, shortOfEnd } from "../duration";
+import { SeekEnforcer, mediaTransport } from "../seek-enforcer";
 
 /**
  * An <audio> element behind the backend interface.
@@ -15,7 +15,7 @@ export class AudioBackend implements MediaBackend {
   private dead = false;
   /** The start seek being enforced, torn down before the next load: one that
    *  outlived its episode would seek the NEXT one to this one's position. */
-  private seek: SeekEnforcer | null = null;
+  private startSeek: SeekEnforcer | null = null;
   /** This load's length, kept through a momentary NaN or Infinity: for the
    *  start seek's end clamp and for duration() alike. Reset per load. */
   private readonly latch = new DurationLatch();
@@ -37,9 +37,9 @@ export class AudioBackend implements MediaBackend {
     // starts (see SeekEnforcer). Cancelling a finished one is a no-op.
     if (startSeconds > 0) {
       const seek = new SeekEnforcer(this.el, startSeconds, {}, () => {
-        if (this.seek === seek) this.seek = null;
+        if (this.startSeek === seek) this.startSeek = null;
       }, { duration: () => this.latch.read(this.el.duration) });
-      this.seek = seek;
+      this.startSeek = seek;
     }
 
     void this.el.play().catch((err: unknown) => this.reportPlayFailure(err));
@@ -56,7 +56,7 @@ export class AudioBackend implements MediaBackend {
   }
 
   seeking(): boolean {
-    return this.seek !== null;
+    return this.startSeek !== null;
   }
 
   standDown(): void {
@@ -65,8 +65,8 @@ export class AudioBackend implements MediaBackend {
   }
 
   private dropSeek(): void {
-    this.seek?.cancel();
-    this.seek = null;
+    this.startSeek?.cancel();
+    this.startSeek = null;
   }
 
   setVolume(level: number): void {
@@ -84,7 +84,18 @@ export class AudioBackend implements MediaBackend {
 
   transport(): Transport {
     if (this.dead) return "dead";
-    return this.el.paused ? "paused" : "playing";
+    return mediaTransport(this.el);
+  }
+
+  seek(seconds: number): void {
+    if (this.dead || !Number.isFinite(seconds)) return;
+    this.dropSeek();
+    const dur = knownDuration(this.el.duration);
+    try {
+      this.el.currentTime = shortOfEnd(seconds, dur);
+    } catch {
+      /* not seekable now */
+    }
   }
 
   onProgress(cb: () => void): () => void {

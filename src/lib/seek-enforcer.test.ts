@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
-import { SeekEnforcer, type Seekable } from "./seek-enforcer";
+import { SeekEnforcer, mediaTransport, type Seekable } from "./seek-enforcer";
 
 class FakeEl implements Seekable {
   currentTime = 0;
@@ -523,5 +523,14 @@ describe("SeekEnforcer", () => {
     const enf = new SeekEnforcer(el, 300);
     enf.cancel();
     expect(el.count()).toBe(0);
+  });
+});
+
+describe("mediaTransport", () => {
+  test("paused, playing through, or buffering", () => {
+    expect(mediaTransport({ paused: true, readyState: 4, seeking: false })).toBe("paused");
+    expect(mediaTransport({ paused: false, readyState: 4, seeking: false })).toBe("playing");
+    expect(mediaTransport({ paused: false, readyState: 1, seeking: false })).toBe("buffering");
+    expect(mediaTransport({ paused: false, readyState: 4, seeking: true })).toBe("buffering");
   });
 });

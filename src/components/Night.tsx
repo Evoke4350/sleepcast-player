@@ -893,6 +893,23 @@ export function Night({
         restRef.current?.noteInteraction();
         liveRef.current?.pause();
       });
+      // Lock-screen seeks through the backend, not the browser's default on
+      // the element: a start seek still pending would pull them back.
+      const seekBy = (d: MediaSessionActionDetails, sign: number) => {
+        const media = liveRef.current;
+        if (!media) return;
+        restRef.current?.noteInteraction();
+        media.seek(media.currentTime() + sign * (d.seekOffset ?? 30));
+      };
+      try {
+        ms.setActionHandler("seekbackward", (d) => seekBy(d, -1));
+        ms.setActionHandler("seekforward", (d) => seekBy(d, 1));
+        ms.setActionHandler("seekto", (d) => {
+          if (d.seekTime === undefined || !liveRef.current) return;
+          if (!d.fastSeek) restRef.current?.noteInteraction();
+          liveRef.current.seek(d.seekTime);
+        });
+      } catch { /* older browsers: the default handlers stay */ }
     }
 
     // The element exists from the first render, so its backend can too. The
@@ -1006,6 +1023,11 @@ export function Night({
       if (ms) {
         ms.setActionHandler("play", null);
         ms.setActionHandler("pause", null);
+        try {
+          ms.setActionHandler("seekbackward", null);
+          ms.setActionHandler("seekforward", null);
+          ms.setActionHandler("seekto", null);
+        } catch { /* symmetric with setup */ }
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

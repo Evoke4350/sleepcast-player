@@ -89,6 +89,31 @@ describe("driving an audio element through the backend interface", () => {
     expect(el.volume).toBe(0);
   });
 
+  it("keeps a load's known length through a momentary NaN, and forgets it on the next load", () => {
+    const { el } = fakeAudio();
+    const b = new AudioBackend(el);
+    b.load("https://x.test/a.mp3");
+    (el as { duration: number }).duration = 600;
+    expect(b.duration()).toBe(600);
+    (el as { duration: number }).duration = NaN;
+    expect(b.duration()).toBe(600);
+    b.load("https://x.test/b.mp3");
+    expect(b.duration()).toBe(0);
+  });
+
+  it("a listener's seek gives way over a pending start seek, short of the end", () => {
+    const { el, fire } = fakeAudio();
+    const b = new AudioBackend(el);
+    b.load("https://x.test/a.mp3", 1800);
+    (el as { duration: number }).duration = 3600;
+    b.seek(2700);
+    expect(el.currentTime).toBe(2700);
+    fire("loadedmetadata"); // the start seek, had it survived, would pull back
+    expect(el.currentTime).toBe(2700);
+    b.seek(9999);
+    expect(el.currentTime).toBe(3599);
+  });
+
   it("reports position and duration, and never NaN", () => {
     const { el } = fakeAudio();
     const b = new AudioBackend(el);
@@ -103,6 +128,9 @@ describe("driving an audio element through the backend interface", () => {
     const b = new AudioBackend(el);
     expect(b.transport()).toBe("paused");
     (el as { paused: boolean }).paused = false;
+    // Asked to play, but no data ahead yet: buffering, not playing.
+    expect(b.transport()).toBe("buffering");
+    (el as { readyState: number }).readyState = 4;
     expect(b.transport()).toBe("playing");
   });
 

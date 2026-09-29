@@ -46,6 +46,8 @@ export interface YTPlayerLike {
   /** Which video the player has loaded. The real IFrame API has it; optional
    *  so a player without it falls back to reading events (see inSwitch). */
   getVideoData?(): { video_id?: string };
+  /** The real IFrame API has it; optional for players (and fakes) without. */
+  seekTo?(seconds: number, allowSeekAhead: boolean): void;
   destroy(): void;
 }
 
@@ -188,6 +190,11 @@ export class YouTubeMedia implements MediaBackend {
 
   pause(): void {
     this.run((p) => p.pauseVideo());
+  }
+
+  seek(seconds: number): void {
+    if (!Number.isFinite(seconds)) return;
+    this.run((p) => p.seekTo?.(Math.max(0, seconds), true));
   }
 
   /** The embed seeks to its start itself, in one step. */

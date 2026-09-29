@@ -7,7 +7,7 @@ import type { Episode, PlayMode } from "../lib/engine";
 import { fadeVolume, formatTime, effectiveVolume, fadeDriverSeconds } from "../lib/engine";
 import { getPlays, recordHeardPlay, saveLive, rememberPosition, forgetPosition, blockEpisode } from "../lib/store";
 import { NetworkHold, isOffline } from "../lib/network-hold";
-import { SeekEnforcer, isPlayingThrough, type SeekHooks } from "../lib/seek-enforcer";
+import { SeekEnforcer, mediaTransport, type SeekHooks } from "../lib/seek-enforcer";
 import { DurationLatch, shortOfEnd } from "../lib/duration";
 import { heardDelta } from "../lib/heard";
 import { rearmsWatchdogOnTap } from "../lib/witness";
@@ -140,6 +140,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   /** What the lock screen was last told (position, when, the rate it
    *  extrapolates at), to tell a correction from steady playback. */
   const publishedRef = useRef<{ pos: number; atMs: number; rate: number } | "none">("none");
+  /** The state, length and rate last published, to skip a publish that
+   *  would change nothing. */
+  const lastPublishRef = useRef<{ state: "playing" | "paused"; dur: number | null; rate: number } | null>(null);
   /** The current episode's duration once its element has reported one: kept
    *  across a reload (whose element knows nothing yet), reset per episode. */
   const durationLatchRef = useRef<DurationLatch>(null!);
@@ -497,8 +500,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // loading or stalled element, the lock screen's stop, stood it down), by
     // the tap rule every player uses.
     const src = audio.getAttribute("src");
-    const transport = audio.paused ? "paused" : isPlayingThrough(audio) ? "playing" : "buffering";
-    if (src && rearmsWatchdogOnTap(epPlayedRef.current, transport)) watchRef.current = { src, at: Date.now() };
+    if (src && rearmsWatchdogOnTap(epPlayedRef.current, mediaTransport(audio))) watchRef.current = { src, at: Date.now() };
     // A refused play stands the watchdog down again (see playOrWait).
     playOrWait(audio);
   }
@@ -568,7 +570,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // but a correction: the position somewhere other than where the lock
     // screen thinks it is (a seek that didn't land, say). Publish it. Only
     // on a reading that counted, and only if something was published.
-    if (notePosition(audio) && publishedRef.current !== "none") {
+    if (notePosition(audio)) {
       const span = episodeSpan(audio);
       if (span && offLockScreen(span.pos)) syncLockScreen();
     }
@@ -1010,7 +1012,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
         // The lock screen shows "paused" while loading or stalled, so its
         // play button is the only one offered then: on an element that is
         // in fact trying to play, the tap means stop.
-        if (!audio.paused && !isPlayingThrough(audio)) audio.pause();
+        if (mediaTransport(audio) === "buffering") audio.pause();
         else askForSoundRef.current();
       });
       ms.setActionHandler("pause", () => { restRef.current?.noteInteraction(); audio.pause(); });
@@ -1116,18 +1118,26 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // Only moving when it is: stalled ("waiting"), still loading after
     // play(), or seeking, it shows paused, so the platform doesn't
     // extrapolate past audio that isn't advancing (a rate of 0 isn't allowed).
-    const moving = isPlayingThrough(audio) && !audio.seeking;
+    const moving = mediaTransport(audio) === "playing";
     const span = episodeSpan(audio);
     const rate = audio.playbackRate || 1;
     // "none": nothing to extrapolate (no length yet, or a stream), so no
     // reading can be off from it until a length arrives and syncs.
+    // Nothing to publish when it would say what the lock screen already
+    // shows ("play" then "playing", loadedmetadata then durationchange).
+    const state = moving ? "playing" : "paused";
+    const last = lastPublishRef.current;
+    if (last && last.state === state && last.dur === (span?.dur ?? null) && last.rate === rate &&
+        (span === null || !offLockScreen(span.pos))) return;
+    lastPublishRef.current = { state, dur: span?.dur ?? null, rate };
     publishedRef.current = span ? { pos: span.pos, atMs: Date.now(), rate: moving ? rate : 0 } : "none";
-    publishLockScreen(moving ? "playing" : "paused", span, rate);
+    publishLockScreen(state, span, rate);
   }
 
   /** Clear the lock screen, and what the player remembers publishing. */
   function clearAllLockScreen() {
     publishedRef.current = "none";
+    lastPublishRef.current = null;
     clearLockScreen();
   }
 
