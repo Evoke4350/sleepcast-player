@@ -201,9 +201,11 @@ export function Night({
   // is the only honest signal: where the episode was ASKED to start is not
   // where it necessarily is, because the start seek may not have landed yet
   // (or ever: it gives up after a few tries).
-  const witnessRef = useRef(new PlaybackWitness());
+  const witnessRef = useRef<PlaybackWitness>(null!);
+  witnessRef.current ??= new PlaybackWitness(); // once per mount, not per render
   /** Waiting out a dropped network (see holdForNetwork). */
-  const netHoldRef = useRef(new NetworkHold());
+  const netHoldRef = useRef<NetworkHold>(null!);
+  netHoldRef.current ??= new NetworkHold();
   /** The latest askForSound(), for handlers registered once at mount. */
   const askForSoundRef = useRef<() => void>(() => {});
   // The fade factor last applied to the live backend, before per-feed trim

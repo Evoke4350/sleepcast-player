@@ -17,7 +17,7 @@ export class AudioBackend implements MediaBackend {
   /** The start seek being enforced, torn down before the next load: one that
    *  outlived its episode would seek the NEXT one to this one's position. */
   private startSeek: SeekEnforcer | null = null;
-  /** This load's length, kept through a momentary NaN or Infinity: for the
+  /** This load's length, kept through NaN (Infinity, a stream, forgets it): for the
    *  start seek's end clamp and for duration() alike. Reset per load. */
   private readonly latch = new DurationLatch();
   private detach: Array<() => void> = [];

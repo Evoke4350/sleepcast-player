@@ -192,9 +192,11 @@ export function YouTubeNight({
   // to start (lib/witness.ts). Until it plays, its position can't be trusted
   // (the player isn't ready or the seek hasn't landed), so snapshots and
   // resume points wait for it, and a retry reloads at the intended start.
-  const witnessRef = useRef(new PlaybackWitness());
+  const witnessRef = useRef<PlaybackWitness>(null!);
+  witnessRef.current ??= new PlaybackWitness(); // once per mount, not per render
   /** Waiting out a dropped network (see holdForNetwork). */
-  const netHoldRef = useRef(new NetworkHold());
+  const netHoldRef = useRef<NetworkHold>(null!);
+  netHoldRef.current ??= new NetworkHold();
   // The prompt waits a beat before appearing. A player that is simply still
   // coming up also reads as "unstarted", and flashing "tap to begin" at
   // someone half a second before it starts on its own is worse than silence.
