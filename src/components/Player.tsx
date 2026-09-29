@@ -104,6 +104,9 @@ export interface PlayerProps {
  *  (play, pause, playing, waiting), position (seeked), length
  *  (loadedmetadata, durationchange) and a new load (loadstart, which clears
  *  the last episode's scrubber until the new length is known). */
+/** How long a publish the platform rejected stands before the same one is
+ *  tried again (a rejection that lasts shouldn't be retried every tick). */
+const LOCK_RETRY_MS = 10_000;
 const LOCK_SYNC_EVENTS = ["play", "pause", "playing", "waiting", "seeked", "loadedmetadata", "durationchange", "loadstart"] as const;
 
 export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, skipIntroByFeedId, feedTitles, artworkByFeedId, onEnd, resume = null, leadEpisode = null, leadPosition = 0, quarterHourRule = false, wasVaried = false }: PlayerProps) {
@@ -142,13 +145,15 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
    *  publish that would change nothing), and the position with when it was
    *  published (to tell a correction from steady playback, which moves at
    *  the rate only while the state is "playing"). pos null: no length, so
-   *  no position published. Null when nothing is published. */
+   *  no position published. taken: whether the platform accepted it (see
+   *  LOCK_RETRY_MS). Null when nothing is published. */
   const publishedRef = useRef<{
     state: "playing" | "paused";
     dur: number | null;
     rate: number;
     pos: number | null;
     atMs: number;
+    taken: boolean;
   } | null>(null);
   /** The current episode's duration once its element has reported one: kept
    *  across a reload (whose element knows nothing yet), reset per episode. */
@@ -483,6 +488,13 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
    *  not reported yet is where it was meant to start. */
   function resumePosition(): number {
     return pendingSeekRef.current?.at ?? knownPosRef.current;
+  }
+
+  /** resumePosition() after a fresh reading (notePosition records only
+   *  trustworthy ones), for a caller with no element event behind it. */
+  function freshPosition(audio: HTMLAudioElement): number {
+    notePosition(audio);
+    return resumePosition();
   }
 
   /** A request for sound: the toggle's play half, the media session's, and
@@ -1024,7 +1036,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       seekforward: (d) => skipBy(d.seekOffset ?? 30),
       // The lock-screen scrubber: through listenerSeek like any listener
       // seek, not the browser's default, which would bypass it. Every step
-      // marks the listener active; RestSession counts a drag's burst as one.
+      // marks the listener active and counts toward wakefulness; only the
+      // night's record (RestSession.interactionCount) merges a drag's burst.
       seekto: (d) => {
         if (listenerSeek(d.seekTime ?? NaN, d.fastSeek === true)) restRef.current?.noteInteraction();
       },
@@ -1077,8 +1090,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // can leave the known position seconds old, and a lock-screen ±30 s
     // comes with no element event.
     const audio = audioRef.current;
-    if (audio) notePosition(audio);
-    if (listenerSeek(resumePosition() + seconds)) restRef.current?.noteInteraction();
+    if (!audio) return;
+    if (listenerSeek(freshPosition(audio) + seconds)) restRef.current?.noteInteraction();
   }
 
   /** Time left in the episode, for the fade: from where it is and how long
@@ -1115,22 +1128,25 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     const state = moving ? "playing" : "paused";
     const last = publishedRef.current;
     if (last && last.state === state && last.dur === (span?.dur ?? null) && last.rate === rate) {
-      // Nothing published at a position (no length yet, a stream): nothing
-      // to be off from until a length arrives and syncs.
-      if (span === null || last.pos === null) return;
-      // Where the lock screen, extrapolating from the last publish, thinks
-      // it is. A listener's seek, or paused with the element truly paused:
-      // any change is real. Otherwise (playing, or buffering yet moving) it
-      // drifts by the extrapolation's slack, or it would republish every tick.
-      const expected = last.pos + (moving ? ((Date.now() - last.atMs) / 1000) * rate : 0);
-      const exact = moved || (!moving && audio.paused);
-      if (Math.abs(span.pos - expected) <= (exact ? 0.25 : 2)) return;
+      // Rejected: the same publish again only after a while.
+      if (!last.taken) {
+        if (Date.now() - last.atMs < LOCK_RETRY_MS) return;
+      } else {
+        // No length (a stream, not yet known): no position to be off from
+        // until a length arrives and syncs.
+        if (span === null) return;
+        // Where the lock screen, extrapolating from the last publish (which,
+        // with the same length, published a position), thinks it is. A
+        // listener's seek, or paused with the element truly paused: any
+        // change is real. Otherwise (playing, or buffering yet moving) it
+        // drifts by the extrapolation's slack, or it would republish every tick.
+        const expected = (last.pos ?? span.pos) + (moving ? ((Date.now() - last.atMs) / 1000) * rate : 0);
+        const exact = moved || (!moving && audio.paused);
+        if (Math.abs(span.pos - expected) <= (exact ? 0.25 : 2)) return;
+      }
     }
-    // Recorded only when the platform took it, so a rejected publish is
-    // tried again on the next sync rather than taken as shown.
-    publishedRef.current = publishLockScreen(state, span, rate)
-      ? { state, dur: span?.dur ?? null, rate, pos: span?.pos ?? null, atMs: Date.now() }
-      : null;
+    const taken = publishLockScreen(state, span, rate);
+    publishedRef.current = { state, dur: span?.dur ?? null, rate, pos: span?.pos ?? null, atMs: Date.now(), taken };
   }
 
   /** Clear the lock screen, and what the player remembers publishing. */

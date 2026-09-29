@@ -35,10 +35,13 @@ describe("publishLockScreen", () => {
     expect(setPositionState).toHaveBeenLastCalledWith({ duration: 600, position: 30, playbackRate: 1 });
     publishLockScreen("playing", null, 1);
     expect(setPositionState).toHaveBeenLastCalledWith();
+    // A platform that rejects the position: the play state still goes out,
+    // and the caller hears it wasn't taken.
     setPositionState.mockImplementation(() => {
       throw new TypeError("rejected");
     });
-    expect(publishLockScreen("paused", { pos: NaN, dur: 600 }, 1)).toBe(false);
+    expect(publishLockScreen("paused", { pos: 30, dur: 600 }, 1)).toBe(false);
+    expect(ms.playbackState).toBe("paused");
   });
 });
 
