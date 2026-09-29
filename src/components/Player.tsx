@@ -850,7 +850,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       audio.volume = 1;
     }
 
-    clearAllLockScreen(); // the stop's own "pause" event finds no src, and keeps it clear
+    clearAllLockScreen(); // the stop's own "pause" event finds no src, and leaves it
 
     onEndRef.current();
   }
@@ -1096,10 +1096,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   function syncLockScreen(moved = false) {
     const audio = audioRef.current;
     if (!audio || !mediaSession()) return;
-    if (!audio.getAttribute("src")) {
-      clearAllLockScreen();
-      return;
-    }
+    // No src: endSession, the one place it is removed, has cleared it.
+    if (!audio.getAttribute("src")) return;
     // Display only: which readings count is notePosition's business.
     // Only moving when it is: stalled ("waiting"), still loading after
     // play(), or seeking, it shows paused, so the platform doesn't
@@ -1112,7 +1110,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     const state = moving ? "playing" : "paused";
     const last = publishedRef.current;
     if (last && last.state === state && last.dur === (span?.dur ?? null) && last.rate === rate &&
-        (span === null || !offLockScreen(span.pos, audio, moved))) return;
+        (span === null || !offLockScreen(span.pos, moved || (!moving && audio.paused)))) return;
     publishedRef.current = {
       state, dur: span?.dur ?? null, rate,
       pos: span?.pos ?? null, atMs: Date.now(),
@@ -1133,18 +1131,17 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   }
 
   /** Whether a reading is somewhere other than where the lock screen,
-   *  extrapolating from what was last published, thinks it is. */
-  function offLockScreen(pos: number, audio: HTMLAudioElement, moved: boolean): boolean {
+   *  extrapolating from what was last published, thinks it is. `exact`
+   *  (a listener's seek, or paused with the element truly paused): any
+   *  change is real. Otherwise (playing, or buffering yet moving) it drifts
+   *  by the extrapolation's slack, or it would republish every tick. */
+  function offLockScreen(pos: number, exact: boolean): boolean {
     const p = publishedRef.current;
     // Nothing published, or no position (no length yet, a stream): nothing
     // to be off from until a length arrives and syncs.
     if (!p || p.pos === null) return false;
     const moving = p.state === "playing";
     const expected = p.pos + (moving ? ((Date.now() - p.atMs) / 1000) * p.rate : 0);
-    // A listener's seek, or published paused with the element truly paused:
-    // any change is real. Otherwise (playing, or buffering yet moving) it
-    // drifts by the extrapolation's slack, or it would republish every tick.
-    const exact = moved || (!moving && audio.paused);
     return Math.abs(pos - expected) > (exact ? 0.25 : 2);
   }
 

@@ -30,11 +30,6 @@ export function publishLockScreen(
 export function publishLockScreenMetadata(title: string, feedTitle: string | undefined, artwork: string | undefined): void {
   const ms = mediaSession();
   if (!ms) return;
-  // Nothing built leaves nothing shown, not the last episode's.
-  if (typeof MediaMetadata === "undefined") {
-    ms.metadata = null;
-    return;
-  }
   const base = { title, artist: feedTitle ?? "sleepcast", album: "sleepcast" };
   try {
     ms.metadata = new MediaMetadata({ ...base, ...(artwork ? { artwork: [{ src: artwork, sizes: "512x512" }] } : {}) });
@@ -44,6 +39,8 @@ export function publishLockScreenMetadata(title: string, feedTitle: string | und
     try {
       ms.metadata = new MediaMetadata(base);
     } catch {
+      // No MediaMetadata, or nothing it accepts: nothing shown, not the
+      // last episode's.
       ms.metadata = null;
     }
   }
