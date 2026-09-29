@@ -55,7 +55,7 @@ import { RestSession, revivedNightStart } from "../lib/rest/session";
 import { recordNightEnd } from "../lib/night-end";
 import { NetworkHold, isOffline } from "../lib/network-hold";
 import { heardDelta } from "../lib/heard";
-import { clearActionHandlers, clearLockScreen, mediaSession, publishLockScreenMetadata } from "../lib/lock-screen";
+import { clearLockScreen, publishLockScreenMetadata, setActionHandlers } from "../lib/lock-screen";
 import { startWithSkip } from "../lib/skip-intro";
 import { PlaybackWitness, rearmsWatchdogOnTap } from "../lib/witness";
 import { applyEndedDecision, decideAfterEnded, shouldPlayWhole } from "../lib/episode-end";
@@ -874,17 +874,16 @@ export function Night({
     // browser's default handler would play() the failed source and the tick
     // would thaw the clock over silence. (A video's embed keeps its own
     // media session inside the iframe, which the default handler can't reach.)
-    const ms = mediaSession();
-    if (ms) {
-      ms.setActionHandler("play", () => {
+    const clearHandlers = setActionHandlers({
+      play: () => {
         restRef.current?.noteInteraction();
         askForSoundRef.current();
-      });
-      ms.setActionHandler("pause", () => {
+      },
+      pause: () => {
         restRef.current?.noteInteraction();
         liveRef.current?.pause();
-      });
-    }
+      },
+    });
 
     // The element exists from the first render, so its backend can too. The
     // embed cannot: it needs Google's script.
@@ -993,7 +992,7 @@ export function Night({
       releaseBackends();
       void lockRef.current?.release();
       clearLockScreen();
-      clearActionHandlers(["play", "pause"]);
+      clearHandlers();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

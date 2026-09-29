@@ -12,7 +12,7 @@ import { mediaTransport } from "../lib/media/transport";
 import { DurationLatch, shortOfEnd } from "../lib/duration";
 import { heardDelta } from "../lib/heard";
 import { rearmsWatchdogOnTap } from "../lib/witness";
-import { clearActionHandlers, clearLockScreen, mediaSession, publishLockScreen, publishLockScreenMetadata } from "../lib/lock-screen";
+import { clearLockScreen, mediaSession, publishLockScreen, publishLockScreenMetadata, setActionHandlers } from "../lib/lock-screen";
 import { decideSkip, skipMessage, stillAtStart } from "../lib/skip-intro";
 import { pickNextEpisode, HEARD_SEC } from "../lib/plays";
 import { canExtend } from "../lib/timer-feel";
@@ -570,7 +570,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // that has changed without an event. Only on a reading that counted.
     // (syncLockScreen publishes only what changed: the state, or a position
     // off its extrapolation.)
-    if (notePosition(audio)) syncLockScreen();
+    // A cheap check first: this runs at ~4 Hz all night.
+    if (notePosition(audio) && lockScreenStale(audio)) syncLockScreen();
 
     // Save on crossing the threshold, then refresh roughly every minute so the
     // ledger reflects how long a long episode actually ran. recordHeardPlay
@@ -991,8 +992,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     audio.addEventListener("loadedmetadata", onDuration);
     audio.addEventListener("durationchange", onDuration);
     // The lock screen follows every element change of position or play state
-    // from one listener set (registered after every other element handler,
-    // so it sees what they recorded), rather than a call at each site.
+    // from one listener set (registered after the other handlers set up at
+    // mount, so it sees what they recorded; a seek enforcer's, added later,
+    // runs after it, and every enforcer end syncs), not a call at each site.
     // A fresh reading first (notePosition's rules decide whether it counts):
     // with timeupdates throttled while locked, knownPosRef can be seconds old
     // when "playing", "waiting" or a new duration arrive.
@@ -1002,36 +1004,32 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     audio.addEventListener("error", onError);
     for (const ev of LOCK_SYNC_EVENTS) audio.addEventListener(ev, lockSync);
 
-    const ms = mediaSession();
-    if (ms) {
-      ms.setActionHandler("play", () => {
+    const clearHandlers = setActionHandlers({
+      play: () => {
         restRef.current?.noteInteraction();
         // The lock screen shows "paused" while loading or stalled, so its
         // play button is the only one offered then: on an element that is
         // in fact trying to play, the tap means stop.
         if (mediaTransport(audio) === "buffering") audio.pause();
         else askForSoundRef.current();
-      });
-      ms.setActionHandler("pause", () => { restRef.current?.noteInteraction(); audio.pause(); });
+      },
+      pause: () => { restRef.current?.noteInteraction(); audio.pause(); },
       // Routed through handleNext, not playNext directly: a lock-screen or
       // Bluetooth skip is still a rejection of the feed being left, and for
       // someone already in bed with the phone locked, this is most skips —
       // splitting the path here would mean the model never sees them.
-      ms.setActionHandler("nexttrack", () => handleNext());
-      // Lock-screen / headphone scrubbing.
-      try {
-        // The platform's own step when it gives one (a headset's 15 s).
-        ms.setActionHandler("seekbackward", (d) => skipBy(-(d.seekOffset ?? 30)));
-        ms.setActionHandler("seekforward", (d) => skipBy(d.seekOffset ?? 30));
-        // The lock-screen scrubber: through listenerSeek like any listener
-        // seek, not the browser's default, which would bypass it.
-        ms.setActionHandler("seekto", (d) => {
-          // Every step marks the listener active; RestSession counts a drag's
-          // burst of steps as one interaction.
-          if (listenerSeek(d.seekTime ?? NaN, d.fastSeek === true)) restRef.current?.noteInteraction();
-        });
-      } catch { /* older browsers: fine without */ }
-    }
+      nexttrack: () => handleNext(),
+      // Lock-screen / headphone scrubbing, with the platform's own step when
+      // it gives one (a headset's 15 s).
+      seekbackward: (d) => skipBy(-(d.seekOffset ?? 30)),
+      seekforward: (d) => skipBy(d.seekOffset ?? 30),
+      // The lock-screen scrubber: through listenerSeek like any listener
+      // seek, not the browser's default, which would bypass it. Every step
+      // marks the listener active; RestSession counts a drag's burst as one.
+      seekto: (d) => {
+        if (listenerSeek(d.seekTime ?? NaN, d.fastSeek === true)) restRef.current?.noteInteraction();
+      },
+    });
 
     if (resume) playEpisode(resume.episode, resume.position);
     else if (leadEpisode) playEpisode(leadEpisode, leadPosition); // "the exact one again"
@@ -1067,7 +1065,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       audio.removeEventListener("playing", onPlaying);
       audio.removeEventListener("ended", onEnded);
       audio.removeEventListener("error", onError);
-      clearActionHandlers(["play", "pause", "nexttrack", "seekbackward", "seekforward", "seekto"]);
+      clearHandlers();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1140,11 +1138,23 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // Nothing published, or no position (no length yet, a stream): nothing
     // to be off from until a length arrives and syncs.
     if (!p || p.pos === null) return false;
-    // Playing, it drifts by the extrapolation's slack; paused, any change is
-    // real (a listener's own small seek must be published).
     const moving = p.state === "playing";
     const expected = p.pos + (moving ? ((Date.now() - p.atMs) / 1000) * p.rate : 0);
-    return Math.abs(pos - expected) > (moving ? 2 : 0.25);
+    // Playing, it drifts by the extrapolation's slack. Published paused with
+    // the element truly paused, any change is real (a listener's own small
+    // seek); with it still advancing (buffering yet moving), the same slack,
+    // or it would republish every tick.
+    const truly = !moving && !!audioRef.current?.paused;
+    return Math.abs(pos - expected) > (truly ? 0.25 : 2);
+  }
+
+  /** Whether the lock screen shows another play state or position than the
+   *  element's now, by the cheap checks, before a full sync. */
+  function lockScreenStale(audio: HTMLAudioElement): boolean {
+    const p = publishedRef.current;
+    if (!p) return true;
+    if ((p.state === "playing") !== (mediaTransport(audio) === "playing")) return true;
+    return offLockScreen(knownPosRef.current);
   }
 
   /** Where the episode is and how long it is, as the player sees it, with

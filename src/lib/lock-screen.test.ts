@@ -1,5 +1,5 @@
 import { describe, expect, test, vi, afterEach } from "vitest";
-import { clearLockScreen, publishLockScreen } from "./lock-screen";
+import { clearLockScreen, publishLockScreen, publishLockScreenMetadata, setActionHandlers } from "./lock-screen";
 
 describe("clearLockScreen", () => {
   const original = Object.getOwnPropertyDescriptor(navigator, "mediaSession");
@@ -35,5 +35,44 @@ describe("publishLockScreen", () => {
     expect(setPositionState).toHaveBeenLastCalledWith({ duration: 600, position: 30, playbackRate: 1 });
     publishLockScreen("playing", null, 1);
     expect(setPositionState).toHaveBeenLastCalledWith();
+  });
+});
+
+describe("publishLockScreenMetadata and setActionHandlers", () => {
+  const original = Object.getOwnPropertyDescriptor(navigator, "mediaSession");
+  const originalMeta = (globalThis as { MediaMetadata?: unknown }).MediaMetadata;
+  afterEach(() => {
+    if (original) Object.defineProperty(navigator, "mediaSession", original);
+    else delete (navigator as unknown as { mediaSession?: unknown }).mediaSession;
+    (globalThis as { MediaMetadata?: unknown }).MediaMetadata = originalMeta;
+  });
+
+  test("metadata falls back to the app name, and survives artwork the browser rejects", () => {
+    const ms: { metadata: unknown } = { metadata: null };
+    Object.defineProperty(navigator, "mediaSession", { value: ms, configurable: true });
+    (globalThis as { MediaMetadata?: unknown }).MediaMetadata = class {
+      constructor(init: { artwork?: unknown[] }) {
+        if (init.artwork) throw new TypeError("bad artwork URL");
+        Object.assign(this, init);
+      }
+    };
+    publishLockScreenMetadata("Episode", undefined, "http://");
+    expect(ms.metadata).toMatchObject({ title: "Episode", artist: "sleepcast", album: "sleepcast" });
+  });
+
+  test("handlers are set one by one and torn down exactly", () => {
+    const set: Record<string, unknown> = {};
+    const ms = {
+      setActionHandler: (a: string, h: unknown) => {
+        if (a === "seekto") throw new TypeError("unknown action");
+        set[a] = h;
+      },
+    };
+    Object.defineProperty(navigator, "mediaSession", { value: ms, configurable: true });
+    const teardown = setActionHandlers({ play: () => {}, seekto: () => {}, pause: () => {} });
+    expect(Object.keys(set).sort()).toEqual(["pause", "play"]);
+    teardown();
+    expect(set.play).toBeNull();
+    expect(set.pause).toBeNull();
   });
 });

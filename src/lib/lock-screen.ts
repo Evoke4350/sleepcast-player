@@ -29,26 +29,45 @@ export function publishLockScreen(
  *  feed's artwork when there is one. */
 export function publishLockScreenMetadata(title: string, feedTitle: string | undefined, artwork: string | undefined): void {
   const ms = mediaSession();
-  if (!ms) return;
-  ms.metadata = new MediaMetadata({
-    title,
-    artist: feedTitle ?? "sleepcast",
-    album: "sleepcast",
-    ...(artwork ? { artwork: [{ src: artwork, sizes: "512x512" }] } : {}),
-  });
+  if (!ms || typeof MediaMetadata === "undefined") return;
+  const base = { title, artist: feedTitle ?? "sleepcast", album: "sleepcast" };
+  try {
+    ms.metadata = new MediaMetadata({ ...base, ...(artwork ? { artwork: [{ src: artwork, sizes: "512x512" }] } : {}) });
+  } catch {
+    // A feed's artwork URL the browser can't parse throws; the episode must
+    // still start, so show it without the artwork.
+    try {
+      ms.metadata = new MediaMetadata(base);
+    } catch {
+      /* nothing shown */
+    }
+  }
 }
 
-/** Remove the action handlers a player registered, the same list it set up. */
-export function clearActionHandlers(actions: readonly MediaSessionAction[]): void {
+/** Register a player's action handlers, each on its own (a browser that
+ *  doesn't know one action still gets the rest). Returns the teardown,
+ *  which removes exactly those, so setup and teardown can't drift. */
+export function setActionHandlers(handlers: Partial<Record<MediaSessionAction, MediaSessionActionHandler>>): () => void {
   const ms = mediaSession();
-  if (!ms) return;
-  for (const action of actions) {
+  if (!ms) return () => {};
+  const set: MediaSessionAction[] = [];
+  for (const [action, handler] of Object.entries(handlers) as [MediaSessionAction, MediaSessionActionHandler][]) {
     try {
-      ms.setActionHandler(action, null);
+      ms.setActionHandler(action, handler);
+      set.push(action);
     } catch {
       /* an action this browser doesn't know */
     }
   }
+  return () => {
+    for (const action of set) {
+      try {
+        ms.setActionHandler(action, null);
+      } catch {
+        /* nothing to remove */
+      }
+    }
+  };
 }
 
 /** Clear everything a player put there: title and artwork, play state and
