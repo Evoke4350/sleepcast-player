@@ -150,6 +150,18 @@ describe("tapPauses", () => {
     expect(tapPauses("paused", true)).toBe(false);
     expect(tapPauses("awaiting-start", false)).toBe(false);
   });
+
+  test("a saved position is heard, not sounded: its first load's tap asks for sound", () => {
+    const w = new PlaybackWitness();
+    w.newEpisode(1800, 0, true);
+    expect(w.heard).toBe(true);
+    expect(w.sounded).toBe(false);
+    w.markPlayed();
+    w.reset(1800, 10); // a reload after a stall keeps it
+    expect(w.sounded).toBe(true);
+    w.newEpisode(0, 20);
+    expect(w.sounded).toBe(false);
+  });
 });
 
 describe("rearmsWatchdogOnTap", () => {

@@ -35,7 +35,7 @@ export class AudioBackend implements MediaBackend {
     if (startSeconds > 0) {
       const seek = new SeekEnforcer(this.el, startSeconds, {}, () => {
         if (this.startSeek === seek) this.startSeek = null;
-      }, { duration: () => this.knownLength() });
+      });
       this.startSeek = seek;
     }
 
@@ -76,14 +76,10 @@ export class AudioBackend implements MediaBackend {
   }
 
   duration(): number {
-    return this.knownLength() ?? 0;
-  }
-
-  /** This load's length, for the start seek's end clamp and duration(). No
-   *  latch: the element's duration is NaN only at a new load (which knows
-   *  nothing of the last one's length anyway), and Infinity is a stream. */
-  private knownLength(): number | null {
-    return knownDuration(this.el.duration);
+    // No latch: the element's duration is NaN only at a new load (which
+    // knows nothing of the last one's length anyway), and Infinity is a
+    // stream. The start seek's own default reads the same.
+    return knownDuration(this.el.duration) ?? 0;
   }
 
   transport(): Transport {

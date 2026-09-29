@@ -803,13 +803,13 @@ export function YouTubeNight({
 
   // One handler for "start it" and "resume it": both are a tap asking for
   // sound, and the browser treats this tap as the gesture that permits it.
-  // Only a video that is genuinely playing gets paused.
+  // Only something playing, or stalled once it has sounded, gets paused
+  // (tapPauses).
   function handleTogglePause() {
     restRef.current?.noteInteraction();
     const media = mediaRef.current;
     if (!media) return;
-    // Only something playing, or stalled once heard, gets paused (tapPauses).
-    if (tapPauses(transportRef.current, witnessRef.current.heard)) {
+    if (tapPauses(transportRef.current, witnessRef.current.sounded)) {
       media.pause();
       return;
     }
@@ -1068,7 +1068,7 @@ export function YouTubeNight({
                   onClick={handleTogglePause}
                   className="h-24 w-24 rounded-full border border-[#2e2d3a] bg-[#1a1b26] text-sm font-medium text-[#c8c0b0] transition-transform active:scale-95"
                   aria-label={
-                    tapPauses(transport, witnessRef.current.heard)
+                    tapPauses(transport, witnessRef.current.sounded)
                       ? "Pause"
                       : transport === "awaiting-start"
                         ? "Start"

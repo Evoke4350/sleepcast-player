@@ -335,8 +335,8 @@ export function markLiveRuleSpent(night: { startedAt: number; revivedSavedAt?: n
   // Only this night's: one it wrote (its start), or, before it has written
   // one, the very snapshot it was revived from (by when that was saved). A
   // snapshot left by another (one that gave up keeps its own) is not.
-  const ours = l !== null && (l.nightStartedAt === night.startedAt || l.savedAt === night.revivedSavedAt);
-  if (l && ours && !l.ruleSpent) {
+  if (!l || l.ruleSpent) return;
+  if (l.nightStartedAt === night.startedAt || l.savedAt === night.revivedSavedAt) {
     writeMakingRoom(KEY_LIVE, JSON.stringify({ ...l, ruleSpent: true }));
   }
 }

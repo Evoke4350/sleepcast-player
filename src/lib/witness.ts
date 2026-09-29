@@ -48,6 +48,9 @@ export class PlaybackWitness {
   // See decideAfterEnded.
   private heardEp = false;
   private replayedEp = false;
+  // Per episode too: whether it has made a sound in this page, which a
+  // saved position (heardBefore) doesn't say.
+  private soundedEp = false;
   // Whether it had been heard when the current load began. Rules that must
   // decide before this load's own first second counts (see shouldPlayWhole)
   // read this rather than the live `heard`.
@@ -59,6 +62,7 @@ export class PlaybackWitness {
   newEpisode(startSec: number, now: number, heardBefore = false): void {
     this.heardEp = heardBefore;
     this.replayedEp = false;
+    this.soundedEp = false;
     this.reset(startSec, now);
   }
 
@@ -86,6 +90,7 @@ export class PlaybackWitness {
   markPlayed(): void {
     this.seen = true;
     this.heardEp = true;
+    this.soundedEp = true;
   }
 
   /** It is about to be replayed from 0 after ending unheard. */
@@ -101,6 +106,12 @@ export class PlaybackWitness {
   /** Heard at any point in this episode (across reloads). */
   get heard(): boolean {
     return this.heardEp;
+  }
+
+  /** Made a sound in this page, in any load of this episode (not merely
+   *  resumed from a saved position): the toggle's rule (tapPauses). */
+  get sounded(): boolean {
+    return this.soundedEp;
   }
 
   get replayed(): boolean {
@@ -157,10 +168,11 @@ export function rearmsWatchdogOnTap(played: boolean, transport: Transport): bool
 
 /**
  * Whether the toggle's tap pauses (Night, YouTubeNight): what is playing, or
- * buffering once the episode has been heard (a stall mid-episode, a reload
- * after one included: the listener wants it stopped, not asked for again).
- * Otherwise the tap asks for sound, the gesture a start needs.
+ * buffering once the episode has made a sound in this page (a stall
+ * mid-episode, a reload after one included: the listener wants it stopped,
+ * not asked for again). Otherwise, a revived episode's first load included,
+ * the tap asks for sound, the gesture a start needs.
  */
-export function tapPauses(transport: Transport, heard: boolean): boolean {
-  return transport === "playing" || (transport === "buffering" && heard);
+export function tapPauses(transport: Transport, sounded: boolean): boolean {
+  return transport === "playing" || (transport === "buffering" && sounded);
 }
