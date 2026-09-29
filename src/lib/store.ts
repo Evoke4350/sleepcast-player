@@ -334,40 +334,33 @@ export interface LiveNight {
   revivedSavedAt?: number;
 }
 
-/** Change the stored snapshot at once, for what a night must not lose
- *  while no full snapshot can be written (an episode not yet played, or a
- *  failed write). Only this night's: one it wrote (its start), or, before it has
- *  written one, the very snapshot it was revived from (by when that was
- *  saved); a snapshot left by another (one that gave up keeps its own) is
- *  not. `change` returns null for nothing to write. */
-function patchOwnLive(night: LiveNight, change: (l: LiveSession) => LiveSession | null): void {
+/** A snapshot's fields about the night itself, not the episode playing. */
+export type LiveNightFields = Omit<
+  LiveSession,
+  "position" | "current" | "playedIds" | "pool" | "skipIntroByFeedId" | "feedTitles" | "artworkByFeedId"
+>;
+
+/** Save the night's own fields (its clock, count, flags) into this night's
+ *  stored snapshot, keeping the episode and position it holds: for when the
+ *  current episode can't give a trustworthy position yet (not yet played),
+ *  so what the night must not lose (a stretch, the quarter-hour rule spent)
+ *  still reaches storage. Only this night's snapshot: one it wrote (its
+ *  start), or, before it has written one, the very snapshot it was revived
+ *  from (by when that was saved); a snapshot left by another (one that gave
+ *  up keeps its own) is not. Whether it wrote. */
+export function saveLiveNight(night: LiveNight, fields: LiveNightFields): boolean {
   const l = loadLive();
-  if (!l) return;
+  if (!l) return false;
   const revivedFrom = night.revivedSavedAt !== undefined && l.savedAt === night.revivedSavedAt;
-  if (l.nightStartedAt !== night.startedAt && !revivedFrom) return;
-  const next = change(l);
-  if (next) writeMakingRoom(KEY_LIVE, JSON.stringify(next));
+  if (l.nightStartedAt !== night.startedAt && !revivedFrom) return false;
+  try {
+    return writeMakingRoom(KEY_LIVE, JSON.stringify({ ...l, ...fields }));
+  } catch {
+    return false;
+  }
 }
 
-/** The quarter-hour rule spent: a revive must not prompt a second time. */
-export function markLiveRuleSpent(night: LiveNight): void {
-  patchOwnLive(night, (l) => (l.ruleSpent ? null : { ...l, ruleSpent: true }));
-}
-
-/** `minutes` stretched where no full snapshot can be written (`extensions`
- *  now used): the stored time left and total grow by them, so the snapshot
- *  still means what it did when saved, and a revive keeps the stretch and
- *  the cap. */
-export function stretchLive(night: LiveNight, minutes: number, extensions: number): void {
-  patchOwnLive(night, (l) => ({
-    ...l,
-    extensions,
-    totalSeconds: l.totalSeconds + minutes * 60,
-    remainingMs: l.remainingMs + minutes * 60_000,
-  }));
-}
-
-/** This night's identity for patching its stored snapshot: its start (its
+/** This night's identity for saving into its stored snapshot: its start (its
  *  RestSession's), and the snapshot it was revived from, if it was. Null
  *  before the night begins. */
 export function liveNightOf(startedAt: number | undefined, revivedSavedAt: number | undefined): LiveNight | null {

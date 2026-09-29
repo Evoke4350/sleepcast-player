@@ -1,26 +1,21 @@
 import { useEffect, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from "react";
 import { canExtend } from "./timer-feel";
-import { stretchLive, type LiveNight } from "./store";
 
-/** The parts of a player's night a stretch moves, and which night it is. */
+/** The parts of a player's night a stretch moves. */
 export interface NightClock {
   endTimeRef: RefObject<number | null>;
   pausedRemainingMsRef: RefObject<number | null>;
   totalSecondsRef: RefObject<number>;
   setTotalSeconds: Dispatch<SetStateAction<number>>;
-  /** This night's stored-snapshot identity (liveNightOf); null before it begins. */
-  night: () => LiveNight | null;
 }
 
 /** A night's timer extensions (capped per night, reloads included): a ref to
  *  the count for snapshots written from long-lived handlers, `extend`, the
  *  one rule for a stretch, and `canExtendMore` for the button. Each stretch
- *  reaches storage at once, after the render that counts it: a full
- *  snapshot (`persist`, which says whether it wrote), else, where none can
- *  be written yet (an episode not yet played), the minutes stretched since
- *  added to this night's stored one. Paused and backgrounded, the next
- *  periodic snapshot may never come, and a revive would lose the stretch
- *  and reset the cap. */
+ *  is snapshotted at once (`persist`), after the render that counts it:
+ *  paused and backgrounded, the next periodic snapshot may never come, and a
+ *  revive would lose the stretch and reset the cap. (Before an episode has
+ *  played, persist saves the night's own fields; see saveLiveNight.) */
 export function useNightExtensions(initial: number, persist: () => boolean, clock: NightClock) {
   const [extensions, setExtensions] = useState(initial);
   const extensionsRef = useRef(extensions);
@@ -29,20 +24,13 @@ export function useNightExtensions(initial: number, persist: () => boolean, cloc
   persistRef.current = persist;
   const clockRef = useRef(clock);
   clockRef.current = clock;
-  // Minutes stretched and not yet stored, and the count last stored (a
-  // revived night's own count at mount is not a stretch).
-  const unstoredMinutesRef = useRef(0);
-  const storedCountRef = useRef(initial);
+  // A revived night's own count at mount is not a stretch.
+  const mountedCountRef = useRef(initial);
 
   useEffect(() => {
-    if (extensions === storedCountRef.current) return;
-    if (!persistRef.current()) {
-      const night = clockRef.current.night();
-      if (!night) return; // kept unstored: the next write carries it
-      stretchLive(night, unstoredMinutesRef.current, extensions);
-    }
-    unstoredMinutesRef.current = 0;
-    storedCountRef.current = extensions;
+    if (extensions === mountedCountRef.current) return;
+    mountedCountRef.current = NaN; // every later change is a stretch
+    persistRef.current();
   }, [extensions]);
 
   /** Stretch the night by `minutes` (the time left, frozen or running, and
@@ -56,7 +44,6 @@ export function useNightExtensions(initial: number, persist: () => boolean, cloc
     else if (c.endTimeRef.current !== null) c.endTimeRef.current += ms;
     c.totalSecondsRef.current += minutes * 60;
     c.setTotalSeconds((t) => t + minutes * 60);
-    unstoredMinutesRef.current += minutes;
     const used = extensionsRef.current + 1;
     extensionsRef.current = used; // a second tap before the render counts it too
     setExtensions(used);

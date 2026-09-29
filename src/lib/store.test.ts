@@ -463,7 +463,7 @@ describe("quarter-hour rule opt-in", () => {
 });
 
 import { recordSessionEnd, REARM_WINDOW_MS } from "./store";
-import { isRevivable, LIVE_MAX_AGE_MS, resumeMode, resumeFrom, nightTimerMinutes, markLiveRuleSpent, stretchLive, type LiveSession, saveLive, loadLive, saveLastNight, loadLastNight, clampTimerMinutes } from "./store";
+import { isRevivable, LIVE_MAX_AGE_MS, resumeMode, resumeFrom, nightTimerMinutes, saveLiveNight, type LiveSession, saveLive, loadLive, saveLastNight, loadLastNight, clampTimerMinutes } from "./store";
 
 describe("settings migration", () => {
   beforeEach(() => localStorage.clear());
@@ -654,41 +654,27 @@ describe("timerless snapshots", () => {
     expect(r).not.toHaveProperty("wasVaried");
   });
 
-  it("marks the stored snapshot's quarter-hour rule spent", () => {
+  it("saves the night's own fields into this night's snapshot, keeping its episode", () => {
     localStorage.clear();
-    markLiveRuleSpent({ startedAt: 5 }); // nothing stored: nothing to mark
-    expect(loadLive()).toBeNull();
-    saveLive(live({ nightStartedAt: 4 }));
-    markLiveRuleSpent({ startedAt: 5 }); // another night's snapshot: not this one's
-    expect(loadLive()?.ruleSpent).toBeUndefined();
-    markLiveRuleSpent({ startedAt: 4 }); // this night's own
-    expect(loadLive()?.ruleSpent).toBe(true);
-    saveLive(live()); // an older snapshot without a start
-    markLiveRuleSpent({ startedAt: 5 }); // not revived from it: not ours
-    expect(loadLive()?.ruleSpent).toBeUndefined();
-    markLiveRuleSpent({ startedAt: 5, revivedSavedAt: 1_000_000 }); // revived from it
-    expect(loadLive()?.ruleSpent).toBe(true);
-  });
-
-  it("patches a stretch into this night's stored snapshot", () => {
-    localStorage.clear();
-    const stretched = { extensions: 1, remainingMs: 50_000 + 15 * 60_000, totalSeconds: 60 * 60 };
-    saveLive(live({ nightStartedAt: 4, remainingMs: 50_000, totalSeconds: 45 * 60 }));
-    stretchLive({ startedAt: 5 }, 15, 1); // not this night's
+    const fields = { savedAt: 2_000_000, remainingMs: 950_000, totalSeconds: 60 * 60, extensions: 1, ruleSpent: true };
+    expect(saveLiveNight({ startedAt: 5 }, { ...fields, nightStartedAt: 5 })).toBe(false); // nothing stored
+    saveLive(live({ nightStartedAt: 4, position: 321 }));
+    expect(saveLiveNight({ startedAt: 5 }, { ...fields, nightStartedAt: 5 })).toBe(false); // another night's
     expect(loadLive()?.extensions).toBeUndefined();
-    stretchLive({ startedAt: 4 }, 15, 1);
-    expect(loadLive()).toMatchObject({ ...stretched, savedAt: 1_000_000 }); // still as of when saved
-    // A revived night, before its own snapshot: the one it was revived from.
-    saveLive(live({ nightStartedAt: 4, remainingMs: 50_000, totalSeconds: 45 * 60 }));
-    stretchLive({ startedAt: 9, revivedSavedAt: 1_000_000 }, 15, 1);
-    expect(loadLive()).toMatchObject(stretched);
+    expect(saveLiveNight({ startedAt: 4 }, { ...fields, nightStartedAt: 4 })).toBe(true);
+    expect(loadLive()).toMatchObject({ ...fields, position: 321, current: ep });
+    // A revived night, before its own snapshot: the one it was revived from,
+    // which then carries this night's start.
+    saveLive(live({ nightStartedAt: 4 }));
+    expect(saveLiveNight({ startedAt: 9, revivedSavedAt: 1_000_000 }, { ...fields, nightStartedAt: 9 })).toBe(true);
+    expect(loadLive()?.nightStartedAt).toBe(9);
   });
 
   it("never takes a snapshot without savedAt for a night that wasn't revived", () => {
     localStorage.clear();
     const { savedAt: _s, ...noSavedAt } = live({ nightStartedAt: 4 });
     localStorage.setItem("sleepcast2.live", JSON.stringify(noSavedAt));
-    markLiveRuleSpent({ startedAt: 5 });
+    expect(saveLiveNight({ startedAt: 5 }, { savedAt: 1, remainingMs: 1, totalSeconds: 1, ruleSpent: true })).toBe(false);
     expect(loadLive()?.ruleSpent).toBeUndefined();
   });
 });

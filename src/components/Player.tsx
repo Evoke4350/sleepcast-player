@@ -7,7 +7,7 @@ import { useNightExtensions } from "../lib/use-night-extensions";
 const DriftGame = lazy(() => import("./DriftGame"));
 import type { Episode, PlayMode } from "../lib/engine";
 import { fadeVolume, formatTime, effectiveVolume, fadeDriverSeconds } from "../lib/engine";
-import { getPlays, recordHeardPlay, saveLive, markLiveRuleSpent, liveNightOf, rememberPosition, forgetPosition, blockEpisode } from "../lib/store";
+import { getPlays, recordHeardPlay, saveLive, saveLiveNight, liveNightOf, type LiveNightFields, rememberPosition, forgetPosition, blockEpisode } from "../lib/store";
 import { NetworkHold, isOffline } from "../lib/network-hold";
 import { SeekEnforcer, type SeekHooks } from "../lib/seek-enforcer";
 import { mediaTransport } from "../lib/media/transport";
@@ -204,7 +204,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   // Stretches used this night (see useNightExtensions), kept across a revive.
   const { canExtendMore, extend, extensionsRef } = useNightExtensions(resume?.extensions ?? 0, persistLive, {
     endTimeRef, pausedRemainingMsRef, totalSecondsRef, setTotalSeconds,
-    night: () => liveNightOf(restRef.current?.startedAt, resume?.savedAt),
   });
   const [blockedTonight, setBlockedTonight] = useState<ReadonlySet<string>>(new Set());
   // The quarter-hour rule has fired and playback is held. Once dismissed it
@@ -632,7 +631,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     const audio = audioRef.current;
     const ep = currentEpRef.current;
     if (!audio || !ep || tickHandleRef.current === null) return false;
-    if (!epPlayedRef.current) return false; // see epPlayedRef
     // Timerless modes have no remaining time to restore; 0 records "revive the
     // night, there is no clock to resume".
     const remainingMs =
@@ -640,7 +638,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
         ? 0
         : pausedRemainingMsRef.current ?? endTimeRef.current - Date.now();
     if (endTimeRef.current !== null && remainingMs <= 0) return false;
-    return saveLive({
+    const night: LiveNightFields = {
       savedAt: Date.now(),
       nightStartedAt: restRef.current?.startedAt,
       timerMinutes: restRef.current?.timerMinutes,
@@ -652,6 +650,18 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       ruleSpent: ruleSpentRef.current,
       remainingMs,
       totalSeconds: totalSecondsRef.current,
+    };
+    // Before this episode has played its position can't be trusted (a new
+    // load reads 0; writing that over a revived night's snapshot lost the
+    // position): the night's own fields only, into this night's stored
+    // snapshot, keeping its episode and position. (A night that has never
+    // played has no snapshot of its own: nothing is written.)
+    if (!epPlayedRef.current) {
+      const which = liveNightOf(restRef.current?.startedAt, resume?.savedAt);
+      return which !== null && saveLiveNight(which, night);
+    }
+    return saveLive({
+      ...night,
       position: resumePosition(),
       current: ep,
       playedIds: [...playedIdsRef.current],
@@ -742,11 +752,10 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       if (shouldSuggestGettingUp({ elapsedMs: now - nightStartedAtRef.current, ...w })) {
         ruleSpentRef.current = true;
         // Stored at once, not left to the pause's own snapshot (its event
-        // can be dropped by a reload): a full snapshot, else the mark.
-        if (!persistLive()) {
-          const night = liveNightOf(restRef.current?.startedAt, resume?.savedAt);
-          if (night) markLiveRuleSpent(night);
-        }
+        // can be dropped by a reload), from a fresh reading. (The pause
+        // writes again: once a night, accepted.)
+        notePosition(audio);
+        persistLive();
         audio.pause();
         setPaused(true);
         showGettingUp(true);

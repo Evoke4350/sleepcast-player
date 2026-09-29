@@ -44,6 +44,8 @@ import {
   type NoiseSettings,
   type ResumeDescriptor,
   liveNightOf,
+  saveLiveNight,
+  type LiveNightFields,
 } from "../lib/store";
 import { HEARD_SEC } from "../lib/plays";
 import { BrownNoise, noiseGain } from "../lib/noise";
@@ -198,7 +200,6 @@ export function YouTubeNight({
   const [holdPct, setHoldPct] = useState(0);
   const { canExtendMore, extend, extensionsRef } = useNightExtensions(resume?.extensions ?? 0, persistLive, {
     endTimeRef, pausedRemainingMsRef, totalSecondsRef, setTotalSeconds,
-    night: () => liveNightOf(restRef.current?.startedAt, resume?.savedAt),
   });
   // null until the request settles. false means the browser refused, and the
   // listener needs to know: without it the screen sleeps and a YouTube night
@@ -427,15 +428,12 @@ export function YouTubeNight({
     const media = mediaRef.current;
     const ep = currentEpRef.current;
     if (!media || !ep || tickHandleRef.current === null) return false;
-    // Not before this episode has played: its position reads 0 until then,
-    // and writing that over a revived night's snapshot lost the position.
-    if (!witnessRef.current.played) return false;
     const remainingMs =
       endTimeRef.current === null
         ? 0
         : pausedRemainingMsRef.current ?? endTimeRef.current - Date.now();
     if (endTimeRef.current !== null && remainingMs <= 0) return false;
-    return saveLive({
+    const night: LiveNightFields = {
       savedAt: Date.now(),
       nightStartedAt: restRef.current?.startedAt,
       timerMinutes: restRef.current?.timerMinutes,
@@ -445,6 +443,18 @@ export function YouTubeNight({
       wasVaried: wasVariedRef.current,
       remainingMs,
       totalSeconds: totalSecondsRef.current,
+    };
+    // Before this episode has played its position can't be trusted (a new
+    // load reads 0; writing that over a revived night's snapshot lost the
+    // position): the night's own fields only, into this night's stored
+    // snapshot, keeping its episode and position. (A night that has never
+    // played has no snapshot of its own: nothing is written.)
+    if (!witnessRef.current.played) {
+      const which = liveNightOf(restRef.current?.startedAt, resume?.savedAt);
+      return which !== null && saveLiveNight(which, night);
+    }
+    return saveLive({
+      ...night,
       position: witnessRef.current.resumeAt(media.currentTime()),
       current: ep,
       playedIds: [...playedIdsRef.current],
