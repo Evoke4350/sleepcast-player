@@ -21,20 +21,19 @@ export class AudioBackend implements MediaBackend {
   /** The episode's length, kept through a reload of the same episode (a
    *  retry, the network hold's resume), whose element reads NaN until its
    *  metadata: without it a fade in progress jumped back to full. Reset for
-   *  another episode; Infinity (a stream) forgets it. */
+   *  a new episode, as Player resets its own per playEpisode; Infinity (a
+   *  stream) forgets it. */
   private readonly latch = new DurationLatch();
-  private loadedRef: string | null = null;
   /** A rejected play() is not a DOM event, so it cannot ride the "error"
    *  listener subscribe() sets up. These are called directly instead. */
   private errorCallbacks = new Set<(code: number | string, info: ErrorInfo) => void>();
 
   constructor(private readonly el: HTMLAudioElement) {}
 
-  load(ref: string, startSeconds = 0): void {
+  load(ref: string, startSeconds = 0, reload = false): void {
     if (this.dead) return;
     this.dropSeek();
-    if (ref !== this.loadedRef) this.latch.reset();
-    this.loadedRef = ref;
+    if (!reload) this.latch.reset();
 
     this.el.src = ref;
 

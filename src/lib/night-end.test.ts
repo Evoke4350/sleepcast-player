@@ -57,6 +57,13 @@ describe("recordNightEnd", () => {
     expect(loadLastEpisode()?.id).toBe("a"); // heard before the reload
   });
 
+  it("a revived night whose snapshot never got past its start offers no last episode", () => {
+    saveLive({ ...live, position: 0 });
+    recordNightEnd(end({ played: false, revivedFrom: 1, reason: "ended", lastHeard: null }));
+    expect(loadNights()).toHaveLength(1);
+    expect(loadLastEpisode()).toBeNull();
+  });
+
   it("a revived night the app gives up on before it sounded keeps its snapshot", () => {
     recordNightEnd(end({ played: false, revivedFrom: 1, reason: "ended", gaveUp: true }));
     expect(loadLive()).not.toBeNull();

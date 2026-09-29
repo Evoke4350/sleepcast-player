@@ -1061,7 +1061,7 @@ export function Night({
     witnessRef.current.reset(at, Date.now());
     lastPosRef.current = at;
     wasSeekingRef.current = false;
-    media.load(ep.youtubeId ?? ep.url, at);
+    media.load(ep.youtubeId ?? ep.url, at, true); // the same episode again
     watchRef.current = { id: ep.id, at: Date.now() };
     return true;
   }

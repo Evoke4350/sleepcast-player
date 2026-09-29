@@ -182,6 +182,9 @@ export function AppPlayer() {
   function handleEnd() {
     setResume(null);
     setSession(null);
+    // A re-anchor found while the night played is stale now: this night
+    // wrote its own last night (the next visibility check decides afresh).
+    setReanchor(null);
     // A snapshot the night kept (the app gave up on a revived night) comes
     // back as the resume card, or is recorded if too old to revive.
     setLive(settleLive(loadLive(), Date.now()));
