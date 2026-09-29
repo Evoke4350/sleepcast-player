@@ -1072,7 +1072,12 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   function skipBy(seconds: number) {
     // From where the episode is, not the element's reading: a failed element
     // (in a network hold), one still being put on its start, or one without
-    // metadata yet may read anything.
+    // metadata yet may read anything. A fresh reading first (notePosition
+    // records only trustworthy ones): a locked phone's throttled timeupdates
+    // can leave the known position seconds old, and a lock-screen ±30 s
+    // comes with no element event.
+    const audio = audioRef.current;
+    if (audio) notePosition(audio);
     if (listenerSeek(resumePosition() + seconds)) restRef.current?.noteInteraction();
   }
 
@@ -1109,13 +1114,23 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // shows ("play" then "playing", loadedmetadata then durationchange).
     const state = moving ? "playing" : "paused";
     const last = publishedRef.current;
-    if (last && last.state === state && last.dur === (span?.dur ?? null) && last.rate === rate &&
-        (span === null || !offLockScreen(span.pos, moved || (!moving && audio.paused)))) return;
-    publishedRef.current = {
-      state, dur: span?.dur ?? null, rate,
-      pos: span?.pos ?? null, atMs: Date.now(),
-    };
-    publishLockScreen(state, span, rate);
+    if (last && last.state === state && last.dur === (span?.dur ?? null) && last.rate === rate) {
+      // Nothing published at a position (no length yet, a stream): nothing
+      // to be off from until a length arrives and syncs.
+      if (span === null || last.pos === null) return;
+      // Where the lock screen, extrapolating from the last publish, thinks
+      // it is. A listener's seek, or paused with the element truly paused:
+      // any change is real. Otherwise (playing, or buffering yet moving) it
+      // drifts by the extrapolation's slack, or it would republish every tick.
+      const expected = last.pos + (moving ? ((Date.now() - last.atMs) / 1000) * rate : 0);
+      const exact = moved || (!moving && audio.paused);
+      if (Math.abs(span.pos - expected) <= (exact ? 0.25 : 2)) return;
+    }
+    // Recorded only when the platform took it, so a rejected publish is
+    // tried again on the next sync rather than taken as shown.
+    publishedRef.current = publishLockScreen(state, span, rate)
+      ? { state, dur: span?.dur ?? null, rate, pos: span?.pos ?? null, atMs: Date.now() }
+      : null;
   }
 
   /** Clear the lock screen, and what the player remembers publishing. */
@@ -1128,21 +1143,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   function refreshLockScreen(audio: HTMLAudioElement) {
     notePosition(audio);
     syncLockScreen();
-  }
-
-  /** Whether a reading is somewhere other than where the lock screen,
-   *  extrapolating from what was last published, thinks it is. `exact`
-   *  (a listener's seek, or paused with the element truly paused): any
-   *  change is real. Otherwise (playing, or buffering yet moving) it drifts
-   *  by the extrapolation's slack, or it would republish every tick. */
-  function offLockScreen(pos: number, exact: boolean): boolean {
-    const p = publishedRef.current;
-    // Nothing published, or no position (no length yet, a stream): nothing
-    // to be off from until a length arrives and syncs.
-    if (!p || p.pos === null) return false;
-    const moving = p.state === "playing";
-    const expected = p.pos + (moving ? ((Date.now() - p.atMs) / 1000) * p.rate : 0);
-    return Math.abs(pos - expected) > (exact ? 0.25 : 2);
   }
 
   /** Where the episode is and how long it is, as the player sees it, with

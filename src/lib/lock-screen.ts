@@ -8,20 +8,21 @@ export function mediaSession(): MediaSession | null {
 
 /** Publish the play state and, when the length is known, the position (the
  *  platform extrapolates from it at `rate` while the state is "playing").
- *  Without a span the position is cleared. */
+ *  Without a span the position is cleared. Whether the platform took it. */
 export function publishLockScreen(
   state: "playing" | "paused",
   span: { pos: number; dur: number } | null,
   rate: number,
-): void {
+): boolean {
   const ms = mediaSession();
-  if (!ms) return;
+  if (!ms) return false;
   ms.playbackState = state;
   try {
     if (span) ms.setPositionState?.({ duration: span.dur, position: span.pos, playbackRate: rate });
     else ms.setPositionState?.();
+    return true;
   } catch {
-    /* a platform that rejects it keeps its own */
+    return false; // a platform that rejects it keeps its own
   }
 }
 

@@ -212,7 +212,8 @@ describe("RestSession interaction bursts", () => {
     const end = 10_000 + 3 * INTERACTION_MERGE_MS; // longer than one window
     for (let t = 10_000; t <= end; t += step) s.noteInteraction(t); // one drag
     expect(s.interactionCount).toBe(1);
-    expect(s.wakefulness(end).msSinceLastInteraction).toBe(0);
+    // Wakefulness counts every touch: a long restless stretch is not one.
+    expect(s.wakefulness(end)).toEqual({ interactions: 13, msSinceLastInteraction: 0 });
     s.noteInteraction(end + INTERACTION_MERGE_MS); // exactly the window apart: new
     expect(s.interactionCount).toBe(2);
   });
@@ -233,6 +234,7 @@ describe("RestSession interactions across a reload", () => {
     s.noteInteraction(1000);
     expect(s.interactionCount).toBe(9);
     expect(s.finish("faded", 2000).interactions).toBe(9);
+    expect(s.wakefulness(2000).interactions).toBe(9);
   });
 
   it("ignores nonsense", () => {

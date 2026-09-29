@@ -30,11 +30,15 @@ describe("publishLockScreen", () => {
     const setPositionState = vi.fn();
     const ms = { playbackState: "none", setPositionState };
     Object.defineProperty(navigator, "mediaSession", { value: ms, configurable: true });
-    publishLockScreen("paused", { pos: 30, dur: 600 }, 1);
+    expect(publishLockScreen("paused", { pos: 30, dur: 600 }, 1)).toBe(true);
     expect(ms.playbackState).toBe("paused");
     expect(setPositionState).toHaveBeenLastCalledWith({ duration: 600, position: 30, playbackRate: 1 });
     publishLockScreen("playing", null, 1);
     expect(setPositionState).toHaveBeenLastCalledWith();
+    setPositionState.mockImplementation(() => {
+      throw new TypeError("rejected");
+    });
+    expect(publishLockScreen("paused", { pos: NaN, dur: 600 }, 1)).toBe(false);
   });
 });
 
