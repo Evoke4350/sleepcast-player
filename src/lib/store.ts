@@ -329,6 +329,14 @@ export function nightTimerMinutes(l: LiveSession): number {
 
 const LIVE_POOL_CAP = 80;
 
+/** A snapshot's played episodes, the current one included. */
+export function withCurrentPlayed(l: Pick<LiveSession, "playedIds" | "current">): string[] {
+  return l.playedIds.includes(l.current.id) ? l.playedIds : [...l.playedIds, l.current.id];
+}
+
+/** Snapshots are written every this many ticks while an episode plays. */
+export const SNAPSHOT_EVERY_TICKS = 10;
+
 /** Whether it was written. */
 export function saveLive(s: LiveSession): boolean {
   // Keep the current episode plus a bounded remainder — enough to keep the
@@ -336,8 +344,7 @@ export function saveLive(s: LiveSession): boolean {
   const rest = s.pool.filter((e) => e.id !== s.current.id).slice(0, LIVE_POOL_CAP - 1);
   // The current episode counts as played (the state that adds it may not
   // have reached the writer yet).
-  const playedIds = s.playedIds.includes(s.current.id) ? s.playedIds : [...s.playedIds, s.current.id];
-  const bounded: LiveSession = { ...s, playedIds, pool: [s.current, ...rest] };
+  const bounded: LiveSession = { ...s, playedIds: withCurrentPlayed(s), pool: [s.current, ...rest] };
   try {
     return writeMakingRoom(KEY_LIVE, JSON.stringify(bounded));
   } catch {

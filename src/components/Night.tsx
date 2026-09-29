@@ -50,6 +50,7 @@ import {
   loadBlocked,
   type NoiseSettings,
   type ResumeDescriptor,
+  SNAPSHOT_EVERY_TICKS,
 } from "../lib/store";
 import { HEARD_SEC } from "../lib/plays";
 import { BrownNoise, noiseGain } from "../lib/noise";
@@ -395,11 +396,11 @@ export function Night({
     // revive the last one (one just blocked, say). Written, it stands for
     // the first periodic one; not (a fresh night's first episode), the
     // periodic one lands as soon as it plays.
-    persistCounterRef.current = persistLive() ? 0 : 10;
+    persistCounterRef.current = persistLive() ? 0 : SNAPSHOT_EVERY_TICKS;
   }
 
   /** `byListener`: Next or "never again" led here, so ending a never-played
-   *  night is the listener's choice and its snapshot goes (see recordNightEnd).
+   *  night is the listener's choice, not the app giving up (see recordNightEnd).
    *  Only an end their action causes at once counts: one that fails later
    *  (an error after load) is the app giving up, and keeps the snapshot. */
   function playNext(byListener = false) {
@@ -569,8 +570,8 @@ export function Night({
     // Only once something has played in this page: before that there is
     // nothing of its own to record, and a revived night's stored snapshot
     // (the one it was revived from) stays as it is, to be revived again.
-    // The position is witness.resumeAt (the load's start until it has played),
-    // never a new load's 0.
+    // The position is witness.snapshotAt: where it is once heard, else 0 (not
+    // a skip-intro start, which a revive would take for listening).
     if (!hasEverPlayedRef.current) return false;
     return saveLive({
       savedAt: Date.now(),
@@ -766,7 +767,7 @@ export function Night({
 
     // Periodic snapshots once this episode has made a sound (before, a
     // snapshot can only say where it was meant to start).
-    if (++persistCounterRef.current >= 10 && witnessRef.current.played) {
+    if (++persistCounterRef.current >= SNAPSHOT_EVERY_TICKS && witnessRef.current.played) {
       persistCounterRef.current = 0;
       persistLive();
       if (currentEpRef.current && span) rememberPosition(currentEpRef.current.id, witnessRef.current.resumeAt(cur), span.dur);
@@ -795,14 +796,13 @@ export function Night({
   }
 
   /** `gaveUp`: the app, not the listener, is ending a night that never
-   *  played (nothing playable, or the error screen). Its snapshot is kept, so a
-   *  revived night that failed offline can still be revived. When the listener
-   *  ends it themselves, the snapshot goes. */
+   *  played here (nothing playable, or the error screen). Its snapshot is
+   *  kept, so a revived night that failed offline can still be revived. What
+   *  a night that never played here records otherwise: see recordNightEnd. */
   function endSession(reason: RestNight["endedVia"] = "faded", { gaveUp = false }: { gaveUp?: boolean } = {}) {
     if (tickHandleRef.current === null && reason !== "ended") return;
-    // A night that never played anything records nothing: it used to write an
-    // empty last night and a RestNight to the ledger, which calibration then
-    // learned from.
+    // A night that never played here records what recordNightEnd decides
+    // (a fresh one nothing; a revived one the night it continues).
     clearStopFade();
     netHoldRef.current.cancel();
     recordNightEnd({

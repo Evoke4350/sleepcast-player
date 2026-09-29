@@ -153,8 +153,11 @@ export function AppPlayer() {
     modeOverride?: PlayMode
   ) {
     setResume(null); // a fresh night, not a revival
-    // Starting over while the resume card is up: the snapshotted night is over.
-    if (live) reconcileLive(live, Date.now());
+    // Starting over: a snapshotted night still stored is over. The resume
+    // card's, or one kept after it was revived (the app gave up on it) with
+    // no card left to show.
+    const kept = live ?? loadLive();
+    if (kept) reconcileLive(kept, Date.now());
     setLive(null);
     applyNightSettings(modeOverride ?? loadState().settings.mode);
     clearLastNight(); // a new night supersedes any prior faded one

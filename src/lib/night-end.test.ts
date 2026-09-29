@@ -62,6 +62,13 @@ describe("recordNightEnd", () => {
     expect(loadNights()).toHaveLength(0);
   });
 
+  it("a revived night whose snapshot another tab has already recorded records nothing", () => {
+    localStorage.clear();
+    recordNightEnd(end({ played: false, revivedFrom: 1, reason: "ended" }));
+    expect(loadNights()).toHaveLength(0);
+    expect(loadLastNight()).toBeNull();
+  });
+
   it("a revived night whose snapshot another tab has replaced records nothing and leaves it", () => {
     saveLive({ ...live, savedAt: 99 });
     recordNightEnd(end({ played: false, revivedFrom: 1, reason: "ended" }));

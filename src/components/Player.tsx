@@ -7,7 +7,7 @@ import { useNightExtensions } from "../lib/use-night-extensions";
 const DriftGame = lazy(() => import("./DriftGame"));
 import type { Episode, PlayMode } from "../lib/engine";
 import { fadeVolume, formatTime, effectiveVolume, fadeDriverSeconds } from "../lib/engine";
-import { getPlays, recordHeardPlay, saveLive, rememberPosition, forgetPosition, blockEpisode } from "../lib/store";
+import { getPlays, recordHeardPlay, saveLive, SNAPSHOT_EVERY_TICKS, rememberPosition, forgetPosition, blockEpisode } from "../lib/store";
 import { NetworkHold, isOffline } from "../lib/network-hold";
 import { SeekEnforcer, type SeekHooks } from "../lib/seek-enforcer";
 import { mediaTransport } from "../lib/media/transport";
@@ -150,8 +150,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
    *  across a reload (whose element knows nothing yet), reset per episode. */
   const durationLatchRef = useLazyRef(() => new DurationLatch());
   const failsRef = useRef(0);
-  // Whether anything has actually played this night. A night that never did
-  // records nothing when it ends (see endSession).
+  // Whether anything has actually played in this page (see endSession and
+  // recordNightEnd for what a night that never did records).
   const hasEverPlayedRef = useRef(false);
   // Whether the CURRENT episode has reached "playing". Until it has, its
   // element reads 0 (src just set, the resume seek waits for metadata), so
@@ -284,7 +284,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // revive the last one (one just blocked, say). Written, it stands for
     // the first periodic one; not (a fresh night's first episode), the
     // periodic one lands as soon as it plays.
-    persistCounterRef.current = persistLive() ? 0 : 10;
+    persistCounterRef.current = persistLive() ? 0 : SNAPSHOT_EVERY_TICKS;
   }
 
   /** Count one more consecutive failure (a stuck track, a source error). Past
@@ -804,7 +804,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // Spent only once the episode has played, so a new episode's first
     // periodic snapshot lands as soon as it plays, not ten ticks after a
     // count used up while it was still loading.
-    if (++persistCounterRef.current >= 10 && epPlayedRef.current) {
+    if (++persistCounterRef.current >= SNAPSHOT_EVERY_TICKS && epPlayedRef.current) {
       persistCounterRef.current = 0;
       persistLive();
       rememberCurrentPosition();
@@ -825,10 +825,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // the setup screen can offer a smaller re-arm to someone who wakes back
     // up inside the window. A manual stop is not an invitation to resume.
     //
-    // A night that never played anything (every enclosure failed, say, and the
-    // listener ended it) records nothing: no re-arm stamp, no empty last night,
-    // no RestNight for calibration to learn from. Its snapshot is cleared
-    // unless the app is the one giving up (gaveUp; see recordNightEnd).
+    // A night that never played in this page records what recordNightEnd
+    // decides: nothing for a fresh one (its snapshot cleared unless the app
+    // gives up), or, for a revived one, the night it continues.
     clearStopFade();
     netHoldRef.current.cancel();
     pendingSeekRef.current?.cancel(); // nothing may act on the stopped element
