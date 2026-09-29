@@ -30,6 +30,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Episode, PlayMode } from "../lib/engine";
 import { formatTime, effectiveVolume, fadeDriverSeconds } from "../lib/engine";
+import { knownDuration, remainingOf, spanOf } from "../lib/duration";
 import {
   getPlays,
   recordHeardPlay,
@@ -530,7 +531,9 @@ export function YouTubeNight({
     // listener catch only its last seconds. See shouldPlayWhole.
     // Only returns if it did reload: a failed replay must not stall every tick.
     if (shouldPlayWhole(witnessRef.current, dur) && replayFromStart()) return;
-    const epRemaining = dur > 0 ? dur - cur : null;
+    // The same rule as Player's: a known length, the position kept within it.
+    const span = spanOf(cur, knownDuration(dur));
+    const epRemaining = remainingOf(span);
     const driver = fadeDriverSeconds(kind, remaining, epRemaining);
 
     restTick(driver, t);
@@ -549,7 +552,7 @@ export function YouTubeNight({
     }
 
     setCountdown(kind === "minutes" ? remaining : 0);
-    setEpPos(dur > 0 ? { cur, dur } : null);
+    setEpPos(span && { cur: span.pos, dur: span.dur });
 
     const w = watchRef.current;
     if (

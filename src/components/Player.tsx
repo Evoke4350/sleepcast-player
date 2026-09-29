@@ -9,7 +9,7 @@ import { getPlays, recordHeardPlay, saveLive, rememberPosition, forgetPosition, 
 import { NetworkHold, isOffline } from "../lib/network-hold";
 import { SeekEnforcer, type SeekHooks } from "../lib/seek-enforcer";
 import { mediaTransport } from "../lib/media/transport";
-import { DurationLatch, shortOfEnd } from "../lib/duration";
+import { DurationLatch, remainingOf, shortOfEnd, spanOf } from "../lib/duration";
 import { heardDelta } from "../lib/heard";
 import { rearmsWatchdogOnTap } from "../lib/witness";
 import { clearLockScreen, mediaSession, publishLockScreen, publishLockScreenMetadata, setActionHandlers } from "../lib/lock-screen";
@@ -896,6 +896,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       setPaused(true);
       watchRef.current = null; // a paused track isn't a stuck track
       if (!audio.ended) freezeClock();
+      // A fresh reading first (lockSync's comes after this handler): a
+      // locked phone's throttled timeupdates can leave it seconds old.
+      notePosition(audio);
       persistLive(); // capture the pause with its frozen remaining time
     };
 
@@ -1095,14 +1098,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     if (listenerSeek(freshPosition(audio) + seconds)) restRef.current?.noteInteraction();
   }
 
-  /** Time left in the episode, for the fade: from where it is and how long
-   *  it is as far as anyone knows, so a reload or a pending start seek
-   *  doesn't lose the fade (a new src knows no duration; Safari can read
-   *  ~0 before its seek is corrected). */
-  function remainingOf(span: { pos: number; dur: number } | null): number | null {
-    return span ? span.dur - span.pos : null;
-  }
-
   /** The lock screen's scrubber and play state, from the player's own view
    *  (the element's reading can be ~0 while a seek is enforced or a reload
    *  loads, and a nudge of that thumb would throw the position away). Set
@@ -1169,9 +1164,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
    *  the position kept within it: the one view the bar, the lock screen and
    *  the fade all read. Null while the length is unknown. */
   function episodeSpan(audio: HTMLAudioElement): { pos: number; dur: number } | null {
-    const dur = episodeDuration(audio);
-    if (dur === null) return null;
-    return { pos: Math.min(Math.max(0, resumePosition()), dur), dur };
+    return spanOf(resumePosition(), episodeDuration(audio));
   }
 
   /** The episode's duration, as far as anyone knows: the element's, or the

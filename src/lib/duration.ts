@@ -14,6 +14,18 @@ export function shortOfEnd(positionSec: number, durationSec: number | null): num
   return Math.max(0, capped);
 }
 
+/** Where an episode is and how long it is, with the position kept within
+ *  it; null while the length is unknown. */
+export function spanOf(positionSec: number, durationSec: number | null): { pos: number; dur: number } | null {
+  if (durationSec === null) return null;
+  return { pos: Math.min(Math.max(0, positionSec), durationSec), dur: durationSec };
+}
+
+/** Time left in a span, for the fade; null while the length is unknown. */
+export function remainingOf(span: { pos: number; dur: number } | null): number | null {
+  return span ? span.dur - span.pos : null;
+}
+
 /** The last known duration of one load, kept through a momentary NaN or
  *  Infinity (a reload's element knows nothing yet; some engines report
  *  Infinity for a moment). A stream that never reports a finite length
