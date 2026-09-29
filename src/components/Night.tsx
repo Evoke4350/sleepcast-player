@@ -1058,14 +1058,17 @@ export function Night({
 
   // One handler for "start it" and "resume it": both are a tap asking for
   // sound, and the browser treats this tap as the gesture that permits it.
-  // Only something genuinely playing gets paused. This is also the one tap
-  // that clears a blocked podcast autoplay — handleError left the clock frozen
-  // and the transport at "paused" for exactly this.
+  // Only something genuinely playing gets paused, or stalled after it has
+  // played (buffering mid-episode: the listener wants it stopped, not asked
+  // for again). This is also the one tap that clears a blocked podcast
+  // autoplay — handleError left the clock frozen and the transport at
+  // "paused" for exactly this.
   function handleTogglePause() {
     restRef.current?.noteInteraction();
     const media = liveRef.current;
     if (!media) return;
-    if (transportRef.current === "playing") {
+    const t = transportRef.current;
+    if (t === "playing" || (t === "buffering" && witnessRef.current.played)) {
       media.pause();
       return;
     }

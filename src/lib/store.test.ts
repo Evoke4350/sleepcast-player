@@ -656,12 +656,15 @@ describe("timerless snapshots", () => {
 
   it("marks the stored snapshot's quarter-hour rule spent", () => {
     localStorage.clear();
-    markLiveRuleSpent(5); // nothing stored: nothing to mark
+    markLiveRuleSpent([5]); // nothing stored: nothing to mark
     expect(loadLive()).toBeNull();
     saveLive(live({ nightStartedAt: 4 }));
-    markLiveRuleSpent(5); // another night's snapshot: not this one's to mark
+    markLiveRuleSpent([5]); // another night's snapshot: not this one's to mark
     expect(loadLive()?.ruleSpent).toBeUndefined();
-    markLiveRuleSpent(4);
+    markLiveRuleSpent([5, 4]); // a revived night, before its own snapshot
+    expect(loadLive()?.ruleSpent).toBe(true);
+    saveLive(live()); // an older snapshot without a start, revived
+    markLiveRuleSpent([5, undefined]);
     expect(loadLive()?.ruleSpent).toBe(true);
   });
 });

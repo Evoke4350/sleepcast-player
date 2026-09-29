@@ -202,7 +202,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   const [toast, setToast] = useState("");
   const [holdPct, setHoldPct] = useState(0);
   const [drifting, setDrifting] = useState(false);
-  // Stretches used this night (see canExtend). Resets with the component.
+  // Stretches used this night (see canExtend), kept across a revive.
   const [extensions, setExtensions, extensionsRef] = useNightExtensions(resume?.extensions ?? 0, persistLive);
   const [blockedTonight, setBlockedTonight] = useState<ReadonlySet<string>>(new Set());
   // The quarter-hour rule has fired and playback is held. Once dismissed it
@@ -740,7 +740,12 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
         // Playing a played episode, the pause's own snapshot records it;
         // otherwise (already paused, or nothing snapshotted yet for this
         // episode) mark the stored one now.
-        if (audio.paused || !epPlayedRef.current) markLiveRuleSpent(nightStartedAtRef.current);
+        if (audio.paused || !epPlayedRef.current) {
+          // This night's snapshot: its own start, or, before it has written
+          // one, the revived snapshot's (which may lack one, or differ from
+          // revivedNightStart's).
+          markLiveRuleSpent(resume ? [nightStartedAtRef.current, resume.nightStartedAt] : [nightStartedAtRef.current]);
+        }
         audio.pause();
         setPaused(true);
         showGettingUp(true);
