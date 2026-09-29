@@ -10,6 +10,7 @@ import { NetworkHold, isOffline } from "../lib/network-hold";
 import { SeekEnforcer, isPlayingThrough, type SeekHooks } from "../lib/seek-enforcer";
 import { DurationLatch, shortOfEnd } from "../lib/duration";
 import { heardDelta } from "../lib/heard";
+import { rearmsWatchdogOnTap } from "../lib/witness";
 import { clearLockScreen, mediaSession, publishLockScreen } from "../lib/lock-screen";
 import { decideSkip, skipMessage, stillAtStart } from "../lib/skip-intro";
 import { pickNextEpisode, HEARD_SEC } from "../lib/plays";
@@ -129,7 +130,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   // can't spin forever.
   const watchRef = useRef<{ src: string; at: number } | null>(null);
   /** Waiting out a dropped network (see holdForNetwork). */
-  const netHoldRef = useRef(new NetworkHold());
+  const netHoldRef = useRef<NetworkHold>(null!);
+  netHoldRef.current ??= new NetworkHold();
   /** Where the episode is, as far as anyone can tell (see resumePosition),
    *  when no seek is pending: the element's own trustworthy reading (see
    *  notePosition), or the target a seek left behind when it ended without
@@ -140,7 +142,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   const publishedRef = useRef<{ pos: number; atMs: number; rate: number } | "none">("none");
   /** The current episode's duration once its element has reported one: kept
    *  across a reload (whose element knows nothing yet), reset per episode. */
-  const durationLatchRef = useRef(new DurationLatch());
+  const durationLatchRef = useRef<DurationLatch>(null!);
+  durationLatchRef.current ??= new DurationLatch();
   const failsRef = useRef(0);
   // Whether anything has actually played this night. A night that never did
   // records nothing when it ends (see endSession).
@@ -271,9 +274,10 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     heardSavedAtRef.current = -1e9;
     epStartedAtRef.current = Date.now();
 
-    if (mediaSession()) {
+    const ms = mediaSession();
+    if (ms) {
       const art = artworkRef.current[ep.feedId];
-      navigator.mediaSession.metadata = new MediaMetadata({
+      ms.metadata = new MediaMetadata({
         title: ep.title,
         artist: feedTitlesRef.current[ep.feedId] ?? "sleepcast",
         album: "sleepcast",
@@ -380,11 +384,13 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
    *  be trusted: not while a seek is being enforced (Safari can read ~0
    *  until it is corrected), not before the element knows its media (a new
    *  load reads 0), and not from a failed element, which can read 0 too. */
-  function notePosition(audio: HTMLAudioElement) {
+  /** Returns whether the reading counted. */
+  function notePosition(audio: HTMLAudioElement): boolean {
     // Nor mid-seek: a fastSeek's currentTime can still read where it left.
-    if (pendingSeekRef.current || audio.seeking) return;
-    if (audio.error || audio.readyState < HTMLMediaElement.HAVE_METADATA) return;
+    if (pendingSeekRef.current || audio.seeking) return false;
+    if (audio.error || audio.readyState < HTMLMediaElement.HAVE_METADATA) return false;
     knownPosRef.current = audio.currentTime;
+    return true;
   }
 
   /** Enforce a seek to `to`: by aiming the one still pending there (it keeps
@@ -487,13 +493,14 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     if (gettingUpRef.current) showGettingUp(false);
     // Held for the network: this retries the reload (see NetworkHold).
     if (netHoldRef.current.resumeNow(true)) return;
-    // An episode that hasn't played yet gets its watchdog back: a pause of a
-    // loading or stalled element (the lock screen's stop) stood it down.
-    if (!epPlayedRef.current) {
-      const src = audio.getAttribute("src");
-      if (src) watchRef.current = { src, at: Date.now() };
-    }
-    audio.play().catch(() => { /* the error event or the watchdog decides */ });
+    // An episode that hasn't played yet gets its watchdog back (a pause of a
+    // loading or stalled element, the lock screen's stop, stood it down), by
+    // the tap rule every player uses.
+    const src = audio.getAttribute("src");
+    const transport = audio.paused ? "paused" : isPlayingThrough(audio) ? "playing" : "buffering";
+    if (src && rearmsWatchdogOnTap(epPlayedRef.current, transport)) watchRef.current = { src, at: Date.now() };
+    // A refused play stands the watchdog down again (see playOrWait).
+    playOrWait(audio);
   }
 
   /** Park the remaining time, so the countdown holds while nothing plays.
@@ -557,13 +564,11 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // Not while a seek is being enforced: its jumps and its landing aren't
     // listening (landAt resets the baseline when it ends).
     heardSecRef.current += heardDelta(prev, t, pendingSeekRef.current !== null || audio.seeking);
-    notePosition(audio);
     // Not playback's steady advance (which the lock screen extrapolates),
     // but a correction: the position somewhere other than where the lock
-    // screen thinks it is (a seek that didn't land, say). Publish it.
-    // Only on a reading that counted (with a seek pending or the element
-    // seeking, the lock screen shows the target, and nothing new is known).
-    if (!pendingSeekRef.current && !audio.seeking) {
+    // screen thinks it is (a seek that didn't land, say). Publish it. Only
+    // on a reading that counted, and only if something was published.
+    if (notePosition(audio) && publishedRef.current !== "none") {
       const span = episodeSpan(audio);
       if (span && offLockScreen(span.pos)) syncLockScreen();
     }
@@ -998,29 +1003,30 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     audio.addEventListener("ended", onEnded);
     audio.addEventListener("error", onError);
 
-    if (mediaSession()) {
-      navigator.mediaSession.setActionHandler("play", () => {
+    const ms = mediaSession();
+    if (ms) {
+      ms.setActionHandler("play", () => {
         restRef.current?.noteInteraction();
         // The lock screen shows "paused" while loading or stalled, so its
         // play button is the only one offered then: on an element that is
         // in fact trying to play, the tap means stop.
-        if (!audio.paused) audio.pause();
+        if (!audio.paused && !isPlayingThrough(audio)) audio.pause();
         else askForSoundRef.current();
       });
-      navigator.mediaSession.setActionHandler("pause", () => { restRef.current?.noteInteraction(); audio.pause(); });
+      ms.setActionHandler("pause", () => { restRef.current?.noteInteraction(); audio.pause(); });
       // Routed through handleNext, not playNext directly: a lock-screen or
       // Bluetooth skip is still a rejection of the feed being left, and for
       // someone already in bed with the phone locked, this is most skips —
       // splitting the path here would mean the model never sees them.
-      navigator.mediaSession.setActionHandler("nexttrack", () => handleNext());
+      ms.setActionHandler("nexttrack", () => handleNext());
       // Lock-screen / headphone scrubbing.
       try {
         // The platform's own step when it gives one (a headset's 15 s).
-        navigator.mediaSession.setActionHandler("seekbackward", (d) => skipBy(-(d.seekOffset ?? 30)));
-        navigator.mediaSession.setActionHandler("seekforward", (d) => skipBy(d.seekOffset ?? 30));
+        ms.setActionHandler("seekbackward", (d) => skipBy(-(d.seekOffset ?? 30)));
+        ms.setActionHandler("seekforward", (d) => skipBy(d.seekOffset ?? 30));
         // The lock-screen scrubber: through listenerSeek like any listener
         // seek, not the browser's default, which would bypass it.
-        navigator.mediaSession.setActionHandler("seekto", (d) => {
+        ms.setActionHandler("seekto", (d) => {
           // Every step marks the listener active; RestSession counts a drag's
           // burst of steps as one interaction.
           if (listenerSeek(d.seekTime ?? NaN, d.fastSeek === true)) restRef.current?.noteInteraction();
@@ -1062,14 +1068,15 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       audio.removeEventListener("playing", onPlaying);
       audio.removeEventListener("ended", onEnded);
       audio.removeEventListener("error", onError);
-      if (mediaSession()) {
-        navigator.mediaSession.setActionHandler("play", null);
-        navigator.mediaSession.setActionHandler("pause", null);
-        navigator.mediaSession.setActionHandler("nexttrack", null);
+      const ms = mediaSession();
+      if (ms) {
+        ms.setActionHandler("play", null);
+        ms.setActionHandler("pause", null);
+        ms.setActionHandler("nexttrack", null);
         try {
-          navigator.mediaSession.setActionHandler("seekbackward", null);
-          navigator.mediaSession.setActionHandler("seekforward", null);
-          navigator.mediaSession.setActionHandler("seekto", null);
+          ms.setActionHandler("seekbackward", null);
+          ms.setActionHandler("seekforward", null);
+          ms.setActionHandler("seekto", null);
         } catch { /* symmetric with setup */ }
       }
     };

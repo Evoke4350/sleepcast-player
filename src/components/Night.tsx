@@ -396,9 +396,10 @@ export function Night({
     epStartedAtRef.current = Date.now();
     persistCounterRef.current = 10; // snapshot promptly, not up to 10s from now
 
-    if (mediaSession()) {
+    const ms = mediaSession();
+    if (ms) {
       const art = artworkRef.current[ep.feedId];
-      navigator.mediaSession.metadata = new MediaMetadata({
+      ms.metadata = new MediaMetadata({
         title: ep.title,
         artist: feedTitlesRef.current[ep.feedId] ?? "sleepcast",
         album: "sleepcast",
@@ -882,12 +883,13 @@ export function Night({
     // browser's default handler would play() the failed source and the tick
     // would thaw the clock over silence. (A video's embed keeps its own
     // media session inside the iframe, which the default handler can't reach.)
-    if (mediaSession()) {
-      navigator.mediaSession.setActionHandler("play", () => {
+    const ms = mediaSession();
+    if (ms) {
+      ms.setActionHandler("play", () => {
         restRef.current?.noteInteraction();
         askForSoundRef.current();
       });
-      navigator.mediaSession.setActionHandler("pause", () => {
+      ms.setActionHandler("pause", () => {
         restRef.current?.noteInteraction();
         liveRef.current?.pause();
       });
@@ -1000,9 +1002,10 @@ export function Night({
       releaseBackends();
       void lockRef.current?.release();
       clearLockScreen();
-      if (mediaSession()) {
-        navigator.mediaSession.setActionHandler("play", null);
-        navigator.mediaSession.setActionHandler("pause", null);
+      const ms = mediaSession();
+      if (ms) {
+        ms.setActionHandler("play", null);
+        ms.setActionHandler("pause", null);
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

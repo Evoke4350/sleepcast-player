@@ -299,9 +299,10 @@ export function YouTubeNight({
     epStartedAtRef.current = Date.now();
     persistCounterRef.current = 10; // snapshot promptly, not up to 10s from now
 
-    if (mediaSession()) {
+    const ms = mediaSession();
+    if (ms) {
       const art = artworkRef.current[ep.feedId];
-      navigator.mediaSession.metadata = new MediaMetadata({
+      ms.metadata = new MediaMetadata({
         title: ep.title,
         artist: feedTitlesRef.current[ep.feedId] ?? "sleepcast",
         album: "sleepcast",
