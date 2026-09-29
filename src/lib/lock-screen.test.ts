@@ -40,11 +40,12 @@ describe("publishLockScreen", () => {
 
 describe("publishLockScreenMetadata and setActionHandlers", () => {
   const original = Object.getOwnPropertyDescriptor(navigator, "mediaSession");
-  const originalMeta = (globalThis as { MediaMetadata?: unknown }).MediaMetadata;
+  const originalMeta = Object.getOwnPropertyDescriptor(globalThis, "MediaMetadata");
   afterEach(() => {
     if (original) Object.defineProperty(navigator, "mediaSession", original);
     else delete (navigator as unknown as { mediaSession?: unknown }).mediaSession;
-    (globalThis as { MediaMetadata?: unknown }).MediaMetadata = originalMeta;
+    if (originalMeta) Object.defineProperty(globalThis, "MediaMetadata", originalMeta);
+    else delete (globalThis as { MediaMetadata?: unknown }).MediaMetadata;
   });
 
   test("metadata falls back to the app name, and survives artwork the browser rejects", () => {
@@ -58,6 +59,22 @@ describe("publishLockScreenMetadata and setActionHandlers", () => {
     };
     publishLockScreenMetadata("Episode", undefined, "http://");
     expect(ms.metadata).toMatchObject({ title: "Episode", artist: "sleepcast", album: "sleepcast" });
+  });
+
+  test("metadata that can't be built clears the last episode's", () => {
+    const ms: { metadata: unknown } = { metadata: { title: "Old" } };
+    Object.defineProperty(navigator, "mediaSession", { value: ms, configurable: true });
+    delete (globalThis as { MediaMetadata?: unknown }).MediaMetadata;
+    publishLockScreenMetadata("New", undefined, undefined);
+    expect(ms.metadata).toBeNull();
+    ms.metadata = { title: "Old" };
+    (globalThis as { MediaMetadata?: unknown }).MediaMetadata = class {
+      constructor() {
+        throw new TypeError("no");
+      }
+    };
+    publishLockScreenMetadata("New", undefined, "http://");
+    expect(ms.metadata).toBeNull();
   });
 
   test("handlers are set one by one and torn down exactly", () => {

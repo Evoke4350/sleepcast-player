@@ -568,10 +568,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // but a correction: the position somewhere other than where the lock
     // screen thinks it is (a seek that didn't land, say), or a play state
     // that has changed without an event. Only on a reading that counted.
-    // (syncLockScreen publishes only what changed: the state, or a position
-    // off its extrapolation.)
-    // A cheap check first: this runs at ~4 Hz all night.
-    if (notePosition(audio) && lockScreenStale(audio)) syncLockScreen();
+    // (syncLockScreen publishes only what changed: the state, length, rate,
+    // or a position off its extrapolation.)
+    if (notePosition(audio)) syncLockScreen();
 
     // Save on crossing the threshold, then refresh roughly every minute so the
     // ledger reflects how long a long episode actually ran. recordHeardPlay
@@ -1091,8 +1090,10 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
    *  when something changes: a seek, a new length, play, pause, a new load;
    *  the platform extrapolates in between, at the rate given, and not at
    *  all while the state says paused. Cleared while the length is unknown
-   *  (a new episode, a stream), so no stale scrubber is left behind. */
-  function syncLockScreen() {
+   *  (a new episode, a stream), so no stale scrubber is left behind.
+   *  A listener's own seek passes `moved`: any change of position is
+   *  published then, however small, whatever the drift slack. */
+  function syncLockScreen(moved = false) {
     const audio = audioRef.current;
     if (!audio || !mediaSession()) return;
     if (!audio.getAttribute("src")) {
@@ -1111,7 +1112,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     const state = moving ? "playing" : "paused";
     const last = publishedRef.current;
     if (last && last.state === state && last.dur === (span?.dur ?? null) && last.rate === rate &&
-        (span === null || !offLockScreen(span.pos))) return;
+        (span === null || !offLockScreen(span.pos, audio, moved))) return;
     publishedRef.current = {
       state, dur: span?.dur ?? null, rate,
       pos: span?.pos ?? null, atMs: Date.now(),
@@ -1133,28 +1134,18 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
 
   /** Whether a reading is somewhere other than where the lock screen,
    *  extrapolating from what was last published, thinks it is. */
-  function offLockScreen(pos: number): boolean {
+  function offLockScreen(pos: number, audio: HTMLAudioElement, moved: boolean): boolean {
     const p = publishedRef.current;
     // Nothing published, or no position (no length yet, a stream): nothing
     // to be off from until a length arrives and syncs.
     if (!p || p.pos === null) return false;
     const moving = p.state === "playing";
     const expected = p.pos + (moving ? ((Date.now() - p.atMs) / 1000) * p.rate : 0);
-    // Playing, it drifts by the extrapolation's slack. Published paused with
-    // the element truly paused, any change is real (a listener's own small
-    // seek); with it still advancing (buffering yet moving), the same slack,
-    // or it would republish every tick.
-    const truly = !moving && !!audioRef.current?.paused;
-    return Math.abs(pos - expected) > (truly ? 0.25 : 2);
-  }
-
-  /** Whether the lock screen shows another play state or position than the
-   *  element's now, by the cheap checks, before a full sync. */
-  function lockScreenStale(audio: HTMLAudioElement): boolean {
-    const p = publishedRef.current;
-    if (!p) return true;
-    if ((p.state === "playing") !== (mediaTransport(audio) === "playing")) return true;
-    return offLockScreen(knownPosRef.current);
+    // A listener's seek, or published paused with the element truly paused:
+    // any change is real. Otherwise (playing, or buffering yet moving) it
+    // drifts by the extrapolation's slack, or it would republish every tick.
+    const exact = moved || (!moving && audio.paused);
+    return Math.abs(pos - expected) > (exact ? 0.25 : 2);
   }
 
   /** Where the episode is and how long it is, as the player sees it, with
@@ -1195,7 +1186,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       // skip-intro's announcement isn't the listener's seek.) The enforcer
       // keeps it short of the end itself, on the same duration.
       aimAt(audio, to, {}, { move: fast });
-      syncLockScreen(); // at once: a paused element may not seek until played
+      syncLockScreen(true); // at once: a paused element may not seek until played
       return true;
     }
     const at = shortOfEnd(to, episodeDuration(audio));
@@ -1209,7 +1200,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       if (useFastSeek) audio.fastSeek(at);
       else audio.currentTime = at;
     } catch { /* not seekable now: the reload lands there */ }
-    syncLockScreen(); // at once: the drag's steps come faster than "seeked"
+    syncLockScreen(true); // at once: the drag's steps come faster than "seeked"
     return true;
   }
 
