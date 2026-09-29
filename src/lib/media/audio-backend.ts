@@ -25,7 +25,13 @@ export class AudioBackend implements MediaBackend {
    *  listener subscribe() sets up. These are called directly instead. */
   private errorCallbacks = new Set<(code: number | string, info: ErrorInfo) => void>();
 
-  constructor(private readonly el: HTMLAudioElement) {}
+  constructor(private readonly el: HTMLAudioElement) {
+    // Every length the element reports passes through the latch (Infinity
+    // forgetting it included), not only those a reader happens to poll.
+    el.addEventListener("durationchange", this.onLength);
+  }
+
+  private readonly onLength = () => void this.knownLength();
 
   load(ref: string, startSeconds = 0): void {
     if (this.dead) return;
@@ -115,6 +121,7 @@ export class AudioBackend implements MediaBackend {
     this.dead = true;
     this.dropSeek();
     for (const off of this.detach.splice(0)) off();
+    this.el.removeEventListener("durationchange", this.onLength);
     this.errorCallbacks.clear();
     this.el.pause();
     this.el.removeAttribute("src");

@@ -137,6 +137,8 @@ describe("PlaybackWitness.shownAt", () => {
     expect(w.shownAt(0.9, true)).toBe(1800); // played from 0 while the start seek retries
     expect(w.shownAt(1805, false)).toBe(1805);
     expect(w.shownAt(600, false)).toBe(600); // a listener's seek back before the start
+    expect(w.shownSpan(600, false, 3600)).toEqual({ pos: 600, dur: 3600 });
+    expect(w.shownSpan(600, false, 0)).toBeNull();
   });
 });
 

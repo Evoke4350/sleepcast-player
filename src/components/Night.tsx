@@ -35,9 +35,10 @@
 // sets.
 
 import { useEffect, useRef, useState } from "react";
+import { useLazyRef } from "../lib/use-lazy-ref";
 import type { Episode, PlayMode } from "../lib/engine";
 import { formatTime, effectiveVolume, fadeDriverSeconds } from "../lib/engine";
-import { barPosition, remainingOf, spanOf } from "../lib/duration";
+import { barPosition, remainingOf } from "../lib/duration";
 import {
   getPlays,
   recordHeardPlay,
@@ -201,11 +202,9 @@ export function Night({
   // is the only honest signal: where the episode was ASKED to start is not
   // where it necessarily is, because the start seek may not have landed yet
   // (or ever: it gives up after a few tries).
-  const witnessRef = useRef<PlaybackWitness>(null!);
-  witnessRef.current ??= new PlaybackWitness(); // once per mount, not per render
+  const witnessRef = useLazyRef(() => new PlaybackWitness());
   /** Waiting out a dropped network (see holdForNetwork). */
-  const netHoldRef = useRef<NetworkHold>(null!);
-  netHoldRef.current ??= new NetworkHold();
+  const netHoldRef = useLazyRef(() => new NetworkHold());
   /** The latest askForSound(), for handlers registered once at mount. */
   const askForSoundRef = useRef<() => void>(() => {});
   // The fade factor last applied to the live backend, before per-feed trim
@@ -687,8 +686,7 @@ export function Night({
     // listener catch only its last seconds. See shouldPlayWhole.
     // Only returns if it did reload: a failed replay must not stall every tick.
     if (shouldPlayWhole(witnessRef.current, dur) && replayFromStart()) return;
-    // A known length, and where the episode is (see shownAt), kept within it.
-    const span = spanOf(witnessRef.current.shownAt(cur, media.seeking()), dur);
+    const span = witnessRef.current.shownSpan(cur, media.seeking(), dur);
     const epRemaining = remainingOf(span);
     const driver = fadeDriverSeconds(kind, remaining, epRemaining);
 

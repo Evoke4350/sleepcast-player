@@ -28,9 +28,10 @@
 // artwork (the video is its own artwork).
 
 import { useEffect, useRef, useState } from "react";
+import { useLazyRef } from "../lib/use-lazy-ref";
 import type { Episode, PlayMode } from "../lib/engine";
 import { formatTime, effectiveVolume, fadeDriverSeconds } from "../lib/engine";
-import { barPosition, remainingOf, spanOf } from "../lib/duration";
+import { barPosition, remainingOf } from "../lib/duration";
 import {
   getPlays,
   recordHeardPlay,
@@ -192,11 +193,9 @@ export function YouTubeNight({
   // to start (lib/witness.ts). Until it plays, its position can't be trusted
   // (the player isn't ready or the seek hasn't landed), so snapshots and
   // resume points wait for it, and a retry reloads at the intended start.
-  const witnessRef = useRef<PlaybackWitness>(null!);
-  witnessRef.current ??= new PlaybackWitness(); // once per mount, not per render
+  const witnessRef = useLazyRef(() => new PlaybackWitness());
   /** Waiting out a dropped network (see holdForNetwork). */
-  const netHoldRef = useRef<NetworkHold>(null!);
-  netHoldRef.current ??= new NetworkHold();
+  const netHoldRef = useLazyRef(() => new NetworkHold());
   // The prompt waits a beat before appearing. A player that is simply still
   // coming up also reads as "unstarted", and flashing "tap to begin" at
   // someone half a second before it starts on its own is worse than silence.
@@ -533,8 +532,7 @@ export function YouTubeNight({
     // listener catch only its last seconds. See shouldPlayWhole.
     // Only returns if it did reload: a failed replay must not stall every tick.
     if (shouldPlayWhole(witnessRef.current, dur) && replayFromStart()) return;
-    // A known length, and where the episode is (see shownAt), kept within it.
-    const span = spanOf(witnessRef.current.shownAt(cur, media.seeking()), dur);
+    const span = witnessRef.current.shownSpan(cur, media.seeking(), dur);
     const epRemaining = remainingOf(span);
     const driver = fadeDriverSeconds(kind, remaining, epRemaining);
 

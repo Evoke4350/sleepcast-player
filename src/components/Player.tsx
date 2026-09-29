@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { useLazyRef } from "../lib/use-lazy-ref";
 
 // The drift game (three.js) loads only when opened — the player's own
 // bundle stays featherweight.
@@ -135,8 +136,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   // can't spin forever.
   const watchRef = useRef<{ src: string; at: number } | null>(null);
   /** Waiting out a dropped network (see holdForNetwork). */
-  const netHoldRef = useRef<NetworkHold>(null!);
-  netHoldRef.current ??= new NetworkHold();
+  const netHoldRef = useLazyRef(() => new NetworkHold());
   /** Where the episode is, as far as anyone can tell (see resumePosition),
    *  when no seek is pending: the element's own trustworthy reading (see
    *  notePosition), or the target a seek left behind when it ended without
@@ -158,8 +158,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   } | null>(null);
   /** The current episode's duration once its element has reported one: kept
    *  across a reload (whose element knows nothing yet), reset per episode. */
-  const durationLatchRef = useRef<DurationLatch>(null!);
-  durationLatchRef.current ??= new DurationLatch();
+  const durationLatchRef = useLazyRef(() => new DurationLatch());
   const failsRef = useRef(0);
   // Whether anything has actually played this night. A night that never did
   // records nothing when it ends (see endSession).

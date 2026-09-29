@@ -7,6 +7,7 @@
 // "played" with this, so the rule can't drift between them.
 
 import type { Transport } from "./media/backend";
+import { spanOf } from "./duration";
 
 /**
  * Whether going from `prevPos` (seen at `prevAt`) to
@@ -126,6 +127,12 @@ export class PlaybackWitness {
    *  resumeAt). */
   shownAt(currentTime: number, startPending: boolean): number {
     return this.seen && !startPending ? currentTime : this.start;
+  }
+
+  /** The episode's span for the bar and the fade (Night, YouTubeNight): a
+   *  known length, and shownAt's position kept within it. */
+  shownSpan(currentTime: number, startPending: boolean, duration: number): { pos: number; dur: number } | null {
+    return spanOf(this.shownAt(currentTime, startPending), duration);
   }
 
   /** Where the current load was asked to start. */
