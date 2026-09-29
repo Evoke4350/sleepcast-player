@@ -402,11 +402,12 @@ export function clearLive(): void {
 // ---------------------------------------------------------------------------
 const KEY_LASTEP = "sleepcast2.lastep";
 
-export function saveLastEpisode(ep: Episode): void {
+/** Written only through noteSounded's rule. Whether it was written. */
+function saveLastEpisode(ep: Episode): boolean {
   try {
-    writeMakingRoom(KEY_LASTEP, JSON.stringify(ep));
+    return writeMakingRoom(KEY_LASTEP, JSON.stringify(ep));
   } catch {
-    /* ignore */
+    return false;
   }
 }
 
@@ -418,8 +419,8 @@ export function saveLastEpisode(ep: Episode): void {
  *  played. Returns what is now saved, for the caller to pass back. */
 export function noteSounded(last: Episode | null, ep: Episode | null): Episode | null {
   if (!ep || last?.id === ep.id) return last;
-  saveLastEpisode(ep);
-  return ep;
+  // Not saved (storage full): unchanged, so its next sound tries again.
+  return saveLastEpisode(ep) ? ep : last;
 }
 
 /** Never one the listener has since said "never again" to: the lead path

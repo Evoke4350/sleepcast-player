@@ -166,7 +166,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   const currentEpRef = useRef<Episode | null>(null);
   /** The episode last saved as "the exact one again" (see noteSounded),
    *  so the save runs once per episode, not on every sound. */
-  const lastHeardEpRef = useRef<Episode | null>(null);
+  const savedEpRef = useRef<Episode | null>(null);
   const totalSecondsRef = useRef(timerMinutes * 60);
   const persistCounterRef = useRef(0);
   // Play-ledger accounting for the episode currently playing (see heardTick).
@@ -950,7 +950,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       failsRef.current = 0;
       hasEverPlayedRef.current = true;
       epPlayedRef.current = true;
-      lastHeardEpRef.current = noteSounded(lastHeardEpRef.current, currentEpRef.current);
+      savedEpRef.current = noteSounded(savedEpRef.current, currentEpRef.current);
       const feedId = currentFeedRef.current;
       if (feedId && audio.crossOrigin === "anonymous") corsGoodFeeds.add(feedId);
       // Conservative gate: attach only once every feed in the pool has already

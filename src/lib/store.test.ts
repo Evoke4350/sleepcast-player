@@ -734,3 +734,37 @@ describe("timer range", () => {
     expect(clampTimerMinutes(37.6)).toBe(38);
   });
 });
+
+import { noteSounded, loadLastEpisode, unblockEpisode } from "./store";
+
+describe("the last episode (the exact one again)", () => {
+  const a = { id: "a", title: "A", url: "https://x/a.mp3", feedId: "f", date: "2024-01-01" } as any;
+  const z = { ...a, id: "z", title: "Z", url: "https://x/z.mp3" };
+  beforeEach(() => { localStorage.clear(); noteSounded(null, z); });
+  it("a new episode's first sound replaces an earlier night's pick", () => {
+    expect(noteSounded(null, a)?.id).toBe("a");
+    expect(loadLastEpisode()?.id).toBe("a");
+  });
+  it("the same episode (by id) isn't saved again", () => {
+    const saved = noteSounded(null, a);
+    noteSounded(null, z); // stands in for another write since
+    expect(noteSounded(saved, { ...a })).toBe(saved);
+    expect(loadLastEpisode()?.id).toBe("z");
+    expect(noteSounded(saved, null)).toBe(saved);
+  });
+  it("isn't offered once blocked, and is again once unblocked", () => {
+    noteSounded(null, a);
+    blockEpisode("a");
+    expect(loadLastEpisode()).toBeNull();
+    unblockEpisode("a");
+    expect(loadLastEpisode()?.id).toBe("a");
+  });
+  it("a failed save leaves it unsaved, to be tried at the next sound", () => {
+    const spy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("full", "QuotaExceededError");
+    });
+    expect(noteSounded(z, a)).toBe(z);
+    spy.mockRestore();
+    expect(noteSounded(z, a)?.id).toBe("a");
+  });
+});

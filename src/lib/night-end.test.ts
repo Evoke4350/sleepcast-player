@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { recordNightEnd, type NightEnd } from "./night-end";
-import { blockEpisode, unblockEpisode, noteSounded, saveLastEpisode, saveLive, loadLive, loadLastNight, loadLastEpisode, loadState, type LiveSession } from "./store";
+import { noteSounded, saveLive, loadLive, loadLastNight, loadLastEpisode, loadState, type LiveSession } from "./store";
 import { loadNights } from "./rest/ledger";
 import { RestSession } from "./rest/session";
 
@@ -81,30 +81,10 @@ describe("recordNightEnd", () => {
   });
 });
 
-describe("the last episode (the exact one again)", () => {
-  // Saved by the players the moment an episode first sounds; read back
-  // without one the listener has since blocked.
-  beforeEach(() => { localStorage.clear(); saveLastEpisode(older); });
-  it("a later save replaces an earlier night's pick", () => {
-    saveLastEpisode(ep);
-    expect(loadLastEpisode()?.id).toBe(ep.id);
-  });
-  it("isn't offered once blocked, and is again once unblocked", () => {
-    saveLastEpisode(ep);
-    blockEpisode(ep.id);
-    expect(loadLastEpisode()).toBeNull();
-    unblockEpisode(ep.id);
-    expect(loadLastEpisode()?.id).toBe(ep.id);
-  });
-  it("noteSounded saves a new episode once, not the same one again", () => {
-    const first = noteSounded(null, ep);
-    expect(loadLastEpisode()?.id).toBe(ep.id);
-    saveLastEpisode(older); // were it saved again, this would be overwritten
-    expect(noteSounded(first, { ...ep })).toBe(first); // same id, another object
-    expect(loadLastEpisode()?.id).toBe(older.id);
-    expect(noteSounded(first, null)).toBe(first);
-  });
-  it("ending a night doesn't touch it", () => {
+describe("the last episode", () => {
+  it("ending a night doesn't touch it (it is saved at first sound)", () => {
+    localStorage.clear();
+    noteSounded(null, older);
     saveLive(live);
     recordNightEnd(end());
     expect(loadLastEpisode()?.id).toBe(older.id);

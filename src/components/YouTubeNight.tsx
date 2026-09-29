@@ -139,7 +139,7 @@ export function YouTubeNight({
   const currentEpRef = useRef<Episode | null>(null);
   /** The episode last saved as "the exact one again" (see noteSounded),
    *  so the save runs once per episode, not on every sound. */
-  const lastHeardEpRef = useRef<Episode | null>(null);
+  const savedEpRef = useRef<Episode | null>(null);
   const currentFeedRef = useRef<string | null>(null);
   // Everything known not to play: blocked across nights (the uploader disabled
   // embedding, the video is gone) plus whatever failed tonight.
@@ -745,7 +745,7 @@ export function YouTubeNight({
   /** This episode has played: stand the watchdog down and reset the failure
    *  counts. One place for the PLAYING event and the tick's witness. */
   function markPlayed() {
-    lastHeardEpRef.current = noteSounded(lastHeardEpRef.current, currentEpRef.current);
+    savedEpRef.current = noteSounded(savedEpRef.current, currentEpRef.current);
     watchRef.current = null;
     failsRef.current = 0;
     retriesRef.current = 0;
