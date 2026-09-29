@@ -581,6 +581,7 @@ export function Night({
       interactions: restRef.current?.interactionCount,
       extensions: extensionsRef.current,
       wasVaried: wasVariedRef.current,
+      lastHeard: lastHeardEpRef.current ?? undefined,
       remainingMs,
       totalSeconds: totalSecondsRef.current,
       // Where the episode is, not a raw reading: the backend may still be

@@ -5,7 +5,7 @@
 // reached two of them and missed the third. The media teardown genuinely
 // differs per player; the bookkeeping does not.
 import type { Episode, PlayMode } from "./engine";
-import { clearLive, loadLive, recordSessionEnd, saveLastEpisode, saveLastNight, type LastNight } from "./store";
+import { clearLastEpisode, clearLive, loadLive, recordSessionEnd, saveLastEpisode, saveLastNight, type LastNight } from "./store";
 import { appendNight } from "./rest/ledger";
 import type { RestSession } from "./rest/session";
 import type { RestNight } from "./rest/types";
@@ -50,9 +50,11 @@ export function recordNightEnd(e: NightEnd): void {
       if (!e.gaveUp && e.revivedFrom === undefined) clearLive();
       return;
     }
-    // Its last sound was before the reload: the snapshot's episode, if it
-    // had been heard there (a position past its start).
-    if (stored.position > 0) lastHeard = stored.current;
+    // Its last sound was before the reload: the snapshot's own record of
+    // it, else (an older snapshot) its episode if heard there (past its
+    // start), else none, so an earlier night's pick isn't left standing.
+    lastHeard = stored.lastHeard ?? (stored.position > 0 ? stored.current : null);
+    if (!lastHeard) clearLastEpisode();
   }
   clearLive();
   // "faded" is the natural end — stamp it so setup can offer a smaller re-arm.

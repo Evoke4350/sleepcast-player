@@ -58,10 +58,18 @@ describe("recordNightEnd", () => {
   });
 
   it("a revived night whose snapshot never got past its start offers no last episode", () => {
+    saveLastEpisode(older); // an earlier night's pick must not stand for this one
     saveLive({ ...live, position: 0 });
     recordNightEnd(end({ played: false, revivedFrom: 1, reason: "ended", lastHeard: null }));
     expect(loadNights()).toHaveLength(1);
     expect(loadLastEpisode()).toBeNull();
+  });
+
+  it("a revived night offers the episode its snapshot last heard", () => {
+    saveLastEpisode(older);
+    saveLive({ ...live, position: 0, lastHeard: { ...ep, id: "h", title: "H" } });
+    recordNightEnd(end({ played: false, revivedFrom: 1, reason: "ended", lastHeard: null }));
+    expect(loadLastEpisode()?.id).toBe("h");
   });
 
   it("a revived night the app gives up on before it sounded keeps its snapshot", () => {

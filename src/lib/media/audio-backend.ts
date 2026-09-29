@@ -24,6 +24,7 @@ export class AudioBackend implements MediaBackend {
    *  a new episode, as Player resets its own per playEpisode; Infinity (a
    *  stream) forgets it. */
   private readonly latch = new DurationLatch();
+  private loadedRef: string | null = null;
   /** A rejected play() is not a DOM event, so it cannot ride the "error"
    *  listener subscribe() sets up. These are called directly instead. */
   private errorCallbacks = new Set<(code: number | string, info: ErrorInfo) => void>();
@@ -33,7 +34,9 @@ export class AudioBackend implements MediaBackend {
   load(ref: string, startSeconds = 0, reload = false): void {
     if (this.dead) return;
     this.dropSeek();
-    if (!reload) this.latch.reset();
+    // Kept only for a reload of what is loaded (the caller's word checked).
+    if (!reload || ref !== this.loadedRef) this.latch.reset();
+    this.loadedRef = ref;
 
     this.el.src = ref;
 

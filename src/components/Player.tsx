@@ -655,6 +655,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       interactions: restRef.current?.interactionCount,
       extensions: extensionsRef.current,
       wasVaried: wasVariedRef.current,
+      lastHeard: lastHeardEpRef.current ?? undefined,
       touches: restRef.current?.touchCount,
       ruleSpent: ruleSpentRef.current,
       remainingMs,

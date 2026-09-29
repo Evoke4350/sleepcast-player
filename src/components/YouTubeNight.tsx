@@ -450,6 +450,7 @@ export function YouTubeNight({
       interactions: restRef.current?.interactionCount,
       extensions: extensionsRef.current,
       wasVaried: wasVariedRef.current,
+      lastHeard: lastHeardEpRef.current ?? undefined,
       remainingMs,
       totalSeconds: totalSecondsRef.current,
       position: witnessRef.current.snapshotAt(media.currentTime()),
@@ -807,7 +808,7 @@ export function YouTubeNight({
     if (!media || !videoId) return false;
     witnessRef.current.reset(at, Date.now());
     lastPosRef.current = at;
-    media.load(videoId, at);
+    media.load(videoId, at, true); // the same episode again
     watchRef.current = { id: ep.id, at: Date.now() };
     return true;
   }

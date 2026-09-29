@@ -116,7 +116,7 @@ export class YouTubeMedia implements MediaBackend {
   /** Start, or switch to, a video. Safe before the player exists.
    *  startSeconds revives a snapshotted night at the second it stopped rather
    *  than at 0:00 of a four-hour video. */
-  load(videoId: string, startSeconds = 0): void {
+  load(videoId: string, startSeconds = 0, _reload = false): void {
     if (this.dead) return;
     if (this.player) {
       // Armed when the load runs, not when it is queued: queued before ready,
