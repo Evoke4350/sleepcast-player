@@ -251,8 +251,7 @@ export function Night({
   const [toast, setToast] = useState("");
   const [holdPct, setHoldPct] = useState(0);
   const { canExtendMore, extend, extensionsRef } = useNightExtensions(resume?.extensions ?? 0, persistLive, {
-    endTimeRef, pausedRemainingMsRef, totalSecondsRef, setTotalSeconds,
-    night: () => (restRef.current ? { startedAt: restRef.current.startedAt, revivedSavedAt: resume?.savedAt } : null),
+    endTimeRef, pausedRemainingMsRef, totalSecondsRef, setTotalSeconds, restRef, revivedSavedAt: resume?.savedAt,
   });
   // null until the request settles. false means the browser refused, and the
   // listener needs to know: without it the screen sleeps and a YouTube night
@@ -553,18 +552,19 @@ export function Night({
     });
   }
 
-  function persistLive() {
+  /** Snapshot the night; whether it wrote one. */
+  function persistLive(): boolean {
     const media = liveRef.current;
     const ep = currentEpRef.current;
-    if (!media || !ep || tickHandleRef.current === null) return;
+    if (!media || !ep || tickHandleRef.current === null) return false;
     // Not before this episode has played (as Player and YouTubeNight): a
     // night that never played isn't one to revive or reconcile.
-    if (!witnessRef.current.played) return;
+    if (!witnessRef.current.played) return false;
     const remainingMs =
       endTimeRef.current === null
         ? 0
         : pausedRemainingMsRef.current ?? endTimeRef.current - Date.now();
-    if (endTimeRef.current !== null && remainingMs <= 0) return;
+    if (endTimeRef.current !== null && remainingMs <= 0) return false;
     saveLive({
       savedAt: Date.now(),
       nightStartedAt: restRef.current?.startedAt,
@@ -585,6 +585,7 @@ export function Night({
       feedTitles: feedTitlesRef.current,
       artworkByFeedId: artworkRef.current,
     });
+    return true;
   }
 
   // Two clocks feed this: the one-second interval below, and whatever the live
@@ -1112,10 +1113,9 @@ export function Night({
   }
 
   function extendTimer(minutes: number) {
+    restRef.current?.noteInteraction(); // a touch, stretch left or not
     const said = extend(minutes);
-    if (said === null) return;
-    restRef.current?.noteInteraction();
-    flash(said);
+    if (said !== null) flash(said);
   }
 
   function holdEndStart() {

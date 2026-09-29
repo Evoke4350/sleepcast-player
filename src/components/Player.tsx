@@ -202,9 +202,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   const [holdPct, setHoldPct] = useState(0);
   const [drifting, setDrifting] = useState(false);
   // Stretches used this night (see useNightExtensions), kept across a revive.
-  const { canExtendMore, extend, extensionsRef } = useNightExtensions(resume?.extensions ?? 0, persistLive, {
-    endTimeRef, pausedRemainingMsRef, totalSecondsRef, setTotalSeconds,
-    night: () => (restRef.current ? { startedAt: restRef.current.startedAt, revivedSavedAt: resume?.savedAt } : null),
+  const { canExtendMore, extend, extensionsRef, liveNight } = useNightExtensions(resume?.extensions ?? 0, persistLive, {
+    endTimeRef, pausedRemainingMsRef, totalSecondsRef, setTotalSeconds, restRef, revivedSavedAt: resume?.savedAt,
   });
   const [blockedTonight, setBlockedTonight] = useState<ReadonlySet<string>>(new Set());
   // The quarter-hour rule has fired and playback is held. Once dismissed it
@@ -627,18 +626,19 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     playNext();
   }
 
-  function persistLive() {
+  /** Snapshot the night; whether it wrote one. */
+  function persistLive(): boolean {
     const audio = audioRef.current;
     const ep = currentEpRef.current;
-    if (!audio || !ep || tickHandleRef.current === null) return;
-    if (!epPlayedRef.current) return; // see epPlayedRef
+    if (!audio || !ep || tickHandleRef.current === null) return false;
+    if (!epPlayedRef.current) return false; // see epPlayedRef
     // Timerless modes have no remaining time to restore; 0 records "revive the
     // night, there is no clock to resume".
     const remainingMs =
       endTimeRef.current === null
         ? 0
         : pausedRemainingMsRef.current ?? endTimeRef.current - Date.now();
-    if (endTimeRef.current !== null && remainingMs <= 0) return;
+    if (endTimeRef.current !== null && remainingMs <= 0) return false;
     saveLive({
       savedAt: Date.now(),
       nightStartedAt: restRef.current?.startedAt,
@@ -659,6 +659,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       feedTitles: feedTitlesRef.current,
       artworkByFeedId: artworkRef.current,
     });
+    return true;
   }
 
   // Feed the sleep detector at a wall-clock 15s cadence, driven by BOTH the 1s
@@ -744,7 +745,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
         // otherwise (already paused, or nothing snapshotted yet for this
         // episode) mark the stored one now.
         if (audio.paused || !epPlayedRef.current) {
-          markLiveRuleSpent({ startedAt: nightStartedAtRef.current, revivedSavedAt: resume?.savedAt });
+          const night = liveNight();
+          if (night) markLiveRuleSpent(night);
         }
         audio.pause();
         setPaused(true);
@@ -1221,10 +1223,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   }
 
   function extendTimer(minutes: number) {
+    restRef.current?.noteInteraction(); // a touch, stretch left or not
     const said = extend(minutes);
-    if (said === null) return;
-    restRef.current?.noteInteraction();
-    showToast(said);
+    if (said !== null) showToast(said);
   }
 
   // End must survive 2am thumbs: press and hold for a full second, a ring

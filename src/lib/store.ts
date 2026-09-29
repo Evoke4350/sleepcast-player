@@ -342,7 +342,9 @@ export interface LiveNight {
  *  not. `change` returns null for nothing to write. */
 function patchOwnLive(night: LiveNight, change: (l: LiveSession) => LiveSession | null): void {
   const l = loadLive();
-  if (!l || (l.nightStartedAt !== night.startedAt && l.savedAt !== night.revivedSavedAt)) return;
+  const ours = l !== null &&
+    (l.nightStartedAt === night.startedAt || (night.revivedSavedAt !== undefined && l.savedAt === night.revivedSavedAt));
+  if (!l || !ours) return;
   const next = change(l);
   if (next) writeMakingRoom(KEY_LIVE, JSON.stringify(next));
 }
@@ -352,15 +354,14 @@ export function markLiveRuleSpent(night: LiveNight): void {
   patchOwnLive(night, (l) => (l.ruleSpent ? null : { ...l, ruleSpent: true }));
 }
 
-/** A stretch of `minutes` taken (`extensions` now used): the time left and
- *  the total grow by it, so a revive keeps the stretch and the cap. */
-export function stretchLive(night: LiveNight, minutes: number, extensions: number): void {
-  patchOwnLive(night, (l) => ({
-    ...l,
-    extensions,
-    totalSeconds: l.totalSeconds + minutes * 60,
-    remainingMs: l.remainingMs + minutes * 60_000,
-  }));
+/** A stretch taken where no full snapshot can be written: the night's
+ *  count, total and time left as they now are, so a revive keeps the
+ *  stretch and the cap. */
+export function recordStretch(
+  night: LiveNight,
+  clock: { extensions: number; totalSeconds: number; remainingMs: number },
+): void {
+  patchOwnLive(night, (l) => ({ ...l, ...clock }));
 }
 
 const LIVE_POOL_CAP = 80;

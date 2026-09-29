@@ -463,7 +463,7 @@ describe("quarter-hour rule opt-in", () => {
 });
 
 import { recordSessionEnd, REARM_WINDOW_MS } from "./store";
-import { isRevivable, LIVE_MAX_AGE_MS, resumeMode, resumeFrom, nightTimerMinutes, markLiveRuleSpent, stretchLive, type LiveSession, saveLive, loadLive, saveLastNight, loadLastNight, clampTimerMinutes } from "./store";
+import { isRevivable, LIVE_MAX_AGE_MS, resumeMode, resumeFrom, nightTimerMinutes, markLiveRuleSpent, recordStretch, type LiveSession, saveLive, loadLive, saveLastNight, loadLastNight, clampTimerMinutes } from "./store";
 
 describe("settings migration", () => {
   beforeEach(() => localStorage.clear());
@@ -672,11 +672,24 @@ describe("timerless snapshots", () => {
 
   it("patches a stretch into this night's stored snapshot", () => {
     localStorage.clear();
+    const stretched = { extensions: 1, remainingMs: 950_000, totalSeconds: 60 * 60 };
     saveLive(live({ nightStartedAt: 4, remainingMs: 50_000, totalSeconds: 45 * 60 }));
-    stretchLive({ startedAt: 5 }, 15, 1); // not this night's
+    recordStretch({ startedAt: 5 }, stretched); // not this night's
     expect(loadLive()?.extensions).toBeUndefined();
-    stretchLive({ startedAt: 4 }, 15, 1);
-    expect(loadLive()).toMatchObject({ extensions: 1, remainingMs: 50_000 + 15 * 60_000, totalSeconds: 60 * 60 });
+    recordStretch({ startedAt: 4 }, stretched);
+    expect(loadLive()).toMatchObject(stretched);
+    // A revived night, before its own snapshot: the one it was revived from.
+    saveLive(live({ nightStartedAt: 4 }));
+    recordStretch({ startedAt: 9, revivedSavedAt: 1_000_000 }, stretched);
+    expect(loadLive()).toMatchObject(stretched);
+  });
+
+  it("never takes a snapshot without savedAt for a night that wasn't revived", () => {
+    localStorage.clear();
+    const { savedAt: _s, ...noSavedAt } = live({ nightStartedAt: 4 });
+    localStorage.setItem("sleepcast2.live", JSON.stringify(noSavedAt));
+    markLiveRuleSpent({ startedAt: 5 });
+    expect(loadLive()?.ruleSpent).toBeUndefined();
   });
 });
 
