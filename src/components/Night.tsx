@@ -50,9 +50,6 @@ import {
   loadBlocked,
   type NoiseSettings,
   type ResumeDescriptor,
-  liveNightOf,
-  saveLiveNight,
-  type LiveNightFields,
 } from "../lib/store";
 import { HEARD_SEC } from "../lib/plays";
 import { BrownNoise, noiseGain } from "../lib/noise";
@@ -565,7 +562,12 @@ export function Night({
         ? 0
         : pausedRemainingMsRef.current ?? endTimeRef.current - Date.now();
     if (endTimeRef.current !== null && remainingMs <= 0) return false;
-    const night: LiveNightFields = {
+    // Not for a night that has never played (nothing to revive or
+    // reconcile), unless it is a revived one. The position is
+    // witness.resumeAt (the load's start until it has played),
+    // never a new load's 0.
+    if (!hasEverPlayedRef.current && !resume) return false;
+    return saveLive({
       savedAt: Date.now(),
       nightStartedAt: restRef.current?.startedAt,
       timerMinutes: restRef.current?.timerMinutes,
@@ -575,18 +577,6 @@ export function Night({
       wasVaried: wasVariedRef.current,
       remainingMs,
       totalSeconds: totalSecondsRef.current,
-    };
-    // Before this episode has played its position can't be trusted (a new
-    // load reads 0; writing that over a revived night's snapshot lost the
-    // position): the night's own fields only, into this night's stored
-    // snapshot, keeping its episode and position. (A night that has never
-    // played has no snapshot of its own: nothing is written.)
-    if (!witnessRef.current.played) {
-      const which = liveNightOf(restRef.current?.startedAt, resume?.savedAt);
-      return which !== null && saveLiveNight(which, night);
-    }
-    return saveLive({
-      ...night,
       // Where the episode is, not a raw reading: the backend may still be
       // enforcing its start seek over Safari's reset (see resumeAt).
       position: witnessRef.current.resumeAt(media.currentTime()),
@@ -769,8 +759,8 @@ export function Night({
       return;
     }
 
-    // Not before this episode has made a sound: its position reads 0 until
-    // then, and writing that over a revived night's snapshot lost the position.
+    // Periodic snapshots once this episode has made a sound (before, a
+    // snapshot can only say where it was meant to start).
     if (++persistCounterRef.current >= 10 && witnessRef.current.played) {
       persistCounterRef.current = 0;
       persistLive();

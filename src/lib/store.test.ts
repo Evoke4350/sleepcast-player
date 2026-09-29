@@ -255,7 +255,6 @@ describe("getPlays migration + recordHeardPlay", () => {
   });
 });
 
-
 // ---------------------------------------------------------------------------
 // loadTimerMinutes / saveTimerMinutes
 // ---------------------------------------------------------------------------
@@ -463,7 +462,7 @@ describe("quarter-hour rule opt-in", () => {
 });
 
 import { recordSessionEnd, REARM_WINDOW_MS } from "./store";
-import { isRevivable, LIVE_MAX_AGE_MS, resumeMode, resumeFrom, nightTimerMinutes, saveLiveNight, type LiveSession, saveLive, loadLive, saveLastNight, loadLastNight, clampTimerMinutes } from "./store";
+import { isRevivable, LIVE_MAX_AGE_MS, resumeMode, resumeFrom, nightTimerMinutes, type LiveSession, saveLive, loadLive, saveLastNight, loadLastNight, clampTimerMinutes } from "./store";
 
 describe("settings migration", () => {
   beforeEach(() => localStorage.clear());
@@ -654,29 +653,6 @@ describe("timerless snapshots", () => {
     expect(r).not.toHaveProperty("wasVaried");
   });
 
-  it("saves the night's own fields into this night's snapshot, keeping its episode", () => {
-    localStorage.clear();
-    const fields = { savedAt: 2_000_000, remainingMs: 950_000, totalSeconds: 60 * 60, extensions: 1, ruleSpent: true };
-    expect(saveLiveNight({ startedAt: 5 }, { ...fields, nightStartedAt: 5 })).toBe(false); // nothing stored
-    saveLive(live({ nightStartedAt: 4, position: 321 }));
-    expect(saveLiveNight({ startedAt: 5 }, { ...fields, nightStartedAt: 5 })).toBe(false); // another night's
-    expect(loadLive()?.extensions).toBeUndefined();
-    expect(saveLiveNight({ startedAt: 4 }, { ...fields, nightStartedAt: 4 })).toBe(true);
-    expect(loadLive()).toMatchObject({ ...fields, position: 321, current: ep });
-    // A revived night, before its own snapshot: the one it was revived from,
-    // which then carries this night's start.
-    saveLive(live({ nightStartedAt: 4 }));
-    expect(saveLiveNight({ startedAt: 9, revivedSavedAt: 1_000_000 }, { ...fields, nightStartedAt: 9 })).toBe(true);
-    expect(loadLive()?.nightStartedAt).toBe(9);
-  });
-
-  it("never takes a snapshot without savedAt for a night that wasn't revived", () => {
-    localStorage.clear();
-    const { savedAt: _s, ...noSavedAt } = live({ nightStartedAt: 4 });
-    localStorage.setItem("sleepcast2.live", JSON.stringify(noSavedAt));
-    expect(saveLiveNight({ startedAt: 5 }, { savedAt: 1, remainingMs: 1, totalSeconds: 1, ruleSpent: true })).toBe(false);
-    expect(loadLive()?.ruleSpent).toBeUndefined();
-  });
 });
 
 describe("writes when storage is full", () => {

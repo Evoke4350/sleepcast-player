@@ -14,9 +14,8 @@ export interface NightClock {
  *  one rule for a stretch, and `canExtendMore` for the button. Each stretch
  *  is snapshotted at once (`persist`), after the render that counts it:
  *  paused and backgrounded, the next periodic snapshot may never come, and a
- *  revive would lose the stretch and reset the cap. (Before an episode has
- *  played, persist saves the night's own fields; see saveLiveNight.) */
-export function useNightExtensions(initial: number, persist: () => boolean, clock: NightClock) {
+ *  revive would lose the stretch and reset the cap. */
+export function useNightExtensions(initial: number, persist: () => void, clock: NightClock) {
   const [extensions, setExtensions] = useState(initial);
   const extensionsRef = useRef(extensions);
   extensionsRef.current = extensions;
@@ -24,13 +23,12 @@ export function useNightExtensions(initial: number, persist: () => boolean, cloc
   persistRef.current = persist;
   const clockRef = useRef(clock);
   clockRef.current = clock;
-  // A revived night's own count at mount is not a stretch.
-  const mountedCountRef = useRef(initial);
-
   useEffect(() => {
-    if (extensions === mountedCountRef.current) return;
-    mountedCountRef.current = NaN; // every later change is a stretch
+    // A revived night's own count at mount is not a stretch (the count only
+    // rises from it).
+    if (extensions === initial) return;
     persistRef.current();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [extensions]);
 
   /** Stretch the night by `minutes` (the time left, frozen or running, and

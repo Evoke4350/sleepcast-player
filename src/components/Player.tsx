@@ -7,7 +7,7 @@ import { useNightExtensions } from "../lib/use-night-extensions";
 const DriftGame = lazy(() => import("./DriftGame"));
 import type { Episode, PlayMode } from "../lib/engine";
 import { fadeVolume, formatTime, effectiveVolume, fadeDriverSeconds } from "../lib/engine";
-import { getPlays, recordHeardPlay, saveLive, saveLiveNight, liveNightOf, type LiveNightFields, rememberPosition, forgetPosition, blockEpisode } from "../lib/store";
+import { getPlays, recordHeardPlay, saveLive, rememberPosition, forgetPosition, blockEpisode } from "../lib/store";
 import { NetworkHold, isOffline } from "../lib/network-hold";
 import { SeekEnforcer, type SeekHooks } from "../lib/seek-enforcer";
 import { mediaTransport } from "../lib/media/transport";
@@ -154,9 +154,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   // records nothing when it ends (see endSession).
   const hasEverPlayedRef = useRef(false);
   // Whether the CURRENT episode has reached "playing". Until it has, its
-  // position reads 0 (src just set, the resume seek waits for metadata), so
-  // snapshots and resume points wait for it rather than save that 0 over a
-  // revived night's position.
+  // element reads 0 (src just set, the resume seek waits for metadata), so
+  // resume points and periodic snapshots wait for it; a snapshot taken
+  // meanwhile records the load's start (resumePosition), not that 0.
   const epPlayedRef = useRef(false);
   const restRef = useRef<RestSession | null>(null);
   const lastRestTickRef = useRef(0);
@@ -638,7 +638,12 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
         ? 0
         : pausedRemainingMsRef.current ?? endTimeRef.current - Date.now();
     if (endTimeRef.current !== null && remainingMs <= 0) return false;
-    const night: LiveNightFields = {
+    // Not for a night that has never played (nothing to revive or
+    // reconcile), unless it is a revived one. The position is
+    // resumePosition() (the load's start, or its pending seek's target,
+    // until a trustworthy reading), never a new load's 0.
+    if (!hasEverPlayedRef.current && !resume) return false;
+    return saveLive({
       savedAt: Date.now(),
       nightStartedAt: restRef.current?.startedAt,
       timerMinutes: restRef.current?.timerMinutes,
@@ -650,18 +655,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       ruleSpent: ruleSpentRef.current,
       remainingMs,
       totalSeconds: totalSecondsRef.current,
-    };
-    // Before this episode has played its position can't be trusted (a new
-    // load reads 0; writing that over a revived night's snapshot lost the
-    // position): the night's own fields only, into this night's stored
-    // snapshot, keeping its episode and position. (A night that has never
-    // played has no snapshot of its own: nothing is written.)
-    if (!epPlayedRef.current) {
-      const which = liveNightOf(restRef.current?.startedAt, resume?.savedAt);
-      return which !== null && saveLiveNight(which, night);
-    }
-    return saveLive({
-      ...night,
       position: resumePosition(),
       current: ep,
       playedIds: [...playedIdsRef.current],
@@ -804,9 +797,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       return;
     }
 
-    // Spent only when a snapshot can actually be written (the episode has
-    // played), so a new episode's first one lands as soon as it plays, not
-    // ten ticks after a count used up while it was still loading.
+    // Spent only once the episode has played, so a new episode's first
+    // periodic snapshot lands as soon as it plays, not ten ticks after a
+    // count used up while it was still loading.
     if (++persistCounterRef.current >= 10 && epPlayedRef.current) {
       persistCounterRef.current = 0;
       persistLive();

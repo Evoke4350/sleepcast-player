@@ -43,9 +43,6 @@ import {
   loadBlocked,
   type NoiseSettings,
   type ResumeDescriptor,
-  liveNightOf,
-  saveLiveNight,
-  type LiveNightFields,
 } from "../lib/store";
 import { HEARD_SEC } from "../lib/plays";
 import { BrownNoise, noiseGain } from "../lib/noise";
@@ -185,8 +182,9 @@ export function YouTubeNight({
   const hasEverPlayedRef = useRef(false);
   // Whether the CURRENT episode has actually played, and where it was asked
   // to start (lib/witness.ts). Until it plays, its position can't be trusted
-  // (the player isn't ready or the seek hasn't landed), so snapshots and
-  // resume points wait for it, and a retry reloads at the intended start.
+  // (the player isn't ready or the seek hasn't landed), so resume points and
+  // periodic snapshots wait for it, a snapshot meanwhile records the intended
+  // start, and a retry reloads there.
   const witnessRef = useLazyRef(() => new PlaybackWitness());
   /** Waiting out a dropped network (see holdForNetwork). */
   const netHoldRef = useLazyRef(() => new NetworkHold());
@@ -433,7 +431,12 @@ export function YouTubeNight({
         ? 0
         : pausedRemainingMsRef.current ?? endTimeRef.current - Date.now();
     if (endTimeRef.current !== null && remainingMs <= 0) return false;
-    const night: LiveNightFields = {
+    // Not for a night that has never played (nothing to revive or
+    // reconcile), unless it is a revived one. The position is
+    // witness.resumeAt (the load's start until it has played),
+    // never a new load's 0.
+    if (!hasEverPlayedRef.current && !resume) return false;
+    return saveLive({
       savedAt: Date.now(),
       nightStartedAt: restRef.current?.startedAt,
       timerMinutes: restRef.current?.timerMinutes,
@@ -443,18 +446,6 @@ export function YouTubeNight({
       wasVaried: wasVariedRef.current,
       remainingMs,
       totalSeconds: totalSecondsRef.current,
-    };
-    // Before this episode has played its position can't be trusted (a new
-    // load reads 0; writing that over a revived night's snapshot lost the
-    // position): the night's own fields only, into this night's stored
-    // snapshot, keeping its episode and position. (A night that has never
-    // played has no snapshot of its own: nothing is written.)
-    if (!witnessRef.current.played) {
-      const which = liveNightOf(restRef.current?.startedAt, resume?.savedAt);
-      return which !== null && saveLiveNight(which, night);
-    }
-    return saveLive({
-      ...night,
       position: witnessRef.current.resumeAt(media.currentTime()),
       current: ep,
       playedIds: [...playedIdsRef.current],
@@ -590,9 +581,9 @@ export function YouTubeNight({
       return;
     }
 
-    // Spent only when a snapshot can actually be written (the episode has
-    // played), so a new episode's first one lands as soon as it plays, not
-    // ten ticks after a count used up while it was still loading.
+    // Spent only once the episode has played, so a new episode's first
+    // periodic snapshot lands as soon as it plays, not ten ticks after a
+    // count used up while it was still loading.
     if (++persistCounterRef.current >= 10 && witnessRef.current.played) {
       persistCounterRef.current = 0;
       persistLive();

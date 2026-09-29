@@ -327,46 +327,6 @@ export function nightTimerMinutes(l: LiveSession): number {
   return l.timerMinutes ?? Math.max(1, Math.round(l.totalSeconds / 60));
 }
 
-/** Which night a patch is for: its start, and the snapshot it was revived
- *  from, if it was. */
-export interface LiveNight {
-  startedAt: number;
-  revivedSavedAt?: number;
-}
-
-/** A snapshot's fields about the night itself, not the episode playing. */
-export type LiveNightFields = Omit<
-  LiveSession,
-  "position" | "current" | "playedIds" | "pool" | "skipIntroByFeedId" | "feedTitles" | "artworkByFeedId"
->;
-
-/** Save the night's own fields (its clock, count, flags) into this night's
- *  stored snapshot, keeping the episode and position it holds: for when the
- *  current episode can't give a trustworthy position yet (not yet played),
- *  so what the night must not lose (a stretch, the quarter-hour rule spent)
- *  still reaches storage. Only this night's snapshot: one it wrote (its
- *  start), or, before it has written one, the very snapshot it was revived
- *  from (by when that was saved); a snapshot left by another (one that gave
- *  up keeps its own) is not. Whether it wrote. */
-export function saveLiveNight(night: LiveNight, fields: LiveNightFields): boolean {
-  const l = loadLive();
-  if (!l) return false;
-  const revivedFrom = night.revivedSavedAt !== undefined && l.savedAt === night.revivedSavedAt;
-  if (l.nightStartedAt !== night.startedAt && !revivedFrom) return false;
-  try {
-    return writeMakingRoom(KEY_LIVE, JSON.stringify({ ...l, ...fields }));
-  } catch {
-    return false;
-  }
-}
-
-/** This night's identity for saving into its stored snapshot: its start (its
- *  RestSession's), and the snapshot it was revived from, if it was. Null
- *  before the night begins. */
-export function liveNightOf(startedAt: number | undefined, revivedSavedAt: number | undefined): LiveNight | null {
-  return startedAt === undefined ? null : { startedAt, revivedSavedAt };
-}
-
 const LIVE_POOL_CAP = 80;
 
 /** Whether it was written. */
