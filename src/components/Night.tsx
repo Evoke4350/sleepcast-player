@@ -389,7 +389,7 @@ export function Night({
     witnessRef.current.newEpisode(start, Date.now(), seekTo > 0);
     heardSavedAtRef.current = -1e9;
     epStartedAtRef.current = Date.now();
-    persistCounterRef.current = 10; // the periodic snapshot as soon as it plays
+    persistCounterRef.current = 0; // the snapshot below stands for the first
 
     publishLockScreenMetadata(ep.title, feedTitlesRef.current[ep.feedId], artworkRef.current[ep.feedId]);
     // And a snapshot now, at its start: a kill while it loads must not
@@ -583,9 +583,12 @@ export function Night({
       totalSeconds: totalSecondsRef.current,
       // Where the episode is, not a raw reading: the backend may still be
       // enforcing its start seek over Safari's reset (see resumeAt).
-      position: witnessRef.current.resumeAt(media.currentTime()),
+      // (0 for an episode never heard, not the skip-intro start it was
+      // loaded at: a revive would take a saved position for listening.)
+      position: witnessRef.current.heard ? witnessRef.current.resumeAt(media.currentTime()) : 0,
       current: ep,
-      playedIds: [...playedIdsRef.current],
+      // With the current one: the state that adds it may not have synced yet.
+      playedIds: [...new Set([...playedIdsRef.current, ep.id])],
       pool: poolRef.current,
       skipIntroByFeedId: skipIntroRef.current,
       feedTitles: feedTitlesRef.current,
@@ -806,10 +809,8 @@ export function Night({
     netHoldRef.current.cancel();
     recordNightEnd({
       reason,
-      // A revived night ended by the listener before it sounded still
-      // played before the reload: recorded, not dropped. (One the app gives
-      // up on keeps its snapshot, to be revived again.)
-      played: hasEverPlayedRef.current || (resume != null && !gaveUp),
+      played: hasEverPlayedRef.current,
+      revived: resume != null,
       gaveUp: gaveUp,
       timerMinutes,
       modeKind: modeRef.current.kind,

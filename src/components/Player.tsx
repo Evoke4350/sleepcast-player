@@ -257,8 +257,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     durationLatchRef.current.reset();
     epPlayedRef.current = false;
     netHoldRef.current.cancel(); // a new episode: any wait was for the last one
-    // The periodic snapshot as soon as it plays, not up to 10 s later.
-    persistCounterRef.current = 10;
+    persistCounterRef.current = 0; // the snapshot at the end stands for the first
 
     const skipMin = skipIntroRef.current[ep.feedId] ?? 0;
     const skipSec = skipMin * 60;
@@ -661,7 +660,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       totalSeconds: totalSecondsRef.current,
       position: resumePosition(),
       current: ep,
-      playedIds: [...playedIdsRef.current],
+      // With the current one: the state that adds it may not have synced yet.
+      playedIds: [...new Set([...playedIdsRef.current, ep.id])],
       pool: poolRef.current,
       skipIntroByFeedId: skipIntroRef.current,
       feedTitles: feedTitlesRef.current,
@@ -834,10 +834,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     pendingSeekRef.current?.cancel(); // nothing may act on the stopped element
     recordNightEnd({
       reason,
-      // A revived night ended by the listener before it sounded still
-      // played before the reload: recorded, not dropped. (One the app gives
-      // up on keeps its snapshot, to be revived again.)
-      played: hasEverPlayedRef.current || (resume != null && !gaveUp),
+      played: hasEverPlayedRef.current,
+      revived: resume != null,
       gaveUp,
       timerMinutes,
       modeKind: modeRef.current.kind,
