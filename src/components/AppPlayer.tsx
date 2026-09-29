@@ -141,6 +141,19 @@ export function AppPlayer() {
     setLeveling(settings.leveling);
   }
 
+  /** Starting over: a snapshotted night still stored is over, and recorded.
+   *  A new night supersedes any prior last night; the recorded one's own is
+   *  kept, for a re-anchor if the new one never plays. Read from storage,
+   *  not the resume card's state: a recorded snapshot is removed there, so a
+   *  late second call records nothing twice. Any stored one: the card's, or
+   *  one settleLive left because it was seconds old (one tab in practice). */
+  function recordStoredNight() {
+    clearLastNight();
+    const stored = loadLive();
+    if (stored) reconcileLive(stored, Date.now());
+    setLive(null);
+  }
+
   function handleStart(
     pool: Episode[],
     timerMinutes: number,
@@ -153,14 +166,7 @@ export function AppPlayer() {
     modeOverride?: PlayMode
   ) {
     setResume(null); // a fresh night, not a revival
-    clearLastNight(); // a new night supersedes any prior faded one
-    // Starting over: a snapshotted night still stored is over, recorded (its
-    // last night kept, for a re-anchor if this one never plays). The resume
-    // card's, or one settleLive left because it was seconds old (one tab in
-    // practice, so no other night is writing it).
-    const stored = live ?? loadLive();
-    if (stored) reconcileLive(stored, Date.now());
-    setLive(null);
+    recordStoredNight();
     applyNightSettings(modeOverride ?? loadState().settings.mode);
     setSession({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artworkByFeedId, leadEpisode, wasVaried, leadPosition });
   }
@@ -312,7 +318,7 @@ export function AppPlayer() {
               ▶ keep going
             </button>
             <button
-              onClick={() => { reconcileLive(live, Date.now()); clearLastNight(); setLive(null); }}
+              onClick={recordStoredNight}
               className="mt-2 block w-full text-center text-xs text-[#4a4540] underline decoration-[#2a2620] underline-offset-4 transition-colors hover:text-[#8a7a5c]"
             >
               or start fresh

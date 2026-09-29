@@ -76,6 +76,10 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
   // again"), and last night's record (to greet + ask how they slept, which
   // doubles as the detector's self-label).
   const leadRef = useRef<Episode | null>(null);
+  // Whether this screen is still up: the varied mix's pick can resolve up to
+  // 25 s after its tap, when a night may already have started.
+  const mountedRef = useRef(true);
+  useEffect(() => () => { mountedRef.current = false; }, []);
   const leadPositionRef = useRef(0);
   const [query, setQuery] = useState("");
   const [feedError, setFeedError] = useState("");
@@ -613,12 +617,13 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
       const deadline = new Promise<never>((_, reject) => {
         deadlineTimer = setTimeout(() => reject(new Error("semantic deadline")), 25_000);
       });
-      startWith(await Promise.race([work, deadline]), true);
+      const picked = await Promise.race([work, deadline]);
+      if (mountedRef.current) startWith(picked, true);
     } catch {
       // Semantic model can't run on every device (iOS Lockdown Mode blocks
       // WASM SIMD) — or didn't finish in time. Fall back to feed×year
       // spread — still varied, just not meaning-aware — and start anyway.
-      startWith(diverseByMeta(pool, VARIED_N), true);
+      if (mountedRef.current) startWith(diverseByMeta(pool, VARIED_N), true);
     } finally {
       clearTimeout(deadlineTimer);
       setVariedBusy(false);
