@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from "react";
 import { canExtend } from "./timer-feel";
+import { stretchLive, type LiveNight } from "./store";
 
 /** The parts of a player's night clock an extension moves. */
 export interface NightClock {
@@ -7,14 +8,19 @@ export interface NightClock {
   pausedRemainingMsRef: RefObject<number | null>;
   totalSecondsRef: RefObject<number>;
   setTotalSeconds: Dispatch<SetStateAction<number>>;
+  /** Which night's stored snapshot a stretch is patched into; null before
+   *  the night has begun. */
+  night: () => LiveNight | null;
 }
 
 /** A night's timer extensions (capped per night, reloads included): the
  *  count, seeded from a revived night's snapshot, a ref to it for snapshots
- *  written from long-lived handlers, and `extend`, the one rule for a
- *  stretch. Each is snapshotted at once after the render that counts it:
- *  paused and backgrounded, the next periodic snapshot may never come, and
- *  a revive would lose the stretch and reset the cap. */
+ *  written from long-lived handlers, `extend`, the one rule for a stretch,
+ *  and `canExtendMore` for the button. Each stretch reaches storage at
+ *  once: patched into the stored snapshot, then a full snapshot after the
+ *  render that counts it where one can be written. Paused and backgrounded,
+ *  the next periodic snapshot may never come, and a revive would lose the
+ *  stretch and reset the cap. */
 export function useNightExtensions(initial: number, persist: () => void, clock: NightClock) {
   const [extensions, setExtensions] = useState(initial);
   const extensionsRef = useRef(extensions);
@@ -38,8 +44,10 @@ export function useNightExtensions(initial: number, persist: () => void, clock: 
     const used = extensionsRef.current + 1;
     extensionsRef.current = used; // a second tap before the render counts it too
     setExtensions(used);
+    const night = clock.night();
+    if (night) stretchLive(night, minutes, used);
     return canExtend(used) ? "a little longer — sleep when you're ready" : "that's the last stretch. resting counts too.";
   }
 
-  return [extensions, extend, extensionsRef] as const;
+  return { extensions, canExtendMore: canExtend(extensions), extend, extensionsRef };
 }

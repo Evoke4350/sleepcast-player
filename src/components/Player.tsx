@@ -17,7 +17,6 @@ import { rearmsWatchdogOnTap } from "../lib/witness";
 import { clearLockScreen, mediaSession, publishLockScreen, publishLockScreenMetadata, setActionHandlers } from "../lib/lock-screen";
 import { decideSkip, skipMessage, stillAtStart } from "../lib/skip-intro";
 import { pickNextEpisode, HEARD_SEC } from "../lib/plays";
-import { canExtend } from "../lib/timer-feel";
 import type { NoiseSettings, ResumeDescriptor } from "../lib/store";
 import { BrownNoise, noiseGain } from "../lib/noise";
 import { Leveler } from "../lib/leveler";
@@ -202,9 +201,10 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   const [toast, setToast] = useState("");
   const [holdPct, setHoldPct] = useState(0);
   const [drifting, setDrifting] = useState(false);
-  // Stretches used this night (see canExtend), kept across a revive.
-  const [extensions, extend, extensionsRef] = useNightExtensions(resume?.extensions ?? 0, persistLive, {
+  // Stretches used this night (see useNightExtensions), kept across a revive.
+  const { canExtendMore, extend, extensionsRef } = useNightExtensions(resume?.extensions ?? 0, persistLive, {
     endTimeRef, pausedRemainingMsRef, totalSecondsRef, setTotalSeconds,
+    night: () => (restRef.current ? { startedAt: restRef.current.startedAt, revivedSavedAt: resume?.savedAt } : null),
   });
   const [blockedTonight, setBlockedTonight] = useState<ReadonlySet<string>>(new Set());
   // The quarter-hour rule has fired and playback is held. Once dismissed it
@@ -1096,9 +1096,11 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // records only trustworthy ones): a locked phone's throttled timeupdates
     // can leave the known position seconds old, and a lock-screen ±30 s
     // comes with no element event.
+    // A tap is a touch whether or not it can seek (no length yet, say).
+    restRef.current?.noteInteraction();
     const audio = audioRef.current;
     if (!audio) return;
-    if (listenerSeek(freshPosition(audio) + seconds)) restRef.current?.noteInteraction();
+    listenerSeek(freshPosition(audio) + seconds);
   }
 
   /** The lock screen's scrubber and play state, from the player's own view
@@ -1282,14 +1284,17 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   }
 
   function seekToRatio(e: React.MouseEvent<HTMLDivElement>) {
+    // A tap is a touch whether or not it can seek.
+    restRef.current?.noteInteraction();
     const audio = audioRef.current;
     // Scaled by the bar as drawn, so the click lands where the listener
-    // aimed; nothing while this episode's length is unknown (the bar can be
-    // a tick stale right after a track change). listenerSeek clamps.
-    if (!epPos || !audio || episodeDuration(audio) === null) return;
+    // aimed, and only while the bar is this episode's: nothing while its
+    // length is unknown, or while the bar still shows the last episode's (a
+    // tick after a track change). listenerSeek clamps.
+    const dur = audio ? episodeDuration(audio) : null;
+    if (!epPos || dur === null || epPos.dur !== dur) return;
     const rect = e.currentTarget.getBoundingClientRect();
-    if (!listenerSeek(((e.clientX - rect.left) / rect.width) * epPos.dur)) return;
-    restRef.current?.noteInteraction();
+    if (!listenerSeek(((e.clientX - rect.left) / rect.width) * dur)) return;
     // Aiming at a position is the one moment the numbers earn their place —
     // show where you landed, then let them go back under with the moon.
     setPeekUntil(Date.now() + 4000);
@@ -1392,7 +1397,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
             {/* Only a timed night has a timer to stretch. In one-episode and
                 all-night modes extendTimer changes nothing, yet the button
                 still spent an extension and confirmed "a little longer". */}
-            {mode.kind !== "minutes" ? null : canExtend(extensions) ? (
+            {mode.kind !== "minutes" ? null : canExtendMore ? (
               <button
                 onClick={() => extendTimer(15)}
                 className="rounded-full border border-[#2e2d3a] px-3 py-1 normal-case tracking-normal text-[#7a7264] active:scale-95"

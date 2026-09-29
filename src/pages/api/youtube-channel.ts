@@ -98,7 +98,6 @@ export const GET: APIRoute = async ({ url, request }) => {
 
   // Read with a ceiling rather than resp.text(): an unbounded body on a 512MB
   // machine is a denial of service with extra steps.
-  if (!resp.body) return json({ error: "empty response" }, 502);
   let body: ArrayBuffer | null;
   try {
     body = await readCapped(resp, MAX_BYTES);

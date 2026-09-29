@@ -463,7 +463,7 @@ describe("quarter-hour rule opt-in", () => {
 });
 
 import { recordSessionEnd, REARM_WINDOW_MS } from "./store";
-import { isRevivable, LIVE_MAX_AGE_MS, resumeMode, resumeFrom, nightTimerMinutes, markLiveRuleSpent, type LiveSession, saveLive, loadLive, saveLastNight, loadLastNight, clampTimerMinutes } from "./store";
+import { isRevivable, LIVE_MAX_AGE_MS, resumeMode, resumeFrom, nightTimerMinutes, markLiveRuleSpent, stretchLive, type LiveSession, saveLive, loadLive, saveLastNight, loadLastNight, clampTimerMinutes } from "./store";
 
 describe("settings migration", () => {
   beforeEach(() => localStorage.clear());
@@ -668,6 +668,15 @@ describe("timerless snapshots", () => {
     expect(loadLive()?.ruleSpent).toBeUndefined();
     markLiveRuleSpent({ startedAt: 5, revivedSavedAt: 1_000_000 }); // revived from it
     expect(loadLive()?.ruleSpent).toBe(true);
+  });
+
+  it("patches a stretch into this night's stored snapshot", () => {
+    localStorage.clear();
+    saveLive(live({ nightStartedAt: 4, remainingMs: 50_000, totalSeconds: 45 * 60 }));
+    stretchLive({ startedAt: 5 }, 15, 1); // not this night's
+    expect(loadLive()?.extensions).toBeUndefined();
+    stretchLive({ startedAt: 4 }, 15, 1);
+    expect(loadLive()).toMatchObject({ extensions: 1, remainingMs: 50_000 + 15 * 60_000, totalSeconds: 60 * 60 });
   });
 });
 

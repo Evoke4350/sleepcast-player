@@ -52,7 +52,6 @@ import {
   type ResumeDescriptor,
 } from "../lib/store";
 import { HEARD_SEC } from "../lib/plays";
-import { canExtend } from "../lib/timer-feel";
 import { BrownNoise, noiseGain } from "../lib/noise";
 import { shouldTick } from "../lib/tick-gate";
 import { RestSession, revivedNightStart } from "../lib/rest/session";
@@ -251,8 +250,9 @@ export function Night({
   const [epPos, setEpPos] = useState<{ cur: number; dur: number } | null>(null);
   const [toast, setToast] = useState("");
   const [holdPct, setHoldPct] = useState(0);
-  const [extensions, extend, extensionsRef] = useNightExtensions(resume?.extensions ?? 0, persistLive, {
+  const { canExtendMore, extend, extensionsRef } = useNightExtensions(resume?.extensions ?? 0, persistLive, {
     endTimeRef, pausedRemainingMsRef, totalSecondsRef, setTotalSeconds,
+    night: () => (restRef.current ? { startedAt: restRef.current.startedAt, revivedSavedAt: resume?.savedAt } : null),
   });
   // null until the request settles. false means the browser refused, and the
   // listener needs to know: without it the screen sleeps and a YouTube night
@@ -1262,7 +1262,7 @@ export function Night({
                 </span>
                 {/* Only a timed night has a timer to stretch; elsewhere the
                     button spent an extension and changed nothing. */}
-                {mode.kind !== "minutes" ? null : canExtend(extensions) ? (
+                {mode.kind !== "minutes" ? null : canExtendMore ? (
                   <button
                     onClick={() => extendTimer(15)}
                     className="rounded-full border border-[#2e2d3a] px-3 py-1 normal-case tracking-normal text-[#7a7264] active:scale-95"

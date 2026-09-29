@@ -327,18 +327,40 @@ export function nightTimerMinutes(l: LiveSession): number {
   return l.timerMinutes ?? Math.max(1, Math.round(l.totalSeconds / 60));
 }
 
-/** Mark the stored snapshot's quarter-hour rule spent at once: a snapshot
- *  may not be written again for a while (paused, or an episode not yet
- *  played), and a revive from it would prompt a second time. */
-export function markLiveRuleSpent(night: { startedAt: number; revivedSavedAt?: number }): void {
+/** Which night a patch is for: its start, and the snapshot it was revived
+ *  from, if it was. */
+export interface LiveNight {
+  startedAt: number;
+  revivedSavedAt?: number;
+}
+
+/** Change the stored snapshot at once, for what a night must not lose
+ *  while no full snapshot can be written (paused, or an episode not yet
+ *  played). Only this night's: one it wrote (its start), or, before it has
+ *  written one, the very snapshot it was revived from (by when that was
+ *  saved); a snapshot left by another (one that gave up keeps its own) is
+ *  not. `change` returns null for nothing to write. */
+function patchOwnLive(night: LiveNight, change: (l: LiveSession) => LiveSession | null): void {
   const l = loadLive();
-  // Only this night's: one it wrote (its start), or, before it has written
-  // one, the very snapshot it was revived from (by when that was saved). A
-  // snapshot left by another (one that gave up keeps its own) is not.
-  if (!l || l.ruleSpent) return;
-  if (l.nightStartedAt === night.startedAt || l.savedAt === night.revivedSavedAt) {
-    writeMakingRoom(KEY_LIVE, JSON.stringify({ ...l, ruleSpent: true }));
-  }
+  if (!l || (l.nightStartedAt !== night.startedAt && l.savedAt !== night.revivedSavedAt)) return;
+  const next = change(l);
+  if (next) writeMakingRoom(KEY_LIVE, JSON.stringify(next));
+}
+
+/** The quarter-hour rule spent: a revive must not prompt a second time. */
+export function markLiveRuleSpent(night: LiveNight): void {
+  patchOwnLive(night, (l) => (l.ruleSpent ? null : { ...l, ruleSpent: true }));
+}
+
+/** A stretch of `minutes` taken (`extensions` now used): the time left and
+ *  the total grow by it, so a revive keeps the stretch and the cap. */
+export function stretchLive(night: LiveNight, minutes: number, extensions: number): void {
+  patchOwnLive(night, (l) => ({
+    ...l,
+    extensions,
+    totalSeconds: l.totalSeconds + minutes * 60,
+    remainingMs: l.remainingMs + minutes * 60_000,
+  }));
 }
 
 const LIVE_POOL_CAP = 80;
