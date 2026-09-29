@@ -15,10 +15,23 @@ export function shortOfEnd(positionSec: number, durationSec: number | null): num
 }
 
 /** Where an episode is and how long it is, with the position kept within
- *  it; null while the length is unknown. */
+ *  it; null while the length is unknown (by knownDuration: a raw NaN, 0 or
+ *  Infinity is no length). */
 export function spanOf(positionSec: number, durationSec: number | null): { pos: number; dur: number } | null {
-  if (durationSec === null) return null;
-  return { pos: Math.min(Math.max(0, positionSec), durationSec), dur: durationSec };
+  const dur = durationSec === null ? null : knownDuration(durationSec);
+  if (dur === null) return null;
+  return { pos: Math.min(Math.max(0, positionSec), dur), dur };
+}
+
+/** The bar's position from a span: the previous one kept when nothing
+ *  changed (paused or held, a new object every tick re-renders the whole
+ *  player for nothing). */
+export function barPosition(
+  prev: { cur: number; dur: number } | null,
+  span: { pos: number; dur: number } | null,
+): { cur: number; dur: number } | null {
+  if (span === null) return null;
+  return prev && prev.cur === span.pos && prev.dur === span.dur ? prev : { cur: span.pos, dur: span.dur };
 }
 
 /** Time left in a span, for the fade; null while the length is unknown. */

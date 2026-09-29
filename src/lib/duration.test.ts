@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { DurationLatch, knownDuration, remainingOf, shortOfEnd, spanOf } from "./duration";
+import { barPosition, DurationLatch, knownDuration, remainingOf, shortOfEnd, spanOf } from "./duration";
 
 describe("durations", () => {
   test("knownDuration: finite and positive only", () => {
@@ -22,8 +22,18 @@ describe("spans", () => {
     expect(spanOf(700, 600)).toEqual({ pos: 600, dur: 600 });
     expect(spanOf(-5, 600)).toEqual({ pos: 0, dur: 600 });
     expect(spanOf(30, null)).toBeNull();
+    expect(spanOf(30, NaN)).toBeNull();
+    expect(spanOf(30, 0)).toBeNull();
+    expect(spanOf(30, Infinity)).toBeNull();
     expect(remainingOf(spanOf(30, 600))).toBe(570);
     expect(remainingOf(null)).toBeNull();
+  });
+
+  test("the bar keeps its position when nothing changed", () => {
+    const prev = { cur: 30, dur: 600 };
+    expect(barPosition(prev, { pos: 30, dur: 600 })).toBe(prev);
+    expect(barPosition(prev, { pos: 31, dur: 600 })).toEqual({ cur: 31, dur: 600 });
+    expect(barPosition(prev, null)).toBeNull();
   });
 });
 

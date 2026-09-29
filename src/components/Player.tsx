@@ -9,7 +9,7 @@ import { getPlays, recordHeardPlay, saveLive, rememberPosition, forgetPosition, 
 import { NetworkHold, isOffline } from "../lib/network-hold";
 import { SeekEnforcer, type SeekHooks } from "../lib/seek-enforcer";
 import { mediaTransport } from "../lib/media/transport";
-import { DurationLatch, remainingOf, shortOfEnd, spanOf } from "../lib/duration";
+import { barPosition, DurationLatch, remainingOf, shortOfEnd, spanOf } from "../lib/duration";
 import { heardDelta } from "../lib/heard";
 import { rearmsWatchdogOnTap } from "../lib/witness";
 import { clearLockScreen, mediaSession, publishLockScreen, publishLockScreenMetadata, setActionHandlers } from "../lib/lock-screen";
@@ -778,11 +778,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       brownRef.current?.setGain(noiseGain(noise.on && !audio.paused ? noise.level : 0, driver, FADE_SECONDS));
     }
     setCountdown(kind === "minutes" ? remaining : 0);
-    // Only when it changed: paused or held, a new object every second
-    // re-rendered the whole player for nothing.
-    setEpPos((prev) =>
-      span === null ? null : prev && prev.cur === span.pos && prev.dur === span.dur ? prev : { cur: span.pos, dur: span.dur },
-    );
+    setEpPos((prev) => barPosition(prev, span));
 
     const w = watchRef.current;
     if (w && Date.now() - w.at > 25_000) {

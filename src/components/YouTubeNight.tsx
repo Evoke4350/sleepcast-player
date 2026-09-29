@@ -30,7 +30,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Episode, PlayMode } from "../lib/engine";
 import { formatTime, effectiveVolume, fadeDriverSeconds } from "../lib/engine";
-import { knownDuration, remainingOf, spanOf } from "../lib/duration";
+import { barPosition, remainingOf, spanOf } from "../lib/duration";
 import {
   getPlays,
   recordHeardPlay,
@@ -531,8 +531,10 @@ export function YouTubeNight({
     // listener catch only its last seconds. See shouldPlayWhole.
     // Only returns if it did reload: a failed replay must not stall every tick.
     if (shouldPlayWhole(witnessRef.current, dur) && replayFromStart()) return;
-    // The same rule as Player's: a known length, the position kept within it.
-    const span = spanOf(cur, knownDuration(dur));
+    // The same rule as Player's: a known length, and where the episode is
+    // (a pending start seek's target while the element still reads ~0), kept
+    // within it.
+    const span = spanOf(witnessRef.current.resumeAt(cur), dur);
     const epRemaining = remainingOf(span);
     const driver = fadeDriverSeconds(kind, remaining, epRemaining);
 
@@ -552,7 +554,7 @@ export function YouTubeNight({
     }
 
     setCountdown(kind === "minutes" ? remaining : 0);
-    setEpPos(span && { cur: span.pos, dur: span.dur });
+    setEpPos((prev) => barPosition(prev, span));
 
     const w = watchRef.current;
     if (
@@ -588,9 +590,7 @@ export function YouTubeNight({
     if (++persistCounterRef.current >= 10 && witnessRef.current.played) {
       persistCounterRef.current = 0;
       persistLive();
-      if (currentEpRef.current && dur > 0) {
-        rememberPosition(currentEpRef.current.id, witnessRef.current.resumeAt(cur), dur);
-      }
+      if (currentEpRef.current && span) rememberPosition(currentEpRef.current.id, span.pos, span.dur);
     }
   }
 
