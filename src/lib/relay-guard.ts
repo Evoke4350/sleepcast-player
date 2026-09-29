@@ -52,10 +52,12 @@ function ipv6Hextets(ip: string): number[] | null {
 
 function isPrivateIpv6(h: number[]): boolean {
   const zeros = (from: number, to: number) => h.slice(from, to).every((x) => x === 0);
-  // ::ffff:a.b.c.d — IPv4-mapped: judge the IPv4 address it carries.
-  if (zeros(0, 5) && h[5] === 0xffff) {
-    return isPrivateIpv4([h[6] >> 8, h[6] & 0xff, h[7] >> 8, h[7] & 0xff]);
-  }
+  const v4 = (hi: number, lo: number) => isPrivateIpv4([hi >> 8, hi & 0xff, lo >> 8, lo & 0xff]);
+  // Forms that carry an IPv4 address: judge the address they carry.
+  if (zeros(0, 5) && h[5] === 0xffff) return v4(h[6], h[7]);                  // IPv4-mapped ::ffff:a.b.c.d
+  if (zeros(0, 4) && h[4] === 0xffff && h[5] === 0) return v4(h[6], h[7]);    // IPv4-translated ::ffff:0:a.b.c.d
+  if (h[0] === 0x2002) return v4(h[1], h[2]);                                 // 6to4 2002:a.b.c.d::/48
+  if (h[0] === 0x2001 && h[1] === 0) return true;                             // Teredo 2001::/32 (its client address is obscured)
   if (zeros(0, 6)) return true;                         // ::/96: unspecified (reaches localhost), loopback, IPv4-compatible
   if (h[0] === 0x64 && h[1] === 0xff9b) return true;    // NAT64 64:ff9b::/96 and local-use 64:ff9b:1::/48
   if (h[0] === 0x100 && zeros(1, 4)) return true;       // discard-only 100::/64

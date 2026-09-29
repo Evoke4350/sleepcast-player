@@ -97,6 +97,14 @@ describe("settleLive", () => {
     expect(loadLive()).not.toBeNull();
   });
 
+  it("reconciles a snapshot saved in the future (the clock stepped back)", () => {
+    const s = snap();
+    saveLive(s);
+    expect(settleLive(s, s.savedAt - 60 * 60_000)).toBeNull();
+    expect(loadNights()).toHaveLength(1);
+    expect(loadLive()).toBeNull();
+  });
+
   it("does nothing without a snapshot", () => {
     expect(settleLive(null, T0)).toBeNull();
     expect(loadNights()).toHaveLength(0);

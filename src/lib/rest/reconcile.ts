@@ -52,7 +52,11 @@ export function reconcileLive(l: LiveSession, now: number): void {
 export function settleLive(l: LiveSession | null, now: number): LiveSession | null {
   if (!l) return null;
   if (isRevivable(l, now)) return l;
-  if (now - l.savedAt < SNAPSHOT_FRESH_MS) return null;
+  // Saved in the future means the clock stepped back since: not another
+  // tab's live night (it shares this clock), so reconcile it now rather than
+  // leave it to be offered hours late.
+  const age = now - l.savedAt;
+  if (age >= 0 && age < SNAPSHOT_FRESH_MS) return null;
   reconcileLive(l, now);
   return null;
 }
