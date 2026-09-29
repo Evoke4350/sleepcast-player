@@ -44,6 +44,7 @@ import {
   type NoiseSettings,
   type ResumeDescriptor,
   SNAPSHOT_EVERY_TICKS,
+  saveLastEpisode,
 } from "../lib/store";
 import { HEARD_SEC } from "../lib/plays";
 import { BrownNoise, noiseGain } from "../lib/noise";
@@ -136,7 +137,10 @@ export function YouTubeNight({
   const wasVariedRef = useRef(wasVaried);
 
   const currentEpRef = useRef<Episode | null>(null);
-  /** The last episode that actually played tonight (see NightEnd.lastHeard). */
+  /** The last episode that actually made a sound tonight: saved as "the
+   *  exact one again" the moment a new one first sounds (so a killed tab or a
+   *  revived night still offers it). Not simply the current one: a night that
+   *  ends on a run of failures would offer one that never played. */
   const lastHeardEpRef = useRef<Episode | null>(null);
   const currentFeedRef = useRef<string | null>(null);
   // Everything known not to play: blocked across nights (the uploader disabled
@@ -450,7 +454,6 @@ export function YouTubeNight({
       interactions: restRef.current?.interactionCount,
       extensions: extensionsRef.current,
       wasVaried: wasVariedRef.current,
-      lastHeard: lastHeardEpRef.current ?? undefined,
       remainingMs,
       totalSeconds: totalSecondsRef.current,
       position: witnessRef.current.snapshotAt(media.currentTime()),
@@ -630,7 +633,6 @@ export function YouTubeNight({
         skipIntroByFeedId: skipIntroRef.current,
         wasVaried: wasVariedRef.current,
       },
-      lastHeard: lastHeardEpRef.current,
       rest: restRef.current,
       now: Date.now(),
     });
@@ -745,7 +747,10 @@ export function YouTubeNight({
   /** This episode has played: stand the watchdog down and reset the failure
    *  counts. One place for the PLAYING event and the tick's witness. */
   function markPlayed() {
-    lastHeardEpRef.current = currentEpRef.current;
+    if (currentEpRef.current && lastHeardEpRef.current !== currentEpRef.current) {
+      lastHeardEpRef.current = currentEpRef.current;
+      saveLastEpisode(currentEpRef.current);
+    }
     watchRef.current = null;
     failsRef.current = 0;
     retriesRef.current = 0;

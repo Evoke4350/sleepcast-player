@@ -294,9 +294,6 @@ export interface LiveSession {
   /** Whether the night was a varied mix (lastNight, and the re-anchor's
    *  follow-on night, carry it). */
   wasVaried?: boolean;
-  /** The last episode that made a sound tonight, for "the exact one again"
-   *  when a revived night ends before it sounds again. */
-  lastHeard?: Episode;
 }
 
 /** What a revived night resumes from: the snapshot, as the players take it.
@@ -311,7 +308,6 @@ type ResumeFields = Omit<LiveSession, "current" | NightSessionField>;
  *  `resume`: one copy of each. One list, for the type and for resumeFrom. */
 const NIGHT_SESSION_FIELDS = [
   "pool", "skipIntroByFeedId", "feedTitles", "artworkByFeedId", "wasVaried", "timerMinutes", "modeKind",
-  "lastHeard", // recordNightEnd's, from storage, not the players'
 ] as const satisfies readonly (keyof LiveSession)[];
 type NightSessionField = (typeof NIGHT_SESSION_FIELDS)[number];
 
@@ -409,15 +405,6 @@ const KEY_LASTEP = "sleepcast2.lastep";
 export function saveLastEpisode(ep: Episode): void {
   try {
     writeMakingRoom(KEY_LASTEP, JSON.stringify(ep));
-  } catch {
-    /* ignore */
-  }
-}
-
-/** No "exact one again": the night that just ended heard nothing to offer. */
-export function clearLastEpisode(): void {
-  try {
-    localStorage.removeItem(KEY_LASTEP);
   } catch {
     /* ignore */
   }

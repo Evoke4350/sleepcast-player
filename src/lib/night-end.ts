@@ -4,8 +4,8 @@
 // copies drifted: a fix to one (a night that never played records nothing)
 // reached two of them and missed the third. The media teardown genuinely
 // differs per player; the bookkeeping does not.
-import type { Episode, PlayMode } from "./engine";
-import { clearLastEpisode, clearLive, loadLive, recordSessionEnd, saveLastEpisode, saveLastNight, type LastNight } from "./store";
+import type { PlayMode } from "./engine";
+import { clearLive, loadLive, recordSessionEnd, saveLastNight, type LastNight } from "./store";
 import { appendNight } from "./rest/ledger";
 import type { RestSession } from "./rest/session";
 import type { RestNight } from "./rest/types";
@@ -25,21 +25,13 @@ export interface NightEnd {
   timerMinutes: number;
   modeKind: PlayMode["kind"];
   lastNight: Omit<LastNight, "endedVia" | "endedAt">;
-  /** The last episode that actually made a sound tonight, saved as "the
-   *  exact one again". Not simply the current one: a night that ended on a run
-   *  of failures, or on a timer that ran out just after a switch, would offer
-   *  tomorrow an episode that never played. A saved position does not count as
-   *  heard here; only playback tonight does. */
-  lastHeard: Episode | null;
   rest: RestSession | null;
   now: number;
 }
 
 export function recordNightEnd(e: NightEnd): void {
-  let lastHeard = e.lastHeard;
   if (!e.played) {
-    const stored = e.revivedFrom !== undefined ? loadLive() : null;
-    const revivedIntact = stored !== null && stored.savedAt === e.revivedFrom;
+    const revivedIntact = e.revivedFrom !== undefined && loadLive()?.savedAt === e.revivedFrom;
     // A revived night that never sounded here but played before the
     // reload, ended any way but the app giving up, is recorded like any
     // played night (its RestSession carries the start and touches). Else a
@@ -50,17 +42,10 @@ export function recordNightEnd(e: NightEnd): void {
       if (!e.gaveUp && e.revivedFrom === undefined) clearLive();
       return;
     }
-    // Its last sound was before the reload: the snapshot's own record of
-    // it, else (an older snapshot) its episode if heard there (past its
-    // start), else none, so an earlier night's pick isn't left standing.
-    lastHeard = stored.lastHeard ?? (stored.position > 0 ? stored.current : null);
-    if (!lastHeard) clearLastEpisode();
   }
   clearLive();
   // "faded" is the natural end — stamp it so setup can offer a smaller re-arm.
   if (e.reason === "faded") recordSessionEnd(e.timerMinutes, e.modeKind);
   saveLastNight({ ...e.lastNight, endedVia: e.reason, endedAt: e.now });
-  // For "the exact one again" (a blocked one is hidden when read back).
-  if (lastHeard) saveLastEpisode(lastHeard);
   if (e.rest) appendNight(e.rest.finish(e.reason, e.now));
 }

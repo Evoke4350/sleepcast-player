@@ -99,7 +99,13 @@ describe("driving an audio element through the backend interface", () => {
     b.load("https://x.test/a.mp3", 300, true); // a retry: NaN until its metadata
     (el as { duration: number }).duration = NaN;
     expect(b.duration()).toBe(600);
+    b.load("https://x.test/c.mp3", 0, true); // a "reload" of another source
+    (el as { duration: number }).duration = NaN;
+    expect(b.duration()).toBe(0);
+    (el as { duration: number }).duration = 600;
+    expect(b.duration()).toBe(600);
     b.load("https://x.test/a.mp3"); // a new episode, even at the same URL
+    (el as { duration: number }).duration = NaN;
     expect(b.duration()).toBe(0);
     (el as { duration: number }).duration = Infinity; // a stream
     expect(b.duration()).toBe(0);
