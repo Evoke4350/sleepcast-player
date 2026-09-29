@@ -299,12 +299,17 @@ export interface LiveSession {
 /** What a revived night resumes from: the snapshot, as the players take it.
  *  Derived from LiveSession (see resumeFrom), so a per-night field added
  *  there can't be dropped on the way. */
-export type ResumeDescriptor = Omit<LiveSession, "current"> & { episode: Episode };
+export type ResumeDescriptor = Omit<LiveSession, "current" | NightSessionFields> & { episode: Episode };
 
-/** The snapshot as a ResumeDescriptor: all of it, the playing episode as
- *  `episode`. */
+/** Snapshot fields a revived night takes through its session (the pool and
+ *  the feeds' settings), not through `resume`: one copy of each. */
+type NightSessionFields = "pool" | "skipIntroByFeedId" | "feedTitles" | "artworkByFeedId";
+
+/** The snapshot as a ResumeDescriptor: all of it but the session's fields,
+ *  the playing episode as `episode`. */
 export function resumeFrom(l: LiveSession): ResumeDescriptor {
-  return { ...l, episode: l.current, playedIds: l.playedIds ?? [] };
+  const { current, pool: _pool, skipIntroByFeedId: _skip, feedTitles: _titles, artworkByFeedId: _art, ...rest } = l;
+  return { ...rest, episode: current, playedIds: l.playedIds ?? [] };
 }
 
 /** The night's own timer length: the snapshot's, else estimated from its

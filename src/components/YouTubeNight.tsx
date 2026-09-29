@@ -198,6 +198,13 @@ export function YouTubeNight({
   const [extensions, setExtensions] = useState(resume?.extensions ?? 0); // capped per night, reloads included
   const extensionsRef = useRef(extensions); // for the snapshot, written from long-lived handlers
   extensionsRef.current = extensions;
+  // An extension is snapshotted at once, after the render that counts it:
+  // paused and backgrounded, the next periodic snapshot may never come, and
+  // a revive would lose the stretch and reset the cap.
+  useEffect(() => {
+    if (extensions > 0) persistLive();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [extensions]);
   // null until the request settles. false means the browser refused, and the
   // listener needs to know: without it the screen sleeps and a YouTube night
   // simply stops, silently, which is the failure this whole file guards.
@@ -439,7 +446,7 @@ export function YouTubeNight({
       modeKind: modeRef.current.kind,
       interactions: restRef.current?.interactionCount,
       extensions: extensionsRef.current,
-      wasVaried,
+      wasVaried: wasVariedRef.current,
       remainingMs,
       totalSeconds: totalSecondsRef.current,
       position: witnessRef.current.resumeAt(media.currentTime()),

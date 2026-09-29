@@ -650,6 +650,7 @@ describe("timerless snapshots", () => {
   it("revives with every per-night field the snapshot carries", () => {
     const r = resumeFrom(live({ extensions: 2, wasVaried: true, ruleSpent: true, touches: 7 }));
     expect(r).toMatchObject({ episode: ep, extensions: 2, wasVaried: true, ruleSpent: true, touches: 7, playedIds: [] });
+    expect(r).not.toHaveProperty("pool"); // the session's, one copy
   });
 
   it("marks the stored snapshot's quarter-hour rule spent", () => {
