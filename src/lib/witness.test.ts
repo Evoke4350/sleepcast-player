@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { isPlaybackStep, PlaybackWitness, rearmsWatchdogOnTap } from "./witness";
+import { isPlaybackStep, PlaybackWitness, rearmsWatchdogOnTap, tapPauses } from "./witness";
 
 describe("isPlaybackStep", () => {
   test("a second of playback over a second counts", () => {
@@ -139,6 +139,16 @@ describe("PlaybackWitness.shownAt", () => {
     expect(w.shownAt(600, false)).toBe(600); // a listener's seek back before the start
     expect(w.shownSpan(600, false, 3600)).toEqual({ pos: 600, dur: 3600 });
     expect(w.shownSpan(600, false, 0)).toBeNull();
+  });
+});
+
+describe("tapPauses", () => {
+  test("pauses what plays, or stalls once heard; otherwise asks for sound", () => {
+    expect(tapPauses("playing", false)).toBe(true);
+    expect(tapPauses("buffering", true)).toBe(true);
+    expect(tapPauses("buffering", false)).toBe(false);
+    expect(tapPauses("paused", true)).toBe(false);
+    expect(tapPauses("awaiting-start", false)).toBe(false);
   });
 });
 

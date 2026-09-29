@@ -741,10 +741,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
         // otherwise (already paused, or nothing snapshotted yet for this
         // episode) mark the stored one now.
         if (audio.paused || !epPlayedRef.current) {
-          // This night's snapshot: its own start, or, before it has written
-          // one, the revived snapshot's (which may lack one, or differ from
-          // revivedNightStart's).
-          markLiveRuleSpent(resume ? [nightStartedAtRef.current, resume.nightStartedAt] : [nightStartedAtRef.current]);
+          markLiveRuleSpent({ startedAt: nightStartedAtRef.current, revivedSavedAt: resume?.savedAt });
         }
         audio.pause();
         setPaused(true);

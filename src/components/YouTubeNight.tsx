@@ -54,7 +54,7 @@ import { NetworkHold, isOffline } from "../lib/network-hold";
 import { heardDelta } from "../lib/heard";
 import { clearLockScreen, publishLockScreenMetadata } from "../lib/lock-screen";
 import { startWithSkip } from "../lib/skip-intro";
-import { PlaybackWitness, rearmsWatchdogOnTap } from "../lib/witness";
+import { PlaybackWitness, rearmsWatchdogOnTap, tapPauses } from "../lib/witness";
 import { MAX_FAILS, applyEndedDecision, decideAfterEnded, shouldPlayWhole } from "../lib/episode-end";
 import type { RestNight } from "../lib/rest/types";
 import { YouTubeMedia } from "../lib/youtube-media";
@@ -808,7 +808,8 @@ export function YouTubeNight({
     restRef.current?.noteInteraction();
     const media = mediaRef.current;
     if (!media) return;
-    if (transportRef.current === "playing") {
+    // Only something playing, or stalled once heard, gets paused (tapPauses).
+    if (tapPauses(transportRef.current, witnessRef.current.heard)) {
       media.pause();
       return;
     }
@@ -1067,7 +1068,7 @@ export function YouTubeNight({
                   onClick={handleTogglePause}
                   className="h-24 w-24 rounded-full border border-[#2e2d3a] bg-[#1a1b26] text-sm font-medium text-[#c8c0b0] transition-transform active:scale-95"
                   aria-label={
-                    transport === "playing"
+                    tapPauses(transport, witnessRef.current.heard)
                       ? "Pause"
                       : transport === "awaiting-start"
                         ? "Start"

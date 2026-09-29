@@ -299,7 +299,9 @@ export interface LiveSession {
 /** What a revived night resumes from: the snapshot, as the players take it.
  *  Derived from LiveSession (see resumeFrom), so a per-night field added
  *  there can't be dropped on the way. */
-export type ResumeDescriptor = Omit<LiveSession, "current" | NightSessionField> & { episode: Episode };
+export type ResumeDescriptor = ResumeFields & { episode: Episode };
+/** The snapshot's fields a revived night takes through `resume`. */
+type ResumeFields = Omit<LiveSession, "current" | NightSessionField>;
 
 /** Snapshot fields a revived night takes through its session and mode (the
  *  pool, the feeds' settings, the mix, the timer and the mode), not through
@@ -312,10 +314,11 @@ type NightSessionField = (typeof NIGHT_SESSION_FIELDS)[number];
 /** The snapshot as a ResumeDescriptor: all of it but the session's fields,
  *  the playing episode as `episode`. */
 export function resumeFrom(l: LiveSession): ResumeDescriptor {
-  const { current, ...rest } = l;
-  const out: Record<string, unknown> = { ...rest };
-  for (const k of NIGHT_SESSION_FIELDS) delete out[k];
-  return { ...(out as Omit<LiveSession, "current" | NightSessionField>), episode: current, playedIds: l.playedIds ?? [] };
+  const sessionField = new Set<string>(NIGHT_SESSION_FIELDS);
+  const fields = Object.fromEntries(
+    Object.entries(l).filter(([k]) => k !== "current" && !sessionField.has(k)),
+  ) as ResumeFields;
+  return { ...fields, episode: l.current, playedIds: l.playedIds ?? [] };
 }
 
 /** The night's own timer length: the snapshot's, else estimated from its
@@ -327,11 +330,13 @@ export function nightTimerMinutes(l: LiveSession): number {
 /** Mark the stored snapshot's quarter-hour rule spent at once: a snapshot
  *  may not be written again for a while (paused, or an episode not yet
  *  played), and a revive from it would prompt a second time. */
-export function markLiveRuleSpent(nightStartedAts: readonly (number | undefined)[]): void {
+export function markLiveRuleSpent(night: { startedAt: number; revivedSavedAt?: number }): void {
   const l = loadLive();
-  // Only this night's (by its start, or the revived snapshot's): a snapshot
-  // left by another (one that gave up keeps its own) is not this one's.
-  if (l && !l.ruleSpent && nightStartedAts.includes(l.nightStartedAt)) {
+  // Only this night's: one it wrote (its start), or, before it has written
+  // one, the very snapshot it was revived from (by when that was saved). A
+  // snapshot left by another (one that gave up keeps its own) is not.
+  const ours = l !== null && (l.nightStartedAt === night.startedAt || l.savedAt === night.revivedSavedAt);
+  if (l && ours && !l.ruleSpent) {
     writeMakingRoom(KEY_LIVE, JSON.stringify({ ...l, ruleSpent: true }));
   }
 }

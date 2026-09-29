@@ -61,7 +61,7 @@ import { NetworkHold, isOffline } from "../lib/network-hold";
 import { heardDelta } from "../lib/heard";
 import { clearLockScreen, publishLockScreenMetadata, setActionHandlers } from "../lib/lock-screen";
 import { startWithSkip } from "../lib/skip-intro";
-import { PlaybackWitness, rearmsWatchdogOnTap } from "../lib/witness";
+import { PlaybackWitness, rearmsWatchdogOnTap, tapPauses } from "../lib/witness";
 import { applyEndedDecision, decideAfterEnded, shouldPlayWhole } from "../lib/episode-end";
 import type { RestNight } from "../lib/rest/types";
 import { YouTubeMedia } from "../lib/youtube-media";
@@ -1058,17 +1058,15 @@ export function Night({
 
   // One handler for "start it" and "resume it": both are a tap asking for
   // sound, and the browser treats this tap as the gesture that permits it.
-  // Only something genuinely playing gets paused, or stalled after it has
-  // played (buffering mid-episode: the listener wants it stopped, not asked
-  // for again). This is also the one tap that clears a blocked podcast
-  // autoplay — handleError left the clock frozen and the transport at
-  // "paused" for exactly this.
+  // Only something playing, or stalled once heard, gets paused (tapPauses).
+  // This is also the one tap that clears a blocked podcast autoplay —
+  // handleError left the clock frozen and the transport at "paused" for
+  // exactly this.
   function handleTogglePause() {
     restRef.current?.noteInteraction();
     const media = liveRef.current;
     if (!media) return;
-    const t = transportRef.current;
-    if (t === "playing" || (t === "buffering" && witnessRef.current.played)) {
+    if (tapPauses(transportRef.current, witnessRef.current.heard)) {
       media.pause();
       return;
     }
@@ -1339,7 +1337,7 @@ export function Night({
                   onClick={handleTogglePause}
                   className="h-24 w-24 rounded-full border border-[#2e2d3a] bg-[#1a1b26] text-sm font-medium text-[#c8c0b0] transition-transform active:scale-95"
                   aria-label={
-                    transport === "playing"
+                    tapPauses(transport, witnessRef.current.heard)
                       ? "Pause"
                       : transport === "awaiting-start"
                         ? "Start"

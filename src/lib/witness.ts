@@ -154,3 +154,13 @@ export class PlaybackWitness {
 export function rearmsWatchdogOnTap(played: boolean, transport: Transport): boolean {
   return !played && transport !== "buffering";
 }
+
+/**
+ * Whether the toggle's tap pauses (Night, YouTubeNight): what is playing, or
+ * buffering once the episode has been heard (a stall mid-episode, a reload
+ * after one included: the listener wants it stopped, not asked for again).
+ * Otherwise the tap asks for sound, the gesture a start needs.
+ */
+export function tapPauses(transport: Transport, heard: boolean): boolean {
+  return transport === "playing" || (transport === "buffering" && heard);
+}
