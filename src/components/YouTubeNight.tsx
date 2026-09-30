@@ -217,7 +217,12 @@ export function YouTubeNight({
   useEffect(() => { feedTrimRef.current = feedTrim; }, [feedTrim]);
   useEffect(() => { modeRef.current = mode; }, [mode]);
   useEffect(() => { onEndRef.current = onEnd; }, [onEnd]);
-  useEffect(() => { playedIdsRef.current = playedIds; }, [playedIds]);
+  /** The played set, state and ref at once (the ref is read the same tick
+   *  by snapshots): the one way it changes. */
+  function setPlayed(next: ReadonlySet<string>) {
+    playedIdsRef.current = next;
+    setPlayedIds(next);
+  }
   useEffect(() => { wasVariedRef.current = wasVaried; }, [wasVaried]);
 
   function flash(message: string) {
@@ -269,9 +274,7 @@ export function YouTubeNight({
     const media = mediaRef.current;
     if (!media || !ep.youtubeId) return;
     setNowPlaying({ id: ep.id, title: ep.title, feedId: ep.feedId });
-    // The ref too, at once: the start snapshot below reads it this tick.
-    playedIdsRef.current = new Set(playedIdsRef.current).add(ep.id);
-    setPlayedIds(playedIdsRef.current);
+    setPlayed(new Set(playedIdsRef.current).add(ep.id));
     currentEpRef.current = ep;
     currentFeedRef.current = ep.feedId;
     // The rest session infers WHEN sleep began; only the player knows WHAT was
@@ -672,7 +675,7 @@ export function YouTubeNight({
       totalSecondsRef.current = resume.totalSeconds;
       setTotalSeconds(resume.totalSeconds);
       setCountdown(Math.max(0, resume.remainingMs / 1000));
-      setPlayedIds(new Set(resume.playedIds));
+      setPlayed(new Set(resume.playedIds));
     }
 
     const lock = browserScreenLock();

@@ -25,12 +25,11 @@ export function useNightExtensions(initial: number, persist: () => void, clock: 
    *  no stretch is left. */
   function extend(minutes: number): string | null {
     if (!canExtend(extensionsRef.current)) return null;
-    const c = clock;
     const ms = minutes * 60 * 1000;
-    if (c.pausedRemainingMsRef.current !== null) c.pausedRemainingMsRef.current += ms;
-    else if (c.endTimeRef.current !== null) c.endTimeRef.current += ms;
-    c.totalSecondsRef.current += minutes * 60;
-    c.setTotalSeconds((t) => t + minutes * 60);
+    if (clock.pausedRemainingMsRef.current !== null) clock.pausedRemainingMsRef.current += ms;
+    else if (clock.endTimeRef.current !== null) clock.endTimeRef.current += ms;
+    clock.totalSecondsRef.current += minutes * 60;
+    clock.setTotalSeconds((t) => t + minutes * 60);
     const used = extensionsRef.current + 1;
     extensionsRef.current = used; // a second tap before the render counts it too
     setExtensions(used);

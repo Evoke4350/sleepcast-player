@@ -352,8 +352,8 @@ export function saveLive(s: LiveSession): boolean {
   // Keep the current episode plus a bounded remainder — enough to keep the
   // shuffle going after a resume without serialising thousands of episodes.
   const rest = s.pool.filter((e) => e.id !== s.current.id).slice(0, LIVE_POOL_CAP - 1);
-  // The current episode counts as played (the state that adds it may not
-  // have reached the writer yet).
+  // The current episode counts as played (a guard for any writer, and for
+  // snapshots from before the players added it at once).
   const bounded: LiveSession = { ...s, playedIds: withCurrentPlayed(s), pool: [s.current, ...rest] };
   try {
     return writeMakingRoom(KEY_LIVE, JSON.stringify(bounded));

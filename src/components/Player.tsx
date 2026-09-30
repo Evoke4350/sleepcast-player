@@ -224,7 +224,12 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   useEffect(() => { feedTitlesRef.current = feedTitles; }, [feedTitles]);
   useEffect(() => { artworkRef.current = artworkByFeedId; }, [artworkByFeedId]);
   useEffect(() => { onEndRef.current = onEnd; }, [onEnd]);
-  useEffect(() => { playedIdsRef.current = playedIds; }, [playedIds]);
+  /** The played set, state and ref at once (the ref is read the same tick
+   *  by snapshots): the one way it changes. */
+  function setPlayed(next: ReadonlySet<string>) {
+    playedIdsRef.current = next;
+    setPlayedIds(next);
+  }
   useEffect(() => { wasVariedRef.current = wasVaried; }, [wasVaried]);
   useEffect(() => { modeRef.current = mode; }, [mode]);
   useEffect(() => { feedTrimRef.current = feedTrim; }, [feedTrim]);
@@ -235,9 +240,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     if (!audio) return;
 
     setNowPlaying({ id: ep.id, title: ep.title, feedId: ep.feedId });
-    // The ref too, at once: the start snapshot below reads it this tick.
-    playedIdsRef.current = new Set(playedIdsRef.current).add(ep.id);
-    setPlayedIds(playedIdsRef.current);
+    setPlayed(new Set(playedIdsRef.current).add(ep.id));
     currentFeedRef.current = ep.feedId;
     // The rest session infers WHEN sleep began; only the player knows WHAT was
     // playing. Told here rather than reconstructed later, because the play
@@ -895,7 +898,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       totalSecondsRef.current = resume.totalSeconds;
       setTotalSeconds(resume.totalSeconds);
       setCountdown(Math.max(0, resume.remainingMs / 1000));
-      setPlayedIds(new Set(resume.playedIds)); // restore which of the spread you'd heard
+      setPlayed(new Set(resume.playedIds)); // restore which of the spread you'd heard
     }
 
     const audio = audioRef.current!;
