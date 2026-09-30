@@ -77,9 +77,17 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
   // doubles as the detector's self-label).
   const leadRef = useRef<Episode | null>(null);
   // Whether this screen is still up: the varied mix's pick can resolve up to
-  // 25 s after its tap, when a night may already have started.
+  // 25 s after its tap, when a night may already have started. Leaving also
+  // aborts the mix's embedding.
   const mountedRef = useRef(true);
-  useEffect(() => () => { mountedRef.current = false; }, []);
+  const mixAbortRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      mixAbortRef.current?.abort();
+    };
+  }, []);
   const leadPositionRef = useRef(0);
   const [query, setQuery] = useState("");
   const [feedError, setFeedError] = useState("");
@@ -601,6 +609,10 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
     // has to sort the finalists.
     const candidates = pool.length > EMBED_CAP ? diverseByMeta(pool, EMBED_CAP) : pool;
     let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+    // Aborted when the screen goes or the deadline wins: the embedding
+    // stops then (a model download under way goes on, to be cached).
+    const abort = new AbortController();
+    mixAbortRef.current = abort;
     try {
       const { embedTexts } = await import("../lib/semantic-model");
       const work = (async () => {
@@ -608,9 +620,7 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
           candidates.map((e) => e.title),
           (done, total) => setVariedNote(`reading titles… ${done}/${total}`),
           (pct) => setVariedNote(`fetching the mixer… ${pct}%`),
-          // Once the screen has gone its pick would be dropped: stop
-          // embedding titles (the model download itself goes on, cached).
-          () => mountedRef.current,
+          abort.signal,
         );
         return diversePick(vecs, VARIED_N).map((i) => candidates[i]);
       })();
@@ -618,7 +628,10 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
       // Slow devices still get their night: past the deadline we stop
       // waiting and take the meta spread instead of hanging on "mixing…".
       const deadline = new Promise<never>((_, reject) => {
-        deadlineTimer = setTimeout(() => reject(new Error("semantic deadline")), 25_000);
+        deadlineTimer = setTimeout(() => {
+          abort.abort();
+          reject(new Error("semantic deadline"));
+        }, 25_000);
       });
       const picked = await Promise.race([work, deadline]);
       if (mountedRef.current) startWith(picked, true);
@@ -629,6 +642,7 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
       if (mountedRef.current) startWith(diverseByMeta(pool, VARIED_N), true);
     } finally {
       clearTimeout(deadlineTimer);
+      if (mixAbortRef.current === abort) mixAbortRef.current = null;
       setVariedBusy(false);
     }
   }

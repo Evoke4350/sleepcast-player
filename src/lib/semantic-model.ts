@@ -29,6 +29,8 @@ function getExtractor(onDownload?: (pct: number) => void) {
     }).catch((e: unknown) => {
       extractor = null; // a transient failure must not brick the feature until reload
       throw e;
+    }).finally(() => {
+      downloadListener = undefined; // nothing more to hear: don't hold its closure
     });
   }
   return extractor;
@@ -73,10 +75,12 @@ export async function embedTexts(
   texts: string[],
   onProgress?: (done: number, total: number) => void,
   onModelProgress?: (pct: number) => void,
-  /** Checked between titles: false stops the embedding (it throws), leaving
-   *  the shared model download to finish and be cached. */
-  shouldContinue?: () => boolean,
+  /** Aborted, the embedding stops (it throws): before a model download is
+   *  started for it, and between titles. A download already under way goes
+   *  on, to be cached. */
+  signal?: AbortSignal,
 ): Promise<Float32Array[]> {
+  signal?.throwIfAborted();
   const cache = loadCache();
   const out: (Float32Array | null)[] = texts.map((t) => {
     const hit = cache[hash(t)];
@@ -84,10 +88,11 @@ export async function embedTexts(
   });
   const missing = out.flatMap((v, i) => (v === null ? [i] : []));
   if (missing.length) {
+    signal?.throwIfAborted();
     const pipe = await getExtractor(onModelProgress);
     let done = 0;
     for (const i of missing) {
-      if (shouldContinue && !shouldContinue()) throw new Error("embedding cancelled");
+      signal?.throwIfAborted();
       const res = await pipe(texts[i], { pooling: "mean", normalize: true });
       const vec = new Float32Array(res.data as Float32Array);
       out[i] = vec;
