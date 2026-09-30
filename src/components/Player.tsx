@@ -7,7 +7,7 @@ import { useNightExtensions } from "../lib/use-night-extensions";
 const DriftGame = lazy(() => import("./DriftGame"));
 import type { Episode, PlayMode } from "../lib/engine";
 import { fadeVolume, formatTime, effectiveVolume, fadeDriverSeconds } from "../lib/engine";
-import { getPlays, recordHeardPlay, saveLive, noteSounded, SNAPSHOT_EVERY_TICKS, rememberPosition, forgetPosition, blockEpisode } from "../lib/store";
+import { getPlays, recordHeardPlay, saveLive, noteSounded, SNAPSHOT_EVERY_TICKS, counterAfterStartSnapshot, rememberPosition, forgetPosition, blockEpisode } from "../lib/store";
 import { NetworkHold, isOffline } from "../lib/network-hold";
 import { SeekEnforcer, type SeekHooks } from "../lib/seek-enforcer";
 import { mediaTransport } from "../lib/media/transport";
@@ -281,11 +281,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     epStartedAtRef.current = Date.now();
 
     publishLockScreenMetadata(ep.title, feedTitlesRef.current[ep.feedId], artworkRef.current[ep.feedId]);
-    // And a snapshot now, at its start: a kill while it loads must not
-    // revive the last one (one just blocked, say). Written, it stands for
-    // the first periodic one; not (a fresh night's first episode), the
-    // periodic one lands as soon as it plays.
-    persistCounterRef.current = persistLive() ? 0 : SNAPSHOT_EVERY_TICKS;
+    // And a snapshot now, at its start (see counterAfterStartSnapshot).
+    persistCounterRef.current = counterAfterStartSnapshot(persistLive());
   }
 
   /** Count one more consecutive failure (a stuck track, a source error). Past

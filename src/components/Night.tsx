@@ -51,6 +51,7 @@ import {
   type NoiseSettings,
   type ResumeDescriptor,
   SNAPSHOT_EVERY_TICKS,
+  counterAfterStartSnapshot,
   noteSounded,
 } from "../lib/store";
 import { HEARD_SEC } from "../lib/plays";
@@ -394,11 +395,8 @@ export function Night({
     epStartedAtRef.current = Date.now();
 
     publishLockScreenMetadata(ep.title, feedTitlesRef.current[ep.feedId], artworkRef.current[ep.feedId]);
-    // And a snapshot now, at its start: a kill while it loads must not
-    // revive the last one (one just blocked, say). Written, it stands for
-    // the first periodic one; not (a fresh night's first episode), the
-    // periodic one lands as soon as it plays.
-    persistCounterRef.current = persistLive() ? 0 : SNAPSHOT_EVERY_TICKS;
+    // And a snapshot now, at its start (see counterAfterStartSnapshot).
+    persistCounterRef.current = counterAfterStartSnapshot(persistLive());
   }
 
   /** `byListener`: Next or "never again" led here, so ending a never-played

@@ -43,6 +43,18 @@ describe("embedTexts", () => {
     expect(pipelineCalls).toHaveBeenCalledTimes(1);
   });
 
+  test("a listener is dropped once its caller stops waiting, even after the first download", async () => {
+    const { embedTexts } = await import("./semantic-model");
+    const first = embedTexts(["one"], undefined, () => {});
+    await Promise.resolve();
+    finishDownload();
+    await first;
+    const late = vi.fn();
+    await embedTexts(["two"], undefined, late); // model loaded: no listener kept
+    progress?.({ status: "progress", progress: 99 });
+    expect(late).not.toHaveBeenCalled();
+  });
+
   test("aborting between titles stops the embedding, the model stays loaded", async () => {
     const { embedTexts, isModelWarm } = await import("./semantic-model");
     const a = new AbortController();

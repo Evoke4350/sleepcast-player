@@ -335,6 +335,14 @@ export function withCurrentPlayed(l: Pick<LiveSession, "playedIds" | "current">)
   return ids.includes(l.current.id) ? ids : [...ids, l.current.id];
 }
 
+/** The periodic counter after the snapshot taken at an episode's start
+ *  (a kill while it loads must not revive the last one, one just blocked,
+ *  say): written, it stands for the first periodic one; not (a fresh
+ *  night's first episode), the periodic one lands as soon as it plays. */
+export function counterAfterStartSnapshot(wrote: boolean): number {
+  return wrote ? 0 : SNAPSHOT_EVERY_TICKS;
+}
+
 /** Snapshots are written every this many ticks while an episode plays
  *  (about every 10 s in the foreground; see SNAPSHOT_FRESH_MS). */
 export const SNAPSHOT_EVERY_TICKS = 10;
