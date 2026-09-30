@@ -9,15 +9,21 @@ const CACHE_KEY = "sleepcast2.titlevecs"; // { [hash]: number[] } quantized int8
 const CACHE_CAP = 6000; // vectors; ~1.5MB at int8
 
 let extractor: Promise<FeatureExtractionPipeline> | null = null;
+/** Who hears the one shared download's progress: the latest caller, not
+ *  the first (whose screen may be gone). Never throws into the download. */
+let downloadListener: ((pct: number) => void) | undefined;
 
 function getExtractor(onDownload?: (pct: number) => void) {
+  downloadListener = onDownload;
   if (!extractor) {
     extractor = pipeline("feature-extraction", MODEL_ID, {
       dtype: "q8",
       progress_callback: (e) => {
         const p = e as { status?: string; progress?: number };
         if (p.status === "progress" && typeof p.progress === "number") {
-          onDownload?.(Math.round(p.progress));
+          try {
+            downloadListener?.(Math.round(p.progress));
+          } catch { /* a listener's problem must not abort the shared download */ }
         }
       },
     }).catch((e: unknown) => {
@@ -66,7 +72,10 @@ const dequant = (q: number[]) => Float32Array.from(q, (x) => x / 127);
 export async function embedTexts(
   texts: string[],
   onProgress?: (done: number, total: number) => void,
-  onModelProgress?: (pct: number) => void
+  onModelProgress?: (pct: number) => void,
+  /** Checked between titles: false stops the embedding (it throws), leaving
+   *  the shared model download to finish and be cached. */
+  shouldContinue?: () => boolean,
 ): Promise<Float32Array[]> {
   const cache = loadCache();
   const out: (Float32Array | null)[] = texts.map((t) => {
@@ -78,6 +87,7 @@ export async function embedTexts(
     const pipe = await getExtractor(onModelProgress);
     let done = 0;
     for (const i of missing) {
+      if (shouldContinue && !shouldContinue()) throw new Error("embedding cancelled");
       const res = await pipe(texts[i], { pooling: "mean", normalize: true });
       const vec = new Float32Array(res.data as Float32Array);
       out[i] = vec;
