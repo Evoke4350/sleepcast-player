@@ -269,7 +269,9 @@ export function YouTubeNight({
     const media = mediaRef.current;
     if (!media || !ep.youtubeId) return;
     setNowPlaying({ id: ep.id, title: ep.title, feedId: ep.feedId });
-    setPlayedIds((prev) => new Set(prev).add(ep.id));
+    // The ref too, at once: the start snapshot below reads it this tick.
+    playedIdsRef.current = new Set(playedIdsRef.current).add(ep.id);
+    setPlayedIds(playedIdsRef.current);
     currentEpRef.current = ep;
     currentFeedRef.current = ep.feedId;
     // The rest session infers WHEN sleep began; only the player knows WHAT was
