@@ -614,8 +614,16 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
     const abort = new AbortController();
     mixAbortRef.current = abort;
     try {
-      const { embedTexts } = await import("../lib/semantic-model");
+      // Armed before the model's code is even fetched: a stalled chunk
+      // must reach the fallback too.
+      const deadline = new Promise<never>((_, reject) => {
+        deadlineTimer = setTimeout(() => {
+          abort.abort();
+          reject(new Error("semantic deadline"));
+        }, 25_000);
+      });
       const work = (async () => {
+        const { embedTexts } = await import("../lib/semantic-model");
         const vecs = await embedTexts(
           candidates.map((e) => e.title),
           (done, total) => setVariedNote(`reading titles… ${done}/${total}`),
@@ -627,12 +635,6 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
       work.catch(() => {}); // raced below; a late loss must not surface as unhandled
       // Slow devices still get their night: past the deadline we stop
       // waiting and take the meta spread instead of hanging on "mixing…".
-      const deadline = new Promise<never>((_, reject) => {
-        deadlineTimer = setTimeout(() => {
-          abort.abort();
-          reject(new Error("semantic deadline"));
-        }, 25_000);
-      });
       const picked = await Promise.race([work, deadline]);
       if (mountedRef.current) startWith(picked, true);
     } catch {

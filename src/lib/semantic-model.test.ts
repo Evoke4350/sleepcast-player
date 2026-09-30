@@ -4,13 +4,17 @@ import { describe, expect, test, vi, beforeEach } from "vitest";
 // settles when told, and a pipe that embeds any title as a fixed vector.
 let progress: ((e: unknown) => void) | undefined;
 let finishDownload: () => void = () => {};
+let failDownload: () => void = () => {};
 const pipelineCalls = vi.fn();
 vi.mock("@huggingface/transformers", () => ({
   pipeline: (_task: string, _model: string, opts: { progress_callback: (e: unknown) => void }) => {
     pipelineCalls();
     progress = opts.progress_callback;
     const pipe = async () => ({ data: new Float32Array(384).fill(0.1) });
-    return new Promise((resolve) => { finishDownload = () => resolve(pipe); });
+    return new Promise((resolve, reject) => {
+      finishDownload = () => resolve(pipe);
+      failDownload = () => reject(new Error("a model file failed"));
+    });
   },
 }));
 
@@ -53,6 +57,23 @@ describe("embedTexts", () => {
     await embedTexts(["two"], undefined, late); // model loaded: no listener kept
     progress?.({ status: "progress", progress: 99 });
     expect(late).not.toHaveBeenCalled();
+  });
+
+  test("a failed download's leftover progress doesn't reach the retry's listener", async () => {
+    const { embedTexts } = await import("./semantic-model");
+    const first = embedTexts(["one"], undefined, () => {});
+    await Promise.resolve();
+    const stale = progress;
+    failDownload();
+    await expect(first).rejects.toThrow();
+    const heard: number[] = [];
+    const retry = embedTexts(["one"], undefined, (pct) => heard.push(pct));
+    await Promise.resolve();
+    stale?.({ status: "progress", progress: 97 }); // the abandoned attempt
+    progress?.({ status: "progress", progress: 3 }); // the retry's own
+    expect(heard).toEqual([3]);
+    finishDownload();
+    await retry;
   });
 
   test("aborting between titles stops the embedding, the model stays loaded", async () => {
