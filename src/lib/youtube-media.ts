@@ -116,6 +116,8 @@ export class YouTubeMedia implements MediaBackend {
   /** Start, or switch to, a video. Safe before the player exists.
    *  startSeconds revives a snapshotted night at the second it stopped rather
    *  than at 0:00 of a four-hour video. */
+  /** `_reload` (MediaBackend's "the same episode again") needs nothing
+   *  here: no length is kept across loads. */
   load(videoId: string, startSeconds = 0, _reload = false): void {
     if (this.dead) return;
     if (this.player) {

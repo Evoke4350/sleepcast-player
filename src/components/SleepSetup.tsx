@@ -630,6 +630,9 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
           (pct) => setVariedNote(`fetching the mixer… ${pct}%`),
           abort.signal,
         );
+        // Abandoned meanwhile (all titles cached, or the last one embedding
+        // when the deadline hit): no pick for nobody.
+        if (abort.signal.aborted) throw new Error("mix abandoned");
         return diversePick(vecs, VARIED_N).map((i) => candidates[i]);
       })();
       work.catch(() => {}); // raced below; a late loss must not surface as unhandled

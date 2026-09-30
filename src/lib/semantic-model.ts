@@ -19,7 +19,6 @@ let downloading: { listener?: (pct: number) => void } | null = null;
 function getExtractor(onDownload?: (pct: number) => void) {
   if (!extractor) {
     const slot: { listener?: (pct: number) => void } = { listener: onDownload };
-    downloading = slot;
     extractor = pipeline("feature-extraction", MODEL_ID, {
       dtype: "q8",
       progress_callback: (e) => {
@@ -37,14 +36,18 @@ function getExtractor(onDownload?: (pct: number) => void) {
       slot.listener = undefined;
       if (downloading === slot) downloading = null;
     });
+    // Only once the chain that empties it is attached (a pipeline() that
+    // threw at once would otherwise leave the listener held).
+    downloading = slot;
   } else if (downloading) {
     downloading.listener = onDownload;
   }
   return extractor;
 }
 
+/** Whether the model is loaded (not merely downloading). */
 export function isModelWarm(): boolean {
-  return extractor !== null;
+  return extractor !== null && downloading === null;
 }
 
 // djb2 — good enough to key title strings.
