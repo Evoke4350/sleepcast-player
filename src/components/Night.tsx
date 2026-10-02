@@ -36,6 +36,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useLazyRef } from "../lib/use-lazy-ref";
+import { useStateRef } from "../lib/use-state-ref";
 import { useNightExtensions } from "../lib/use-night-extensions";
 import type { Episode, PlayMode } from "../lib/engine";
 import { formatTime, effectiveVolume, fadeDriverSeconds } from "../lib/engine";
@@ -210,7 +211,6 @@ export function Night({
   const heardSavedAtRef = useRef(-1e9);
   const epStartedAtRef = useRef(0);
   const persistCounterRef = useRef(0);
-  const playedIdsRef = useRef<ReadonlySet<string>>(new Set());
   const totalSecondsRef = useRef(timerMinutes * 60);
 
   const restRef = useRef<RestSession | null>(null);
@@ -225,7 +225,9 @@ export function Night({
   const [nowPlaying, setNowPlaying] = useState<
     { id: string; title: string; feedId: string; isVideo: boolean } | null
   >(null);
-  const [playedIds, setPlayedIds] = useState<ReadonlySet<string>>(new Set());
+  // The played set: state for the lineup, ref for same-tick snapshots, one
+  // setter for both (the restore and each start).
+  const [playedIds, playedIdsRef, setPlayed] = useStateRef<ReadonlySet<string>>(new Set());
   const [blockedTonight, setBlockedTonight] = useState<ReadonlySet<string>>(new Set());
   const [countdown, setCountdown] = useState(timerMinutes * 60);
   const [totalSeconds, setTotalSeconds] = useState(timerMinutes * 60);
@@ -271,12 +273,6 @@ export function Night({
   useEffect(() => { feedTrimRef.current = feedTrim; }, [feedTrim]);
   useEffect(() => { modeRef.current = mode; }, [mode]);
   useEffect(() => { onEndRef.current = onEnd; }, [onEnd]);
-  /** The played set, state and ref at once (the ref is read the same tick
-   *  by snapshots): the one way it changes. */
-  function setPlayed(next: ReadonlySet<string>) {
-    playedIdsRef.current = next;
-    setPlayedIds(next);
-  }
   useEffect(() => { wasVariedRef.current = wasVaried; }, [wasVaried]);
 
   function flash(message: string) {

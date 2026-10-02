@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useLazyRef } from "../lib/use-lazy-ref";
+import { useStateRef } from "../lib/use-state-ref";
 import { useNightExtensions } from "../lib/use-night-extensions";
 
 // The drift game (three.js) loads only when opened — the player's own
@@ -174,7 +175,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   const lastPosRef = useRef(0); // previous audio.currentTime, to diff against
   const heardSavedAtRef = useRef(-1e9); // heardSec at the last ledger write
   const epStartedAtRef = useRef(0); // epoch ms this episode began
-  const playedIdsRef = useRef<ReadonlySet<string>>(new Set());
   const wasVariedRef = useRef(wasVaried);
   const modeRef = useRef(mode);
   // The user asked to stop and a short courtesy fade is running. While it is,
@@ -190,7 +190,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   const levelingRef = useRef(leveling);
 
   const [nowPlaying, setNowPlaying] = useState<{ id: string; title: string; feedId: string } | null>(null);
-  const [playedIds, setPlayedIds] = useState<ReadonlySet<string>>(new Set());
+  // The played set: state for the lineup, ref for same-tick snapshots, one
+  // setter for both (the restore and each start).
+  const [playedIds, playedIdsRef, setPlayed] = useStateRef<ReadonlySet<string>>(new Set());
   const [countdown, setCountdown] = useState(timerMinutes * 60);
   // The time left stays veiled behind the moon — a running countdown
   // invites doing arithmetic against your own sleep. Tap to peek.
@@ -224,12 +226,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   useEffect(() => { feedTitlesRef.current = feedTitles; }, [feedTitles]);
   useEffect(() => { artworkRef.current = artworkByFeedId; }, [artworkByFeedId]);
   useEffect(() => { onEndRef.current = onEnd; }, [onEnd]);
-  /** The played set, state and ref at once (the ref is read the same tick
-   *  by snapshots): the one way it changes. */
-  function setPlayed(next: ReadonlySet<string>) {
-    playedIdsRef.current = next;
-    setPlayedIds(next);
-  }
   useEffect(() => { wasVariedRef.current = wasVaried; }, [wasVaried]);
   useEffect(() => { modeRef.current = mode; }, [mode]);
   useEffect(() => { feedTrimRef.current = feedTrim; }, [feedTrim]);

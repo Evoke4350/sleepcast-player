@@ -1,4 +1,5 @@
-import { useRef, useState, type Dispatch, type RefObject, type SetStateAction } from "react";
+import { type Dispatch, type RefObject, type SetStateAction } from "react";
+import { useStateRef } from "./use-state-ref";
 import { canExtend } from "./timer-feel";
 
 /** The parts of a player's night a stretch moves. */
@@ -16,9 +17,7 @@ export interface NightClock {
  *  paused and backgrounded, the next periodic snapshot may never come, and a
  *  revive would lose the stretch and reset the cap. */
 export function useNightExtensions(initial: number, persist: () => void, clock: NightClock) {
-  const [extensions, setExtensions] = useState(initial);
-  const extensionsRef = useRef(extensions);
-  extensionsRef.current = extensions;
+  const [extensions, extensionsRef, setExtensions] = useStateRef(initial);
 
   /** Stretch the night by `minutes` (the time left, frozen or running, and
    *  the total), if the cap allows. What to tell the listener, or null when
@@ -31,8 +30,7 @@ export function useNightExtensions(initial: number, persist: () => void, clock: 
     clock.totalSecondsRef.current += minutes * 60;
     clock.setTotalSeconds((t) => t + minutes * 60);
     const used = extensionsRef.current + 1;
-    extensionsRef.current = used; // a second tap before the render counts it too
-    setExtensions(used);
+    setExtensions(used); // the ref at once: a second tap before the render counts it too
     // Snapshotted at once: every ref the snapshot reads is already moved.
     persist();
     return canExtend(used) ? "a little longer — sleep when you're ready" : "that's the last stretch. resting counts too.";
