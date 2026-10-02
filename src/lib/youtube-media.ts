@@ -45,7 +45,7 @@ export interface YTPlayerLike {
   loadVideoById(videoId: string, startSeconds?: number): void;
   /** Which video the player has loaded. The real IFrame API has it; optional
    *  so a player without it falls back to reading events (see inSwitch). */
-  getVideoData?(): { video_id?: string };
+  getVideoData?(): { video_id?: string; isLive?: boolean };
   destroy(): void;
 }
 
@@ -116,7 +116,9 @@ export class YouTubeMedia implements MediaBackend {
   /** Start, or switch to, a video. Safe before the player exists.
    *  startSeconds revives a snapshotted night at the second it stopped rather
    *  than at 0:00 of a four-hour video. */
-  load(videoId: string, startSeconds = 0): void {
+  /** `_reload` (MediaBackend's "the same episode again") needs nothing
+   *  here: no length is kept across loads. */
+  load(videoId: string, startSeconds = 0, _reload = false): void {
     if (this.dead) return;
     if (this.player) {
       // Armed when the load runs, not when it is queued: queued before ready,
@@ -224,6 +226,14 @@ export class YouTubeMedia implements MediaBackend {
   duration(): number {
     if (this.inSwitch()) return 0;
     if (!this.ready || !this.player) return 0;
+    // A live stream's getDuration() is the time streamed so far, not a
+    // length: taken as one, the night would fade to silence at its "end"
+    // and never reach it. Unknown, like any stream.
+    try {
+      if (this.player.getVideoData?.()?.isLive) return 0;
+    } catch {
+      /* not answering yet */
+    }
     return this.player.getDuration() || 0;
   }
 

@@ -76,6 +76,18 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
   // again"), and last night's record (to greet + ask how they slept, which
   // doubles as the detector's self-label).
   const leadRef = useRef<Episode | null>(null);
+  // Whether this screen is still up: the varied mix's pick can resolve up to
+  // 25 s after its tap, when a night may already have started. Leaving also
+  // aborts the mix's embedding.
+  const mountedRef = useRef(true);
+  const mixAbortRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      mixAbortRef.current?.abort();
+    };
+  }, []);
   const leadPositionRef = useRef(0);
   const [query, setQuery] = useState("");
   const [feedError, setFeedError] = useState("");
@@ -597,30 +609,45 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
     // has to sort the finalists.
     const candidates = pool.length > EMBED_CAP ? diverseByMeta(pool, EMBED_CAP) : pool;
     let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+    // Aborted when the screen goes or the deadline wins: the embedding
+    // stops then (a model download under way goes on, to be cached).
+    const abort = new AbortController();
+    mixAbortRef.current = abort;
     try {
-      const { embedTexts } = await import("../lib/semantic-model");
+      // Armed before the model's code is even fetched: a stalled chunk
+      // must reach the fallback too.
+      const deadline = new Promise<never>((_, reject) => {
+        deadlineTimer = setTimeout(() => {
+          abort.abort();
+          reject(new Error("semantic deadline"));
+        }, 25_000);
+      });
       const work = (async () => {
+        const { embedTexts } = await import("../lib/semantic-model");
         const vecs = await embedTexts(
           candidates.map((e) => e.title),
           (done, total) => setVariedNote(`reading titles… ${done}/${total}`),
-          (pct) => setVariedNote(`fetching the mixer… ${pct}%`)
+          (pct) => setVariedNote(`fetching the mixer… ${pct}%`),
+          abort.signal,
         );
+        // Abandoned meanwhile (all titles cached, or the last one embedding
+        // when the deadline hit): no pick for nobody.
+        if (abort.signal.aborted) throw new Error("mix abandoned");
         return diversePick(vecs, VARIED_N).map((i) => candidates[i]);
       })();
       work.catch(() => {}); // raced below; a late loss must not surface as unhandled
       // Slow devices still get their night: past the deadline we stop
       // waiting and take the meta spread instead of hanging on "mixing…".
-      const deadline = new Promise<never>((_, reject) => {
-        deadlineTimer = setTimeout(() => reject(new Error("semantic deadline")), 25_000);
-      });
-      startWith(await Promise.race([work, deadline]), true);
+      const picked = await Promise.race([work, deadline]);
+      if (mountedRef.current) startWith(picked, true);
     } catch {
       // Semantic model can't run on every device (iOS Lockdown Mode blocks
       // WASM SIMD) — or didn't finish in time. Fall back to feed×year
       // spread — still varied, just not meaning-aware — and start anyway.
-      startWith(diverseByMeta(pool, VARIED_N), true);
+      if (mountedRef.current) startWith(diverseByMeta(pool, VARIED_N), true);
     } finally {
       clearTimeout(deadlineTimer);
+      if (mixAbortRef.current === abort) mixAbortRef.current = null;
       setVariedBusy(false);
     }
   }

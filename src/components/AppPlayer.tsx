@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import type { Episode } from "../lib/engine";
 import { formatTime } from "../lib/engine";
-import { loadLive, clearLastNight, loadLastNight, type LiveSession, type LastNight, loadState, isRevivable, resumeMode } from "../lib/store";
+import { loadLive, clearLastNight, loadLastNight, type LiveSession, type LastNight, type ResumeDescriptor, resumeFrom, nightTimerMinutes, loadState, isRevivable, resumeMode } from "../lib/store";
 import type { PlayMode } from "../lib/engine";
 import type { NoiseSettings } from "../lib/store";
 import { shouldReanchor, nextInSpread } from "../lib/rest/reanchor";
@@ -17,16 +17,6 @@ import { ReanchorView } from "./ReanchorView";
 import { shouldGreetGoodbye, markGoodbyeSeen, fmtDuration } from "../lib/rest/surface";
 import { loadNights, loadQuietUntil, saveQuietUntil, loadStepBackAsked, markStepBackAsked } from "../lib/rest/ledger";
 import { qualifiesForStepBack, isQuiet, quietUntilFrom } from "../lib/rest/stepback";
-
-interface ResumeDescriptor {
-  episode: Episode;
-  position: number;
-  remainingMs: number;
-  totalSeconds: number;
-  playedIds: string[];
-  nightStartedAt?: number;
-  interactions?: number;
-}
 
 interface SessionState {
   pool: Episode[];
@@ -151,6 +141,22 @@ export function AppPlayer() {
     setLeveling(settings.leveling);
   }
 
+  /** A snapshotted night still stored is over, and recorded: the card's,
+   *  or one settleLive left because it was seconds old (one tab in
+   *  practice). Read from storage, not the resume card's state: a recorded
+   *  snapshot is removed there, so a late second call records nothing twice.
+   *  Any prior last night goes. `keepItsLastNight`: starting a night, the
+   *  recorded one's own last night stays, for a re-anchor if the new one
+   *  never plays; declining it ("or start fresh"), it goes too, so no
+   *  re-anchor offers the night just turned down. */
+  function recordStoredNight(keepItsLastNight: boolean) {
+    if (keepItsLastNight) clearLastNight();
+    const stored = loadLive();
+    if (stored) reconcileLive(stored, Date.now());
+    if (!keepItsLastNight) clearLastNight();
+    setLive(null);
+  }
+
   function handleStart(
     pool: Episode[],
     timerMinutes: number,
@@ -163,11 +169,8 @@ export function AppPlayer() {
     modeOverride?: PlayMode
   ) {
     setResume(null); // a fresh night, not a revival
-    // Starting over while the resume card is up: the snapshotted night is over.
-    if (live) reconcileLive(live, Date.now());
-    setLive(null);
+    recordStoredNight(true);
     applyNightSettings(modeOverride ?? loadState().settings.mode);
-    clearLastNight(); // a new night supersedes any prior faded one
     setSession({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artworkByFeedId, leadEpisode, wasVaried, leadPosition });
   }
 
@@ -176,18 +179,11 @@ export function AppPlayer() {
   function handleResume() {
     if (!live) return;
     applyNightSettings(resumeMode(live));
-    setResume({
-      episode: live.current,
-      position: live.position,
-      remainingMs: live.remainingMs,
-      totalSeconds: live.totalSeconds,
-      playedIds: live.playedIds ?? [],
-      nightStartedAt: live.nightStartedAt,
-      interactions: live.interactions,
-    });
+    setResume(resumeFrom(live));
     setSession({
       pool: live.pool,
-      timerMinutes: Math.max(1, Math.round(live.totalSeconds / 60)),
+      timerMinutes: nightTimerMinutes(live),
+      wasVaried: live.wasVaried,
       skipIntroByFeedId: live.skipIntroByFeedId,
       feedTitles: live.feedTitles,
       artworkByFeedId: live.artworkByFeedId,
@@ -198,6 +194,12 @@ export function AppPlayer() {
   function handleEnd() {
     setResume(null);
     setSession(null);
+    // A re-anchor found while the night played is stale now: this night
+    // wrote its own last night (the next visibility check decides afresh).
+    setReanchor(null);
+    // A snapshot the night kept (the app gave up on a revived night) comes
+    // back as the resume card, or is recorded if too old to revive.
+    setLive(settleLive(loadLive(), Date.now()));
   }
 
   // Continue the spread as a fresh clock-blind night, led by the next unplayed
@@ -319,7 +321,7 @@ export function AppPlayer() {
               ▶ keep going
             </button>
             <button
-              onClick={() => { reconcileLive(live, Date.now()); clearLastNight(); setLive(null); }}
+              onClick={() => recordStoredNight(false)}
               className="mt-2 block w-full text-center text-xs text-[#4a4540] underline decoration-[#2a2620] underline-offset-4 transition-colors hover:text-[#8a7a5c]"
             >
               or start fresh

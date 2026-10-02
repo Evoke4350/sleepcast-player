@@ -255,7 +255,6 @@ describe("getPlays migration + recordHeardPlay", () => {
   });
 });
 
-
 // ---------------------------------------------------------------------------
 // loadTimerMinutes / saveTimerMinutes
 // ---------------------------------------------------------------------------
@@ -463,7 +462,7 @@ describe("quarter-hour rule opt-in", () => {
 });
 
 import { recordSessionEnd, REARM_WINDOW_MS } from "./store";
-import { isRevivable, LIVE_MAX_AGE_MS, resumeMode, type LiveSession, saveLive, loadLive, saveLastNight, loadLastNight, clampTimerMinutes } from "./store";
+import { isRevivable, LIVE_MAX_AGE_MS, resumeMode, resumeFrom, nightTimerMinutes, type LiveSession, saveLive, loadLive, saveLastNight, loadLastNight, clampTimerMinutes } from "./store";
 
 describe("settings migration", () => {
   beforeEach(() => localStorage.clear());
@@ -642,7 +641,18 @@ describe("timerless snapshots", () => {
     expect(resumeMode(live({ modeKind: "one-episode" }))).toEqual({ kind: "one-episode" });
     expect(resumeMode(live({ modeKind: "minutes", remainingMs: 20 * 60_000, totalSeconds: 75 * 60 }))).toEqual({ kind: "minutes", minutes: 75 });
     expect(resumeMode(live({ remainingMs: 20 * 60_000 }))).toEqual({ kind: "minutes", minutes: 45 });
+    // Its own timer length, not the total its extensions grew it to.
+    expect(resumeMode(live({ modeKind: "minutes", timerMinutes: 45, totalSeconds: 75 * 60 }))).toEqual({ kind: "minutes", minutes: 45 });
+    expect(nightTimerMinutes(live({ timerMinutes: 45, totalSeconds: 75 * 60 }))).toBe(45);
   });
+
+  it("revives with every per-night field the snapshot carries", () => {
+    const r = resumeFrom(live({ extensions: 2, wasVaried: true, ruleSpent: true, touches: 7 }));
+    expect(r).toMatchObject({ episode: ep, extensions: 2, ruleSpent: true, touches: 7, playedIds: [] });
+    expect(r).not.toHaveProperty("pool"); // the session's, one copy
+    expect(r).not.toHaveProperty("wasVaried");
+  });
+
 });
 
 describe("writes when storage is full", () => {
@@ -722,5 +732,46 @@ describe("timer range", () => {
     expect(clampTimerMinutes(1)).toBe(5);
     expect(clampTimerMinutes(45000)).toBe(480);
     expect(clampTimerMinutes(37.6)).toBe(38);
+  });
+});
+
+import { noteSounded, loadLastEpisode, unblockEpisode } from "./store";
+
+describe("the last episode (the exact one again)", () => {
+  const a = { id: "a", title: "A", url: "https://x/a.mp3", feedId: "f", date: "2024-01-01" } as any;
+  const z = { ...a, id: "z", title: "Z", url: "https://x/z.mp3" };
+  beforeEach(() => { localStorage.clear(); noteSounded(null, z); });
+  it("a new episode's first sound replaces an earlier night's pick", () => {
+    expect(noteSounded(null, a)?.id).toBe("a");
+    expect(loadLastEpisode()?.id).toBe("a");
+  });
+  it("the same episode (by id) isn't saved again", () => {
+    const saved = noteSounded(null, a);
+    noteSounded(null, z); // stands in for another write since
+    expect(noteSounded(saved, { ...a })).toBe(saved);
+    expect(loadLastEpisode()?.id).toBe("z");
+    expect(noteSounded(saved, null)).toBe(saved);
+  });
+  it("isn't offered once blocked, and is again once unblocked", () => {
+    noteSounded(null, a);
+    blockEpisode("a");
+    expect(loadLastEpisode()).toBeNull();
+    unblockEpisode("a");
+    expect(loadLastEpisode()?.id).toBe("a");
+  });
+  it("a failed save is tried once per episode, not on every sound", () => {
+    const spy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("full", "QuotaExceededError");
+    });
+    try {
+      const tried = noteSounded(z, a);
+      expect(tried?.id).toBe("a");
+      spy.mockClear();
+      expect(noteSounded(tried, a)).toBe(tried);
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+    expect(loadLastEpisode()?.id).toBe("z");
   });
 });

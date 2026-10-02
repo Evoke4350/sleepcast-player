@@ -7,22 +7,25 @@
 // The detector never saw the night finish, so there is no onset to report:
 // the ledger gets a detector:"none" night, which keeps the night count honest
 // without claiming a time-to-sleep.
-import { clearLive, isRevivable, saveLastNight, type LiveSession } from "../store";
+import { clearLive, isRevivable, nightTimerMinutes, saveLastNight, withCurrentPlayed, type LiveSession } from "../store";
 import { appendNight } from "./ledger";
 
 /** A snapshot younger than this may belong to a night still playing in
- *  another tab (snapshots are rewritten every ~10 s). Leave it alone: that
- *  night will record itself when it ends. */
+ *  another tab (snapshots are rewritten every SNAPSHOT_EVERY_TICKS ticks,
+ *  ~10 s in the foreground). Leave it alone: that night will record itself
+ *  when it ends. */
 export const SNAPSHOT_FRESH_MS = 30_000;
 
 export function reconcileLive(l: LiveSession, now: number): void {
   const elapsedMs = Math.max(0, l.totalSeconds * 1000 - Math.max(0, l.remainingMs));
-  const startedAt = l.nightStartedAt ?? l.savedAt - elapsedMs;
-  const timerMinutes = l.timerMinutes ?? Math.max(1, Math.round(l.totalSeconds / 60));
+  const timerMinutes = nightTimerMinutes(l);
   // As if it faded on schedule. A timerless night (one-episode, all-night)
   // snapshots no remaining time, so it ends where it was last seen alive.
   const endedAt = Math.min(now, l.savedAt + Math.max(0, l.remainingMs));
-  const playedIds = l.playedIds.includes(l.current.id) ? l.playedIds : [...l.playedIds, l.current.id];
+  // Never after its end: a clock stepped back since the snapshot leaves
+  // savedAt, and the start, in the future.
+  const startedAt = Math.min(l.nightStartedAt ?? l.savedAt - elapsedMs, endedAt);
+  const playedIds = withCurrentPlayed(l);
 
   saveLastNight({
     pool: l.pool,
@@ -32,7 +35,7 @@ export function reconcileLive(l: LiveSession, now: number): void {
     skipIntroByFeedId: l.skipIntroByFeedId,
     endedVia: "faded",
     endedAt,
-    wasVaried: false, // not snapshotted; only steers which lineup a re-anchor continues
+    wasVaried: l.wasVaried ?? false, // steers which lineup a re-anchor continues
   });
   appendNight({
     startedAt,
@@ -52,7 +55,11 @@ export function reconcileLive(l: LiveSession, now: number): void {
 export function settleLive(l: LiveSession | null, now: number): LiveSession | null {
   if (!l) return null;
   if (isRevivable(l, now)) return l;
-  if (now - l.savedAt < SNAPSHOT_FRESH_MS) return null;
+  // Saved in the future means the clock stepped back since: not another
+  // tab's live night (it shares this clock), so reconcile it now rather than
+  // leave it to be offered hours late.
+  const age = now - l.savedAt;
+  if (age >= 0 && age < SNAPSHOT_FRESH_MS) return null;
   reconcileLive(l, now);
   return null;
 }

@@ -7,6 +7,8 @@
 //
 // This is a separate, longer-lived map: episode id -> seconds.
 
+import { knownDuration } from "./duration";
+
 export type Positions = Record<string, number>;
 
 /** Below this, there is nothing worth resuming — you had barely started. */
@@ -25,7 +27,7 @@ export const POSITIONS_CAP = 300;
  */
 export function shouldRemember(positionSec: number, durationSec: number): boolean {
   if (!Number.isFinite(positionSec) || positionSec < MIN_POSITION_SEC) return false;
-  if (!Number.isFinite(durationSec) || durationSec <= 0) return true;
+  if (knownDuration(durationSec) === null) return true;
   return positionSec < durationSec - END_MARGIN_SEC;
 }
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { recordNightEnd, type NightEnd } from "./night-end";
-import { blockEpisode, unblockEpisode, saveLastEpisode, saveLive, loadLive, loadLastNight, loadLastEpisode, loadState, type LiveSession } from "./store";
+import { noteSounded, saveLive, loadLive, loadLastNight, loadLastEpisode, loadState, type LiveSession } from "./store";
 import { loadNights } from "./rest/ledger";
 import { RestSession } from "./rest/session";
 
@@ -13,7 +13,7 @@ const live: LiveSession = {
 const end = (over: Partial<NightEnd> = {}): NightEnd => ({
   reason: "faded", played: true, timerMinutes: 45, modeKind: "minutes",
   lastNight: { pool: [ep], playedIds: ["a"], feedTitles: {}, artworkByFeedId: {}, skipIntroByFeedId: {}, wasVaried: false },
-  lastHeard: ep, rest: new RestSession(1_000, 45), now: 5_000,
+  rest: new RestSession(1_000, 45), now: 5_000,
   ...over,
 });
 
@@ -24,7 +24,6 @@ describe("recordNightEnd", () => {
     recordNightEnd(end());
     expect(loadLive()).toBeNull();
     expect(loadLastNight()).toMatchObject({ endedVia: "faded", endedAt: 5_000 });
-    expect(loadLastEpisode()?.id).toBe("a");
     expect(loadNights()).toHaveLength(1);
     expect(loadState().settings.lastSession).not.toBeNull();
   });
@@ -36,10 +35,11 @@ describe("recordNightEnd", () => {
   });
 
   it("a never-played night the listener ends clears the snapshot and records nothing", () => {
+    noteSounded(null, older); // an earlier night's pick stands
     recordNightEnd(end({ played: false, reason: "ended" }));
     expect(loadLive()).toBeNull();
     expect(loadLastNight()).toBeNull();
-    expect(loadLastEpisode()).toBeNull();
+    expect(loadLastEpisode()?.id).toBe(older.id);
     expect(loadNights()).toHaveLength(0);
   });
 
@@ -49,32 +49,46 @@ describe("recordNightEnd", () => {
     expect(loadNights()).toHaveLength(0);
   });
 
+  it("a revived night ended before it sounded is recorded, with its own reason", () => {
+    recordNightEnd(end({ played: false, revivedFrom: 1, reason: "ended" }));
+    expect(loadLive()).toBeNull();
+    expect(loadNights()).toHaveLength(1);
+    expect(loadLastNight()?.endedVia).toBe("ended");
+  });
+
+  it("a revived night the app gives up on before it sounded keeps its snapshot", () => {
+    recordNightEnd(end({ played: false, revivedFrom: 1, reason: "ended", gaveUp: true }));
+    expect(loadLive()).not.toBeNull();
+    expect(loadNights()).toHaveLength(0);
+  });
+
+  it("a revived night whose snapshot another tab has already recorded records nothing", () => {
+    localStorage.clear();
+    recordNightEnd(end({ played: false, revivedFrom: 1, reason: "ended" }));
+    expect(loadNights()).toHaveLength(0);
+    expect(loadLastNight()).toBeNull();
+  });
+
+  it("a revived night whose snapshot another tab has replaced records nothing and leaves it", () => {
+    saveLive({ ...live, savedAt: 99 });
+    recordNightEnd(end({ played: false, revivedFrom: 1, reason: "ended" }));
+    expect(loadLive()?.savedAt).toBe(99);
+    expect(loadNights()).toHaveLength(0);
+  });
+
   it("gaveUp does not keep the snapshot of a night that played", () => {
     recordNightEnd(end({ gaveUp: true }));
     expect(loadLive()).toBeNull();
   });
 });
 
-describe("recordNightEnd last episode", () => {
-  // An older night's pick is already stored, so "nothing offered" below means
-  // it was actually replaced, not merely left unwritten.
-  beforeEach(() => { localStorage.clear(); saveLive(live); saveLastEpisode(older); });
-  it("saves the last episode heard tonight", () => {
+describe("the last episode", () => {
+  it("ending a night doesn't touch it (it is saved at first sound)", () => {
+    localStorage.clear();
+    noteSounded(null, older);
+    saveLive(live);
     recordNightEnd(end());
-    expect(loadLastEpisode()?.id).toBe(ep.id);
-  });
-  it("doesn't offer an episode blocked after it was heard", () => {
-    // Heard, then "never again", then the night ended before the next played.
-    blockEpisode(ep.id);
-    recordNightEnd(end());
-    expect(loadLastEpisode()).toBeNull();
-    expect(loadNights()).toHaveLength(1); // the night itself still counts
-  });
-  it("offers a blocked episode again once it is unblocked", () => {
-    recordNightEnd(end());
-    blockEpisode(ep.id);
-    expect(loadLastEpisode()).toBeNull();
-    unblockEpisode(ep.id);
-    expect(loadLastEpisode()?.id).toBe(ep.id);
+    expect(loadLastEpisode()?.id).toBe(older.id);
+    expect(loadNights()).toHaveLength(1);
   });
 });

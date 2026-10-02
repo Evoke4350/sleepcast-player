@@ -44,6 +44,11 @@ describe("reconcileLive", () => {
     expect(loadLastNight()?.playedIds).toEqual(["a", "b"]);
   });
 
+  it("keeps whether the night was a varied mix", () => {
+    reconcileLive(snap({ wasVaried: true }), T0 + 10 * 60 * 60_000);
+    expect(loadLastNight()?.wasVaried).toBe(true);
+  });
+
   it("clears the snapshot so the night is recorded once", () => {
     saveLive(snap());
     reconcileLive(snap(), T0 + 10 * 60 * 60_000);
@@ -95,6 +100,16 @@ describe("settleLive", () => {
     expect(settleLive(s, s.savedAt + SNAPSHOT_FRESH_MS - 1)).toBeNull();
     expect(loadNights()).toHaveLength(0);
     expect(loadLive()).not.toBeNull();
+  });
+
+  it("reconciles a snapshot saved in the future (the clock stepped back)", () => {
+    const s = snap();
+    saveLive(s);
+    expect(settleLive(s, s.savedAt - 60 * 60_000)).toBeNull();
+    expect(loadNights()).toHaveLength(1);
+    // Its start is never after its end (now, here).
+    expect(loadNights()[0].startedAt).toBeLessThanOrEqual(loadLastNight()!.endedAt);
+    expect(loadLive()).toBeNull();
   });
 
   it("does nothing without a snapshot", () => {

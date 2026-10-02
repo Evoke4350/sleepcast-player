@@ -1,5 +1,7 @@
 import type { MediaBackend, Transport, ErrorInfo } from "./backend";
+import { DurationLatch } from "../duration";
 import { SeekEnforcer } from "../seek-enforcer";
+import { mediaTransport } from "./transport";
 
 /**
  * An <audio> element behind the backend interface.
@@ -14,17 +16,27 @@ export class AudioBackend implements MediaBackend {
   private dead = false;
   /** The start seek being enforced, torn down before the next load: one that
    *  outlived its episode would seek the NEXT one to this one's position. */
-  private seek: SeekEnforcer | null = null;
+  private startSeek: SeekEnforcer | null = null;
   private detach: Array<() => void> = [];
+  /** The episode's length, kept through a reload of the same episode (a
+   *  retry, the network hold's resume), whose element reads NaN until its
+   *  metadata: without it a fade in progress jumped back to full. Reset for
+   *  a new episode, as Player resets its own per playEpisode; Infinity (a
+   *  stream) forgets it. */
+  private readonly latch = new DurationLatch();
+  private loadedRef: string | null = null;
   /** A rejected play() is not a DOM event, so it cannot ride the "error"
    *  listener subscribe() sets up. These are called directly instead. */
   private errorCallbacks = new Set<(code: number | string, info: ErrorInfo) => void>();
 
   constructor(private readonly el: HTMLAudioElement) {}
 
-  load(ref: string, startSeconds = 0): void {
+  load(ref: string, startSeconds = 0, reload = false): void {
     if (this.dead) return;
     this.dropSeek();
+    // Kept only for a reload of what is loaded (the caller's word checked).
+    if (!reload || ref !== this.loadedRef) this.latch.reset();
+    this.loadedRef = ref;
 
     this.el.src = ref;
 
@@ -32,9 +44,9 @@ export class AudioBackend implements MediaBackend {
     // starts (see SeekEnforcer). Cancelling a finished one is a no-op.
     if (startSeconds > 0) {
       const seek = new SeekEnforcer(this.el, startSeconds, {}, () => {
-        if (this.seek === seek) this.seek = null;
-      });
-      this.seek = seek;
+        if (this.startSeek === seek) this.startSeek = null;
+      }, { duration: () => this.latch.read(this.el.duration) });
+      this.startSeek = seek;
     }
 
     void this.el.play().catch((err: unknown) => this.reportPlayFailure(err));
@@ -51,7 +63,7 @@ export class AudioBackend implements MediaBackend {
   }
 
   seeking(): boolean {
-    return this.seek !== null;
+    return this.startSeek !== null;
   }
 
   standDown(): void {
@@ -60,8 +72,8 @@ export class AudioBackend implements MediaBackend {
   }
 
   private dropSeek(): void {
-    this.seek?.cancel();
-    this.seek = null;
+    this.startSeek?.cancel();
+    this.startSeek = null;
   }
 
   setVolume(level: number): void {
@@ -74,12 +86,12 @@ export class AudioBackend implements MediaBackend {
   }
 
   duration(): number {
-    return Number.isFinite(this.el.duration) && this.el.duration > 0 ? this.el.duration : 0;
+    return this.latch.read(this.el.duration) ?? 0;
   }
 
   transport(): Transport {
     if (this.dead) return "dead";
-    return this.el.paused ? "paused" : "playing";
+    return mediaTransport(this.el);
   }
 
   onProgress(cb: () => void): () => void {
@@ -107,6 +119,9 @@ export class AudioBackend implements MediaBackend {
     this.errorCallbacks.clear();
     this.el.pause();
     this.el.removeAttribute("src");
+    // Removing src alone keeps the resource, its buffer and connection;
+    // load() with no src releases them (as Player's endSession does).
+    this.el.load();
   }
 
   private subscribe(type: string, cb: () => void): () => void {

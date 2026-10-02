@@ -21,8 +21,10 @@ export interface ErrorInfo {
 
 export interface MediaBackend {
   /** An enclosure URL for audio, a videoId for YouTube. The orchestrator picks
-   *  the backend from episode.youtubeId and never inspects this again. */
-  load(ref: string, startSeconds?: number): void;
+   *  the backend from episode.youtubeId and never inspects this again.
+   *  `reload`: the same episode again (a retry, a resume after a network
+   *  hold), so what is known about it (its length) is kept. */
+  load(ref: string, startSeconds?: number, reload?: boolean): void;
   play(): void;
   pause(): void;
   /** Another backend is taking over: pause, and drop any work still pending

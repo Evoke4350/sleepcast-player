@@ -7,6 +7,7 @@
 // "played" with this, so the rule can't drift between them.
 
 import type { Transport } from "./media/backend";
+import { spanOf } from "./duration";
 
 /**
  * Whether going from `prevPos` (seen at `prevAt`) to
@@ -47,6 +48,9 @@ export class PlaybackWitness {
   // See decideAfterEnded.
   private heardEp = false;
   private replayedEp = false;
+  // Per episode too: whether it has made a sound in this page, which a
+  // saved position (heardBefore) doesn't say.
+  private soundedEp = false;
   // Whether it had been heard when the current load began. Rules that must
   // decide before this load's own first second counts (see shouldPlayWhole)
   // read this rather than the live `heard`.
@@ -58,6 +62,7 @@ export class PlaybackWitness {
   newEpisode(startSec: number, now: number, heardBefore = false): void {
     this.heardEp = heardBefore;
     this.replayedEp = false;
+    this.soundedEp = false;
     this.reset(startSec, now);
   }
 
@@ -85,6 +90,7 @@ export class PlaybackWitness {
   markPlayed(): void {
     this.seen = true;
     this.heardEp = true;
+    this.soundedEp = true;
   }
 
   /** It is about to be replayed from 0 after ending unheard. */
@@ -92,7 +98,8 @@ export class PlaybackWitness {
     this.replayedEp = true;
   }
 
-  /** Witnessed playing since the last (re)load: the snapshot gate. */
+  /** Witnessed playing since the last (re)load: the periodic snapshot's and
+   *  resume points' gate. */
   get played(): boolean {
     return this.seen;
   }
@@ -100,6 +107,12 @@ export class PlaybackWitness {
   /** Heard at any point in this episode (across reloads). */
   get heard(): boolean {
     return this.heardEp;
+  }
+
+  /** Made a sound in this page, in any load of this episode (not merely
+   *  resumed from a saved position): the toggle's rule (tapPauses). */
+  get sounded(): boolean {
+    return this.soundedEp;
   }
 
   get replayed(): boolean {
@@ -117,6 +130,28 @@ export class PlaybackWitness {
    *  before it played may not be its own. */
   resumeAt(currentTime: number): number {
     return this.seen ? Math.max(this.start, currentTime) : this.start;
+  }
+
+  /** Where the bar shows the episode: where this load was meant to start
+   *  until it has played and its start seek (startPending) is done, the
+   *  element reading ~0 or wherever the seek left it till then; after, the
+   *  reading, a listener's seek back before the start included (unlike
+   *  resumeAt). */
+  shownAt(currentTime: number, startPending: boolean): number {
+    return this.seen && !startPending ? currentTime : this.start;
+  }
+
+  /** The episode's span for the bar and the fade (Night, YouTubeNight): a
+   *  known length, and shownAt's position kept within it. */
+  shownSpan(currentTime: number, startPending: boolean, duration: number): { pos: number; dur: number } | null {
+    return spanOf(this.shownAt(currentTime, startPending), duration);
+  }
+
+  /** Where a snapshot records the episode: resumeAt once it has been heard,
+   *  else 0, not the skip-intro start it was loaded at, which a revive would
+   *  take for a saved position (listening). */
+  snapshotAt(currentTime: number): number {
+    return this.heardEp ? this.resumeAt(currentTime) : 0;
   }
 
   /** Where the current load was asked to start. */
@@ -137,4 +172,15 @@ export class PlaybackWitness {
  */
 export function rearmsWatchdogOnTap(played: boolean, transport: Transport): boolean {
   return !played && transport !== "buffering";
+}
+
+/**
+ * Whether the toggle's tap pauses (Night, YouTubeNight): what is playing, or
+ * buffering once the episode has made a sound in this page (a stall
+ * mid-episode, a reload after one included: the listener wants it stopped,
+ * not asked for again). Otherwise, a revived episode's first load included,
+ * the tap asks for sound, the gesture a start needs.
+ */
+export function tapPauses(transport: Transport, sounded: boolean): boolean {
+  return transport === "playing" || (transport === "buffering" && sounded);
 }

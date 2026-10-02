@@ -285,19 +285,81 @@ export interface LiveSession {
   modeKind?: PlayMode["kind"];
   /** Transport touches before the snapshot, carried into a revived session. */
   interactions?: number;
+  /** Player only (the quarter-hour rule's input): the same, unmerged
+   *  (wakefulness counts every touch), and whether the rule was spent. */
+  touches?: number;
+  ruleSpent?: boolean;
+  /** Timer extensions used (capped per night, reloads included). */
+  extensions?: number;
+  /** Whether the night was a varied mix (lastNight, and the re-anchor's
+   *  follow-on night, carry it). */
+  wasVaried?: boolean;
+}
+
+/** What a revived night resumes from: the snapshot, as the players take it.
+ *  Derived from LiveSession (see resumeFrom), so a per-night field added
+ *  there can't be dropped on the way. */
+export type ResumeDescriptor = ResumeFields & { episode: Episode };
+/** The snapshot's fields a revived night takes through `resume`. */
+type ResumeFields = Omit<LiveSession, "current" | NightSessionField>;
+
+/** Snapshot fields a revived night takes through its session and mode (the
+ *  pool, the feeds' settings, the mix, the timer and the mode), not through
+ *  `resume`: one copy of each. One list, for the type and for resumeFrom. */
+const NIGHT_SESSION_FIELDS = [
+  "pool", "skipIntroByFeedId", "feedTitles", "artworkByFeedId", "wasVaried", "timerMinutes", "modeKind",
+] as const satisfies readonly (keyof LiveSession)[];
+type NightSessionField = (typeof NIGHT_SESSION_FIELDS)[number];
+
+/** The snapshot as a ResumeDescriptor: all of it but the session's fields,
+ *  the playing episode as `episode`. */
+export function resumeFrom(l: LiveSession): ResumeDescriptor {
+  const sessionField = new Set<string>(NIGHT_SESSION_FIELDS);
+  const fields = Object.fromEntries(
+    Object.entries(l).filter(([k]) => k !== "current" && !sessionField.has(k)),
+  ) as ResumeFields;
+  return { ...fields, episode: l.current, playedIds: l.playedIds ?? [] };
+}
+
+/** The night's own timer length: the snapshot's, else estimated from its
+ *  total (which includes extensions) for a snapshot from before it was kept. */
+export function nightTimerMinutes(l: LiveSession): number {
+  return l.timerMinutes ?? Math.max(1, Math.round(l.totalSeconds / 60));
 }
 
 const LIVE_POOL_CAP = 80;
 
-export function saveLive(s: LiveSession): void {
+/** A snapshot's played episodes, the current one included. */
+export function withCurrentPlayed(l: Pick<LiveSession, "playedIds" | "current">): string[] {
+  const ids = l.playedIds ?? []; // an older snapshot may lack it
+  return ids.includes(l.current.id) ? ids : [...ids, l.current.id];
+}
+
+/** The periodic counter after the snapshot taken at an episode's start
+ *  (a kill while it loads must not revive the last one, one just blocked,
+ *  say): written, it stands for the first periodic one; not (a fresh
+ *  night's first episode), the periodic one lands as soon as it plays. */
+export function counterAfterStartSnapshot(wrote: boolean): number {
+  return wrote ? 0 : SNAPSHOT_EVERY_TICKS;
+}
+
+/** Snapshots are written every this many ticks while an episode plays
+ *  (about every 10 s in the foreground; see SNAPSHOT_FRESH_MS). */
+export const SNAPSHOT_EVERY_TICKS = 10;
+
+/** Whether it was written. */
+export function saveLive(s: LiveSession): boolean {
   // Keep the current episode plus a bounded remainder — enough to keep the
   // shuffle going after a resume without serialising thousands of episodes.
   const rest = s.pool.filter((e) => e.id !== s.current.id).slice(0, LIVE_POOL_CAP - 1);
-  const bounded: LiveSession = { ...s, pool: [s.current, ...rest] };
+  // The current episode counts as played (a guard for any writer, and for
+  // snapshots from before the players added it at once).
+  const bounded: LiveSession = { ...s, playedIds: withCurrentPlayed(s), pool: [s.current, ...rest] };
   try {
-    writeMakingRoom(KEY_LIVE, JSON.stringify(bounded));
+    return writeMakingRoom(KEY_LIVE, JSON.stringify(bounded));
   } catch {
     // Quota or private mode: a lost resume is not worth throwing over.
+    return false;
   }
 }
 
@@ -348,12 +410,27 @@ export function clearLive(): void {
 // ---------------------------------------------------------------------------
 const KEY_LASTEP = "sleepcast2.lastep";
 
-export function saveLastEpisode(ep: Episode): void {
+/** Written only through noteSounded's rule. */
+function saveLastEpisode(ep: Episode): void {
   try {
     writeMakingRoom(KEY_LASTEP, JSON.stringify(ep));
   } catch {
     /* ignore */
   }
+}
+
+/** An episode has just made a sound: saved as "the exact one again" when
+ *  it is another episode than `last` (the one saved before, by id), at the
+ *  moment it first sounds, so a killed tab or a revived night that never
+ *  sounds again still offers it. Not simply the current one at a night's
+ *  end: a night that ends on a run of failures would offer one that never
+ *  played. Returns the episode it was tried for, for the caller to pass back. */
+export function noteSounded(last: Episode | null, ep: Episode | null): Episode | null {
+  if (!ep || last?.id === ep.id) return last;
+  // One attempt per episode: a write that fails (storage full of what
+  // can't be evicted) isn't retried on every sound (Night's tick is 1 Hz).
+  saveLastEpisode(ep);
+  return ep;
 }
 
 /** Never one the listener has since said "never again" to: the lead path
@@ -772,7 +849,7 @@ export function recordSessionEnd(
  *  timed night of its original length (remainingMs carries the time left). */
 export function resumeMode(l: LiveSession): PlayMode {
   if (l.modeKind === "one-episode" || l.modeKind === "all-night") return { kind: l.modeKind };
-  return { kind: "minutes", minutes: Math.max(1, Math.round(l.totalSeconds / 60)) };
+  return { kind: "minutes", minutes: nightTimerMinutes(l) };
 }
 
 /**

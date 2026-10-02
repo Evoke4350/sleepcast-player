@@ -9,27 +9,45 @@ const CACHE_KEY = "sleepcast2.titlevecs"; // { [hash]: number[] } quantized int8
 const CACHE_CAP = 6000; // vectors; ~1.5MB at int8
 
 let extractor: Promise<FeatureExtractionPipeline> | null = null;
+/** The download under way, if any: who hears its progress, the latest
+ *  waiting caller (not the first, whose screen may be gone). Each download
+ *  has its own slot, so an abandoned one can't reach a later caller, and
+ *  the slot is emptied when it settles, so no caller's closure is held
+ *  after. A listener never throws into the download. */
+let downloading: { listener?: (pct: number) => void } | null = null;
 
 function getExtractor(onDownload?: (pct: number) => void) {
   if (!extractor) {
+    const slot: { listener?: (pct: number) => void } = { listener: onDownload };
     extractor = pipeline("feature-extraction", MODEL_ID, {
       dtype: "q8",
       progress_callback: (e) => {
         const p = e as { status?: string; progress?: number };
         if (p.status === "progress" && typeof p.progress === "number") {
-          onDownload?.(Math.round(p.progress));
+          try {
+            slot.listener?.(Math.round(p.progress));
+          } catch { /* a listener's problem must not abort the shared download */ }
         }
       },
     }).catch((e: unknown) => {
       extractor = null; // a transient failure must not brick the feature until reload
       throw e;
+    }).finally(() => {
+      slot.listener = undefined;
+      if (downloading === slot) downloading = null;
     });
+    // Only once the chain that empties it is attached (a pipeline() that
+    // threw at once would otherwise leave the listener held).
+    downloading = slot;
+  } else if (downloading) {
+    downloading.listener = onDownload;
   }
   return extractor;
 }
 
+/** Whether the model is loaded (not merely downloading). */
 export function isModelWarm(): boolean {
-  return extractor !== null;
+  return extractor !== null && downloading === null;
 }
 
 // djb2 — good enough to key title strings.
@@ -66,8 +84,16 @@ const dequant = (q: number[]) => Float32Array.from(q, (x) => x / 127);
 export async function embedTexts(
   texts: string[],
   onProgress?: (done: number, total: number) => void,
-  onModelProgress?: (pct: number) => void
+  onModelProgress?: (pct: number) => void,
+  /** Aborted, the embedding stops (it throws): before a model download is
+   *  started for it, and between titles. A download already under way goes
+   *  on, to be cached. */
+  signal?: AbortSignal,
 ): Promise<Float32Array[]> {
+  // (signal.aborted, not throwIfAborted: that isn't in Safari before 15.4.)
+  const stopIfAborted = () => {
+    if (signal?.aborted) throw new Error("embedding cancelled");
+  };
   const cache = loadCache();
   const out: (Float32Array | null)[] = texts.map((t) => {
     const hit = cache[hash(t)];
@@ -75,9 +101,11 @@ export async function embedTexts(
   });
   const missing = out.flatMap((v, i) => (v === null ? [i] : []));
   if (missing.length) {
+    stopIfAborted();
     const pipe = await getExtractor(onModelProgress);
     let done = 0;
     for (const i of missing) {
+      stopIfAborted();
       const res = await pipe(texts[i], { pooling: "mean", normalize: true });
       const vec = new Float32Array(res.data as Float32Array);
       out[i] = vec;

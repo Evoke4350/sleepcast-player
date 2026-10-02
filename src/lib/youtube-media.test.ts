@@ -4,7 +4,7 @@ import { YouTubeMedia, SWITCH_GUARD_MAX_MS, type YTPlayerLike, type CreatePlayer
 /** A stand-in for YT.Player that records calls and lets a test decide when
  *  onReady fires — which is the whole point, since the real one is not usable
  *  the moment it is constructed. */
-function fakePlayer(opts: { reportsId?: boolean } = {}) {
+function fakePlayer(opts: { reportsId?: boolean; live?: boolean } = {}) {
   const calls: string[] = [];
   let args: CreatePlayerArgs | null = null;
   let created = 0;
@@ -23,7 +23,7 @@ function fakePlayer(opts: { reportsId?: boolean } = {}) {
     getDuration: () => 7200,
     loadVideoById: (id, start) => void calls.push(`load:${id}@${start ?? 0}`),
     destroy: () => void calls.push("destroy"),
-    ...(opts.reportsId ? { getVideoData: () => ({ video_id: shownId }) } : {}),
+    ...(opts.reportsId || opts.live ? { getVideoData: () => ({ video_id: shownId, ...(opts.live ? { isLive: true } : {}) }) } : {}),
   };
 
   return {
@@ -135,6 +135,14 @@ describe("reading the clock", () => {
     f.ready();
     expect(media.currentTime()).toBe(42.5);
     expect(media.duration()).toBe(7200);
+  });
+
+  test("a live stream has no length (its duration is the time streamed so far)", () => {
+    const f = fakePlayer({ live: true });
+    const media = new YouTubeMedia(f.create);
+    media.load("A");
+    f.ready();
+    expect(media.duration()).toBe(0);
   });
 });
 

@@ -142,6 +142,11 @@ describe("isPrivateIp: addresses that reach this machine or non-public networks"
     "ff02::1",                // multicast
     "64:ff9b::a00:1",         // NAT64 prefix mapping 10.0.0.1
     "64:ff9b:1::1",           // local-use NAT64 prefix
+    "::ffff:0:7f00:1",        // IPv4-translated loopback
+    "::ffff:0:10.0.0.1",      // IPv4-translated private
+    "2002:7f00:1::",          // 6to4 of 127.0.0.1
+    "2002:c0a8:101::1",       // 6to4 of 192.168.1.1
+    "2001:0:4136:e378::1",    // Teredo
     "224.0.0.1",              // IPv4 multicast
     "240.0.0.1",              // reserved
     "255.255.255.255",        // broadcast
@@ -151,7 +156,7 @@ describe("isPrivateIp: addresses that reach this machine or non-public networks"
     expect(isPrivateIp(ip)).toBe(true);
   });
 
-  it.each(["2606:4700::6810:84e5", "8.8.8.8", "::ffff:8.8.8.8", "2001:4860:4860::8888"])("allows public %s", (ip) => {
+  it.each(["2606:4700::6810:84e5", "8.8.8.8", "::ffff:8.8.8.8", "2001:4860:4860::8888", "2002:808:808::1"])("allows public %s", (ip) => {
     expect(isPrivateIp(ip)).toBe(false);
   });
 });

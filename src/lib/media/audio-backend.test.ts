@@ -6,12 +6,16 @@ import { AudioBackend } from "./audio-backend";
 function fakeAudio() {
   const listeners = new Map<string, Set<EventListener>>();
   let nextPlayResult: (() => Promise<void>) | null = null;
+  let src = "";
   const el = {
-    src: "",
+    // A new src resets the element to HAVE_NOTHING, as a real one does.
+    get src() { return src; },
+    set src(v: string) { src = v; (el as unknown as { readyState: number }).readyState = 0; },
     currentTime: 0,
     duration: 0,
     volume: 1,
     paused: true,
+    seeking: false,
     // HAVE_NOTHING until "loadedmetadata" is fired, as after a new src.
     readyState: 0,
     play: vi.fn(() => {
@@ -20,6 +24,7 @@ function fakeAudio() {
       return result ? result() : Promise.resolve();
     }),
     pause: vi.fn(),
+    load: vi.fn(),
     removeAttribute: vi.fn(),
     addEventListener: (t: string, cb: EventListener) => {
       if (!listeners.has(t)) listeners.set(t, new Set());
@@ -85,6 +90,27 @@ describe("driving an audio element through the backend interface", () => {
     expect(el.volume).toBe(0);
   });
 
+  it("keeps an episode's length through a reload of it, not into another episode", () => {
+    const { el } = fakeAudio();
+    const b = new AudioBackend(el);
+    b.load("https://x.test/a.mp3");
+    (el as { duration: number }).duration = 600;
+    expect(b.duration()).toBe(600);
+    b.load("https://x.test/a.mp3", 300, true); // a retry: NaN until its metadata
+    (el as { duration: number }).duration = NaN;
+    expect(b.duration()).toBe(600);
+    b.load("https://x.test/c.mp3", 0, true); // a "reload" of another source
+    (el as { duration: number }).duration = NaN;
+    expect(b.duration()).toBe(0);
+    (el as { duration: number }).duration = 600;
+    expect(b.duration()).toBe(600);
+    b.load("https://x.test/a.mp3"); // a new episode, even at the same URL
+    (el as { duration: number }).duration = NaN;
+    expect(b.duration()).toBe(0);
+    (el as { duration: number }).duration = Infinity; // a stream
+    expect(b.duration()).toBe(0);
+  });
+
   it("reports position and duration, and never NaN", () => {
     const { el } = fakeAudio();
     const b = new AudioBackend(el);
@@ -99,6 +125,9 @@ describe("driving an audio element through the backend interface", () => {
     const b = new AudioBackend(el);
     expect(b.transport()).toBe("paused");
     (el as { paused: boolean }).paused = false;
+    // Asked to play, but no data ahead yet: buffering, not playing.
+    expect(b.transport()).toBe("buffering");
+    (el as { readyState: number }).readyState = 4;
     expect(b.transport()).toBe("playing");
   });
 
@@ -150,6 +179,8 @@ describe("driving an audio element through the backend interface", () => {
     expect(cb).not.toHaveBeenCalled();
     b.play();
     expect(el.play).not.toHaveBeenCalled();
+    // The resource, its buffer and connection released, not just src removed.
+    expect(el.load).toHaveBeenCalled();
   });
 
   it("destroy is idempotent", () => {

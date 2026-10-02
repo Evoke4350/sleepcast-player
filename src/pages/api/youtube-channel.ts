@@ -1,6 +1,7 @@
 import type { APIRoute } from "astro";
 import { youtubeHandleUrl, channelIdFromHtml } from "../../lib/youtube-resolve";
 import { rateLimit, clientIp } from "../../lib/ratelimit";
+import { readCapped } from "../../lib/relay-guard";
 
 // Resolve a YouTube @handle to a channel id.
 //
@@ -97,32 +98,14 @@ export const GET: APIRoute = async ({ url, request }) => {
 
   // Read with a ceiling rather than resp.text(): an unbounded body on a 512MB
   // machine is a denial of service with extra steps.
-  const reader = resp.body?.getReader();
-  if (!reader) return json({ error: "empty response" }, 502);
-  const chunks: Uint8Array[] = [];
-  let total = 0;
+  let body: ArrayBuffer | null;
   try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      total += value.byteLength;
-      if (total > MAX_BYTES) {
-        await reader.cancel();
-        return json({ error: "channel page too large" }, 502);
-      }
-      chunks.push(value);
-    }
+    body = await readCapped(resp, MAX_BYTES);
   } catch {
     return json({ error: "couldn't read the channel page" }, 502);
   }
-
-  const merged = new Uint8Array(total);
-  let offset = 0;
-  for (const c of chunks) {
-    merged.set(c, offset);
-    offset += c.byteLength;
-  }
-  const id = channelIdFromHtml(new TextDecoder("utf-8", { fatal: false }).decode(merged));
+  if (body === null) return json({ error: "channel page too large" }, 502);
+  const id = channelIdFromHtml(new TextDecoder("utf-8", { fatal: false }).decode(body));
   if (!id) return json({ error: "no channel id on that page" }, 404);
 
   remember(key, id);

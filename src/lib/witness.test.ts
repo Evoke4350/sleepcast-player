@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { isPlaybackStep, PlaybackWitness, rearmsWatchdogOnTap } from "./witness";
+import { isPlaybackStep, PlaybackWitness, rearmsWatchdogOnTap, tapPauses } from "./witness";
 
 describe("isPlaybackStep", () => {
   test("a second of playback over a second counts", () => {
@@ -125,6 +125,54 @@ describe("PlaybackWitness.resumeAt", () => {
     w.markPlayed();
     expect(w.resumeAt(900)).toBe(900);
     expect(w.resumeAt(0)).toBe(180); // a failed element reading 0
+  });
+});
+
+describe("PlaybackWitness.snapshotAt", () => {
+  test("0 for an episode never heard (not its skip-intro start); resumeAt once heard", () => {
+    const w = new PlaybackWitness();
+    w.newEpisode(120, 0); // loaded at a skip-intro start
+    expect(w.snapshotAt(0)).toBe(0);
+    w.newEpisode(1800, 0, true); // a saved position: heard
+    expect(w.snapshotAt(0)).toBe(1800);
+    w.markPlayed();
+    expect(w.snapshotAt(1900)).toBe(1900);
+  });
+});
+
+describe("PlaybackWitness.shownAt", () => {
+  test("the load's start until it has played and its start seek is done, then the reading", () => {
+    const w = new PlaybackWitness();
+    w.newEpisode(1800, 0);
+    expect(w.shownAt(0, true)).toBe(1800);
+    w.markPlayed();
+    expect(w.shownAt(0.9, true)).toBe(1800); // played from 0 while the start seek retries
+    expect(w.shownAt(1805, false)).toBe(1805);
+    expect(w.shownAt(600, false)).toBe(600); // a listener's seek back before the start
+    expect(w.shownSpan(600, false, 3600)).toEqual({ pos: 600, dur: 3600 });
+    expect(w.shownSpan(600, false, 0)).toBeNull();
+  });
+});
+
+describe("tapPauses", () => {
+  test("pauses what plays, or stalls once heard; otherwise asks for sound", () => {
+    expect(tapPauses("playing", false)).toBe(true);
+    expect(tapPauses("buffering", true)).toBe(true);
+    expect(tapPauses("buffering", false)).toBe(false);
+    expect(tapPauses("paused", true)).toBe(false);
+    expect(tapPauses("awaiting-start", false)).toBe(false);
+  });
+
+  test("a saved position is heard, not sounded: its first load's tap asks for sound", () => {
+    const w = new PlaybackWitness();
+    w.newEpisode(1800, 0, true);
+    expect(w.heard).toBe(true);
+    expect(w.sounded).toBe(false);
+    w.markPlayed();
+    w.reset(1800, 10); // a reload after a stall keeps it
+    expect(w.sounded).toBe(true);
+    w.newEpisode(0, 20);
+    expect(w.sounded).toBe(false);
   });
 });
 

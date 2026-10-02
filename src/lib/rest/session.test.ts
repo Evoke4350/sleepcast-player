@@ -1,13 +1,13 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { RestSession, revivedNightStart } from "./session";
+import { INTERACTION_MERGE_MS, RestSession, revivedNightStart } from "./session";
 
 describe("RestSession", () => {
   beforeEach(() => localStorage.clear());
 
   it("records onset + time-to-sleep after a quiet run, counts interactions", () => {
     const s = new RestSession(1000, 60);
-    s.noteInteraction();
-    s.noteInteraction();
+    s.noteInteraction(1000);
+    s.noteInteraction(60_000);
     for (let i = 0; i < 40; i++) s.tick({ interacted: false, hidden: true, fadingOrDone: i >= 34, now: 1000 + i * 15000 });
     const night = s.finish("faded", 1000 + 60 * 60000);
     expect(night.interactions).toBe(2);
@@ -17,7 +17,7 @@ describe("RestSession", () => {
 
   it("no onset on a fully-interactive night → sleptAtMs null, detector none", () => {
     const s = new RestSession(1000, 60);
-    for (let i = 0; i < 60; i++) { s.noteInteraction(); s.tick({ interacted: true, hidden: false, fadingOrDone: false, now: 1000 + i * 15000 }); }
+    for (let i = 0; i < 60; i++) { s.noteInteraction(1000 + i * 15000); s.tick({ interacted: true, hidden: false, fadingOrDone: false, now: 1000 + i * 15000 }); }
     const night = s.finish("ended", 1000 + 60 * 60000);
     expect(night.sleptAtMs).toBeNull();
     expect(night.detector).toBe("none");
@@ -205,6 +205,28 @@ describe("revivedNightStart", () => {
   });
 });
 
+describe("RestSession interaction bursts", () => {
+  it("a burst counts once, however long it runs, but keeps the listener active", () => {
+    const s = new RestSession(0, 45);
+    const step = INTERACTION_MERGE_MS / 4;
+    const end = 10_000 + 3 * INTERACTION_MERGE_MS; // longer than one window
+    for (let t = 10_000; t <= end; t += step) s.noteInteraction(t); // one drag
+    expect(s.interactionCount).toBe(1);
+    // Wakefulness counts every touch: a long restless stretch is not one.
+    expect(s.wakefulness(end)).toEqual({ interactions: 13, msSinceLastInteraction: 0 });
+    s.noteInteraction(end + INTERACTION_MERGE_MS); // exactly the window apart: new
+    expect(s.interactionCount).toBe(2);
+  });
+
+  it("a clock stepped back starts a new burst", () => {
+    const s = new RestSession(0, 45);
+    s.noteInteraction(100_000);
+    s.noteInteraction(50_000);
+    expect(s.interactionCount).toBe(2);
+    expect(s.wakefulness(50_000).msSinceLastInteraction).toBe(0);
+  });
+});
+
 describe("RestSession interactions across a reload", () => {
   it("seeds the count from before the reload", () => {
     const s = new RestSession(0, 45);
@@ -212,6 +234,11 @@ describe("RestSession interactions across a reload", () => {
     s.noteInteraction(1000);
     expect(s.interactionCount).toBe(9);
     expect(s.finish("faded", 2000).interactions).toBe(9);
+    expect(s.wakefulness(2000).interactions).toBe(9);
+    const t = new RestSession(0, 45);
+    t.seedInteractions(1, 5); // one merged burst of five touches
+    expect(t.interactionCount).toBe(1);
+    expect(t.wakefulness(0).interactions).toBe(5);
   });
 
   it("ignores nonsense", () => {
