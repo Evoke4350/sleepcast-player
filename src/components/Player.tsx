@@ -205,9 +205,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   const [holdPct, setHoldPct] = useState(0);
   const [drifting, setDrifting] = useState(false);
   // Stretches used this night (see useNightExtensions), kept across a revive.
-  const { canExtendMore, extend, extensionsRef } = useNightExtensions(resume?.extensions ?? 0, persistLive, {
+  const { canExtendMore, extendTimer, extensionsRef } = useNightExtensions(resume?.extensions ?? 0, persistLive, {
     endTimeRef, pausedRemainingMsRef, totalSecondsRef, setTotalSeconds,
-  });
+  }, { noteTouch: () => restRef.current?.noteInteraction(), say: (m) => showToast(m) });
   const [blockedTonight, setBlockedTonight] = useState<ReadonlySet<string>>(new Set());
   // The quarter-hour rule has fired and playback is held. Once dismissed it
   // does not fire again for the rest of the night.
@@ -1223,12 +1223,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // steps come faster than "seeked".
     syncLockScreen(true);
     return true;
-  }
-
-  function extendTimer(minutes: number) {
-    restRef.current?.noteInteraction(); // a touch, stretch left or not
-    const said = extend(minutes);
-    if (said !== null) showToast(said);
   }
 
   // End must survive 2am thumbs: press and hold for a full second, a ring

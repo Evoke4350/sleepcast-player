@@ -202,9 +202,9 @@ export function YouTubeNight({
   const [epPos, setEpPos] = useState<{ cur: number; dur: number } | null>(null);
   const [toast, setToast] = useState("");
   const [holdPct, setHoldPct] = useState(0);
-  const { canExtendMore, extend, extensionsRef } = useNightExtensions(resume?.extensions ?? 0, persistLive, {
+  const { canExtendMore, extendTimer, extensionsRef } = useNightExtensions(resume?.extensions ?? 0, persistLive, {
     endTimeRef, pausedRemainingMsRef, totalSecondsRef, setTotalSeconds,
-  });
+  }, { noteTouch: () => restRef.current?.noteInteraction(), say: (m) => flash(m) });
   // null until the request settles. false means the browser refused, and the
   // listener needs to know: without it the screen sleeps and a YouTube night
   // simply stops, silently, which is the failure this whole file guards.
@@ -861,12 +861,6 @@ export function YouTubeNight({
     // is ended by the listener, not the app giving up (see playNext's
     // byListener and recordNightEnd).
     skipDead(ep, "never again", true, true);
-  }
-
-  function extendTimer(minutes: number) {
-    restRef.current?.noteInteraction(); // a touch, stretch left or not
-    const said = extend(minutes);
-    if (said !== null) flash(said);
   }
 
   function holdEndStart() {

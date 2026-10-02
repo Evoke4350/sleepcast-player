@@ -16,7 +16,14 @@ export interface NightClock {
  *  is snapshotted at once (`persist`), in the tap itself:
  *  paused and backgrounded, the next periodic snapshot may never come, and a
  *  revive would lose the stretch and reset the cap. */
-export function useNightExtensions(initial: number, persist: () => void, clock: NightClock) {
+export function useNightExtensions(
+  initial: number,
+  persist: () => void,
+  clock: NightClock,
+  /** A tap on the stretch button: noted as a touch (stretch left or not),
+   *  and what the stretch says shown. */
+  tap: { noteTouch: () => void; say: (message: string) => void },
+) {
   const [extensions, extensionsRef, setExtensions] = useStateRef(initial);
 
   /** Stretch the night by `minutes` (the time left, frozen or running, and
@@ -36,5 +43,12 @@ export function useNightExtensions(initial: number, persist: () => void, clock: 
     return canExtend(used) ? "a little longer — sleep when you're ready" : "that's the last stretch. resting counts too.";
   }
 
-  return { canExtendMore: canExtend(extensions), extend, extensionsRef };
+  /** The stretch button's tap. */
+  function extendTimer(minutes: number) {
+    tap.noteTouch();
+    const said = extend(minutes);
+    if (said !== null) tap.say(said);
+  }
+
+  return { canExtendMore: canExtend(extensions), extendTimer, extensionsRef };
 }

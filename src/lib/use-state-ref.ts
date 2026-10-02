@@ -5,7 +5,7 @@ import { useCallback, useRef, useState } from "react";
  *  the two can't drift: the only way it changes (the ref is read-only to
  *  callers). The setter is stable, like useState's. */
 export function useStateRef<T>(initial: T): [T, { readonly current: T }, (next: T) => void] {
-  const [value, setValue] = useState(initial);
+  const [value, setValue] = useState(() => initial); // a value even when T is a function
   const ref = useRef(initial);
   const set = useCallback((next: T) => {
     ref.current = next;
