@@ -168,7 +168,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   /** The episode last tried as "the exact one again" (see noteSounded),
    *  so the save is tried once per episode, not on every sound. */
   const triedEpRef = useRef<Episode | null>(null);
-  const totalSecondsRef = useRef(timerMinutes * 60);
   const persistCounterRef = useRef(0);
   // Play-ledger accounting for the episode currently playing (see heardTick).
   const heardSecRef = useRef(0); // real playback accumulated, seconds
@@ -199,15 +198,16 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   const [peekUntil, setPeekUntil] = useState(0);
   const peeking = Date.now() < peekUntil;
   const [paused, setPaused] = useState(false);
-  const [totalSeconds, setTotalSeconds] = useState(timerMinutes * 60);
+  // The night's total length: state for the ring, ref for snapshots, one setter.
+  const [totalSeconds, totalSecondsRef, setTotalSeconds] = useStateRef(timerMinutes * 60);
   const [epPos, setEpPos] = useState<{ cur: number; dur: number } | null>(null);
   const [toast, setToast] = useState("");
   const [holdPct, setHoldPct] = useState(0);
   const [drifting, setDrifting] = useState(false);
   // Stretches used this night (see useNightExtensions), kept across a revive.
   const { canExtendMore, extendTimer, extensionsRef } = useNightExtensions(resume?.extensions ?? 0, persistLive, {
-    endTimeRef, pausedRemainingMsRef, totalSecondsRef, setTotalSeconds,
-  }, { noteTouch: () => restRef.current?.noteInteraction(), say: (m) => showToast(m) });
+    endTimeRef, pausedRemainingMsRef, totalSecondsRef, setTotalSeconds, restRef,
+  }, (m) => showToast(m));
   const [blockedTonight, setBlockedTonight] = useState<ReadonlySet<string>>(new Set());
   // The quarter-hour rule has fired and playback is held. Once dismissed it
   // does not fire again for the rest of the night.
@@ -891,7 +891,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     ruleSpentRef.current = resume?.ruleSpent === true; // at most once a night, reloads included
     nightStartedAtRef.current = nightStart; // the quarter-hour rule's clock too
     if (resume) {
-      totalSecondsRef.current = resume.totalSeconds;
       setTotalSeconds(resume.totalSeconds);
       setCountdown(Math.max(0, resume.remainingMs / 1000));
       setPlayed(new Set(resume.playedIds)); // restore which of the spread you'd heard

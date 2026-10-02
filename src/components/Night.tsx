@@ -211,7 +211,6 @@ export function Night({
   const heardSavedAtRef = useRef(-1e9);
   const epStartedAtRef = useRef(0);
   const persistCounterRef = useRef(0);
-  const totalSecondsRef = useRef(timerMinutes * 60);
 
   const restRef = useRef<RestSession | null>(null);
   const lastRestTickRef = useRef(0);
@@ -230,7 +229,8 @@ export function Night({
   const [playedIds, playedIdsRef, setPlayed] = useStateRef<ReadonlySet<string>>(new Set());
   const [blockedTonight, setBlockedTonight] = useState<ReadonlySet<string>>(new Set());
   const [countdown, setCountdown] = useState(timerMinutes * 60);
-  const [totalSeconds, setTotalSeconds] = useState(timerMinutes * 60);
+  // The night's total length: state for the ring, ref for snapshots, one setter.
+  const [totalSeconds, totalSecondsRef, setTotalSeconds] = useStateRef(timerMinutes * 60);
   const [peekUntil, setPeekUntil] = useState(0);
   // What the player is doing, read from it rather than mirrored. The first
   // version kept a `paused` boolean updated on the three state codes it
@@ -257,8 +257,8 @@ export function Night({
   const [toast, setToast] = useState("");
   const [holdPct, setHoldPct] = useState(0);
   const { canExtendMore, extendTimer, extensionsRef } = useNightExtensions(resume?.extensions ?? 0, persistLive, {
-    endTimeRef, pausedRemainingMsRef, totalSecondsRef, setTotalSeconds,
-  }, { noteTouch: () => restRef.current?.noteInteraction(), say: (m) => flash(m) });
+    endTimeRef, pausedRemainingMsRef, totalSecondsRef, setTotalSeconds, restRef,
+  }, (m) => flash(m));
   // null until the request settles. false means the browser refused, and the
   // listener needs to know: without it the screen sleeps and a YouTube night
   // simply stops, silently, which is the failure this whole file guards.
@@ -858,7 +858,6 @@ export function Night({
     restRef.current.seedInteractions(resume?.interactions ?? 0);
     deadRef.current = new Set(loadBlocked());
     if (resume) {
-      totalSecondsRef.current = resume.totalSeconds;
       setTotalSeconds(resume.totalSeconds);
       setCountdown(Math.max(0, resume.remainingMs / 1000));
       setPlayed(new Set(resume.playedIds));
