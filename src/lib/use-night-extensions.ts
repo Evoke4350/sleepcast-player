@@ -23,18 +23,21 @@ export interface NightClock {
  *  the cap. */
 export function useNightExtensions(
   initial: number,
-  persist: () => void,
+  /** Whether it wrote (nothing before a sound in this page, or storage
+   *  full): a stretch's snapshot can be skipped, carried by the next one. */
+  persist: () => boolean,
   clock: NightClock,
   /** Shows what a stretch says. */
   say: (message: string) => void,
 ) {
   const [extensions, extensionsRef, setExtensions] = useStateRef(initial);
 
-  /** Stretch the night by `minutes` (the time left, frozen or running, and
-   *  the total), if the cap allows. What to tell the listener, or null when
-   *  no stretch is left. */
-  function extend(minutes: number): string | null {
-    if (!canExtend(extensionsRef.current)) return null;
+  /** The stretch button's tap: a touch, stretch left or not; then, if the
+   *  cap allows, the night stretched by `minutes` (the time left, frozen
+   *  or running, and the total), snapshotted, and said. */
+  function extendTimer(minutes: number) {
+    clock.restRef.current?.noteInteraction();
+    if (!canExtend(extensionsRef.current)) return;
     const ms = minutes * 60 * 1000;
     if (clock.pausedRemainingMsRef.current !== null) clock.pausedRemainingMsRef.current += ms;
     else if (clock.endTimeRef.current !== null) clock.endTimeRef.current += ms;
@@ -43,14 +46,7 @@ export function useNightExtensions(
     setExtensions(used); // the ref at once: a second tap before the render counts it too
     // Snapshotted at once: every ref the snapshot reads is already moved.
     persist();
-    return canExtend(used) ? "a little longer — sleep when you're ready" : "that's the last stretch. resting counts too.";
-  }
-
-  /** The stretch button's tap. */
-  function extendTimer(minutes: number) {
-    clock.restRef.current?.noteInteraction(); // a touch, stretch left or not
-    const said = extend(minutes);
-    if (said !== null) say(said);
+    say(canExtend(used) ? "a little longer — sleep when you're ready" : "that's the last stretch. resting counts too.");
   }
 
   return { canExtendMore: canExtend(extensions), extendTimer, extensionsRef };
