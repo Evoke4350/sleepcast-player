@@ -1,4 +1,5 @@
 import { useLazyRef } from "./use-lazy-ref";
+import { loadBlocked } from "./store";
 import { loadNights } from "./rest/ledger";
 import { nightLean } from "./rest/sleepscore";
 import type { FeedWeight } from "./rest/types";
@@ -21,8 +22,8 @@ export function shuffleFor(lean: Record<string, number> | undefined): NightShuff
 /** The night's shuffle, fixed at its start (see nightLean). */
 export function useNightShuffle(
   favorWhatWorks: boolean,
-  pool: readonly { feedId: string }[],
+  pool: readonly { id: string; feedId: string }[],
   resume: { shuffleLean?: unknown } | null | undefined,
 ): NightShuffle {
-  return useLazyRef(() => shuffleFor(nightLean(favorWhatWorks, pool, resume, loadNights))).current;
+  return useLazyRef(() => shuffleFor(nightLean(favorWhatWorks, pool, resume, loadNights, loadBlocked))).current;
 }

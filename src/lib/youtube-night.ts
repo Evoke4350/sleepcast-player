@@ -87,7 +87,7 @@ export function shouldGiveUp({ state, hasEverPlayed, elapsedMs, limitMs }: GiveU
 /**
  * The next episode to try (video or audio: Night uses this for every
  * lineup), or null when there is nothing left. With `weightOf` (the night's
- * lean, shuffle.weightOf) the pick leans by feed; every call site passes it.
+ * lean, shuffle.weightOf) the pick leans by feed; without it, it is plain.
  *
  * `dead` holds both kinds of unplayable at once — blocked across nights
  * (embedding disabled, video removed) and failed just tonight — because the

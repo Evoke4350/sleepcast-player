@@ -63,20 +63,25 @@ function plausibleFloor(n: RestNight): number {
   return n.startedAt < PRE_FIX_BEFORE_MS ? LEGACY_FLOOR_MS : MIN_PLAUSIBLE_ONSET_MS;
 }
 
+/** One side of leanComparison: its timed nights and their median. */
+export interface LeanSide {
+  timedNights: number;
+  medianMs: number | null;
+}
+
 /** Leaned nights against plain ones (RestNight.shuffle), by the same rules
  *  as the headline median: null until there is a leaned night and either
  *  side has a timed one, so there is something to compare. */
-export function leanComparison(nights: readonly RestNight[]): {
-  leaned: { timedNights: number; medianMs: number | null };
-  plain: { timedNights: number; medianMs: number | null };
-} | null {
+export function leanComparison(
+  nights: readonly RestNight[],
+): { leaned: LeanSide; plain: LeanSide } | null {
   const leaned: RestNight[] = [];
   const plain: RestNight[] = [];
   for (const n of nights) (n.shuffle === "leaned" ? leaned : plain).push(n);
   if (!leaned.length) return null;
   // The count the median rests on, not every night on the side. (Rounded:
   // a median of an even count can fall on a half millisecond.)
-  const side = (ns: RestNight[]) => {
+  const side = (ns: RestNight[]): LeanSide => {
     const tts = believableOnsets(ns.filter(isSlept));
     const m = median(tts);
     return { timedNights: tts.length, medianMs: m === null ? null : Math.round(m) };

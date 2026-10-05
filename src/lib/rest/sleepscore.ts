@@ -195,20 +195,28 @@ export function validLean(x: unknown): Record<string, number> | undefined {
 /** The night's lean, fixed at its start. A revived night keeps the one it
  *  was snapshotted with (validLean; none if none), whatever the setting,
  *  scores or revived lineup are by then. A new night leans by the scores when the
- *  listener opted in and they tell its lineup's feeds apart; else none, a
- *  plain shuffle. `nights` is read only when needed. */
+ *  listener opted in and they tell its lineup's feeds apart (the episodes not
+ *  blocked at its start); else none, a
+ *  plain shuffle. `nights` and `blocked` are read only when needed. */
 export function nightLean(
   favorWhatWorks: boolean,
-  pool: readonly { feedId: string }[],
+  pool: readonly { id: string; feedId: string }[],
   resume: { shuffleLean?: unknown } | null | undefined,
   nights: () => readonly RestNight[],
+  blocked: () => readonly string[],
 ): Record<string, number> | undefined {
   // A revived night is the same night: it keeps its lean as it began, so
   // it's recorded as it was (leaned by what was in effect), even when the
   // snapshot's cut-down pool leaves feeds that weigh the same (those picks
   // are then plain, which the weights already give).
   if (resume) return validLean(resume.shuffleLean);
-  return favorWhatWorks ? lineupLean(shuffleWeights(scoreFeeds(nights())), pool) : undefined;
+  if (!favorWhatWorks) return undefined;
+  // Over what can play at the start: a feed whose episodes are all blocked
+  // doesn't make the lineup lean. (What fails later doesn't change it: the
+  // night is labelled by what was in effect as it began.)
+  const out = new Set(blocked());
+  const lineup = pool.filter((e) => !out.has(e.id));
+  return lineupLean(shuffleWeights(scoreFeeds(nights())), lineup);
 }
 
 /** Scored feeds with enough evidence to say anything about. */

@@ -452,25 +452,30 @@ describe("lineupLean", () => {
 });
 
 describe("nightLean", () => {
-  const pool = [{ feedId: "good" }, { feedId: "other" }];
+  const pool = [{ id: "g1", feedId: "good" }, { id: "o1", feedId: "other" }];
   const scored = Array.from({ length: MIN_NIGHTS }, () => onset("good"));
   const never = () => { throw new Error("the ledger shouldn't be read"); };
+  const noneBlocked = () => [];
 
   it("a revived night keeps its snapshot's lean, whatever the setting", () => {
-    expect(nightLean(false, pool, { shuffleLean: { good: 1.5 } }, never)).toEqual({ good: 1.5 });
+    expect(nightLean(false, pool, { shuffleLean: { good: 1.5 } }, never, never)).toEqual({ good: 1.5 });
   });
   it("a revived night keeps its lean even when its cut-down lineup has one feed (the same night, recorded as it began)", () => {
-    expect(nightLean(true, [{ feedId: "good" }], { shuffleLean: { good: 1.5, other: 0.75 } }, never)).toEqual({ good: 1.5, other: 0.75 });
+    expect(nightLean(true, [{ id: "g1", feedId: "good" }], { shuffleLean: { good: 1.5, other: 0.75 } }, never, never)).toEqual({ good: 1.5, other: 0.75 });
   });
   it("a revived night without one (or with a malformed one) stays plain, even with the setting on", () => {
-    expect(nightLean(true, pool, {}, never)).toBeUndefined();
+    expect(nightLean(true, pool, {}, never, never)).toBeUndefined();
     for (const bad of [null, 3, "x", [], {}, { a: -1 }, { a: NaN }]) {
-      expect(nightLean(true, pool, { shuffleLean: bad }, never)).toBeUndefined();
+      expect(nightLean(true, pool, { shuffleLean: bad }, never, never)).toBeUndefined();
     }
   });
+  it("a new night leans over what isn't blocked at its start", () => {
+    // Everything of "other" blocked: only "good" can play, so nothing to lean between.
+    expect(nightLean(true, pool, null, () => scored, () => ["o1"])).toBeUndefined();
+  });
   it("a new night leans only when the listener opted in", () => {
-    expect(nightLean(false, pool, null, never)).toBeUndefined();
-    expect(nightLean(true, pool, null, () => scored)?.good).toBeGreaterThan(1);
+    expect(nightLean(false, pool, null, never, never)).toBeUndefined();
+    expect(nightLean(true, pool, null, () => scored, noneBlocked)?.good).toBeGreaterThan(1);
   });
 });
 
