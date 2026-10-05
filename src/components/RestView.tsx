@@ -75,9 +75,9 @@ export function RestView({ onClose }: { onClose: () => void }) {
           {pluralNights(f.nights)}
           {f.skipNights > 0 ? ` · ${f.skipNights} skipped` : ""}
         </span>
-        {/* On its own line, so the title keeps its room at phone width. */}
+        {/* On its own line, so the title keeps its room at phone width. Relative: the shuffle weighs a night's lineup against itself. */}
         {lean !== undefined && lean !== 1 && (
-          <span className="w-full text-right text-[10px] text-[#4a4540]">{leanLabel(lean)}</span>
+          <span className="w-full text-right text-[10px] text-[#4a4540]">{`weighs ×${lean.toFixed(2)}`}</span>
         )}
       </li>
     );
@@ -180,12 +180,6 @@ export function RestView({ onClose }: { onClose: () => void }) {
       <button onClick={onClose} className="text-xs underline decoration-[#3a3325] underline-offset-4 hover:text-[#b59a76]">back</button>
     </div>
   );
-}
-
-/** A feed's weight in a leaning shuffle, for its row. The shuffle weighs a
- *  night's lineup against itself, so this is relative. */
-function leanLabel(weight: number): string {
-  return `weighs ×${weight.toFixed(2)}`;
 }
 
 /** A median, or "—" when there is none. Rows pass fmtOnsetMinutes (a

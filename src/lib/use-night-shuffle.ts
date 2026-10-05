@@ -4,19 +4,17 @@ import { nightLean } from "./rest/sleepscore";
 import type { FeedWeight } from "./rest/types";
 
 export interface NightShuffle {
+  /** The night's lean; a night with one is recorded as leaned. */
   lean: Record<string, number> | undefined;
   weightOf: FeedWeight | undefined;
-  /** A night with a lean is recorded as leaned. */
-  leaned: boolean;
 }
 
-/** A lean's picker form and record (lean has no prototype, so a plain
+/** A lean and its picker form (lean has no prototype, so a plain
  *  lookup can't hit an inherited key; absent feeds weigh 1). */
 export function shuffleFor(lean: Record<string, number> | undefined): NightShuffle {
   return {
     lean,
     weightOf: lean ? (feedId: string) => lean[feedId] ?? 1 : undefined,
-    leaned: lean !== undefined,
   };
 }
 

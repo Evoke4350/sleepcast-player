@@ -10,6 +10,7 @@
 // played last night; nothing in this file leaves the device or touches the
 // aggregate server counters.
 
+import { asWeight } from "./rest/sleepscore";
 import type { FeedWeight } from "./rest/types";
 
 export interface Play {
@@ -115,12 +116,6 @@ function weightedPick<E extends { feedId?: string }>(items: E[], rand: () => num
   }
   // Rounding left a sliver: the last item.
   return items[items.length - 1];
-}
-
-/** A weight as the shuffle reads it: one that isn't a positive finite
- *  number counts as 1 (no lean). */
-export function asWeight(raw: number): number {
-  return Number.isFinite(raw) && raw > 0 ? raw : 1;
 }
 
 /** Plays that began at or after a cutoff, oldest first — i.e. one night's worth. */

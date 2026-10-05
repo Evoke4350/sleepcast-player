@@ -11,7 +11,6 @@
 // per-episode credit would be one observation per episode forever and would
 // never converge on anything. Feeds accumulate dozens of nights.
 
-import { asWeight } from "../plays";
 import type { FeedWeight, RestNight } from "./types";
 
 export const CREDIT_ONSET = 2;
@@ -122,6 +121,12 @@ export function scoreFeeds(nights: readonly RestNight[]): FeedScore[] {
  *  able to disagree about which feeds have "enough" behind them. */
 export function meetsSuggestionGate(f: FeedScore): boolean {
   return f.nights >= MIN_NIGHTS && f.onsetNights >= 1 && f.score > 0;
+}
+
+/** A weight as the shuffle reads it: one that isn't a positive finite
+ *  number counts as 1 (no lean). */
+export function asWeight(raw: number): number {
+  return Number.isFinite(raw) && raw > 0 ? raw : 1;
 }
 
 /** A lineup's lean: the weight of each of its feeds that isn't ×1 (absent

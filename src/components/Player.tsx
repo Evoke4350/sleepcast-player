@@ -892,7 +892,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // time-to-sleep, timeline and snapshots count from the real start, not
     // from the tap on "keep going".
     const nightStart = revivedNightStart(resume?.nightStartedAt, Date.now());
-    restRef.current = new RestSession(nightStart, timerMinutes, shuffle.leaned);
+    restRef.current = new RestSession(nightStart, timerMinutes, shuffle.lean !== undefined);
     restRef.current.seedInteractions(resume?.interactions ?? 0, resume?.touches);
     ruleSpentRef.current = resume?.ruleSpent === true; // at most once a night, reloads included
     nightStartedAtRef.current = nightStart; // the quarter-hour rule's clock too
