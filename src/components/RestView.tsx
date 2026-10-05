@@ -170,7 +170,7 @@ export function RestView({ onClose }: { onClose: () => void }) {
           no feed has scored nights (slept nights with no feed attributed). */}
       {compared && (
         <p className="text-[11px] leading-snug text-[#8a7a5c]">
-          {`Typical time to sleep: ${orDash(compared.leaned.medianMs, fmtDuration)} on nights with the lean on (${pluralNights(compared.leaned.nights, "timed")}), ${orDash(compared.plain.medianMs, fmtDuration)} on other nights (${pluralNights(compared.plain.nights, "timed")}). A rough guide: the two differ in more than the lean (which shows, which weeks).`}
+          {`Typical time to sleep: ${orDash(compared.leaned.medianMs, fmtDuration)} on nights the shuffle leaned (${pluralNights(compared.leaned.nights, "timed")}), ${orDash(compared.plain.medianMs, fmtDuration)} on plain-shuffle nights (${pluralNights(compared.plain.nights, "timed")}). A rough guide: the two differ in more than the lean (which shows, which weeks).`}
         </p>
       )}
       <p className="text-xs text-[#4a4540]">

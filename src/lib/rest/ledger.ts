@@ -66,14 +66,16 @@ function plausibleFloor(n: RestNight): number {
 /** Leaned nights against plain ones (RestNight.shuffle), by the same rules
  *  as the headline median: null until there is a leaned night and either
  *  side has a timed one, so there is something to compare. */
-export function leanComparison(nights: RestNight[]): {
+export function leanComparison(nights: readonly RestNight[]): {
   leaned: { nights: number; medianMs: number | null };
   plain: { nights: number; medianMs: number | null };
 } | null {
-  const leaned = nights.filter((n) => n.shuffle === "leaned");
+  const leaned: RestNight[] = [];
+  const plain: RestNight[] = [];
+  for (const n of nights) (n.shuffle === "leaned" ? leaned : plain).push(n);
   if (!leaned.length) return null;
-  const plain = nights.filter((n) => n.shuffle !== "leaned");
-  // The count the median rests on, not every night on the side.
+  // The count the median rests on, not every night on the side. (Rounded:
+  // a median of an even count can fall on a half millisecond.)
   const side = (ns: RestNight[]) => {
     const tts = timedOnsets(ns);
     const m = median(tts);

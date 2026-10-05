@@ -221,8 +221,8 @@ and carried in its snapshot, so a revive keeps it. A RestNight records
 during it. That is deliberately by what was in effect, not by whether a pick
 the lean shaped came before sleep: that would be decided by the night itself
 (a restless night reaches more picks), so the slow nights would land on the
-leaned side. The rest view compares typical time to sleep on nights with the
-lean on against other nights, once a night with the lean on exists and
+leaned side. The rest view compares typical time to sleep on nights the shuffle
+leaned against plain-shuffle nights, once a night with the lean on exists and
 either side has a timed night.
 
 ## 9. Error handling
