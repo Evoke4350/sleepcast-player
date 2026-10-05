@@ -991,11 +991,11 @@ export function Night({
           return next;
         });
         const resumable = resume?.episode && !resume.episode.youtubeId ? resume.episode : null;
-        // (A lead blocked since it was chosen is no lead, as in preferVideoLead.)
-        const lead = leadEpisode && !leadEpisode.youtubeId && !deadRef.current.has(leadEpisode.id) ? leadEpisode : null;
+        // Every video is dead now, so preferVideoLead keeps a live podcast
+        // lead or picks among the podcasts: the main path's one rule.
         const first =
-          resumable ?? lead ?? nextPlayable(pool, deadRef.current, null, getPlays(), Math.random, shuffle.weightOf);
-        beginNight(first, resumable ? resume!.position : lead ? leadPosition : 0);
+          resumable ?? preferVideoLead(leadEpisode, pool, deadRef.current, getPlays(), Math.random, shuffle.weightOf);
+        beginNight(first, resumable ? resume!.position : first && first.id === leadEpisode?.id ? leadPosition : 0);
       });
 
     return () => {

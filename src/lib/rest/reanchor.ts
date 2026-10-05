@@ -24,14 +24,14 @@ export interface ReanchorInput {
   lastNight: LastNight | null;
   now: number; // Date.now()
   localHour: number; // 0–23, viewer's local hour
-  blocked?: () => readonly string[]; // episodes never to offer (loadBlocked), read only if needed
+  blocked: () => readonly string[]; // episodes never to offer (loadBlocked), read only if needed
 }
 
 // The episode to re-anchor on, only when the user reopened in the dark, soon
 // after a night that faded, with something left to play; else null.
 // Deliberately conservative — a re-anchor at the wrong moment is worse than
 // none.
-export function reanchorNext({ lastNight, now, localHour, blocked = () => [] }: ReanchorInput): Episode | null {
+export function reanchorNext({ lastNight, now, localHour, blocked }: ReanchorInput): Episode | null {
   if (!lastNight) return null;
   if (lastNight.endedVia !== "faded") return null;
   if (now - lastNight.endedAt >= REANCHOR_WINDOW_MS) return null;

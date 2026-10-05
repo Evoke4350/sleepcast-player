@@ -174,12 +174,12 @@ function clampWeight(w: number): number {
 }
 
 /** A stored lean (a revived snapshot's), if it is one, in lineupLean's
- *  shape: its entries that are positive finite weights other than 1 (an
- *  entry that isn't is dropped: absent means 1), clamped (and rounded) by
- *  clampWeight (so a snapshot from before a change to the credits still
- *  revives leaning, within today's bounds). None left, or not an object at
- *  all, is none, a plain shuffle. Returned as a prototype-less record, like
- *  lineupLean's. */
+ *  shape: its positive finite entries, clamped and rounded by clampWeight
+ *  (so a snapshot from before a change to the credits still revives
+ *  leaning, within today's bounds), then any that come out 1 dropped
+ *  (absent means 1); an entry that isn't a positive finite number is
+ *  dropped too. None left, or not an object at all, is none, a plain
+ *  shuffle. Returned as a prototype-less record, like lineupLean's. */
 export function validLean(x: unknown): Record<string, number> | undefined {
   if (!x || typeof x !== "object" || Array.isArray(x)) return undefined;
   const kept: [string, number][] = [];

@@ -3,7 +3,9 @@ import { reanchorNext, nextInSpread, REANCHOR_WINDOW_MS, type ReanchorInput } fr
 import type { LastNight } from "../store";
 import type { Episode } from "../engine";
 
-const shouldReanchor = (input: ReanchorInput) => reanchorNext(input) !== null;
+const noneBlocked = () => [];
+const shouldReanchor = (input: Omit<ReanchorInput, "blocked"> & Partial<ReanchorInput>) =>
+  reanchorNext({ blocked: noneBlocked, ...input }) !== null;
 
 function ep(id: string): Episode {
   return { id, title: id, url: `https://x/${id}`, feedId: "f" } as Episode;
@@ -70,7 +72,7 @@ describe("reanchorNext (whether to offer one)", () => {
 
 describe("reanchorNext (what it offers)", () => {
   it("is the spread's next playable episode", () => {
-    expect(reanchorNext({ lastNight: night(), now: NOW, localHour: 3 })?.id).toBe("b");
+    expect(reanchorNext({ lastNight: night(), now: NOW, localHour: 3, blocked: noneBlocked })?.id).toBe("b");
   });
   it("doesn't read the blocked list when the night can't re-anchor", () => {
     const never = () => { throw new Error("read"); };
