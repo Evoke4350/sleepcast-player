@@ -209,7 +209,9 @@ The shuffle can now lean on the score, but only when the listener turns on
 default). That keeps this section's concerns: the listener chooses it
 knowingly, off is the plain shuffle to compare against, and the rest view
 shows each feed's weight other than ×1 while the setting is on, for feeds
-that are on (a switched-off or removed feed is in no lineup). The
+that are on (setup builds no lineup from a switched-off or removed feed; a
+3am re-anchor carries the faded night's lineup, so a feed switched off since
+can still lean that night, unlisted). The
 leaned-vs-other comparison stays either way. A feed leans only after
 `MIN_NIGHTS` scored nights, by its `weight` read through `clampWeight`
 (within `WEIGHT_FLOOR`..`WEIGHT_MAX`, rounded to hundredths, so a weight

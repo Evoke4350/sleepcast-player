@@ -16,7 +16,9 @@ export function RestView({ onClose }: { onClose: () => void }) {
   // no-ops on builtins. So a lookup miss below is always a removed custom feed.
   // (And whether the shuffle leans: shown per feed while it's on, so the
   // lean is as auditable as the ranking; only for a feed that is on, since
-  // a removed or switched-off feed is in no lineup to lean.)
+  // setup builds no lineup from a removed or switched-off one. A 3am
+  // re-anchor carries the faded night's lineup, so a feed switched off since
+  // can still lean that one night, unlisted.)
   const { feedTitles, enabledFeeds, favorWhatWorks } = useMemo(() => {
     const s = loadState();
     return {
