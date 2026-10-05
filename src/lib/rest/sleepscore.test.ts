@@ -427,6 +427,13 @@ describe("shuffleWeights (favor what puts me under)", () => {
     expect(w("lo")).toBe(WEIGHT_FLOOR);
   });
 
+  it("rounds as validLean does: a new night a hair off 1 doesn't lean", () => {
+    const f = scoreFeeds(Array.from({ length: MIN_NIGHTS }, () => onset("x")))[0];
+    const w = shuffleWeights([{ ...f, feedId: "near", weight: 1.004 }]);
+    expect(w("near")).toBe(1);
+    expect(lineupLean(w, [{ feedId: "near" }, { feedId: "other" }])).toBeUndefined();
+  });
+
   it("gives no lean without enough nights, or to a feed never scored", () => {
     const w = shuffleWeights(scoreFeeds([onset("once")]));
     expect(w("once")).toBe(1);

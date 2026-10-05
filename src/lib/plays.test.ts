@@ -177,7 +177,8 @@ describe("pickNextEpisode with feed weights (favor what puts me under)", () => {
     const eps = [feedEp("a", "good"), feedEp("b", "meh"), feedEp("c", "meh")];
     const plays = [play("a", 1, { feedId: "good" })];
     for (let i = 0; i < 20; i++) {
-      // However heavy its feed, a heard episode stays out while fresh ones remain.
+      // Fresh episodes clear the freshness floor here, so the heard one isn't
+      // a candidate, and no weight on its feed brings it back.
       expect(pickNextEpisode(eps, plays, () => i / 20, (f) => (f === "good" ? 100 : 1))?.id).not.toBe("a");
     }
   });

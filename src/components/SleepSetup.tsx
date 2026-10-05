@@ -108,7 +108,7 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
 
   const favorWhatWorks = appState.settings.favorWhatWorks;
   /** An on/off setting, saved. */
-  function setFlag(key: "quarterHourRule" | "favorWhatWorks", on: boolean) {
+  function setFlag(key: "quarterHourRule" | "favorWhatWorks" | "leveling", on: boolean) {
     updateAndSave({ ...appState, settings: { ...appState.settings, [key]: on } });
   }
   const enabledFeeds = appState.feeds.filter((f) => f.enabled);
@@ -342,10 +342,6 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
       settings: { ...appState.settings, mode: { kind } },
     });
     setCustomMinutes("");
-  }
-
-  function setLeveling(leveling: boolean) {
-    updateAndSave({ ...appState, settings: { ...appState.settings, leveling } });
   }
 
   function setNoise(patch: Partial<NoiseSettings>) {
@@ -1146,7 +1142,7 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
               id="leveling-on"
               checked={appState.settings.leveling}
               disabled={levelingUnavailable}
-              onChange={(e) => setLeveling(e.target.checked)}
+              onChange={(e) => setFlag("leveling", e.target.checked)}
               className="h-5 w-5 rounded accent-[#6e5d44] cursor-pointer disabled:opacity-40"
             />
             <label htmlFor="leveling-on" className="text-sm cursor-pointer">

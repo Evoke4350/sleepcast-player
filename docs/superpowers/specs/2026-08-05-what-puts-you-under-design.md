@@ -252,6 +252,8 @@ check on it.
 | Suggested feed is disabled or gone | Skip to the next qualifying feed; if none, render nothing |
 | `timeline` empty at `finish()` | `onset*` absent; not an error |
 | Onset earlier than the first timeline entry | `onset*` absent — a clock or resume artefact, not a fact worth inventing |
+| Stored `shuffleLean` malformed or out of range | `validLean` drops bad entries and clamps the rest; none left is a plain shuffle |
+| A lineup feed with every episode blocked at the night's start | Left out of the lean's lineup; it doesn't make the night lean |
 
 ## 10. Testing
 
@@ -276,12 +278,12 @@ The opt-in lean (§8 addendum) is pinned by tests too:
 - **Bounds** — `shuffleWeights` and `validLean` clamp to
   `WEIGHT_FLOOR`..`WEIGHT_MAX` and round to hundredths; a weight that rounds
   to 1 is no lean.
-- **Plain when equal** — a lineup whose feeds weigh the same, or that is off,
-  gets no lean and is recorded plain.
+- **Plain when equal** — a lineup whose feeds weigh the same, or a night with
+  the setting off, gets no lean and is recorded plain.
 - **Start of night** — a new night leans over the episodes not blocked at its
   start; a revived night keeps its snapshot's lean.
-- **Freshness first** — a heard episode stays out while fresh ones remain,
-  however heavy its feed.
+- **Freshness first** — the lean weights only the episodes the freshness rule
+  would have picked from; it never brings back a heard one by its weight.
 - **Labels** — a night with a lean is recorded `shuffle: "leaned"`, at its end
   and when reconciled from a dead tab alike.
 
