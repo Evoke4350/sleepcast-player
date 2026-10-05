@@ -95,7 +95,8 @@ export function pickNextEpisode<E extends { id: string; feedId?: string }>(
 export type FeedWeight = ((feedId: string) => number) & { onLeanedPick?: () => void };
 
 /** One of `items`, uniformly, or in proportion to its feed's weight. A
- *  weight that isn't a positive number counts as none; if none is, uniform. */
+ *  weight that isn't a positive finite number counts as 1 (no lean): a
+ *  feed is never ruled out, whatever its weight function says. */
 function weightedPick<E extends { feedId?: string }>(items: E[], rand: () => number, weightOf?: FeedWeight): E | null {
   if (!items.length) return null;
   // One path: no lean is every feed at 1. Each feed's weight is asked once.
@@ -104,7 +105,7 @@ function weightedPick<E extends { feedId?: string }>(items: E[], rand: () => num
     let w = perFeed.get(feedId);
     if (w === undefined) {
       const raw = weightOf ? weightOf(feedId) : 1;
-      w = Number.isFinite(raw) && raw > 0 ? raw : 0;
+      w = Number.isFinite(raw) && raw > 0 ? raw : 1;
       perFeed.set(feedId, w);
     }
     return w;
@@ -112,17 +113,13 @@ function weightedPick<E extends { feedId?: string }>(items: E[], rand: () => num
   const ws = items.map((e) => weightFor(e.feedId ?? ""));
   if (weightOf?.onLeanedPick && ws.some((w) => w !== ws[0])) weightOf.onLeanedPick();
   const total = ws.reduce((a, b) => a + b, 0);
-  if (!(total > 0)) return items[Math.floor(rand() * items.length)] ?? null;
   let r = rand() * total;
-  let lastPositive = 0;
   for (let i = 0; i < items.length; i++) {
-    if (ws[i] <= 0) continue;
-    lastPositive = i;
     r -= ws[i];
     if (r < 0) return items[i];
   }
-  // Rounding left a sliver: the last item that can be picked at all.
-  return items[lastPositive];
+  // Rounding left a sliver: the last item.
+  return items[items.length - 1];
 }
 
 /** Plays that began at or after a cutoff, oldest first — i.e. one night's worth. */

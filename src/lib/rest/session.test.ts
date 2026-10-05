@@ -263,6 +263,13 @@ describe("RestSession shuffle record", () => {
     expect(new RestSession(0, 45).finish("faded", 1000)).not.toHaveProperty("shuffle");
   });
 
+  it("a leaned pick after sleep was inferred doesn't make the night leaned", () => {
+    const s = new RestSession(0, 45);
+    (s as unknown as { onset: unknown }).onset = { atMs: 600_000, confidence: 0.9, via: "inference" };
+    s.noteShuffleLeaned();
+    expect(s.finish("faded", 1_000_000)).not.toHaveProperty("shuffle");
+  });
+
   it("a revived night whose picks before the reload leaned is leaned already", () => {
     expect(new RestSession(0, 45, { shuffleLeaned: true }).finish("faded", 1000).shuffle).toBe("leaned");
   });

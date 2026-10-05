@@ -172,11 +172,12 @@ export function validLean(x: unknown): Record<string, number> | undefined {
   return leanRecord(entries as [string, number][]);
 }
 
-/** The night's lean, fixed at its start: a revived night keeps the one it
+/** The night's lean, fixed at its start. A revived night keeps the one it
  *  was snapshotted with (validLean; none if none), whatever the setting or
- *  scores are by then, as far as its revived lineup still leans; a new night leans by the scores when the listener
- *  opted in and they tell its lineup's feeds apart (lineupLean); else none,
- *  a plain shuffle. `nights` is read only when needed. */
+ *  scores are by then, over its revived lineup (lineupLean: none if that
+ *  lineup's feeds weigh the same). A new night leans by the scores when the
+ *  listener opted in and they tell its lineup's feeds apart; else none, a
+ *  plain shuffle. `nights` is read only when needed. */
 export function nightLean(
   favorWhatWorks: boolean,
   pool: readonly { feedId: string }[],

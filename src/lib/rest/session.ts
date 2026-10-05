@@ -81,10 +81,14 @@ export class RestSession {
     this.touches += count(touches);
   }
 
-  /** A pick the opt-in lean actually shaped (FeedWeight.onLeanedPick):
-   *  the night is recorded as leaned, so leaned and plain nights can be
-   *  told apart. A night that never made one stays plain. */
+  /** A pick the opt-in lean actually shaped (FeedWeight.onLeanedPick),
+   *  before sleep was inferred: the night is recorded as leaned, so leaned
+   *  and plain nights can be told apart. A night that never made one stays
+   *  plain. */
   noteShuffleLeaned(): void {
+    // Only before sleep was inferred: a pick after it (an auto-advance while
+    // asleep) had no part in getting there.
+    if (this.onset) return;
     this.leaned = true;
   }
 

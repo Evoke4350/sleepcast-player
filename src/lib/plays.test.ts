@@ -176,13 +176,20 @@ describe("pickNextEpisode with feed weights (favor what puts me under)", () => {
     }
   });
 
-  it("never returns a zero-weight episode, even when rounding leaves a sliver", () => {
+  it("returns the last episode, not nothing, when rounding leaves a sliver", () => {
     // These weights and a rand just under 1 leave r a hair above 0 after
-    // the loop: the fallback must land on the last positive one.
-    const ws = [0.466, 0.515, 0.13, 0.304, 0.085, 0];
+    // the loop.
+    const ws = [0.009999999999999998, 0.617, 0.719, 0.414, 0.48];
     const eps = ws.map((_, i) => feedEp(`e${i}`, `f${i}`));
     const w = (f: string) => ws[Number(f.slice(1))];
     expect(pickNextEpisode(eps, [], () => 1 - Number.EPSILON / 2, w)?.id).toBe("e4");
+  });
+
+  it("counts an invalid weight as 1: a feed is never ruled out", () => {
+    const eps = [feedEp("a", "bad"), feedEp("b", "fine")];
+    const w = (f: string) => (f === "bad" ? 0 : 1);
+    expect(pickNextEpisode(eps, [], () => 0.4, w)?.id).toBe("a");
+    expect(pickNextEpisode(eps, [], () => 0.4, (f) => (f === "bad" ? NaN : 1))?.id).toBe("a");
   });
 
   it("tells onLeanedPick only of picks whose candidates' weights differed", () => {
@@ -194,8 +201,4 @@ describe("pickNextEpisode with feed weights (favor what puts me under)", () => {
     expect(heard).toEqual(["leaned"]);
   });
 
-  it("falls back to a plain pick when no weight is positive", () => {
-    const eps = [feedEp("a", "x"), feedEp("b", "y")];
-    expect(pickNextEpisode(eps, [], () => 0.6, () => 0)?.id).toBe("b");
-  });
 });
