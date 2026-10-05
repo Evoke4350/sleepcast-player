@@ -80,12 +80,16 @@ export function leanComparison(nights: RestNight[]): {
   return { leaned: side(leaned), plain: side(plain) };
 }
 
-/** The times to sleep the headline figures rest on: slept nights, not
- *  marked "awake", with a believable onset (see rollup). */
+/** A night that was slept: an onset, and not marked "awake" (see rollup). */
+function isSlept(n: RestNight): boolean {
+  return n.sleptAtMs !== null && n.timeToSleepMs !== null && n.selfLabel !== "awake";
+}
+
+/** The times to sleep the headline figures rest on: slept nights with a
+ *  believable onset (see rollup). */
 function timedOnsets(nights: readonly RestNight[]): number[] {
   return nights
-    .filter((n) => n.sleptAtMs !== null && n.timeToSleepMs !== null && n.selfLabel !== "awake")
-    .filter((n) => (n.timeToSleepMs as number) >= plausibleFloor(n))
+    .filter((n) => isSlept(n) && (n.timeToSleepMs as number) >= plausibleFloor(n))
     .map((n) => n.timeToSleepMs as number);
 }
 
@@ -93,9 +97,7 @@ export function rollup(nights: RestNight[]): RestRollup {
   // A night the listener marked "awake" was a detector false positive: it was
   // not slept, and its onset time is not a time-to-sleep. stepback.ts and
   // scoreFeeds already discard these; the headline stats must agree.
-  const slept = nights.filter(
-    (n) => n.sleptAtMs !== null && n.timeToSleepMs !== null && n.selfLabel !== "awake",
-  );
+  const slept = nights.filter(isSlept);
   // Onsets below this are pre-fix artifacts. The detector used to anchor onset
   // at the first quiet tick, so a night nobody touched recorded ~0ms and the
   // rest screen reported "you drifted off in 1 minute". The fixed detector
@@ -104,7 +106,7 @@ export function rollup(nights: RestNight[]): RestRollup {
   //
   // The nights themselves still count as slept — the sleep was real, only the
   // figure was wrong — so this filters the time statistics, not the ledger.
-  const tts = timedOnsets(slept);
+  const tts = timedOnsets(nights);
   const last7 = nights.slice(-7);
   const avg7 = last7.length
     ? last7.reduce((s, n) => s + n.interactions, 0) / last7.length

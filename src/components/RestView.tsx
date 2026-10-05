@@ -69,7 +69,7 @@ export function RestView({ onClose }: { onClose: () => void }) {
           {feedTitles[f.feedId] ?? "a feed you removed"}
         </span>
         <span className="shrink-0 text-xs text-[#8a7a5c]">
-          {median === null ? "—" : `${Math.round(median / 60_000)} min`}
+          {fmtMedian(median)}
         </span>
         <span className="shrink-0 text-[10px] text-[#4a4540]">
           {pluralNights(f.nights)}
@@ -188,8 +188,8 @@ function leanLabel(weight: number): string {
   return `weighs ×${weight.toFixed(2)}`;
 }
 
-/** A median for the comparison line, formatted like the headline stats
- *  (fmtDuration); "—" when there is none. */
+/** A median time to sleep, for the rows and the comparison line, formatted
+ *  like the headline stats (fmtDuration); "—" when there is none. */
 function fmtMedian(ms: number | null): string {
   return ms === null ? "—" : fmtDuration(ms);
 }
