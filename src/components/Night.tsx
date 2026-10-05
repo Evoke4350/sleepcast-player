@@ -590,7 +590,7 @@ export function Night({
       extensions: extensionsRef.current,
       wasVaried: wasVariedRef.current,
       shuffleLean: shuffle.lean,
-      shuffleLeaned: restRef.current?.shuffleLeaned || undefined,
+      shuffleLeanedAt: restRef.current?.shuffleLeanedAt ?? undefined,
       remainingMs,
       totalSeconds: totalSecondsRef.current,
       // Where the episode is, not a raw reading: the backend may still be

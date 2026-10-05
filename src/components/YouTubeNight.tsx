@@ -459,7 +459,7 @@ export function YouTubeNight({
       extensions: extensionsRef.current,
       wasVaried: wasVariedRef.current,
       shuffleLean: shuffle.lean,
-      shuffleLeaned: restRef.current?.shuffleLeaned || undefined,
+      shuffleLeanedAt: restRef.current?.shuffleLeanedAt ?? undefined,
       remainingMs,
       totalSeconds: totalSecondsRef.current,
       position: witnessRef.current.snapshotAt(media.currentTime()),

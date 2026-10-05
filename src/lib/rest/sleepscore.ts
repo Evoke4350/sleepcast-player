@@ -34,8 +34,9 @@ export const MIN_NIGHTS = 3;
 
 // Matches the ported Python's curve exactly (sleepscore.py's WEIGHT_SLOPE).
 const WEIGHT_SLOPE = 0.25;
-/** The most a feed can weigh: per-night credit is at most +3. */
-export const WEIGHT_MAX = 1 + WEIGHT_SLOPE * 3;
+/** The most a feed can weigh: the best a night can credit is onset plus
+ *  slept-through. */
+export const WEIGHT_MAX = 1 + WEIGHT_SLOPE * (CREDIT_ONSET + CREDIT_SLEPT);
 
 export interface FeedScore {
   feedId: string;

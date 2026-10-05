@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { INTERACTION_MERGE_MS, RestSession, revivedNightStart } from "./session";
+import { INTERACTION_MERGE_MS, RestSession, revivedNightStart, wasLeaned } from "./session";
 
 describe("RestSession", () => {
   beforeEach(() => localStorage.clear());
@@ -258,19 +258,26 @@ describe("RestSession interactions across a reload", () => {
 describe("RestSession shuffle record", () => {
   it("marks a night once a pick was shaped by the lean, and leaves a plain one unmarked", () => {
     const s = new RestSession(0, 45);
-    s.noteShuffleLeaned();
+    s.noteShuffleLeaned(500);
     expect(s.finish("faded", 1000).shuffle).toBe("leaned");
     expect(new RestSession(0, 45).finish("faded", 1000)).not.toHaveProperty("shuffle");
   });
 
-  it("a leaned pick after sleep was inferred doesn't make the night leaned", () => {
+  it("a leaned pick after the inferred onset doesn't make the night leaned (the onset arrives later, at the fade)", () => {
     const s = new RestSession(0, 45);
-    (s as unknown as { onset: unknown }).onset = { atMs: 600_000, confidence: 0.9, via: "inference" };
-    s.noteShuffleLeaned();
-    expect(s.finish("faded", 1_000_000)).not.toHaveProperty("shuffle");
+    s.noteShuffleLeaned(32 * 60_000); // an auto-advance at 32 min
+    (s as unknown as { onset: unknown }).onset = { atMs: 20 * 60_000, confidence: 0.9, via: "inference" };
+    expect(s.finish("faded", 45 * 60_000)).not.toHaveProperty("shuffle");
+  });
+
+  it("wasLeaned: before or at onset, or any pick with no onset", () => {
+    expect(wasLeaned(5, 10)).toBe(true);
+    expect(wasLeaned(15, 10)).toBe(false);
+    expect(wasLeaned(15, null)).toBe(true);
+    expect(wasLeaned(undefined, null)).toBe(false);
   });
 
   it("a revived night whose picks before the reload leaned is leaned already", () => {
-    expect(new RestSession(0, 45, { shuffleLeaned: true }).finish("faded", 1000).shuffle).toBe("leaned");
+    expect(new RestSession(0, 45, { shuffleLeanedAt: 300 }).finish("faded", 1000).shuffle).toBe("leaned");
   });
 });

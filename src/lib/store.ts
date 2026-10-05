@@ -301,12 +301,12 @@ export interface LiveSession {
   wasVaried?: boolean;
   /** The night's shuffle weights (lineupLean), absent for a plain shuffle:
    *  kept for a revive, whatever the setting or scores are by then. (The
-   *  record of whether they shaped a pick is shuffleLeaned.) */
+   *  record of whether they shaped a pick is shuffleLeanedAt.) */
   shuffleLean?: Record<string, number>;
-  /** Whether a pick tonight was actually shaped by the lean (the night's
-   *  record; RestSession.shuffleLeaned), carried into a revive and into the
-   *  reconciled RestNight. */
-  shuffleLeaned?: boolean;
+  /** When (ms since the night began) the first pick the lean actually
+   *  shaped was made (RestSession.shuffleLeanedAt), carried into a revive
+   *  and into the reconciled RestNight's record. */
+  shuffleLeanedAt?: number;
 }
 
 /** What a revived night resumes from: the snapshot, as the players take it.

@@ -76,7 +76,7 @@ export function RestView({ onClose }: { onClose: () => void }) {
           {f.skipNights > 0 ? ` · ${f.skipNights} skipped` : ""}
         </span>
         {/* On its own line, so the title keeps its room at phone width. */}
-        {lean !== undefined && lean !== 1 && (
+        {lean && lean !== 1 && (
           <span className="w-full text-right text-[10px] text-[#4a4540]">{leanLabel(lean)}</span>
         )}
       </li>
@@ -170,7 +170,7 @@ export function RestView({ onClose }: { onClose: () => void }) {
           no feed has scored nights (all marked awake, say). */}
       {compared && (compared.leaned.nights > 0 || compared.plain.nights > 0) && (
         <p className="text-[11px] leading-snug text-[#8a7a5c]">
-          {`Typical time to sleep: ${fmtMedian(compared.leaned.medianMs)} on nights the shuffle leaned (${compared.leaned.nights}), ${fmtMedian(compared.plain.medianMs)} on other nights (${compared.plain.nights}).`}
+          {`Typical time to sleep: ${fmtMedian(compared.leaned.medianMs)} on nights the shuffle leaned (${timedNights(compared.leaned.nights)}), ${fmtMedian(compared.plain.medianMs)} on other nights (${timedNights(compared.plain.nights)}).`}
         </p>
       )}
       <p className="text-xs text-[#4a4540]">
@@ -188,7 +188,13 @@ function leanLabel(weight: number): string {
   return `weighs ×${weight.toFixed(2)}`;
 }
 
-/** A median for the comparison line: "—" when there is none. */
+/** "1 timed night" / "3 timed nights": the nights a median rests on. */
+function timedNights(n: number): string {
+  return `${n} timed night${n === 1 ? "" : "s"}`;
+}
+
+/** A median for the comparison line, formatted like the headline stats
+ *  (fmtDuration); "—" when there is none. */
 function fmtMedian(ms: number | null): string {
   return ms === null ? "—" : fmtDuration(ms);
 }

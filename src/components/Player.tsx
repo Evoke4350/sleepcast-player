@@ -660,7 +660,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       extensions: extensionsRef.current,
       wasVaried: wasVariedRef.current,
       shuffleLean: shuffle.lean,
-      shuffleLeaned: restRef.current?.shuffleLeaned || undefined,
+      shuffleLeanedAt: restRef.current?.shuffleLeanedAt ?? undefined,
       touches: restRef.current?.touchCount,
       ruleSpent: ruleSpentRef.current,
       remainingMs,
