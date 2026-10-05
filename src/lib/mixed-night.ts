@@ -28,8 +28,8 @@ export function chooseLead(
   const videos = videosOf(alive);
   // Freshness is the ordinary rule, applied to the videos alone — a lead that
   // hands back last night's video would be a worse start than a random one.
-  // The `alive` fallback covers two different callers, correctly by construction:
-  // when `alive` is all podcasts (no videos in the pool, or all videos dead),
+  // The `alive` fallback covers two cases, correctly by construction: when
+  // `alive` is all podcasts (no videos in the pool, or all videos dead),
   // pickNextEpisode picks among them, which is the required podcast lead; when
   // `alive` is itself empty (nothing playable at all), pickNextEpisode's own
   // empty-array guard returns null. No extra guard needed here.
