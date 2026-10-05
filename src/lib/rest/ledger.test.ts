@@ -141,4 +141,11 @@ describe("leanComparison", () => {
     expect(c.leaned).toEqual({ nights: 1, medianMs: 20 * 60_000 });
     expect(c.plain).toEqual({ nights: 2, medianMs: 35 * 60_000 });
   });
+  it("shows with an untimed leaned side when the other side is timed", () => {
+    const c = leanComparison([
+      night({ shuffle: "leaned", sleptAtMs: null, timeToSleepMs: null }),
+      night({ sleptAtMs: 30 * 60_000, timeToSleepMs: 30 * 60_000 }),
+    ]);
+    expect(c).toEqual({ leaned: { nights: 0, medianMs: null }, plain: { nights: 1, medianMs: 30 * 60_000 } });
+  });
 });

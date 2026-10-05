@@ -116,7 +116,18 @@ describe("the lead picks forward the night's lean", () => {
 describe("preferVideoLead with no video alive", () => {
   it("keeps a podcast lead without picking", () => {
     const pods = [pod("p1"), { ...pod("p2"), feedId: "other" }];
-    const w = (f: string) => (f === "other" ? 1.75 : 1);
-    expect(preferVideoLead(pod("p1"), [...pods, yt("v1")], new Set(["v1"]), [], () => 0.99, w)?.id).toBe("p1");
+    let asked = 0;
+    const rand = () => { asked++; return 0.99; };
+    const w = (f: string) => { asked++; return f === "other" ? 1.75 : 1; };
+    expect(preferVideoLead(pod("p1"), [...pods, yt("v1")], new Set(["v1"]), [], rand, w)?.id).toBe("p1");
+    expect(asked).toBe(0); // no pick made, only to be thrown away
+  });
+
+  it("a podcast lead with an alive video swaps in a video chosen by the lean", () => {
+    const a = { ...yt("va"), feedId: "liked" };
+    const b = { ...yt("vb"), feedId: "other" };
+    const w = (f: string) => (f === "liked" ? 3 : 1);
+    expect(preferVideoLead(pod("p1"), [pod("p1"), a, b], none, [], () => 0.7, w)?.id).toBe("va");
+    expect(preferVideoLead(pod("p1"), [pod("p1"), a, b], none, [], () => 0.7)?.id).toBe("vb"); // plain
   });
 });
