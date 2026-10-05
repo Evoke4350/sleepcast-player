@@ -148,4 +148,15 @@ describe("leanComparison", () => {
     ]);
     expect(c).toEqual({ leaned: { timedNights: 0, medianMs: null }, plain: { timedNights: 1, medianMs: 30 * 60_000 } });
   });
+  it("leaves out what the headline median does: an 'awake' night and an implausibly fast onset", () => {
+    const tooFast = MIN_PLAUSIBLE_ONSET_MS - 1;
+    const c = leanComparison([
+      night({ shuffle: "leaned", sleptAtMs: 20 * 60_000, timeToSleepMs: 20 * 60_000 }),
+      night({ shuffle: "leaned", sleptAtMs: 5 * 60_000, timeToSleepMs: 5 * 60_000, selfLabel: "awake" }),
+      night({ sleptAtMs: 30 * 60_000, timeToSleepMs: 30 * 60_000 }),
+      night({ sleptAtMs: tooFast, timeToSleepMs: tooFast }),
+    ])!;
+    expect(c.leaned).toEqual({ timedNights: 1, medianMs: 20 * 60_000 });
+    expect(c.plain).toEqual({ timedNights: 1, medianMs: 30 * 60_000 });
+  });
 });
