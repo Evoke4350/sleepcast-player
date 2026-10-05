@@ -464,6 +464,7 @@ describe("validLean and rounding", () => {
     expect(validLean({ a: 1.25 })).toEqual({ a: 1.25 });
     expect(validLean(undefined)).toBeUndefined();
     expect(validLean({ a: 1 })).toBeUndefined(); // nothing leans
+    expect(validLean({ a: 1.5, b: 1, c: "x" })).toEqual({ a: 1.5 }); // odd entries dropped, not the lean
     expect(validLean({ a: 1e6 })).toEqual({ a: WEIGHT_MAX }); // clamped to today's bounds
   });
   it("rounds weights to hundredths", () => {

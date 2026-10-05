@@ -170,7 +170,7 @@ export function RestView({ onClose }: { onClose: () => void }) {
           no feed has scored nights (all marked awake, say). */}
       {compared && (compared.leaned.nights > 0 || compared.plain.nights > 0) && (
         <p className="text-[11px] leading-snug text-[#8a7a5c]">
-          {`Typical time to sleep: ${fmtMedian(compared.leaned.medianMs)} on nights with the lean on (${pluralNights(compared.leaned.nights, "timed")}), ${fmtMedian(compared.plain.medianMs)} on other nights (${pluralNights(compared.plain.nights, "timed")}).`}
+          {`Typical time to sleep: ${fmtMedian(compared.leaned.medianMs)} on nights with the lean on (${pluralNights(compared.leaned.nights, "timed")}), ${fmtMedian(compared.plain.medianMs)} on other nights (${pluralNights(compared.plain.nights, "timed")}). A rough guide: the two differ in more than the lean (which shows, which weeks).`}
         </p>
       )}
       <p className="text-xs text-[#4a4540]">

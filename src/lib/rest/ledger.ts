@@ -74,10 +74,19 @@ export function leanComparison(nights: RestNight[]): {
   const plain = nights.filter((n) => n.shuffle !== "leaned");
   // The count the median rests on, not every night on the side.
   const side = (ns: RestNight[]) => {
-    const r = rollup(ns);
-    return { nights: r.timedNights, medianMs: r.medianTimeToSleepMs };
+    const tts = timedOnsets(ns);
+    return { nights: tts.length, medianMs: median(tts) };
   };
   return { leaned: side(leaned), plain: side(plain) };
+}
+
+/** The times to sleep the headline figures rest on: slept nights, not
+ *  marked "awake", with a believable onset (see rollup). */
+function timedOnsets(nights: readonly RestNight[]): number[] {
+  return nights
+    .filter((n) => n.sleptAtMs !== null && n.timeToSleepMs !== null && n.selfLabel !== "awake")
+    .filter((n) => (n.timeToSleepMs as number) >= plausibleFloor(n))
+    .map((n) => n.timeToSleepMs as number);
 }
 
 export function rollup(nights: RestNight[]): RestRollup {
@@ -95,9 +104,7 @@ export function rollup(nights: RestNight[]): RestRollup {
   //
   // The nights themselves still count as slept — the sleep was real, only the
   // figure was wrong — so this filters the time statistics, not the ledger.
-  const tts = slept
-    .filter((n) => (n.timeToSleepMs as number) >= plausibleFloor(n))
-    .map((n) => n.timeToSleepMs as number);
+  const tts = timedOnsets(slept);
   const last7 = nights.slice(-7);
   const avg7 = last7.length
     ? last7.reduce((s, n) => s + n.interactions, 0) / last7.length
@@ -107,7 +114,6 @@ export function rollup(nights: RestNight[]): RestRollup {
     nightsSlept: slept.length,
     bestTimeToSleepMs: tts.length ? Math.min(...tts) : null,
     medianTimeToSleepMs: median(tts),
-    timedNights: tts.length,
     avgInteractions7: avg7,
   };
 }

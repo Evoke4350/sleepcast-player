@@ -12,6 +12,7 @@
 // never converge on anything. Feeds accumulate dozens of nights.
 
 import type { RestNight } from "./types";
+import type { FeedWeight } from "../plays";
 
 export const CREDIT_ONSET = 2;
 export const CREDIT_SLEPT = 1;
@@ -128,7 +129,7 @@ export function meetsSuggestionGate(f: FeedScore): boolean {
  *  normalises, so equal weights lean nothing: a plain shuffle, and recorded
  *  as one). */
 export function lineupLean(
-  weightOf: (feedId: string) => number,
+  weightOf: FeedWeight,
   pool: readonly { feedId: string }[],
 ): Record<string, number> | undefined {
   const all = new Map<string, number>();
@@ -154,7 +155,7 @@ function leanRecord(entries: Iterable<[string, number]>): Record<string, number>
  *  Takes feeds already scored (scoreFeeds). Weights are rounded to
  *  hundredths: a difference below that changes no pick that matters, so it
  *  neither makes a night "leaned" nor shows as a weight. */
-export function shuffleWeights(scored: readonly FeedScore[]): (feedId: string) => number {
+export function shuffleWeights(scored: readonly FeedScore[]): FeedWeight {
   const w = new Map(
     scored.filter((f) => f.nights >= MIN_NIGHTS).map((f) => [f.feedId, Math.round(f.weight * 100) / 100]),
   );
@@ -162,22 +163,20 @@ export function shuffleWeights(scored: readonly FeedScore[]): (feedId: string) =
 }
 
 /** A stored lean (a revived snapshot's), if it is one, in lineupLean's
- *  shape: at least one entry, every weight a positive finite number other
- *  than 1 (absent means 1), clamped to WEIGHT_FLOOR..WEIGHT_MAX (so a
- *  snapshot from before a change to the credits still revives leaning,
- *  within today's bounds). Anything else (null, a number, all-1 weights, a
- *  malformed snapshot) is none, a plain shuffle. Returned as a
- *  prototype-less record, like lineupLean's. */
+ *  shape: its entries that are positive finite weights other than 1 (an
+ *  entry that isn't is dropped: absent means 1), clamped to WEIGHT_FLOOR..
+ *  WEIGHT_MAX (so a snapshot from before a change to the credits still
+ *  revives leaning, within today's bounds). None left, or not an object at
+ *  all, is none, a plain shuffle. Returned as a prototype-less record, like
+ *  lineupLean's. */
 export function validLean(x: unknown): Record<string, number> | undefined {
   if (!x || typeof x !== "object" || Array.isArray(x)) return undefined;
-  const entries = Object.entries(x as Record<string, unknown>);
-  if (!entries.length) return undefined;
-  const clamped: [string, number][] = [];
-  for (const [feedId, w] of entries) {
-    if (typeof w !== "number" || !Number.isFinite(w) || w <= 0 || w === 1) return undefined;
-    clamped.push([feedId, Math.min(WEIGHT_MAX, Math.max(WEIGHT_FLOOR, w))]);
+  const kept: [string, number][] = [];
+  for (const [feedId, w] of Object.entries(x as Record<string, unknown>)) {
+    if (typeof w !== "number" || !Number.isFinite(w) || w <= 0 || w === 1) continue;
+    kept.push([feedId, Math.min(WEIGHT_MAX, Math.max(WEIGHT_FLOOR, w))]);
   }
-  return leanRecord(clamped);
+  return kept.length ? leanRecord(kept) : undefined;
 }
 
 /** The night's lean, fixed at its start. A revived night keeps the one it
