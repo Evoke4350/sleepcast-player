@@ -17,11 +17,11 @@ import type { FeedWeight } from "./rest/types";
  * The lead a mixed night should actually open on, given the one somebody
  * supplied, if any (none: the night nobody had an opinion about).
  *
- * Leads arrive from two places — the 3am re-anchor, and a search result or
- * suggestion in setup (a resumed night keeps its episode and doesn't come
- * here) — and the re-anchor's is picked in array order with no idea that
- * kinds exist. Letting either through unexamined spends the night's one waking gesture on a
- * podcast and leaves the first video to land mid-sleep, which is exactly the
+ * Leads arrive from the 3am re-anchor and from setup (a search result, a
+ * suggestion, or the last episode again, which brings its saved position).
+ * A resumed night keeps its episode and doesn't come here. The re-anchor's
+ * is picked in array order with no idea that kinds exist. Letting any of them
+ * through unexamined spends the night's one waking gesture on a podcast and leaves the first video to land mid-sleep, which is exactly the
  * failure leading with video exists to prevent.
  *
  * A supplied podcast lead is only overridden by a video, never by another

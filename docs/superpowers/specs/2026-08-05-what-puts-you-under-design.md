@@ -215,7 +215,8 @@ leaned-vs-other comparison stays either way. A feed leans only after
 `WEIGHT_FLOOR`); other feeds don't lean. Freshness still comes first:
 `pickNextEpisode` weights only among the episodes it would have picked from.
 A night whose lineup's feeds all weigh the same doesn't lean (the shuffle
-normalises), and is recorded as plain. The night's lean is fixed at its start
+normalises), and is recorded as plain; the lineup is the episodes not blocked
+at the night's start, so a feed with every episode blocked doesn't count. The night's lean is fixed at its start
 and carried in its snapshot, so a revive keeps it. A RestNight records
 `shuffle: "leaned"` when the night had a lean in effect, whatever happened
 during it. That is deliberately by what was in effect, not by whether a pick

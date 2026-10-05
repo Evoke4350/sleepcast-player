@@ -473,6 +473,10 @@ describe("nightLean", () => {
     // Everything of "other" blocked: only "good" can play, so nothing to lean between.
     expect(nightLean(true, pool, null, () => scored, () => ["o1"])).toBeUndefined();
   });
+  it("blocks by episode, not by feed: a feed with one episode left still counts", () => {
+    const more = [...pool, { id: "o2", feedId: "other" }];
+    expect(nightLean(true, more, null, () => scored, () => ["o1"])?.good).toBeGreaterThan(1);
+  });
   it("a new night leans only when the listener opted in", () => {
     expect(nightLean(false, pool, null, never, never)).toBeUndefined();
     expect(nightLean(true, pool, null, () => scored, noneBlocked)?.good).toBeGreaterThan(1);
