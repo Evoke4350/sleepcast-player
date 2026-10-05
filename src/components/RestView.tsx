@@ -163,12 +163,14 @@ export function RestView({ onClose }: { onClose: () => void }) {
               ? ` Favor what puts me under is on: a feed with ${MIN_NIGHTS} or more nights, counted or not, weighs by its record against the other shows in a night's lineup (others weigh ×1).`
               : ""}
           </p>
-          {compared && (
-            <p className="mt-2 text-[11px] leading-snug text-[#8a7a5c]">
-              {`Typical time to sleep: ${compared.leaned.medianMs === null ? "—" : fmtDuration(compared.leaned.medianMs)} on nights the shuffle leaned (${compared.leaned.nights}), ${compared.plain.medianMs === null ? "—" : fmtDuration(compared.plain.medianMs)} on plain ones (${compared.plain.nights}).`}
-            </p>
-          )}
         </section>
+      )}
+      {/* Outside the scored section: leaned nights stay comparable even when
+          no feed has scored nights (all marked awake, say). */}
+      {compared && (
+        <p className="text-[11px] leading-snug text-[#8a7a5c]">
+          {`Typical time to sleep: ${compared.leaned.medianMs === null ? "—" : fmtDuration(compared.leaned.medianMs)} on nights the shuffle leaned (${compared.leaned.nights}), ${compared.plain.medianMs === null ? "—" : fmtDuration(compared.plain.medianMs)} on plain ones (${compared.plain.nights}).`}
+        </p>
       )}
       <p className="text-xs text-[#4a4540]">
         counted only on this device. no account, nothing sent anywhere. we're

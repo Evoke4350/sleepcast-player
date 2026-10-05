@@ -169,7 +169,7 @@ export function validLean(x: unknown): Record<string, number> | undefined {
 
 /** The night's lean, fixed at its start: a revived night keeps the one it
  *  was snapshotted with (validLean; none if none), whatever the setting or
- *  scores are by then; a new night leans by the scores when the listener
+ *  scores are by then, as far as its revived lineup still leans; a new night leans by the scores when the listener
  *  opted in and they tell its lineup's feeds apart (lineupLean); else none,
  *  a plain shuffle. `nights` is read only when needed. */
 export function nightLean(
@@ -178,7 +178,12 @@ export function nightLean(
   resume: { shuffleLean?: unknown } | null | undefined,
   nights: () => readonly RestNight[],
 ): Record<string, number> | undefined {
-  if (resume) return validLean(resume.shuffleLean);
+  if (resume) {
+    // Over the revived lineup (the snapshot's pool is cut down), so a lean
+    // its feeds no longer tell apart is a plain night, recorded as one.
+    const stored = validLean(resume.shuffleLean);
+    return stored ? lineupLean((feedId) => stored[feedId] ?? 1, pool) : undefined;
+  }
   return favorWhatWorks ? lineupLean(shuffleWeights(scoreFeeds(nights())), pool) : undefined;
 }
 

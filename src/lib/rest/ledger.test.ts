@@ -133,6 +133,7 @@ describe("leanComparison", () => {
   it("splits typical time to sleep by whether the shuffle leaned", () => {
     const c = leanComparison([
       night({ shuffle: "leaned", sleptAtMs: 20 * 60_000, timeToSleepMs: 20 * 60_000 }),
+      night({ shuffle: "leaned", sleptAtMs: null, timeToSleepMs: null }), // no time: not counted
       night({ sleptAtMs: 40 * 60_000, timeToSleepMs: 40 * 60_000 }),
       night({ sleptAtMs: 30 * 60_000, timeToSleepMs: 30 * 60_000 }),
     ])!;

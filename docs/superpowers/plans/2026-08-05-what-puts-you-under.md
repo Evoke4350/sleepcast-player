@@ -831,7 +831,7 @@ git commit -m "Show the working, so a wrong model can be seen to be wrong"
 ## Deferred, on purpose
 
 - **Time-of-night conditioning** (spec §6). Computable from `RestNight.startedAt`, but it splits already-thin evidence and needs its own bucket-level confidence gate. Worth doing once there are enough nights to split.
-- **Reweighting the shuffle** (spec §8; since done as an opt-in, 2026-10-04). Deliberately not now: a scorer that silently narrows the pool before it has been trusted is hard to notice going wrong, and there would be no baseline left to compare against.
+- **Reweighting the shuffle** (spec §8). Deferred then, and since done as an opt-in (2026-10-04; see the spec's §8 addendum). The reason it was deferred: a scorer that silently narrows the pool before it has been trusted is hard to notice going wrong, and there would be no baseline left to compare against.
 - **Validating the detector against `selfLabel`** (spec open question 2). Every credit here inherits `sleptAtMs`. If the detector is systematically early or late, every attribution lands on the wrong episode — and nothing in this plan would reveal that.
 
 ## Still open after this plan

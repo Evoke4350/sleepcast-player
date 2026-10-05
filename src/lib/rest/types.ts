@@ -36,6 +36,9 @@ export interface RestRollup {
   nightsSlept: number;
   bestTimeToSleepMs: number | null;
   medianTimeToSleepMs: number | null;
+  /** Nights behind the time figures: slept, not marked awake, with a
+   *  believable onset. */
+  timedNights: number;
   avgInteractions7: number;
 }
 export interface DetectorParams {

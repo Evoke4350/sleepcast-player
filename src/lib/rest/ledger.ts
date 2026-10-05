@@ -72,7 +72,11 @@ export function leanComparison(nights: RestNight[]): {
   const leaned = nights.filter((n) => n.shuffle === "leaned");
   if (!leaned.length) return null;
   const plain = nights.filter((n) => n.shuffle !== "leaned");
-  const side = (ns: RestNight[]) => ({ nights: ns.length, medianMs: rollup(ns).medianTimeToSleepMs });
+  // The count the median rests on, not every night on the side.
+  const side = (ns: RestNight[]) => {
+    const r = rollup(ns);
+    return { nights: r.timedNights, medianMs: r.medianTimeToSleepMs };
+  };
   return { leaned: side(leaned), plain: side(plain) };
 }
 
@@ -103,6 +107,7 @@ export function rollup(nights: RestNight[]): RestRollup {
     nightsSlept: slept.length,
     bestTimeToSleepMs: tts.length ? Math.min(...tts) : null,
     medianTimeToSleepMs: median(tts),
+    timedNights: tts.length,
     avgInteractions7: avg7,
   };
 }
