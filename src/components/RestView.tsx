@@ -166,8 +166,8 @@ export function RestView({ onClose }: { onClose: () => void }) {
           </p>
         </section>
       )}
-      {/* Outside the scored section: leaned nights stay comparable even when
-          no feed has scored nights (all marked awake, say). */}
+      {/* Outside the scored section: timed nights stay comparable even when
+          no feed has scored nights (slept nights with no feed attributed). */}
       {compared && (
         <p className="text-[11px] leading-snug text-[#8a7a5c]">
           {`Typical time to sleep: ${fmtNightMedian(compared.leaned.medianMs)} on nights with the lean on (${pluralNights(compared.leaned.nights, "timed")}), ${fmtNightMedian(compared.plain.medianMs)} on other nights (${pluralNights(compared.plain.nights, "timed")}). A rough guide: the two differ in more than the lean (which shows, which weeks).`}

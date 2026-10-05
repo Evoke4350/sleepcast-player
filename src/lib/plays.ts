@@ -89,12 +89,11 @@ export function pickNextEpisode<E extends { id: string; feedId?: string }>(
   return weightedPick(candidates, rand, weightOf);
 }
 
-
 /** One of `items`, uniformly, or in proportion to its feed's weight. A
  *  weight that isn't a positive finite number counts as 1 (no lean): a
  *  feed is never ruled out, whatever its weight function says. */
 function weightedPick<E extends { feedId?: string }>(items: E[], rand: () => number, weightOf?: FeedWeight): E | null {
-  if (!items.length) return null;
+  // (pickNextEpisode never passes an empty list.)
   if (!weightOf) return items[Math.floor(rand() * items.length)] ?? items[items.length - 1];
   // Each feed's weight is asked once.
   const perFeed = new Map<string, number>();

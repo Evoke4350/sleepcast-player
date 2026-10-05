@@ -13,6 +13,11 @@ import type { Episode } from "./engine";
 import { pickNextEpisode, type Play } from "./plays";
 import type { FeedWeight } from "./rest/types";
 
+/** The episodes that can still play. */
+function aliveIn(pool: readonly Episode[], dead: ReadonlySet<string>): Episode[] {
+  return pool.filter((e) => !dead.has(e.id));
+}
+
 /** The videos among episodes that can still play. */
 function videosOf(alive: readonly Episode[]): Episode[] {
   return alive.filter((e) => !!e.youtubeId);
@@ -25,7 +30,7 @@ export function chooseLead(
   rand: () => number = Math.random,
   weightOf?: FeedWeight,
 ): Episode | null {
-  const alive = pool.filter((e) => !dead.has(e.id));
+  const alive = aliveIn(pool, dead);
   const videos = videosOf(alive);
   // Freshness is the ordinary rule, applied to the videos alone — a lead that
   // hands back last night's video would be a worse start than a random one.
@@ -66,6 +71,6 @@ export function preferVideoLead(
   if (!lead) return chooseLead(pool, dead, plays, rand, weightOf);
   // A podcast lead is only ever overridden by a video: with none alive,
   // keep it without picking one only to throw it away.
-  const videos = videosOf(pool.filter((e) => !dead.has(e.id)));
+  const videos = videosOf(aliveIn(pool, dead));
   return videos.length ? pickNextEpisode(videos, plays, rand, weightOf) : lead;
 }
