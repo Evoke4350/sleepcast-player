@@ -150,3 +150,34 @@ describe("playAtMoment", () => {
     expect(playAtMoment([], 100)).toBeNull();
   });
 });
+
+describe("pickNextEpisode with feed weights (favor what puts me under)", () => {
+  const feedEp = (id: string, feedId: string) => ({ id, title: id, feedId });
+
+  it("picks in proportion to each episode's feed weight", () => {
+    // a weighs 3, b weighs 1: rand in [0, .75) lands on a, [.75, 1) on b.
+    const eps = [feedEp("a", "good"), feedEp("b", "meh")];
+    const w = (f: string) => (f === "good" ? 3 : 1);
+    expect(pickNextEpisode(eps, [], () => 0.74, w)?.id).toBe("a");
+    expect(pickNextEpisode(eps, [], () => 0.76, w)?.id).toBe("b");
+  });
+
+  it("never rules a feed out while its weight is positive", () => {
+    const eps = [feedEp("a", "good"), feedEp("b", "skipped")];
+    const w = (f: string) => (f === "good" ? 1.75 : 0.25);
+    expect(pickNextEpisode(eps, [], () => 0.99, w)?.id).toBe("b");
+  });
+
+  it("still keeps freshness first: a heard episode isn't brought back by its weight", () => {
+    const eps = [feedEp("a", "good"), feedEp("b", "meh"), feedEp("c", "meh")];
+    const plays = [play("a", 1, { feedId: "good" })];
+    for (let i = 0; i < 20; i++) {
+      expect(pickNextEpisode(eps, plays, () => i / 20, () => 1)?.id).not.toBe("a");
+    }
+  });
+
+  it("falls back to a plain pick when no weight is positive", () => {
+    const eps = [feedEp("a", "x"), feedEp("b", "y")];
+    expect(pickNextEpisode(eps, [], () => 0.6, () => 0)?.id).toBe("b");
+  });
+});

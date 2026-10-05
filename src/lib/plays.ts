@@ -61,10 +61,11 @@ export function migrateLegacyHistory(ids: string[]): Play[] {
  * one heard a year ago. Degrading through the oldest-heard keeps the night
  * moving without ever feeling like it repeated itself.
  */
-export function pickNextEpisode<E extends { id: string }>(
+export function pickNextEpisode<E extends { id: string; feedId?: string }>(
   episodes: E[],
   plays: Play[],
   rand: () => number = Math.random,
+  weightOf?: FeedWeight,
 ): E | null {
   if (!episodes.length) return null;
 
@@ -81,7 +82,30 @@ export function pickNextEpisode<E extends { id: string }>(
     candidates.push(...recycled);
   }
 
-  return candidates[Math.floor(rand() * candidates.length)] ?? null;
+  return weightedPick(candidates, rand, weightOf);
+}
+
+/** How much a feed's episodes lean in the shuffle (1 = no lean). See
+ *  rest/sleepscore shuffleWeights; absent, the shuffle is plain. */
+export type FeedWeight = (feedId: string) => number;
+
+/** One of `items`, uniformly, or in proportion to its feed's weight. A
+ *  weight that isn't a positive number counts as none; if none is, uniform. */
+function weightedPick<E extends { feedId?: string }>(items: E[], rand: () => number, weightOf?: FeedWeight): E | null {
+  if (!items.length) return null;
+  if (!weightOf) return items[Math.floor(rand() * items.length)] ?? null;
+  const ws = items.map((e) => {
+    const w = weightOf(e.feedId ?? "");
+    return Number.isFinite(w) && w > 0 ? w : 0;
+  });
+  const total = ws.reduce((a, b) => a + b, 0);
+  if (!(total > 0)) return items[Math.floor(rand() * items.length)] ?? null;
+  let r = rand() * total;
+  for (let i = 0; i < items.length; i++) {
+    r -= ws[i];
+    if (r < 0) return items[i];
+  }
+  return items[items.length - 1];
 }
 
 /** Plays that began at or after a cutoff, oldest first — i.e. one night's worth. */

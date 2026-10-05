@@ -41,8 +41,9 @@ export interface FeedScore {
   score: number;
   /** Nights this feed appeared in — not nights in the ledger. */
   nights: number;
-  /** max(WEIGHT_FLOOR, 1 + slope × mean credit). Ranks the suggestion and
-   *  nothing else: the shuffle is deliberately untouched (see the spec, §8). */
+  /** max(WEIGHT_FLOOR, 1 + slope × mean credit). Ranks the suggestion, and
+   *  leans the shuffle only for a listener who opts in (shuffleWeights; the
+   *  spec, §8). */
   weight: number;
   onsetNights: number;
   skipNights: number;
@@ -115,6 +116,19 @@ export function scoreFeeds(nights: readonly RestNight[]): FeedScore[] {
  *  able to disagree about which feeds have "enough" behind them. */
 export function meetsSuggestionGate(f: FeedScore): boolean {
   return f.nights >= MIN_NIGHTS && f.onsetNights >= 1 && f.score > 0;
+}
+
+/** The shuffle's lean, for a listener who has opted in (settings
+ *  favorWhatWorks): a feed with MIN_NIGHTS or more scored nights leans by
+ *  its weight (WEIGHT_FLOOR to 1.75: toward what has put them under, away
+ *  from what they skip, never ruled out); any other feed is 1, no lean
+ *  without evidence either way. Unlike the suggestion, a net-negative feed
+ *  counts here: leaning away is the other half of the point. */
+export function shuffleWeights(nights: readonly RestNight[]): (feedId: string) => number {
+  const w = new Map(
+    scoreFeeds(nights).filter((f) => f.nights >= MIN_NIGHTS).map((f) => [f.feedId, f.weight]),
+  );
+  return (feedId) => w.get(feedId) ?? 1;
 }
 
 /** Scored feeds with enough evidence to say anything about. */

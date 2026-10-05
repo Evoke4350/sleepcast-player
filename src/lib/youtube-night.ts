@@ -8,7 +8,7 @@
 
 import type { Episode } from "./engine";
 import type { Transport as BackendTransport } from "./media/backend";
-import { pickNextEpisode, type Play } from "./plays";
+import { pickNextEpisode, type FeedWeight, type Play } from "./plays";
 import { classifyYouTubeError } from "./youtube-errors";
 
 /** Retries allowed for one episode before it is skipped. */
@@ -96,13 +96,14 @@ export function nextPlayable(
   currentId: string | null,
   plays: Play[],
   rand: () => number = Math.random,
+  weightOf?: FeedWeight,
 ): Episode | null {
   const alive = pool.filter((e) => !dead.has(e.id));
   if (!alive.length) return null;
   // Prefer anything other than what is playing, but fall back to it: one
   // survivor repeating beats a night that stops on a technicality.
   const others = currentId ? alive.filter((e) => e.id !== currentId) : alive;
-  return pickNextEpisode(others.length ? others : alive, plays, rand);
+  return pickNextEpisode(others.length ? others : alive, plays, rand, weightOf);
 }
 
 /**

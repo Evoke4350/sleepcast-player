@@ -195,6 +195,17 @@ and there is no baseline left to compare against. Reweighting is a later
 decision, made with the panel in §7 as evidence, not an assumption baked in on
 day one.
 
+### Revisited (2026-10-04): an opt-in lean
+
+The shuffle can now lean on the score, but only when the listener turns on
+"Favor what puts me under" in setup (`settings.favorWhatWorks`, off by
+default). That keeps this section's concerns: the listener chooses it
+knowingly, off is the plain shuffle to compare against, and the rest view
+marks each feed that "comes up more" or "less". A feed leans only after
+`MIN_NIGHTS` scored nights (by its `weight`, so never below
+`WEIGHT_FLOOR`); other feeds don't lean. Freshness still comes first:
+`pickNextEpisode` weights only among the episodes it would have picked from.
+
 ## 9. Error handling
 
 | Case | Behaviour |

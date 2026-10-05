@@ -47,6 +47,8 @@ export function AppPlayer() {
   // ticking the box in the drawer had no effect until a full reload — the
   // whole feature silently did nothing.
   const [quarterHourRule, setQuarterHourRule] = useState(false);
+  // Opt-in: the night's shuffle leans by what has put the listener under.
+  const [favorWhatWorks, setFavorWhatWorks] = useState(false);
   // Read at start, not at mount: settings changed on the setup screen must
   // apply to the night about to begin.
   const [mode, setMode] = useState<PlayMode>({ kind: "minutes", minutes: 45 });
@@ -139,6 +141,7 @@ export function AppPlayer() {
     setFeedTrim(settings.feedTrim);
     setNoise(settings.noise);
     setLeveling(settings.leveling);
+    setFavorWhatWorks(settings.favorWhatWorks);
   }
 
   /** A snapshotted night still stored is over, and recorded: the card's,
@@ -250,6 +253,7 @@ export function AppPlayer() {
           feedTrim={feedTrim}
           noise={noise}
           wasVaried={session.wasVaried ?? false}
+        favorWhatWorks={favorWhatWorks}
         />
       );
     }
@@ -269,6 +273,7 @@ export function AppPlayer() {
           feedTrim={feedTrim}
           noise={noise}
           wasVaried={session.wasVaried ?? false}
+        favorWhatWorks={favorWhatWorks}
         />
       );
     }
@@ -289,6 +294,7 @@ export function AppPlayer() {
         noise={noise}
         leveling={leveling}
         wasVaried={session.wasVaried ?? false}
+        favorWhatWorks={favorWhatWorks}
       />
     );
   }

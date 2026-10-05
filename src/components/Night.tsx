@@ -36,6 +36,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useLazyRef } from "../lib/use-lazy-ref";
+import { loadNights } from "../lib/rest/ledger";
+import { shuffleWeights } from "../lib/rest/sleepscore";
 import { useStateRef } from "../lib/use-state-ref";
 import { useNightExtensions } from "../lib/use-night-extensions";
 import type { Episode, PlayMode } from "../lib/engine";
@@ -133,6 +135,8 @@ export interface NightProps {
   leadEpisode?: Episode | null;
   leadPosition?: number;
   wasVaried?: boolean;
+  /** Opt-in: the shuffle leans by feed (rest/sleepscore shuffleWeights). */
+  favorWhatWorks?: boolean;
 }
 
 export function Night({
@@ -149,7 +153,11 @@ export function Night({
   leadEpisode = null,
   leadPosition = 0,
   wasVaried = false,
+  favorWhatWorks = false,
 }: NightProps) {
+  // The night's shuffle lean, fixed at its start: what has put this listener
+  // under, when they opted in (shuffleWeights); else a plain shuffle.
+  const weightOfRef = useLazyRef(() => (favorWhatWorks ? shuffleWeights(loadNights()) : undefined));
   const hostRef = useRef<HTMLDivElement | null>(null);
   // Both backends live for the whole night; `liveRef` is whichever one the
   // current episode picked, and every command goes through it. `offRef` holds
@@ -410,6 +418,8 @@ export function Night({
       deadRef.current,
       currentEpRef.current?.id ?? null,
       getPlays(),
+      Math.random,
+      weightOfRef.current,
     );
     // Nothing left that can play. Ending is the honest outcome: continuing
     // would be an hour of black screen with the timer running down.
@@ -955,7 +965,7 @@ export function Night({
         // longer covering it.
         const first =
           resume?.episode ??
-          preferVideoLead(leadEpisode, pool, deadRef.current, getPlays());
+          preferVideoLead(leadEpisode, pool, deadRef.current, getPlays(), Math.random, weightOfRef.current);
         // leadPosition is a saved position in the supplied lead and in nothing
         // else, so it only travels with it. When preferVideoLead swapped a
         // video in, the night starts that video from its own beginning rather
@@ -983,7 +993,7 @@ export function Night({
         const resumable = resume?.episode && !resume.episode.youtubeId ? resume.episode : null;
         const lead = leadEpisode && !leadEpisode.youtubeId ? leadEpisode : null;
         const first =
-          resumable ?? lead ?? nextPlayable(pool, deadRef.current, null, getPlays());
+          resumable ?? lead ?? nextPlayable(pool, deadRef.current, null, getPlays(), Math.random, weightOfRef.current);
         beginNight(first, resumable ? resume!.position : lead ? leadPosition : 0);
       });
 

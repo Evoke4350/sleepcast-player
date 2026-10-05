@@ -29,6 +29,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useLazyRef } from "../lib/use-lazy-ref";
+import { loadNights } from "../lib/rest/ledger";
+import { shuffleWeights } from "../lib/rest/sleepscore";
 import { useStateRef } from "../lib/use-state-ref";
 import { useNightExtensions } from "../lib/use-night-extensions";
 import type { Episode, PlayMode } from "../lib/engine";
@@ -101,6 +103,8 @@ export interface YouTubeNightProps {
   leadEpisode?: Episode | null;
   leadPosition?: number;
   wasVaried?: boolean;
+  /** Opt-in: the shuffle leans by feed (rest/sleepscore shuffleWeights). */
+  favorWhatWorks?: boolean;
 }
 
 export function YouTubeNight({
@@ -117,7 +121,11 @@ export function YouTubeNight({
   leadEpisode = null,
   leadPosition = 0,
   wasVaried = false,
+  favorWhatWorks = false,
 }: YouTubeNightProps) {
+  // The night's shuffle lean, fixed at its start: what has put this listener
+  // under, when they opted in (shuffleWeights); else a plain shuffle.
+  const weightOfRef = useLazyRef(() => (favorWhatWorks ? shuffleWeights(loadNights()) : undefined));
   const hostRef = useRef<HTMLDivElement | null>(null);
   const mediaRef = useRef<YouTubeMedia | null>(null);
   const lockRef = useRef<ScreenLock | null>(null);
@@ -314,6 +322,8 @@ export function YouTubeNight({
       deadRef.current,
       currentEpRef.current?.id ?? null,
       getPlays(),
+      Math.random,
+      weightOfRef.current,
     );
     // Nothing left that can play. Ending is the honest outcome: continuing
     // would be an hour of black screen with the timer running down.
@@ -698,7 +708,7 @@ export function YouTubeNight({
         const first =
           resume?.episode ??
           leadEpisode ??
-          nextPlayable(pool, deadRef.current, null, getPlays());
+          nextPlayable(pool, deadRef.current, null, getPlays(), Math.random, weightOfRef.current);
         if (!first) {
           setStatus("error");
           setErrorText("nothing in this lineup can be played here");

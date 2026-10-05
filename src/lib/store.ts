@@ -31,6 +31,9 @@ export interface Settings {
   /** Opt-in stimulus control: stop and suggest getting up after a restless
    *  stretch. Off unless the listener asks for it — see rest/quarterhour.ts. */
   quarterHourRule: boolean;
+  /** Opt-in: the shuffle leans toward feeds that have put this listener
+   *  under (rest/sleepscore shuffleWeights). Off is a plain shuffle. */
+  favorWhatWorks: boolean;
   feedTrim: Record<string, number>; // feedId -> 0.5..1.5; absent = 1.0
   noise: NoiseSettings;
   leveling: boolean; // opt-in auto-compressor probe (§1b) — off avoids the double load
@@ -117,6 +120,7 @@ function defaultSettings(): Settings {
   return {
     timerMinutes: 45,
     quarterHourRule: false,
+    favorWhatWorks: false,
     feedTrim: {},
     noise: { ...NOISE_DEFAULT },
     leveling: false,
@@ -245,6 +249,7 @@ export function loadState(): AppState {
     mode: sanitizeMode(rawSettings.mode, timerMinutes),
     lastSession: sanitizeLastSession(rawSettings.lastSession),
     quarterHourRule: rawSettings.quarterHourRule === true,
+    favorWhatWorks: rawSettings.favorWhatWorks === true,
   };
 
   return { feeds: mergedFeeds, settings };

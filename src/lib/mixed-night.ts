@@ -10,13 +10,14 @@
 // The constraint is only on position one. Everything after it shuffles.
 
 import type { Episode } from "./engine";
-import { pickNextEpisode, type Play } from "./plays";
+import { pickNextEpisode, type FeedWeight, type Play } from "./plays";
 
 export function chooseLead(
   pool: readonly Episode[],
   dead: ReadonlySet<string>,
   plays: Play[],
   rand: () => number = Math.random,
+  weightOf?: FeedWeight,
 ): Episode | null {
   const alive = pool.filter((e) => !dead.has(e.id));
   const videos = alive.filter((e) => !!e.youtubeId);
@@ -27,7 +28,7 @@ export function chooseLead(
   // pickNextEpisode picks among them, which is the required podcast lead; when
   // `alive` is itself empty (nothing playable at all), pickNextEpisode's own
   // empty-array guard returns null. No extra guard needed here.
-  return pickNextEpisode(videos.length ? videos : alive, plays, rand);
+  return pickNextEpisode(videos.length ? videos : alive, plays, rand, weightOf);
 }
 
 /**
@@ -51,9 +52,10 @@ export function preferVideoLead(
   dead: ReadonlySet<string>,
   plays: Play[],
   rand: () => number = Math.random,
+  weightOf?: FeedWeight,
 ): Episode | null {
   if (lead?.youtubeId) return lead;
-  const video = chooseLead(pool, dead, plays, rand);
+  const video = chooseLead(pool, dead, plays, rand, weightOf);
   // No supplied lead: chooseLead's pick stands, podcast or not. Dropping a
   // podcast here (every video dead) left the night with nothing to play.
   if (!lead) return video;

@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { loadNights, rollup, setSelfLabel } from "../lib/rest/ledger";
 import { recordFalsePositive } from "../lib/rest/calibrate";
-import { scoreFeeds, medianTimeToSleep, meetsSuggestionGate } from "../lib/rest/sleepscore";
+import { scoreFeeds, medianTimeToSleep, meetsSuggestionGate, shuffleWeights } from "../lib/rest/sleepscore";
 import { fmtDuration, lastNight } from "../lib/rest/surface";
 import { getPlays, loadState } from "../lib/store";
 import { playsSince, playAtMoment } from "../lib/plays";
@@ -18,6 +18,10 @@ export function RestView({ onClose }: { onClose: () => void }) {
     const s = loadState();
     return Object.fromEntries(s.feeds.map((f) => [f.id, f.title]));
   }, []);
+  // When the listener has opted in, the shuffle leans by these same scores:
+  // shown per feed, so the lean is as auditable as the ranking.
+  const favorWhatWorks = useMemo(() => loadState().settings.favorWhatWorks, []);
+  const leanOf = useMemo(() => shuffleWeights(nights), [nights]);
 
   // scoreFeeds, not rankedFeeds: the panel shows everything including feeds
   // below the suggestion threshold. Its whole job is to be auditable, and
@@ -64,6 +68,7 @@ export function RestView({ onClose }: { onClose: () => void }) {
         <span className="shrink-0 text-[10px] text-[#4a4540]">
           {f.nights} night{f.nights === 1 ? "" : "s"}
           {f.skipNights > 0 ? ` · ${f.skipNights} skipped` : ""}
+          {favorWhatWorks ? leanLabel(leanOf(f.feedId)) : ""}
         </span>
       </li>
     );
@@ -148,6 +153,9 @@ export function RestView({ onClose }: { onClose: () => void }) {
             Ranked by what was playing when you went under. Feeds with fewer
             than three nights, that have never led, or that net negative
             aren't counted yet.
+            {favorWhatWorks
+              ? " Favor what puts me under is on: feeds with three or more nights come up more or less often by their record."
+              : ""}
           </p>
         </section>
       )}
@@ -158,4 +166,11 @@ export function RestView({ onClose }: { onClose: () => void }) {
       <button onClick={onClose} className="text-xs underline decoration-[#3a3325] underline-offset-4 hover:text-[#b59a76]">back</button>
     </div>
   );
+}
+
+/** How a feed leans in the shuffle, for its row: nothing at no lean. */
+function leanLabel(weight: number): string {
+  if (weight > 1) return " · comes up more";
+  if (weight < 1) return " · comes up less";
+  return "";
 }

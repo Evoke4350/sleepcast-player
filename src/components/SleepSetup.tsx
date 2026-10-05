@@ -109,6 +109,10 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
   function toggleQuarterHourRule(on: boolean) {
     updateAndSave({ ...appState, settings: { ...appState.settings, quarterHourRule: on } });
   }
+  const favorWhatWorks = appState.settings.favorWhatWorks;
+  function toggleFavorWhatWorks(on: boolean) {
+    updateAndSave({ ...appState, settings: { ...appState.settings, favorWhatWorks: on } });
+  }
   const enabledFeeds = appState.feeds.filter((f) => f.enabled);
 
   // Pool = all episodes from enabled feeds that have loaded successfully
@@ -1183,6 +1187,27 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
               </p>
             )}
           </div>
+        </section>
+
+        {/* The shuffle leaning on the sleep scores, off unless asked for: a
+            pool that narrows on its own is hard to notice going wrong, so
+            the listener chooses it knowingly, and off is the plain shuffle
+            to compare against (the scoring spec, §8). */}
+        <section className="space-y-3">
+          <h2 className="text-xs uppercase tracking-widest text-[#6e5d44]">Favor what puts me under</h2>
+          <label className="flex items-start gap-3">
+            <input
+              type="checkbox"
+              checked={favorWhatWorks}
+              onChange={(e) => toggleFavorWhatWorks(e.target.checked)}
+              className="mt-0.5 h-4 w-4 accent-[#6e5d44]"
+            />
+            <span className="text-xs text-[#6e5d44]">
+              Shows you've drifted off to come up more often, and ones you
+              skip less, once each has a few nights behind it. Nothing is
+              ever ruled out. Off by default — off is a plain shuffle.
+            </span>
+          </label>
         </section>
 
         {/* Stimulus control, off unless asked for. It can stop a night early,
