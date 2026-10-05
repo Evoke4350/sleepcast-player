@@ -47,8 +47,8 @@ export interface FeedScore {
   /** Nights this feed appeared in — not nights in the ledger. */
   nights: number;
   /** max(WEIGHT_FLOOR, 1 + slope × mean credit). Ranks the suggestion, and
-   *  leans the shuffle only for a listener who opts in (shuffleWeights; the
-   *  spec, §8). */
+   *  leans the shuffle only for a listener who opts in, read through
+   *  clampWeight (shuffleWeights; the spec, §8). */
   weight: number;
   onsetNights: number;
   skipNights: number;
@@ -153,13 +153,12 @@ function leanRecord(entries: Iterable<[string, number]>): Record<string, number>
  *  favorWhatWorks): a feed with MIN_NIGHTS or more scored nights leans by
  *  its weight (0.75 to WEIGHT_MAX under today's credits, never below
  *  WEIGHT_FLOOR: toward what has put them under, away from what they skip,
- *  never ruled out); any other feed is 1, no lean
- *  without evidence either way. Unlike the suggestion, a net-negative feed
- *  counts here: leaning away is the other half of the point.
- *  Takes feeds already scored (scoreFeeds); weights go through clampWeight
- *  (WEIGHT_FLOOR..WEIGHT_MAX), which also rounds them to
- *  hundredths: a difference below that changes no pick that matters, so it
- *  neither makes a night "leaned" nor shows as a weight. */
+ *  never ruled out); any other feed is 1, no lean without evidence either
+ *  way. Unlike the suggestion, a net-negative feed counts here: leaning away
+ *  is the other half of the point. Takes feeds already scored (scoreFeeds);
+ *  weights go through clampWeight (WEIGHT_FLOOR..WEIGHT_MAX), which also
+ *  rounds them to hundredths: a difference below that changes no pick that
+ *  matters, so it neither makes a night "leaned" nor shows as a weight. */
 export function shuffleWeights(scored: readonly FeedScore[]): FeedWeight {
   const w = new Map(
     scored.filter((f) => f.nights >= MIN_NIGHTS).map((f) => [f.feedId, clampWeight(f.weight)]),
@@ -194,10 +193,10 @@ export function validLean(x: unknown): Record<string, number> | undefined {
 
 /** The night's lean, fixed at its start. A revived night keeps the one it
  *  was snapshotted with (validLean; none if none), whatever the setting,
- *  scores or revived lineup are by then. A new night leans by the scores when the
- *  listener opted in and they tell its lineup's feeds apart (the episodes not
- *  blocked at its start); else none, a
- *  plain shuffle. `nights` and `blocked` are read only when needed. */
+ *  scores or revived lineup are by then. A new night leans by the scores
+ *  when the listener opted in and they tell its lineup's feeds apart (the
+ *  episodes not blocked at its start); else none, a plain shuffle. `nights`
+ *  and `blocked` are read only when needed. */
 export function nightLean(
   favorWhatWorks: boolean,
   pool: readonly { id: string; feedId: string }[],

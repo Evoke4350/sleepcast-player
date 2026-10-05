@@ -216,8 +216,9 @@ leaned-vs-other comparison stays either way. A feed leans only after
 `pickNextEpisode` weights only among the episodes it would have picked from.
 A night whose lineup's feeds all weigh the same doesn't lean (the shuffle
 normalises), and is recorded as plain; the lineup is the episodes not blocked
-at the night's start, so a feed with every episode blocked doesn't count. The night's lean is fixed at its start
-and carried in its snapshot, so a revive keeps it. A RestNight records
+at the night's start, so a feed with every episode blocked doesn't count. The
+night's lean is fixed at its start and carried in its snapshot, so a revive
+keeps it. A RestNight records
 `shuffle: "leaned"` when the night had a lean in effect, whatever happened
 during it. That is deliberately by what was in effect, not by whether a pick
 the lean shaped came before sleep: that would be decided by the night itself
@@ -226,6 +227,15 @@ leaned side. The rest view compares typical time to sleep on nights the shuffle
 leaned against plain-shuffle nights, once a night the shuffle leaned exists
 (the setting on and the lineup's weights differing) and either side has a
 timed night.
+
+The lean feeds back into its own evidence. A feed leaned away from plays less
+often, so it reaches fewer nights where it is still on after onset (the +1
+slept-through credit) and its weight recovers more slowly than its record
+alone would have it. The weight is a mean per night the feed appeared, so
+playing less doesn't lower it directly, and WEIGHT_FLOOR keeps the feed in
+every lineup's draw, so it keeps gathering nights. This is accepted: it is
+the cost of leaning at all, and the plain shuffle (the setting off) is the
+check on it.
 
 ## 9. Error handling
 

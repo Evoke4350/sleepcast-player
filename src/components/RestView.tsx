@@ -77,7 +77,8 @@ export function RestView({ onClose }: { onClose: () => void }) {
           {pluralNights(f.nights)}
           {f.skipNights > 0 ? ` · ${f.skipNights} skipped` : ""}
         </span>
-        {/* On its own line, so the title keeps its room at phone width. Relative: the shuffle weighs a night's lineup against itself. */}
+        {/* On its own line, so the title keeps its room at phone width.
+            Relative: the shuffle weighs a night's lineup against itself. */}
         {lean !== undefined && lean !== 1 && (
           <span className="w-full text-right text-[10px] text-[#4a4540]">{`weighs ×${lean.toFixed(2)}`}</span>
         )}
