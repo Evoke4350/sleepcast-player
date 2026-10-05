@@ -13,23 +13,11 @@ import type { Episode } from "./engine";
 import { aliveIn, pickNextEpisode, type Play } from "./plays";
 import type { FeedWeight } from "./rest/types";
 
-/** The lead for a night nobody had an opinion about (preferVideoLead with
- *  no lead). */
-export function chooseLead(
-  pool: readonly Episode[],
-  dead: ReadonlySet<string>,
-  plays: Play[],
-  rand: () => number = Math.random,
-  weightOf?: FeedWeight,
-): Episode | null {
-  return preferVideoLead(null, pool, dead, plays, rand, weightOf);
-}
-
 /**
- * The lead a mixed night should actually open on, given one somebody supplied
- * (or none: chooseLead).
+ * The lead a mixed night should actually open on, given the one somebody
+ * supplied, if any (none: the night nobody had an opinion about).
  *
- * Leads arrive from three places besides chooseLead — the 3am re-anchor, a
+ * Leads arrive from three places — the 3am re-anchor, a
  * search result or suggestion in setup, and a resumed night — and the
  * re-anchor's is picked in array order with no idea that kinds exist. Letting
  * any of them through unexamined spends the night's one waking gesture on a

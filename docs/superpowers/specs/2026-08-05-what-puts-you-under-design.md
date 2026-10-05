@@ -145,9 +145,8 @@ those three.
 
 `weight` ranks the suggestion in §7 and does nothing else in v1. It is shaped
 as a multiplier rather than a raw score so that if §8 is ever revisited it can
-drive `pickNextEpisode` without a redesign — but nothing multiplies by it yet,
-and the tests assert that. (Revisited 2026-10-04: it now drives the opt-in
-lean; see the §8 addendum.)
+drive `pickNextEpisode` without a redesign; in v1 nothing multiplied by it.
+(Revisited 2026-10-04: it now drives the opt-in lean; see the §8 addendum.)
 
 `WEIGHT_FLOOR = 0.25` is the important constant and comes straight from the
 Python: **never zero a feed out.** A feed that scored badly on two nights has
@@ -209,8 +208,9 @@ The shuffle can now lean on the score, but only when the listener turns on
 "Favor what puts me under" in setup (`settings.favorWhatWorks`, off by
 default). That keeps this section's concerns: the listener chooses it
 knowingly, off is the plain shuffle to compare against, and the rest view
-shows each feed's weight other than ×1 while the setting is on (the leaned-vs-other
-comparison stays either way). A feed leans only after
+shows each feed's weight other than ×1 while the setting is on, for feeds
+that are on (a switched-off or removed feed is in no lineup). The
+leaned-vs-other comparison stays either way. A feed leans only after
 `MIN_NIGHTS` scored nights (by its `weight`, so never below
 `WEIGHT_FLOOR`); other feeds don't lean. Freshness still comes first:
 `pickNextEpisode` weights only among the episodes it would have picked from.
