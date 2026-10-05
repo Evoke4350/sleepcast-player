@@ -256,8 +256,10 @@ describe("RestSession interactions across a reload", () => {
 });
 
 describe("RestSession shuffle record", () => {
-  it("marks a night whose shuffle leaned, and leaves a plain one unmarked", () => {
-    expect(new RestSession(0, 45, true).finish("faded", 1000).shuffle).toBe("leaned");
+  it("marks a night once a pick was shaped by the lean, and leaves a plain one unmarked", () => {
+    const s = new RestSession(0, 45);
+    s.noteShuffleLeaned();
+    expect(s.finish("faded", 1000).shuffle).toBe("leaned");
     expect(new RestSession(0, 45).finish("faded", 1000)).not.toHaveProperty("shuffle");
   });
 });

@@ -106,7 +106,7 @@ const LOCK_RETRY_MS = 10_000;
 const LOCK_SYNC_EVENTS = ["play", "pause", "playing", "waiting", "seeked", "loadedmetadata", "durationchange", "ratechange", "loadstart"] as const;
 
 export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, skipIntroByFeedId, feedTitles, artworkByFeedId, onEnd, resume = null, leadEpisode = null, leadPosition = 0, quarterHourRule = false, wasVaried = false, favorWhatWorks = false }: PlayerProps) {
-  const shuffle = useNightShuffle(favorWhatWorks, pool, resume);
+  const shuffle = useNightShuffle(favorWhatWorks, pool, resume, () => restRef.current?.noteShuffleLeaned());
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const endTimeRef = useRef<number | null>(null);
@@ -660,6 +660,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       extensions: extensionsRef.current,
       wasVaried: wasVariedRef.current,
       shuffleLean: shuffle.lean,
+      shuffleLeaned: restRef.current?.shuffleLeaned || undefined,
       touches: restRef.current?.touchCount,
       ruleSpent: ruleSpentRef.current,
       remainingMs,
@@ -892,7 +893,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // time-to-sleep, timeline and snapshots count from the real start, not
     // from the tap on "keep going".
     const nightStart = revivedNightStart(resume?.nightStartedAt, Date.now());
-    restRef.current = new RestSession(nightStart, timerMinutes, shuffle.leaned);
+    restRef.current = new RestSession(nightStart, timerMinutes);
+    if (resume?.shuffleLeaned === true) restRef.current.noteShuffleLeaned(); // its picks before the reload
     restRef.current.seedInteractions(resume?.interactions ?? 0, resume?.touches);
     ruleSpentRef.current = resume?.ruleSpent === true; // at most once a night, reloads included
     nightStartedAtRef.current = nightStart; // the quarter-hour rule's clock too

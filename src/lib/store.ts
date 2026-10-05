@@ -303,6 +303,10 @@ export interface LiveSession {
    *  kept for a revive (whatever the setting or scores are by then) and for
    *  the reconciled RestNight's record. */
   shuffleLean?: Record<string, number>;
+  /** Whether a pick tonight was actually shaped by the lean (the night's
+   *  record; RestSession.shuffleLeaned), carried into a revive and into the
+   *  reconciled RestNight. */
+  shuffleLeaned?: boolean;
 }
 
 /** What a revived night resumes from: the snapshot, as the players take it.

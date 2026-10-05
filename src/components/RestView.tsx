@@ -58,6 +58,7 @@ export function RestView({ onClose }: { onClose: () => void }) {
   // can never drift apart in what they show per feed.
   function feedRow(f: (typeof scored)[number]) {
     const median = medianTimeToSleep(nights, f.feedId);
+    const lean = leanOf?.(f.feedId);
     return (
       <li key={f.feedId} className="flex flex-wrap items-baseline gap-x-2 text-sm">
         <span className="flex-1 truncate text-[#b0a898]">
@@ -75,8 +76,8 @@ export function RestView({ onClose }: { onClose: () => void }) {
           {f.skipNights > 0 ? ` · ${f.skipNights} skipped` : ""}
         </span>
         {/* On its own line, so the title keeps its room at phone width. */}
-        {leanOf && leanOf(f.feedId) !== 1 && (
-          <span className="w-full text-right text-[10px] text-[#4a4540]">{leanLabel(leanOf(f.feedId))}</span>
+        {lean !== undefined && lean !== 1 && (
+          <span className="w-full text-right text-[10px] text-[#4a4540]">{leanLabel(lean)}</span>
         )}
       </li>
     );
@@ -169,7 +170,7 @@ export function RestView({ onClose }: { onClose: () => void }) {
           no feed has scored nights (all marked awake, say). */}
       {compared && (
         <p className="text-[11px] leading-snug text-[#8a7a5c]">
-          {`Typical time to sleep: ${compared.leaned.medianMs === null ? "—" : fmtDuration(compared.leaned.medianMs)} on nights the shuffle leaned (${compared.leaned.nights}), ${compared.plain.medianMs === null ? "—" : fmtDuration(compared.plain.medianMs)} on plain ones (${compared.plain.nights}).`}
+          {`Typical time to sleep: ${fmtMedian(compared.leaned.medianMs)} on nights the shuffle leaned (${compared.leaned.nights}), ${fmtMedian(compared.plain.medianMs)} on other nights (${compared.plain.nights}).`}
         </p>
       )}
       <p className="text-xs text-[#4a4540]">
@@ -185,4 +186,9 @@ export function RestView({ onClose }: { onClose: () => void }) {
  *  night's lineup against itself, so this is relative. */
 function leanLabel(weight: number): string {
   return `weighs ×${weight.toFixed(2)}`;
+}
+
+/** A median for the comparison line: "—" when there is none. */
+function fmtMedian(ms: number | null): string {
+  return ms === null ? "—" : fmtDuration(ms);
 }

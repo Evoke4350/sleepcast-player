@@ -185,6 +185,15 @@ describe("pickNextEpisode with feed weights (favor what puts me under)", () => {
     expect(pickNextEpisode(eps, [], () => 1 - Number.EPSILON / 2, w)?.id).toBe("e4");
   });
 
+  it("tells onLeanedPick only of picks whose candidates' weights differed", () => {
+    const heard: string[] = [];
+    const w = Object.assign((f: string) => (f === "good" ? 1.5 : 1), { onLeanedPick: () => heard.push("leaned") });
+    pickNextEpisode([feedEp("a", "other"), feedEp("b", "other")], [], () => 0, w); // equal weights: plain
+    expect(heard).toEqual([]);
+    pickNextEpisode([feedEp("a", "good"), feedEp("b", "other")], [], () => 0, w);
+    expect(heard).toEqual(["leaned"]);
+  });
+
   it("falls back to a plain pick when no weight is positive", () => {
     const eps = [feedEp("a", "x"), feedEp("b", "y")];
     expect(pickNextEpisode(eps, [], () => 0.6, () => 0)?.id).toBe("b");

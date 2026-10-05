@@ -22,9 +22,9 @@ export class RestSession {
   private timeline: { t: number; feedId: string; episodeId: string }[] = [];
   private skipped = new Set<string>();
 
-  /** `shuffleLeaned`: the night's shuffle leans on the scores, recorded on
-   *  its RestNight so leaned and plain nights can be told apart. */
-  constructor(readonly startedAt: number, readonly timerMinutes: number, readonly shuffleLeaned = false) {
+  private leaned = false;
+
+  constructor(readonly startedAt: number, readonly timerMinutes: number) {
     const params = currentParams(loadParams(), loadNights());
     this.detector = new SleepDetector(params);
   }
@@ -78,6 +78,18 @@ export class RestSession {
     this.touches += count(touches);
   }
 
+  /** A pick the opt-in lean actually shaped (FeedWeight.onLeanedPick):
+   *  the night is recorded as leaned, so leaned and plain nights can be
+   *  told apart. A night that never made one stays plain. */
+  noteShuffleLeaned(): void {
+    this.leaned = true;
+  }
+
+  /** Whether any pick tonight was shaped by the lean. */
+  get shuffleLeaned(): boolean {
+    return this.leaned;
+  }
+
   /** Called whenever an episode starts playing. */
   noteEpisode(feedId: string, episodeId: string, now: number = Date.now()): void {
     this.timeline.push({ t: now - this.startedAt, feedId, episodeId });
@@ -120,7 +132,7 @@ export class RestSession {
       timeToSleepMs: atMs,
       interactions: this.interactions,
       detector: this.onset ? "inference" : "none",
-      ...(this.shuffleLeaned ? { shuffle: "leaned" as const } : {}),
+      ...(this.leaned ? { shuffle: "leaned" as const } : {}),
       // Spread rather than assign: an absent field and an empty array must not
       // become two shapes in a ledger that already holds 90 nights without them.
       // at.t is when the credited feed itself started, so atMs - at.t is how

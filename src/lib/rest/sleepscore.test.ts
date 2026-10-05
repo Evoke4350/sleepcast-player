@@ -443,6 +443,9 @@ describe("nightLean", () => {
   it("a revived night keeps its snapshot's lean, whatever the setting", () => {
     expect(nightLean(false, pool, { shuffleLean: { good: 1.5 } }, never)).toEqual({ good: 1.5 });
   });
+  it("a revived lean is read by own keys only", () => {
+    expect(nightLean(true, [{ feedId: "constructor" }, { feedId: "good" }], { shuffleLean: { good: 1.5 } }, never)).toEqual({ good: 1.5 });
+  });
   it("a revived lineup cut down to feeds the lean doesn't tell apart is plain", () => {
     expect(nightLean(true, [{ feedId: "good" }], { shuffleLean: { good: 1.5, other: 0.75 } }, never)).toBeUndefined();
   });

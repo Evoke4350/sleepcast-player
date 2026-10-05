@@ -45,7 +45,7 @@ describe("reconcileLive", () => {
   });
 
   it("records whether a killed night's shuffle leaned", () => {
-    reconcileLive(snap({ shuffleLean: { a: 1.5, b: 0.5 } }), T0 + 10 * 60 * 60_000);
+    reconcileLive(snap({ shuffleLean: { a: 1.5 }, shuffleLeaned: true }), T0 + 10 * 60 * 60_000);
     expect(loadNights()[0].shuffle).toBe("leaned");
   });
 

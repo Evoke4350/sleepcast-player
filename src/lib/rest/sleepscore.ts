@@ -182,7 +182,9 @@ export function nightLean(
     // Over the revived lineup (the snapshot's pool is cut down), so a lean
     // its feeds no longer tell apart is a plain night, recorded as one.
     const stored = validLean(resume.shuffleLean);
-    return stored ? lineupLean((feedId) => stored[feedId] ?? 1, pool) : undefined;
+    if (!stored) return undefined;
+    // Own keys only: a feed id like "constructor" mustn't find an inherited one.
+    return lineupLean((feedId) => (Object.hasOwn(stored, feedId) ? stored[feedId] : 1), pool);
   }
   return favorWhatWorks ? lineupLean(shuffleWeights(scoreFeeds(nights())), pool) : undefined;
 }
