@@ -21,8 +21,9 @@ import type { FeedWeight } from "./rest/types";
  * suggestion, or the last episode again, which brings its saved position).
  * A resumed night keeps its episode and doesn't come here. The re-anchor's
  * is picked in array order with no idea that kinds exist. Letting any of them
- * through unexamined spends the night's one waking gesture on a podcast and leaves the first video to land mid-sleep, which is exactly the
- * failure leading with video exists to prevent.
+ * through unexamined spends the night's one waking gesture on a podcast and
+ * leaves the first video to land mid-sleep, which is exactly the failure
+ * leading with video exists to prevent.
  *
  * A supplied podcast lead is only overridden by a video, never by another
  * podcast: the listener may have chosen this one, and swapping it for a
