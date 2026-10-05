@@ -427,7 +427,7 @@ describe("lineupLean", () => {
   const pool = (...feeds: string[]) => feeds.map((feedId) => ({ feedId }));
   it("is each lineup feed's weight when they differ", () => {
     const w = (f: string) => (f === "a" ? 1.5 : 1);
-    expect(lineupLean(w, pool("a", "b", "a"))).toEqual({ a: 1.5, b: 1 });
+    expect(lineupLean(w, pool("a", "b", "a"))).toEqual({ a: 1.5 }); // b: ×1, absent
   });
   it("is none when the lineup's feeds weigh the same: the shuffle is plain", () => {
     expect(lineupLean(() => 1, pool("a", "b"))).toBeUndefined();

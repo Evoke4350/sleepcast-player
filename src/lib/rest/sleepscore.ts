@@ -128,17 +128,19 @@ export function shuffleWeights(nights: readonly RestNight[]): (feedId: string) =
   return leanFrom(scoreFeeds(nights));
 }
 
-/** A lineup's lean: each of its feeds' weight, or undefined when they are
- *  all the same (the shuffle normalises, so equal weights lean nothing: a
- *  plain shuffle, and recorded as one). */
+/** A lineup's lean: the weight of each of its feeds that isn't ×1 (absent
+ *  means ×1), or undefined when its feeds all weigh the same (the shuffle
+ *  normalises, so equal weights lean nothing: a plain shuffle, and recorded
+ *  as one). */
 export function lineupLean(
   weightOf: (feedId: string) => number,
   pool: readonly { feedId: string }[],
 ): Record<string, number> | undefined {
-  const lean: Record<string, number> = {};
-  for (const e of pool) lean[e.feedId] = weightOf(e.feedId);
-  const ws = Object.values(lean);
-  return ws.some((w) => w !== ws[0]) ? lean : undefined;
+  const all = new Map<string, number>();
+  for (const e of pool) all.set(e.feedId, weightOf(e.feedId));
+  const ws = [...all.values()];
+  if (!ws.some((w) => w !== ws[0])) return undefined;
+  return Object.fromEntries([...all].filter(([, w]) => w !== 1));
 }
 
 /** shuffleWeights from feeds already scored. Rounded to hundredths: a

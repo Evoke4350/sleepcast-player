@@ -152,9 +152,7 @@ export function RestView({ onClose }: { onClose: () => void }) {
             </div>
           )}
           <p className="mt-2 text-[11px] leading-snug text-[#4a4540]">
-            Ranked by what was playing when you went under. Feeds with fewer
-            than three nights, that have never led, or that net negative
-            aren't counted yet.
+            {`Ranked by what was playing when you went under. Feeds with fewer than ${MIN_NIGHTS} nights, that have never led, or that net negative aren't counted yet.`}
             {favorWhatWorks
               ? ` Favor what puts me under is on: a feed with ${MIN_NIGHTS} or more nights, counted or not, weighs by its record against the other shows in a night's lineup (others weigh ×1).`
               : ""}
