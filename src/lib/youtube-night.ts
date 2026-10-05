@@ -8,7 +8,8 @@
 
 import type { Episode } from "./engine";
 import type { Transport as BackendTransport } from "./media/backend";
-import { pickNextEpisode, type Play } from "./plays";
+import { aliveIn, pickNextEpisode, type Play } from "./plays";
+import type { FeedWeight } from "./rest/types";
 import { classifyYouTubeError } from "./youtube-errors";
 
 /** Retries allowed for one episode before it is skipped. */
@@ -84,7 +85,9 @@ export function shouldGiveUp({ state, hasEverPlayed, elapsedMs, limitMs }: GiveU
 }
 
 /**
- * The next video to try, or null when there is nothing left.
+ * The next episode to try, video or audio, or null when there is nothing
+ * left. With `weightOf` (the night's lean) the pick leans by feed; without
+ * it, it is plain.
  *
  * `dead` holds both kinds of unplayable at once — blocked across nights
  * (embedding disabled, video removed) and failed just tonight — because the
@@ -96,13 +99,14 @@ export function nextPlayable(
   currentId: string | null,
   plays: Play[],
   rand: () => number = Math.random,
+  weightOf?: FeedWeight,
 ): Episode | null {
-  const alive = pool.filter((e) => !dead.has(e.id));
+  const alive = aliveIn(pool, dead);
   if (!alive.length) return null;
   // Prefer anything other than what is playing, but fall back to it: one
   // survivor repeating beats a night that stops on a technicality.
   const others = currentId ? alive.filter((e) => e.id !== currentId) : alive;
-  return pickNextEpisode(others.length ? others : alive, plays, rand);
+  return pickNextEpisode(others.length ? others : alive, plays, rand, weightOf);
 }
 
 /**

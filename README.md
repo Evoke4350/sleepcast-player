@@ -48,7 +48,10 @@ So:
 
 - **No next-up.** You never see what's coming, because knowing invites waiting.
 - **Shuffle, not a queue.** Episodes are picked from your feeds with a bias
-  against ones you've already heard (`src/lib/plays.ts`).
+  against ones you've already heard (`src/lib/plays.ts`). Opt in to "Favor
+  what puts me under" and it also leans toward shows you've fallen asleep to
+  and away from ones you skip, never ruling one out (`shuffleWeights` in
+  `src/lib/rest/sleepscore.ts`).
 - **The timer fades, it doesn't cut.** A hard stop wakes people. The fade is a
   volume ramp over the last stretch (`fadeVolume` in `src/lib/engine.ts`).
 - **It resumes the night, not the episode.** Fall asleep 20 minutes into a

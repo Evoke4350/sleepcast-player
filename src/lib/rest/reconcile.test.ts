@@ -44,6 +44,19 @@ describe("reconcileLive", () => {
     expect(loadLastNight()?.playedIds).toEqual(["a", "b"]);
   });
 
+  it("records whether a killed night's shuffle leaned", () => {
+    reconcileLive(snap({ shuffleLean: { a: 1.5 } }), T0 + 10 * 60 * 60_000);
+    expect(loadNights()[0].shuffle).toBe("leaned");
+  });
+
+  it("leaves a plain or malformed-lean snapshot unmarked", () => {
+    for (const shuffleLean of [undefined, {}, { a: 1 }, null, [1.5], { a: -1 }, { a: "x" }]) {
+      localStorage.clear();
+      reconcileLive(snap({ shuffleLean: shuffleLean as Record<string, number> | undefined }), T0 + 10 * 60 * 60_000);
+      expect(loadNights()[0]).not.toHaveProperty("shuffle");
+    }
+  });
+
   it("keeps whether the night was a varied mix", () => {
     reconcileLive(snap({ wasVaried: true }), T0 + 10 * 60 * 60_000);
     expect(loadLastNight()?.wasVaried).toBe(true);

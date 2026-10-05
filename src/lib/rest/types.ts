@@ -1,3 +1,7 @@
+/** How much a feed's episodes lean in the shuffle (1 = no lean); see
+ *  sleepscore shuffleWeights. */
+export type FeedWeight = (feedId: string) => number;
+
 export interface SleepSignal {
   t: number;              // ms since night start
   interacted: boolean;    // tap/skip/pause/extend/scrub this tick
@@ -27,6 +31,9 @@ export interface RestNight {
   sleptThrough?: string[];
   /** Feeds you manually skipped or blocked during the night. */
   skipped?: string[];
+  /** "leaned": the night's shuffle leaned on the scores (favorWhatWorks).
+   *  Absent: a plain shuffle, the baseline to compare against. */
+  shuffle?: "leaned";
 }
 export interface RestRollup {
   nights: number;

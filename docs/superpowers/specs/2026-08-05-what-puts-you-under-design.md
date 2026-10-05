@@ -24,6 +24,7 @@ on their behalf. It is to make the choice obvious and show the reasoning.
 3. One suggestion before a night starts, with its evidence beside it, and a way
    to disagree in one tap.
 4. Nothing in the shuffle changes. The score suggests; it does not reweight.
+   (Revisited 2026-10-04: an opt-in lean; see §8.)
 
 ## 3. Non-goals
 
@@ -92,6 +93,12 @@ export interface RestNight {
 }
 ```
 
+Added with the opt-in lean (2026-10-04, see the §8 addendum): `RestNight` also
+gains `shuffle?: "leaned"` (present when the night had a lean in effect), and
+the live snapshot (`LiveSession`) gains `shuffleLean?: Record<string, number>`
+(the night's weights, for a revive and for reconcile). Both optional, for the
+same reason.
+
 `RestSession` gains a timeline and a skip set, and resolves them in `finish()`:
 
 ```ts
@@ -138,8 +145,8 @@ those three.
 
 `weight` ranks the suggestion in §7 and does nothing else in v1. It is shaped
 as a multiplier rather than a raw score so that if §8 is ever revisited it can
-drive `pickNextEpisode` without a redesign — but nothing multiplies by it yet,
-and the tests assert that.
+drive `pickNextEpisode` without a redesign; in v1 nothing multiplied by it.
+(Revisited 2026-10-04: it now drives the opt-in lean; see the §8 addendum.)
 
 `WEIGHT_FLOOR = 0.25` is the important constant and comes straight from the
 Python: **never zero a feed out.** A feed that scored badly on two nights has
@@ -186,7 +193,7 @@ night counts, median time-to-sleep, and skip counts. This is the auditable half
 — the reason the design is B rather than a black-box recommender. If the model
 is wrong about the user, the user can see that it is wrong.
 
-## 8. Why the shuffle is untouched
+## 8. Why the shuffle is untouched (by default)
 
 The score suggests and nothing else. A scorer that silently reweights nights
 before it has been trusted is hard to notice going wrong: the pool quietly
@@ -194,6 +201,47 @@ narrows, the listener cannot tell whether the app learned something or broke,
 and there is no baseline left to compare against. Reweighting is a later
 decision, made with the panel in §7 as evidence, not an assumption baked in on
 day one.
+
+### Revisited (2026-10-04): an opt-in lean
+
+The shuffle can now lean on the score, but only when the listener turns on
+"Favor what puts me under" in setup (`settings.favorWhatWorks`, off by
+default). That keeps this section's concerns: the listener chooses it
+knowingly, off is the plain shuffle to compare against, and the rest view
+shows each feed's weight other than ×1 while the setting is on, for feeds that
+are on (setup builds no lineup from a switched-off or removed feed; a 3am
+re-anchor carries the faded night's lineup, so a feed switched off since can
+still lean that night, unlisted). The leaned-vs-other comparison stays either
+way. A feed leans only after `MIN_NIGHTS` scored nights, by its `weight` read
+through `clampWeight` (within `WEIGHT_FLOOR`..`WEIGHT_MAX`, rounded to
+hundredths, so a weight that rounds to 1 is no lean); other feeds don't lean.
+Freshness still comes first: `pickNextEpisode` weights only among the episodes
+it would have picked from. The weight multiplies each episode's odds, not the
+feed's, so a feed's share of picks also scales with how many fresh episodes it
+has: ×1.75 on two fresh episodes can still come up less than ×0.75 on fifty.
+The lean tilts the draw; it doesn't set each feed's share.
+
+A night whose lineup's feeds all weigh the same doesn't lean (the shuffle
+normalises), and is recorded as plain; the lineup is the episodes not blocked
+at the night's start, so a feed with every episode blocked doesn't count. The
+night's lean is fixed at its start and carried in its snapshot, so a revive
+keeps it. A RestNight records `shuffle: "leaned"` when the night had a lean in
+effect, whatever happened during it. That is deliberately by what was in
+effect, not by whether a pick the lean shaped came before sleep: that would be
+decided by the night itself (a restless night reaches more picks), so the slow
+nights would land on the leaned side. The rest view compares typical time to
+sleep on nights the shuffle leaned against plain-shuffle nights, once a night
+the shuffle leaned exists (the setting on and the lineup's weights differing)
+and either side has a timed night.
+
+The lean feeds back into its own evidence. A feed leaned away from plays less
+often, so it reaches fewer nights where it is still on after onset (the +1
+slept-through credit) and its weight recovers more slowly than its record
+alone would have it. The weight is a mean per night the feed appeared, so
+playing less doesn't lower it directly, and WEIGHT_FLOOR keeps the feed in
+every lineup's draw, so it keeps gathering nights. This is accepted: it is the
+cost of leaning at all, and the plain shuffle (the setting off) is the check
+on it.
 
 ## 9. Error handling
 
@@ -205,6 +253,8 @@ day one.
 | Suggested feed is disabled or gone | Skip to the next qualifying feed; if none, render nothing |
 | `timeline` empty at `finish()` | `onset*` absent; not an error |
 | Onset earlier than the first timeline entry | `onset*` absent — a clock or resume artefact, not a fact worth inventing |
+| Stored `shuffleLean` malformed or out of range | `validLean` drops bad entries and clamps the rest; none left is a plain shuffle |
+| A lineup feed with every episode blocked at the night's start | Left out of the lean's lineup; it doesn't make the night lean |
 
 ## 10. Testing
 
@@ -223,6 +273,20 @@ Everything above is pure functions over arrays, which is the point.
 
 The suggestion component gets a test that it renders the evidence line
 alongside the pick, since the guarantee is that the pick never appears alone.
+
+The opt-in lean (§8 addendum) is pinned by tests too:
+
+- **Bounds** — `shuffleWeights` and `validLean` clamp to
+  `WEIGHT_FLOOR`..`WEIGHT_MAX` and round to hundredths; a weight that rounds
+  to 1 is no lean.
+- **Plain when equal** — a lineup whose feeds weigh the same, or a night with
+  the setting off, gets no lean and is recorded plain.
+- **Start of night** — a new night leans over the episodes not blocked at its
+  start; a revived night keeps its snapshot's lean.
+- **Freshness first** — the lean weights only the episodes the freshness rule
+  would have picked from; it never brings back a heard one by its weight.
+- **Labels** — a night with a lean is recorded `shuffle: "leaned"`, at its end
+  and when reconciled from a dead tab alike.
 
 ## 11. Open questions
 

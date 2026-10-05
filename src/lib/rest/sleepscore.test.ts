@@ -6,6 +6,11 @@ import {
   evidenceFor,
   WEIGHT_FLOOR,
   MIN_NIGHTS,
+  shuffleWeights,
+  WEIGHT_MAX,
+  lineupLean,
+  nightLean,
+  validLean,
 } from "./sleepscore";
 import type { RestNight } from "./types";
 
@@ -399,5 +404,114 @@ describe("medianTimeToSleep and self-labels", () => {
       night({ onsetFeedId: "swm", onsetEpisodeId: "swm-ep", onsetAfterMs: 60_000, selfLabel: "awake" }),
     ];
     expect(medianTimeToSleep(nights, "swm")).toBe(900_000);
+  });
+});
+
+describe("shuffleWeights (favor what puts me under)", () => {
+  it("leans a feed with enough nights by its weight, toward and away", () => {
+    const good = Array.from({ length: MIN_NIGHTS }, () => onset("good"));
+    const bad = Array.from({ length: MIN_NIGHTS }, () => night({ skipped: ["bad"] }));
+    const w = shuffleWeights(scoreFeeds([...good, ...bad]));
+    expect(w("good")).toBeGreaterThan(1);
+    expect(w("bad")).toBeLessThan(1);
+    expect(w("bad")).toBeGreaterThanOrEqual(WEIGHT_FLOOR);
+  });
+
+  it("clamps a weight to WEIGHT_FLOOR..WEIGHT_MAX, as validLean does", () => {
+    const f = scoreFeeds(Array.from({ length: MIN_NIGHTS }, () => onset("x")))[0];
+    const w = shuffleWeights([
+      { ...f, feedId: "hi", weight: WEIGHT_MAX + 3 },
+      { ...f, feedId: "lo", weight: 0 },
+    ]);
+    expect(w("hi")).toBe(WEIGHT_MAX);
+    expect(w("lo")).toBe(WEIGHT_FLOOR);
+  });
+
+  it("rounds weights to hundredths", () => {
+    // f: skipped once, slept through twice, over 3 nights: mean credit 1/3,
+    // weight 1 + 0.25/3 = 1.0833, used and shown as 1.08.
+    const three = [
+      night({ skipped: ["f"] }),
+      night({ onsetFeedId: "g", sleptThrough: ["f"] }),
+      night({ onsetFeedId: "g", sleptThrough: ["f"] }),
+    ];
+    expect(shuffleWeights(scoreFeeds(three))("f")).toBe(1.08);
+  });
+
+  it("rounds as validLean does: a new night a hair off 1 doesn't lean", () => {
+    const f = scoreFeeds(Array.from({ length: MIN_NIGHTS }, () => onset("x")))[0];
+    const w = shuffleWeights([{ ...f, feedId: "near", weight: 1.004 }]);
+    expect(w("near")).toBe(1);
+    expect(lineupLean(w, [{ feedId: "near" }, { feedId: "other" }])).toBeUndefined();
+  });
+
+  it("gives no lean without enough nights, or to a feed never scored", () => {
+    const w = shuffleWeights(scoreFeeds([onset("once")]));
+    expect(w("once")).toBe(1);
+    expect(w("never-seen")).toBe(1);
+  });
+});
+
+describe("lineupLean", () => {
+  const pool = (...feeds: string[]) => feeds.map((feedId) => ({ feedId }));
+  it("is each lineup feed's weight when they differ", () => {
+    const w = (f: string) => (f === "a" ? 1.5 : 1);
+    expect(lineupLean(w, pool("a", "b", "a"))).toEqual({ a: 1.5 }); // b: ×1, absent
+  });
+  it("is none when the lineup's feeds weigh the same: the shuffle is plain", () => {
+    expect(lineupLean(() => 1, pool("a", "b"))).toBeUndefined();
+    expect(lineupLean(() => 1.75, pool("only"))).toBeUndefined();
+  });
+  it("reads an invalid weight as 1, as the shuffle does", () => {
+    expect(lineupLean((f) => (f === "a" ? 0 : 1), pool("a", "b"))).toBeUndefined();
+    expect(lineupLean((f) => (f === "a" ? NaN : 1), pool("a", "b"))).toBeUndefined();
+    expect(lineupLean((f) => (f === "a" ? -2 : 1.5), pool("a", "b"))).toEqual({ b: 1.5 });
+  });
+});
+
+describe("nightLean", () => {
+  const pool = [{ id: "g1", feedId: "good" }, { id: "o1", feedId: "other" }];
+  const scored = Array.from({ length: MIN_NIGHTS }, () => onset("good"));
+  const never = () => { throw new Error("the ledger shouldn't be read"); };
+  const noneBlocked = () => [];
+
+  it("a revived night keeps its snapshot's lean, whatever the setting", () => {
+    expect(nightLean(false, pool, { shuffleLean: { good: 1.5 } }, never, never)).toEqual({ good: 1.5 });
+  });
+  it("a revived night keeps its lean even when its cut-down lineup has one feed (the same night, recorded as it began)", () => {
+    expect(nightLean(true, [{ id: "g1", feedId: "good" }], { shuffleLean: { good: 1.5, other: 0.75 } }, never, never)).toEqual({ good: 1.5, other: 0.75 });
+  });
+  it("a revived night without one (or with a malformed one) stays plain, even with the setting on", () => {
+    expect(nightLean(true, pool, {}, never, never)).toBeUndefined();
+    for (const bad of [null, 3, "x", [], {}, { a: -1 }, { a: NaN }]) {
+      expect(nightLean(true, pool, { shuffleLean: bad }, never, never)).toBeUndefined();
+    }
+  });
+  it("a new night leans over what isn't blocked at its start", () => {
+    // Everything of "other" blocked: only "good" can play, so nothing to lean between.
+    expect(nightLean(true, pool, null, () => scored, () => ["o1"])).toBeUndefined();
+  });
+  it("blocks by episode, not by feed: a feed with one episode left still counts", () => {
+    const more = [...pool, { id: "o2", feedId: "other" }];
+    expect(nightLean(true, more, null, () => scored, () => ["o1"])?.good).toBeGreaterThan(1);
+  });
+  it("a new night leans only when the listener opted in", () => {
+    expect(nightLean(false, pool, null, never, never)).toBeUndefined();
+    expect(nightLean(true, pool, null, () => scored, noneBlocked)?.good).toBeGreaterThan(1);
+  });
+});
+
+describe("validLean and rounding", () => {
+  it("rounds as shuffleWeights does: a hair off 1 is no lean", () => {
+    expect(validLean({ a: 1.004 })).toBeUndefined();
+    expect(validLean({ a: 0.999, b: 1.234 })).toEqual({ b: 1.23 });
+  });
+
+  it("accepts only lineupLean's shape: weights in range and not 1", () => {
+    expect(validLean({ a: 1.25 })).toEqual({ a: 1.25 });
+    expect(validLean(undefined)).toBeUndefined();
+    expect(validLean({ a: 1 })).toBeUndefined(); // nothing leans
+    expect(validLean({ a: 1.5, b: 1, c: "x" })).toEqual({ a: 1.5 }); // odd entries dropped, not the lean
+    expect(validLean({ a: 1e6 })).toEqual({ a: WEIGHT_MAX }); // clamped to today's bounds
   });
 });

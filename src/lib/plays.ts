@@ -10,6 +10,9 @@
 // played last night; nothing in this file leaves the device or touches the
 // aggregate server counters.
 
+import { asWeight } from "./rest/sleepscore";
+import type { FeedWeight } from "./rest/types";
+
 export interface Play {
   id: string; // episode guid or url
   title: string;
@@ -54,17 +57,20 @@ export function migrateLegacyHistory(ids: string[]): Play[] {
 
 /**
  * Choose the next episode: unheard first, and when unheard material runs low,
- * the *oldest*-heard episodes come back before newer ones.
+ * the *oldest*-heard episodes come back before newer ones. Among those, a
+ * uniform pick, or, given `weightOf` (the opt-in "favor what puts me under"
+ * lean, rest/sleepscore), one in proportion to each episode's feed weight.
  *
  * The old pickRandomEpisode fell back to the entire pool the moment its filter
  * emptied, which made the episode heard ten minutes ago exactly as likely as
  * one heard a year ago. Degrading through the oldest-heard keeps the night
  * moving without ever feeling like it repeated itself.
  */
-export function pickNextEpisode<E extends { id: string }>(
+export function pickNextEpisode<E extends { id: string; feedId?: string }>(
   episodes: E[],
   plays: Play[],
   rand: () => number = Math.random,
+  weightOf?: FeedWeight,
 ): E | null {
   if (!episodes.length) return null;
 
@@ -81,7 +87,41 @@ export function pickNextEpisode<E extends { id: string }>(
     candidates.push(...recycled);
   }
 
-  return candidates[Math.floor(rand() * candidates.length)] ?? null;
+  return weightedPick(candidates, rand, weightOf);
+}
+
+/** The episodes that can still play: the one rule for a night's pickers
+ *  (nextPlayable, and the mixed-night lead). */
+export function aliveIn<E extends { id: string }>(pool: readonly E[], dead: ReadonlySet<string>): E[] {
+  return pool.filter((e) => !dead.has(e.id));
+}
+
+/** One of `items`, uniformly, or in proportion to its feed's weight (read
+ *  through asWeight, which only turns an invalid weight into 1). Keeping a
+ *  feed in play is the caller's part: the night's lean passes every weight
+ *  through clampWeight (WEIGHT_FLOOR..WEIGHT_MAX) first. */
+function weightedPick<E extends { feedId?: string }>(items: E[], rand: () => number, weightOf?: FeedWeight): E {
+  // (pickNextEpisode never passes an empty list.)
+  if (!weightOf) return items[Math.min(items.length - 1, Math.floor(rand() * items.length))];
+  // Each feed's weight is asked once.
+  const perFeed = new Map<string, number>();
+  const weightFor = (feedId: string) => {
+    let w = perFeed.get(feedId);
+    if (w === undefined) {
+      w = asWeight(weightOf(feedId));
+      perFeed.set(feedId, w);
+    }
+    return w;
+  };
+  const ws = items.map((e) => weightFor(e.feedId ?? ""));
+  const total = ws.reduce((a, b) => a + b, 0);
+  let r = rand() * total;
+  for (let i = 0; i < items.length; i++) {
+    r -= ws[i];
+    if (r < 0) return items[i];
+  }
+  // Rounding left a sliver: the last item.
+  return items[items.length - 1];
 }
 
 /** Plays that began at or after a cutoff, oldest first — i.e. one night's worth. */

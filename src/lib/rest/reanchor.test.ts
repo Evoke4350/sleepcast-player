@@ -1,7 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { shouldReanchor, nextInSpread, REANCHOR_WINDOW_MS } from "./reanchor";
+import { reanchorNext, nextInSpread, REANCHOR_WINDOW_MS, type ReanchorInput } from "./reanchor";
 import type { LastNight } from "../store";
 import type { Episode } from "../engine";
+
+const noneBlocked = () => [];
+const shouldReanchor = (input: Omit<ReanchorInput, "blocked"> & Partial<ReanchorInput>) =>
+  reanchorNext({ blocked: noneBlocked, ...input }) !== null;
 
 function ep(id: string): Episode {
   return { id, title: id, url: `https://x/${id}`, feedId: "f" } as Episode;
@@ -21,22 +25,30 @@ const NOW = 1_000_000 + 60_000; // 1 min after the night ended
 
 describe("nextInSpread", () => {
   it("returns the first unplayed episode in order", () => {
-    expect(nextInSpread([ep("a"), ep("b")], ["a"])?.id).toBe("b");
+    expect(nextInSpread([ep("a"), ep("b")], ["a"], [])?.id).toBe("b");
   });
   it("null when all played", () => {
-    expect(nextInSpread([ep("a")], ["a"])).toBeNull();
+    expect(nextInSpread([ep("a")], ["a"], [])).toBeNull();
+  });
+
+  it("skips a blocked episode, keeping the spread's order", () => {
+    expect(nextInSpread([ep("a"), ep("b"), ep("c")], ["a"], ["b"])?.id).toBe("c");
+    expect(nextInSpread([ep("a"), ep("b")], ["a"], ["b"])).toBeNull();
   });
   it("null for an empty pool", () => {
-    expect(nextInSpread([], [])).toBeNull();
+    expect(nextInSpread([], [], [])).toBeNull();
   });
 });
 
-describe("shouldReanchor", () => {
+describe("reanchorNext (whether to offer one)", () => {
   it("true on the happy path (faded, in window, night hours, next exists)", () => {
     expect(shouldReanchor({ lastNight: night(), now: NOW, localHour: 3 })).toBe(true);
   });
   it("false when there is no last night", () => {
     expect(shouldReanchor({ lastNight: null, now: NOW, localHour: 3 })).toBe(false);
+  });
+  it("false when all that's left in the spread is blocked", () => {
+    expect(shouldReanchor({ lastNight: night(), now: NOW, localHour: 3, blocked: () => ["b"] })).toBe(false);
   });
   it("false when the night was ended or abandoned, not faded", () => {
     expect(shouldReanchor({ lastNight: night({ endedVia: "ended" }), now: NOW, localHour: 3 })).toBe(false);
@@ -55,5 +67,15 @@ describe("shouldReanchor", () => {
   });
   it("false when nothing is left in the spread", () => {
     expect(shouldReanchor({ lastNight: night({ playedIds: ["a", "b"] }), now: NOW, localHour: 3 })).toBe(false);
+  });
+});
+
+describe("reanchorNext (what it offers)", () => {
+  it("is the spread's next playable episode", () => {
+    expect(reanchorNext({ lastNight: night(), now: NOW, localHour: 3, blocked: noneBlocked })?.id).toBe("b");
+  });
+  it("doesn't read the blocked list when the night can't re-anchor", () => {
+    const never = () => { throw new Error("read"); };
+    expect(reanchorNext({ lastNight: null, now: NOW, localHour: 3, blocked: never })).toBeNull();
   });
 });

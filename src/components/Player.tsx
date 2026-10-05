@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useLazyRef } from "../lib/use-lazy-ref";
+import { useNightShuffle } from "../lib/use-night-shuffle";
 import { useStateRef } from "../lib/use-state-ref";
 import { useNightExtensions } from "../lib/use-night-extensions";
 
@@ -90,6 +91,10 @@ export interface PlayerProps {
   /** Opt-in stimulus control (rest/quarterhour.ts). Off unless asked for. */
   quarterHourRule?: boolean;
   wasVaried?: boolean;
+  /** Opt-in: the shuffle leans by feed (rest/sleepscore shuffleWeights).
+   *  Read once, at the night's start (useNightShuffle); a later change does
+   *  nothing to this night. */
+  favorWhatWorks?: boolean;
 }
 
 /** How long a publish the platform rejected stands before the same one is
@@ -102,7 +107,9 @@ const LOCK_RETRY_MS = 10_000;
  *  the last episode's scrubber until the new length is known). */
 const LOCK_SYNC_EVENTS = ["play", "pause", "playing", "waiting", "seeked", "loadedmetadata", "durationchange", "ratechange", "loadstart"] as const;
 
-export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, skipIntroByFeedId, feedTitles, artworkByFeedId, onEnd, resume = null, leadEpisode = null, leadPosition = 0, quarterHourRule = false, wasVaried = false }: PlayerProps) {
+export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, skipIntroByFeedId, feedTitles, artworkByFeedId, onEnd, resume = null, leadEpisode = null, leadPosition = 0, quarterHourRule = false, wasVaried = false, favorWhatWorks = false }: PlayerProps) {
+  const shuffle = useNightShuffle(favorWhatWorks, pool, resume);
+
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const endTimeRef = useRef<number | null>(null);
   const pausedRemainingMsRef = useRef<number | null>(null);
@@ -547,7 +554,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     const choices = current
       ? available.filter((e) => e.id !== current.id)
       : available;
-    const ep = pickNextEpisode(choices.length ? choices : available, getPlays());
+    const ep = pickNextEpisode(choices.length ? choices : available, getPlays(), Math.random, shuffle.weightOf);
     // Nothing left (the last episode was just blocked): end rather than keep
     // playing the one the listener said "never again" to.
     if (ep) playEpisode(ep);
@@ -654,6 +661,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       interactions: restRef.current?.interactionCount,
       extensions: extensionsRef.current,
       wasVaried: wasVariedRef.current,
+      shuffleLean: shuffle.lean,
       touches: restRef.current?.touchCount,
       ruleSpent: ruleSpentRef.current,
       remainingMs,
@@ -886,7 +894,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // time-to-sleep, timeline and snapshots count from the real start, not
     // from the tap on "keep going".
     const nightStart = revivedNightStart(resume?.nightStartedAt, Date.now());
-    restRef.current = new RestSession(nightStart, timerMinutes);
+    restRef.current = new RestSession(nightStart, timerMinutes, shuffle.lean !== undefined);
     restRef.current.seedInteractions(resume?.interactions ?? 0, resume?.touches);
     ruleSpentRef.current = resume?.ruleSpent === true; // at most once a night, reloads included
     nightStartedAtRef.current = nightStart; // the quarter-hour rule's clock too

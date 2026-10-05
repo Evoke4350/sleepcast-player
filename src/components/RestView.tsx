@@ -1,7 +1,7 @@
 import { useMemo } from "react";
-import { loadNights, rollup, setSelfLabel } from "../lib/rest/ledger";
+import { loadNights, rollup, setSelfLabel, leanComparison } from "../lib/rest/ledger";
 import { recordFalsePositive } from "../lib/rest/calibrate";
-import { scoreFeeds, medianTimeToSleep, meetsSuggestionGate } from "../lib/rest/sleepscore";
+import { scoreFeeds, medianTimeToSleep, meetsSuggestionGate, shuffleWeights, pluralNights, fmtOnsetMinutes, MIN_NIGHTS } from "../lib/rest/sleepscore";
 import { fmtDuration, lastNight } from "../lib/rest/surface";
 import { getPlays, loadState } from "../lib/store";
 import { playsSince, playAtMoment } from "../lib/plays";
@@ -14,9 +14,18 @@ export function RestView({ onClose }: { onClose: () => void }) {
   // Only custom feeds can go missing from here — loadState always re-merges
   // every BUILTIN_FEEDS entry regardless of what's saved, and removeCustomFeed
   // no-ops on builtins. So a lookup miss below is always a removed custom feed.
-  const feedTitles = useMemo(() => {
+  // (And whether the shuffle leans: shown per feed while it's on, so the
+  // lean is as auditable as the ranking; only for a feed that is on, since
+  // setup builds no lineup from a removed or switched-off one. A 3am
+  // re-anchor carries the faded night's lineup, so a feed switched off since
+  // can still lean that one night, unlisted.)
+  const { feedTitles, enabledFeeds, favorWhatWorks } = useMemo(() => {
     const s = loadState();
-    return Object.fromEntries(s.feeds.map((f) => [f.id, f.title]));
+    return {
+      feedTitles: Object.fromEntries(s.feeds.map((f) => [f.id, f.title])),
+      enabledFeeds: new Set(s.feeds.filter((f) => f.enabled).map((f) => f.id)),
+      favorWhatWorks: s.settings.favorWhatWorks,
+    };
   }, []);
 
   // scoreFeeds, not rankedFeeds: the panel shows everything including feeds
@@ -28,6 +37,11 @@ export function RestView({ onClose }: { onClose: () => void }) {
   const scored = useMemo(() => scoreFeeds(nights), [nights]);
   const counted = useMemo(() => scored.filter(meetsSuggestionGate), [scored]);
   const notYetCounted = useMemo(() => scored.filter((f) => !meetsSuggestionGate(f)), [scored]);
+  const leanOf = useMemo(() => (favorWhatWorks ? shuffleWeights(scored) : null), [scored, favorWhatWorks]);
+  // Leaned nights against plain ones, once there are leaned nights and
+  // either side has a timed one (leanComparison): the baseline the setting
+  // keeps is only worth keeping if it is compared.
+  const compared = useMemo(() => leanComparison(nights), [nights]);
 
   // What actually played last night, from the play ledger. Entries only exist
   // once an episode ran past HEARD_SEC, so a track skipped in the first breath
@@ -49,22 +63,29 @@ export function RestView({ onClose }: { onClose: () => void }) {
   // can never drift apart in what they show per feed.
   function feedRow(f: (typeof scored)[number]) {
     const median = medianTimeToSleep(nights, f.feedId);
+    const lean = enabledFeeds.has(f.feedId) ? leanOf?.(f.feedId) : undefined;
     return (
-      <li key={f.feedId} className="flex items-baseline gap-2 text-sm">
+      <li key={f.feedId} className="flex flex-wrap items-baseline gap-x-2 text-sm">
         <span className="flex-1 truncate text-[#b0a898]">
           {/* Raw ids for builtins ("swm") are readable enough to ship;
               a removed custom feed's id ("custom-1699999999-ab3f2")
               is not, so a title-less feed gets a plain label instead
               of leaking that internal id into the UI. */}
-          {feedTitles[f.feedId] ?? "a feed you removed"}
+          {feedTitles[f.feedId] ?? "a show you removed"}
         </span>
         <span className="shrink-0 text-xs text-[#8a7a5c]">
-          {median === null ? "—" : `${Math.round(median / 60_000)} min`}
+          {/* Worded as the evidence sentence words it, so the two can be checked against each other. */}
+          {orDash(median, fmtOnsetMinutes)}
         </span>
         <span className="shrink-0 text-[10px] text-[#4a4540]">
-          {f.nights} night{f.nights === 1 ? "" : "s"}
+          {pluralNights(f.nights)}
           {f.skipNights > 0 ? ` · ${f.skipNights} skipped` : ""}
         </span>
+        {/* On its own line, so the title keeps its room at phone width.
+            Relative: the shuffle weighs a night's lineup against itself. */}
+        {lean !== undefined && lean !== 1 && (
+          <span className="w-full text-right text-[10px] text-[#4a4540]">{`weighs ×${lean.toFixed(2)}`}</span>
+        )}
       </li>
     );
   }
@@ -139,17 +160,26 @@ export function RestView({ onClose }: { onClose: () => void }) {
           {notYetCounted.length > 0 && (
             <div className={counted.length > 0 ? "mt-4" : "mt-2"}>
               <p className="text-[10px] uppercase tracking-widest text-[#4a4540]">
-                not enough nights yet
+                not counted for the suggestion yet
               </p>
               <ul className="mt-2 space-y-1.5">{notYetCounted.map(feedRow)}</ul>
             </div>
           )}
           <p className="mt-2 text-[11px] leading-snug text-[#4a4540]">
-            Ranked by what was playing when you went under. Feeds with fewer
-            than three nights, that have never led, or that net negative
-            aren't counted yet.
+            {`Ranked by what was playing when you went under. Shows with fewer than ${MIN_NIGHTS} nights, that have never led, or that net negative aren't counted yet.`}
+            {favorWhatWorks
+              ? ` "Favor what puts me under" is on: a show with ${MIN_NIGHTS} or more nights, counted or not, weighs by its record against the other shows in a night's lineup; a show with fewer nights weighs ×1, and shows that weigh the same lean nothing between them. A weight applies to each fresh episode, so a show with more of them still comes up more. Weights other than ×1 are listed for shows that are switched on.`
+              : ""}
           </p>
         </section>
+      )}
+      {/* Outside the scored section: timed nights stay comparable even when
+          no feed has scored nights (slept nights with no feed attributed). */}
+      {/* The headline's measure split by lean, so formatted like it (fmtDuration). */}
+      {compared && (
+        <p className="text-[11px] leading-snug text-[#8a7a5c]">
+          {`How long you usually take: ${orDash(compared.leaned.medianMs, fmtDuration)} on nights the shuffle leaned (${pluralNights(compared.leaned.timedNights, "timed")}), ${orDash(compared.plain.medianMs, fmtDuration)} on plain-shuffle nights (${pluralNights(compared.plain.timedNights, "timed")}). A rough guide: the two differ in more than the lean (which shows, which weeks).`}
+        </p>
       )}
       <p className="text-xs text-[#4a4540]">
         counted only on this device. no account, nothing sent anywhere. we're
@@ -158,4 +188,9 @@ export function RestView({ onClose }: { onClose: () => void }) {
       <button onClick={onClose} className="text-xs underline decoration-[#3a3325] underline-offset-4 hover:text-[#b59a76]">back</button>
     </div>
   );
+}
+
+/** A median through `fmt`, or "—" when there is none. */
+function orDash(ms: number | null, fmt: (ms: number) => string): string {
+  return ms === null ? "—" : fmt(ms);
 }

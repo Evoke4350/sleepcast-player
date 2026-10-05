@@ -29,6 +29,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useLazyRef } from "../lib/use-lazy-ref";
+import { useNightShuffle } from "../lib/use-night-shuffle";
 import { useStateRef } from "../lib/use-state-ref";
 import { useNightExtensions } from "../lib/use-night-extensions";
 import type { Episode, PlayMode } from "../lib/engine";
@@ -101,6 +102,10 @@ export interface YouTubeNightProps {
   leadEpisode?: Episode | null;
   leadPosition?: number;
   wasVaried?: boolean;
+  /** Opt-in: the shuffle leans by feed (rest/sleepscore shuffleWeights).
+   *  Read once, at the night's start (useNightShuffle); a later change does
+   *  nothing to this night. */
+  favorWhatWorks?: boolean;
 }
 
 export function YouTubeNight({
@@ -117,7 +122,9 @@ export function YouTubeNight({
   leadEpisode = null,
   leadPosition = 0,
   wasVaried = false,
+  favorWhatWorks = false,
 }: YouTubeNightProps) {
+  const shuffle = useNightShuffle(favorWhatWorks, pool, resume);
   const hostRef = useRef<HTMLDivElement | null>(null);
   const mediaRef = useRef<YouTubeMedia | null>(null);
   const lockRef = useRef<ScreenLock | null>(null);
@@ -314,6 +321,8 @@ export function YouTubeNight({
       deadRef.current,
       currentEpRef.current?.id ?? null,
       getPlays(),
+      Math.random,
+      shuffle.weightOf,
     );
     // Nothing left that can play. Ending is the honest outcome: continuing
     // would be an hour of black screen with the timer running down.
@@ -451,6 +460,7 @@ export function YouTubeNight({
       interactions: restRef.current?.interactionCount,
       extensions: extensionsRef.current,
       wasVaried: wasVariedRef.current,
+      shuffleLean: shuffle.lean,
       remainingMs,
       totalSeconds: totalSecondsRef.current,
       position: witnessRef.current.snapshotAt(media.currentTime()),
@@ -664,7 +674,7 @@ export function YouTubeNight({
     // time-to-sleep, timeline and snapshots count from the real start, not
     // from the tap on "keep going".
     const nightStart = revivedNightStart(resume?.nightStartedAt, Date.now());
-    restRef.current = new RestSession(nightStart, timerMinutes);
+    restRef.current = new RestSession(nightStart, timerMinutes, shuffle.lean !== undefined);
     restRef.current.seedInteractions(resume?.interactions ?? 0);
     deadRef.current = new Set(loadBlocked());
     if (resume) {
@@ -698,7 +708,7 @@ export function YouTubeNight({
         const first =
           resume?.episode ??
           leadEpisode ??
-          nextPlayable(pool, deadRef.current, null, getPlays());
+          nextPlayable(pool, deadRef.current, null, getPlays(), Math.random, shuffle.weightOf);
         if (!first) {
           setStatus("error");
           setErrorText("nothing in this lineup can be played here");

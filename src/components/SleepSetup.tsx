@@ -106,8 +106,9 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
   const timerMinutes = appState.settings.timerMinutes;
   const quarterHourRule = appState.settings.quarterHourRule;
 
-  function toggleQuarterHourRule(on: boolean) {
-    updateAndSave({ ...appState, settings: { ...appState.settings, quarterHourRule: on } });
+  /** An on/off setting, saved. */
+  function setFlag(key: "quarterHourRule" | "favorWhatWorks" | "leveling", on: boolean) {
+    updateAndSave({ ...appState, settings: { ...appState.settings, [key]: on } });
   }
   const enabledFeeds = appState.feeds.filter((f) => f.enabled);
 
@@ -340,10 +341,6 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
       settings: { ...appState.settings, mode: { kind } },
     });
     setCustomMinutes("");
-  }
-
-  function setLeveling(leveling: boolean) {
-    updateAndSave({ ...appState, settings: { ...appState.settings, leveling } });
   }
 
   function setNoise(patch: Partial<NoiseSettings>) {
@@ -1144,7 +1141,7 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
               id="leveling-on"
               checked={appState.settings.leveling}
               disabled={levelingUnavailable}
-              onChange={(e) => setLeveling(e.target.checked)}
+              onChange={(e) => setFlag("leveling", e.target.checked)}
               className="h-5 w-5 rounded accent-[#6e5d44] cursor-pointer disabled:opacity-40"
             />
             <label htmlFor="leveling-on" className="text-sm cursor-pointer">
@@ -1185,6 +1182,28 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
           </div>
         </section>
 
+        {/* The shuffle leaning on the sleep scores, off unless asked for: a
+            pool that narrows on its own is hard to notice going wrong, so
+            the listener chooses it knowingly, and off is the plain shuffle
+            to compare against (the scoring spec, §8). */}
+        <section className="space-y-3">
+          <h2 className="text-xs uppercase tracking-widest text-[#6e5d44]">Favor what puts me under</h2>
+          <label className="flex items-start gap-3">
+            <input
+              type="checkbox"
+              checked={appState.settings.favorWhatWorks}
+              onChange={(e) => setFlag("favorWhatWorks", e.target.checked)}
+              className="mt-0.5 h-4 w-4 accent-[#6e5d44]"
+            />
+            <span className="text-xs text-[#6e5d44]">
+              Shows you've drifted off to come up more often; shows you tend
+              to skip come up less often. Each needs a few nights behind it
+              first, and nothing is ever ruled out. Off by default — off is a
+              plain shuffle.
+            </span>
+          </label>
+        </section>
+
         {/* Stimulus control, off unless asked for. It can stop a night early,
             so it is never on by default and never inferred. */}
         <section className="space-y-3">
@@ -1193,7 +1212,7 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
             <input
               type="checkbox"
               checked={quarterHourRule}
-              onChange={(e) => toggleQuarterHourRule(e.target.checked)}
+              onChange={(e) => setFlag("quarterHourRule", e.target.checked)}
               className="mt-0.5 h-4 w-4 accent-[#6e5d44]"
             />
             <span className="text-xs text-[#6e5d44]">

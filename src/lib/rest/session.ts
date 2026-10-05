@@ -22,7 +22,12 @@ export class RestSession {
   private timeline: { t: number; feedId: string; episodeId: string }[] = [];
   private skipped = new Set<string>();
 
-  constructor(readonly startedAt: number, readonly timerMinutes: number) {
+  /** `shuffleLeaned`: the night's shuffle leaned on the scores (the
+   *  opt-in lean was in effect for it), recorded on its RestNight. By what
+   *  was in effect, not by whether a pick it shaped came before sleep: the
+   *  latter is decided by the night itself (a restless night reaches more
+   *  picks), which would bias the leaned-vs-other comparison. */
+  constructor(readonly startedAt: number, readonly timerMinutes: number, readonly shuffleLeaned = false) {
     const params = currentParams(loadParams(), loadNights());
     this.detector = new SleepDetector(params);
   }
@@ -118,6 +123,7 @@ export class RestSession {
       timeToSleepMs: atMs,
       interactions: this.interactions,
       detector: this.onset ? "inference" : "none",
+      ...(this.shuffleLeaned ? { shuffle: "leaned" as const } : {}),
       // Spread rather than assign: an absent field and an empty array must not
       // become two shapes in a ledger that already holds 90 nights without them.
       // at.t is when the credited feed itself started, so atMs - at.t is how

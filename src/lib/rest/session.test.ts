@@ -254,3 +254,10 @@ describe("RestSession interactions across a reload", () => {
     expect(s.wakefulness(60_000).msSinceLastInteraction).toBeNull();
   });
 });
+
+describe("RestSession shuffle record", () => {
+  it("marks a night whose lean was in effect, and leaves a plain one unmarked", () => {
+    expect(new RestSession(0, 45, true).finish("faded", 1000).shuffle).toBe("leaned");
+    expect(new RestSession(0, 45).finish("faded", 1000)).not.toHaveProperty("shuffle");
+  });
+});

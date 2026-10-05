@@ -1,10 +1,10 @@
 import { useState, useEffect } from "react";
 import type { Episode } from "../lib/engine";
 import { formatTime } from "../lib/engine";
-import { loadLive, clearLastNight, loadLastNight, type LiveSession, type LastNight, type ResumeDescriptor, resumeFrom, nightTimerMinutes, loadState, isRevivable, resumeMode } from "../lib/store";
+import { loadLive, clearLastNight, loadLastNight, type LiveSession, type LastNight, type ResumeDescriptor, resumeFrom, nightTimerMinutes, loadState, isRevivable, resumeMode, loadBlocked } from "../lib/store";
 import type { PlayMode } from "../lib/engine";
 import type { NoiseSettings } from "../lib/store";
-import { shouldReanchor, nextInSpread } from "../lib/rest/reanchor";
+import { reanchorNext } from "../lib/rest/reanchor";
 import { DEFAULT_FEEL_MINUTES } from "../lib/timer-feel";
 import { SleepSetup } from "./SleepSetup";
 import { Player } from "./Player";
@@ -47,6 +47,8 @@ export function AppPlayer() {
   // ticking the box in the drawer had no effect until a full reload — the
   // whole feature silently did nothing.
   const [quarterHourRule, setQuarterHourRule] = useState(false);
+  // Opt-in: the night's shuffle leans by what has put the listener under.
+  const [favorWhatWorks, setFavorWhatWorks] = useState(false);
   // Read at start, not at mount: settings changed on the setup screen must
   // apply to the night about to begin.
   const [mode, setMode] = useState<PlayMode>({ kind: "minutes", minutes: 45 });
@@ -96,7 +98,8 @@ export function AppPlayer() {
   const [reanchor, setReanchor] = useState<{ lastNight: LastNight; next: Episode } | null>(null);
 
   // The 3am catch: on mount and whenever the tab comes back to the foreground,
-  // ask the pure gate whether the user reopened in the dark soon after a night
+  // ask the gate (pure but for the blocked list, read through loadBlocked
+  // only when needed) whether the user reopened in the dark soon after a night
   // that faded, with something left in the spread. getHours() is read in memory
   // only — never shown, never sent.
   useEffect(() => {
@@ -115,12 +118,11 @@ export function AppPlayer() {
       // "go quiet" is meant to turn off.
       // Re-read rather than trusting the closure: this listener is registered
       // once and would otherwise hold `quiet` from the first render forever.
-      if (isQuiet(loadQuietUntil(), Date.now()) || !shouldReanchor({ lastNight, now: Date.now(), localHour: new Date().getHours() })) {
-        setReanchor(null);
-        return;
-      }
-      const next = nextInSpread(lastNight!.pool, lastNight!.playedIds);
-      if (next) setReanchor({ lastNight: lastNight!, next });
+      const next = isQuiet(loadQuietUntil(), Date.now())
+        ? null
+        : reanchorNext({ lastNight, now: Date.now(), localHour: new Date().getHours(), blocked: loadBlocked });
+      // (reanchorNext only finds an episode when there is a last night.)
+      setReanchor(next ? { lastNight: lastNight!, next } : null);
     };
     check();
     const onVis = () => { if (!document.hidden) check(); };
@@ -139,6 +141,7 @@ export function AppPlayer() {
     setFeedTrim(settings.feedTrim);
     setNoise(settings.noise);
     setLeveling(settings.leveling);
+    setFavorWhatWorks(settings.favorWhatWorks);
   }
 
   /** A snapshotted night still stored is over, and recorded: the card's,
@@ -178,7 +181,7 @@ export function AppPlayer() {
   // reload needs before audio can start again.
   function handleResume() {
     if (!live) return;
-    applyNightSettings(resumeMode(live));
+    applyNightSettings(resumeMode(live)); // (the lean comes with the snapshot)
     setResume(resumeFrom(live));
     setSession({
       pool: live.pool,
@@ -250,6 +253,7 @@ export function AppPlayer() {
           feedTrim={feedTrim}
           noise={noise}
           wasVaried={session.wasVaried ?? false}
+          favorWhatWorks={favorWhatWorks}
         />
       );
     }
@@ -269,6 +273,7 @@ export function AppPlayer() {
           feedTrim={feedTrim}
           noise={noise}
           wasVaried={session.wasVaried ?? false}
+          favorWhatWorks={favorWhatWorks}
         />
       );
     }
@@ -289,6 +294,7 @@ export function AppPlayer() {
         noise={noise}
         leveling={leveling}
         wasVaried={session.wasVaried ?? false}
+        favorWhatWorks={favorWhatWorks}
       />
     );
   }

@@ -430,6 +430,22 @@ describe("blocked episodes", () => {
   });
 });
 
+describe("favor what puts me under opt-in", () => {
+  it("is off on a fresh install and for settings that predate it", () => {
+    expect(loadState().settings.favorWhatWorks).toBe(false);
+    localStorage.setItem("sleepcast2.state", JSON.stringify({ feeds: [], settings: { timerMinutes: 45 } }));
+    expect(loadState().settings.favorWhatWorks).toBe(false);
+  });
+
+  it("is on only for true, and survives a round trip", () => {
+    localStorage.setItem("sleepcast2.state", JSON.stringify({ feeds: [], settings: { timerMinutes: 45, favorWhatWorks: "yes" } }));
+    expect(loadState().settings.favorWhatWorks).toBe(false);
+    const s = loadState();
+    saveState({ ...s, settings: { ...s.settings, favorWhatWorks: true } });
+    expect(loadState().settings.favorWhatWorks).toBe(true);
+  });
+});
+
 describe("quarter-hour rule opt-in", () => {
   it("is off on a fresh install", () => {
     expect(loadState().settings.quarterHourRule).toBe(false);
@@ -647,8 +663,8 @@ describe("timerless snapshots", () => {
   });
 
   it("revives with every per-night field the snapshot carries", () => {
-    const r = resumeFrom(live({ extensions: 2, wasVaried: true, ruleSpent: true, touches: 7 }));
-    expect(r).toMatchObject({ episode: ep, extensions: 2, ruleSpent: true, touches: 7, playedIds: [] });
+    const r = resumeFrom(live({ extensions: 2, wasVaried: true, ruleSpent: true, touches: 7, shuffleLean: { swm: 1.5 } }));
+    expect(r).toMatchObject({ episode: ep, extensions: 2, ruleSpent: true, touches: 7, playedIds: [], shuffleLean: { swm: 1.5 } });
     expect(r).not.toHaveProperty("pool"); // the session's, one copy
     expect(r).not.toHaveProperty("wasVaried");
   });

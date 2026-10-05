@@ -36,6 +36,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useLazyRef } from "../lib/use-lazy-ref";
+import { useNightShuffle } from "../lib/use-night-shuffle";
 import { useStateRef } from "../lib/use-state-ref";
 import { useNightExtensions } from "../lib/use-night-extensions";
 import type { Episode, PlayMode } from "../lib/engine";
@@ -133,6 +134,10 @@ export interface NightProps {
   leadEpisode?: Episode | null;
   leadPosition?: number;
   wasVaried?: boolean;
+  /** Opt-in: the shuffle leans by feed (rest/sleepscore shuffleWeights).
+   *  Read once, at the night's start (useNightShuffle); a later change does
+   *  nothing to this night. */
+  favorWhatWorks?: boolean;
 }
 
 export function Night({
@@ -149,7 +154,9 @@ export function Night({
   leadEpisode = null,
   leadPosition = 0,
   wasVaried = false,
+  favorWhatWorks = false,
 }: NightProps) {
+  const shuffle = useNightShuffle(favorWhatWorks, pool, resume);
   const hostRef = useRef<HTMLDivElement | null>(null);
   // Both backends live for the whole night; `liveRef` is whichever one the
   // current episode picked, and every command goes through it. `offRef` holds
@@ -410,6 +417,8 @@ export function Night({
       deadRef.current,
       currentEpRef.current?.id ?? null,
       getPlays(),
+      Math.random,
+      shuffle.weightOf,
     );
     // Nothing left that can play. Ending is the honest outcome: continuing
     // would be an hour of black screen with the timer running down.
@@ -582,6 +591,7 @@ export function Night({
       interactions: restRef.current?.interactionCount,
       extensions: extensionsRef.current,
       wasVaried: wasVariedRef.current,
+      shuffleLean: shuffle.lean,
       remainingMs,
       totalSeconds: totalSecondsRef.current,
       // Where the episode is, not a raw reading: the backend may still be
@@ -854,7 +864,7 @@ export function Night({
     // time-to-sleep, timeline and snapshots count from the real start, not
     // from the tap on "keep going".
     const nightStart = revivedNightStart(resume?.nightStartedAt, Date.now());
-    restRef.current = new RestSession(nightStart, timerMinutes);
+    restRef.current = new RestSession(nightStart, timerMinutes, shuffle.lean !== undefined);
     restRef.current.seedInteractions(resume?.interactions ?? 0);
     deadRef.current = new Set(loadBlocked());
     if (resume) {
@@ -919,6 +929,12 @@ export function Night({
       tick();
     }
 
+    // leadPosition is a saved position in the supplied lead and in nothing
+    // else, so it only travels with it. When preferVideoLead swapped another
+    // episode in, the night starts that one from its own beginning rather
+    // than dropping into it at a timestamp that belongs to another episode.
+    const leadStart = (ep: Episode | null) => (ep && ep.id === leadEpisode?.id ? leadPosition : 0);
+
     loadYouTubeApi()
       .then((YT) => {
         if (cancelled || !hostRef.current) return;
@@ -948,29 +964,22 @@ export function Night({
         //
         // Everything else goes through preferVideoLead, including a supplied
         // one. A lead can arrive from the 3am re-anchor, which picks the first
-        // unplayed episode in array order and knows nothing about kinds — take
-        // it as given and the night opens on a podcast, the waking gesture is
-        // spent on something that never needed it, and the first video switch
-        // lands mid-sleep at "awaiting-start" with the autoplay exemption no
-        // longer covering it.
+        // unplayed, unblocked episode in array order and knows nothing about
+        // kinds — take it as given and the night opens on a podcast, the
+        // waking gesture is spent on something that never needed it, and the
+        // first video switch lands mid-sleep at "awaiting-start" with the
+        // autoplay exemption no longer covering it.
         const first =
           resume?.episode ??
-          preferVideoLead(leadEpisode, pool, deadRef.current, getPlays());
-        // leadPosition is a saved position in the supplied lead and in nothing
-        // else, so it only travels with it. When preferVideoLead swapped a
-        // video in, the night starts that video from its own beginning rather
-        // than dropping into it at a timestamp that belongs to another episode.
-        beginNight(
-          first,
-          resume ? resume.position : first && first.id === leadEpisode?.id ? leadPosition : 0,
-        );
+          preferVideoLead(leadEpisode, pool, deadRef.current, getPlays(), Math.random, shuffle.weightOf);
+        beginNight(first, resume ? resume.position : leadStart(first));
       })
       .catch(() => {
         // No IFrame API — offline, blocked, or Google is down. Run the night
         // podcast-only rather than losing it entirely: every video is
-        // unplayable, so mark them dead and let nextPlayable route around
-        // them. If the lineup was all video there is nothing left, and
-        // beginNight says so.
+        // unplayable, so mark them dead: preferVideoLead then opens on a
+        // podcast, and nextPlayable routes around them after. If the lineup
+        // was all video there is nothing left, and beginNight says so.
         if (cancelled) return;
         for (const e of pool) if (e.youtubeId) deadRef.current.add(e.id);
         // Out of the lineup too: listed, they looked playable, and a tap
@@ -981,10 +990,11 @@ export function Night({
           return next;
         });
         const resumable = resume?.episode && !resume.episode.youtubeId ? resume.episode : null;
-        const lead = leadEpisode && !leadEpisode.youtubeId ? leadEpisode : null;
+        // Every video is dead now, so preferVideoLead keeps a live podcast
+        // lead or picks among the podcasts: the main path's one rule.
         const first =
-          resumable ?? lead ?? nextPlayable(pool, deadRef.current, null, getPlays());
-        beginNight(first, resumable ? resume!.position : lead ? leadPosition : 0);
+          resumable ?? preferVideoLead(leadEpisode, pool, deadRef.current, getPlays(), Math.random, shuffle.weightOf);
+        beginNight(first, resumable ? resume!.position : leadStart(first));
       });
 
     return () => {

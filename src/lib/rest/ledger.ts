@@ -63,13 +63,50 @@ function plausibleFloor(n: RestNight): number {
   return n.startedAt < PRE_FIX_BEFORE_MS ? LEGACY_FLOOR_MS : MIN_PLAUSIBLE_ONSET_MS;
 }
 
+/** One side of leanComparison: its timed nights and their median. */
+export interface LeanSide {
+  timedNights: number;
+  medianMs: number | null;
+}
+
+/** Leaned nights against plain ones (RestNight.shuffle), by the same rules
+ *  as the headline median: null until there is a leaned night and either
+ *  side has a timed one, so there is something to compare. */
+export function leanComparison(
+  nights: readonly RestNight[],
+): { leaned: LeanSide; plain: LeanSide } | null {
+  const leaned: RestNight[] = [];
+  const plain: RestNight[] = [];
+  for (const n of nights) (n.shuffle === "leaned" ? leaned : plain).push(n);
+  if (!leaned.length) return null;
+  // The count the median rests on, not every night on the side. (Rounded:
+  // a median of an even count can fall on a half millisecond.)
+  const side = (ns: RestNight[]): LeanSide => {
+    const tts = believableOnsets(ns.filter(isSlept));
+    const m = median(tts);
+    return { timedNights: tts.length, medianMs: m === null ? null : Math.round(m) };
+  };
+  const c = { leaned: side(leaned), plain: side(plain) };
+  return c.leaned.timedNights > 0 || c.plain.timedNights > 0 ? c : null;
+}
+
+/** A night that was slept: an onset, and not marked "awake" (see rollup). */
+export function isSlept(n: RestNight): boolean {
+  return n.sleptAtMs !== null && n.timeToSleepMs !== null && n.selfLabel !== "awake";
+}
+
+/** Of slept nights, the believable times to sleep (see rollup). */
+function believableOnsets(slept: readonly RestNight[]): number[] {
+  return slept
+    .filter((n) => (n.timeToSleepMs as number) >= plausibleFloor(n))
+    .map((n) => n.timeToSleepMs as number);
+}
+
 export function rollup(nights: RestNight[]): RestRollup {
   // A night the listener marked "awake" was a detector false positive: it was
-  // not slept, and its onset time is not a time-to-sleep. stepback.ts and
-  // scoreFeeds already discard these; the headline stats must agree.
-  const slept = nights.filter(
-    (n) => n.sleptAtMs !== null && n.timeToSleepMs !== null && n.selfLabel !== "awake",
-  );
+  // not slept, and its onset time is not a time-to-sleep. stepback.ts (through
+  // isSlept) and scoreFeeds discard these too; the headline stats must agree.
+  const slept = nights.filter(isSlept);
   // Onsets below this are pre-fix artifacts. The detector used to anchor onset
   // at the first quiet tick, so a night nobody touched recorded ~0ms and the
   // rest screen reported "you drifted off in 1 minute". The fixed detector
@@ -78,9 +115,7 @@ export function rollup(nights: RestNight[]): RestRollup {
   //
   // The nights themselves still count as slept — the sleep was real, only the
   // figure was wrong — so this filters the time statistics, not the ledger.
-  const tts = slept
-    .filter((n) => (n.timeToSleepMs as number) >= plausibleFloor(n))
-    .map((n) => n.timeToSleepMs as number);
+  const tts = believableOnsets(slept);
   const last7 = nights.slice(-7);
   const avg7 = last7.length
     ? last7.reduce((s, n) => s + n.interactions, 0) / last7.length

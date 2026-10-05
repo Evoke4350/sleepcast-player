@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { loadNights, appendNight, rollup, setSelfLabel, MIN_PLAUSIBLE_ONSET_MS, PRE_FIX_BEFORE_MS } from "./ledger";
+import { loadNights, appendNight, rollup, setSelfLabel, leanComparison, MIN_PLAUSIBLE_ONSET_MS, PRE_FIX_BEFORE_MS } from "./ledger";
 import { DEFAULT_PARAMS, LAMBDA_MAX, quietTicksToDecide, TICK_MS } from "./detector";
 import type { RestNight } from "./types";
 
@@ -123,5 +123,40 @@ describe("rollup floor for nights recorded before the detector fix", () => {
   it("uses the derived floor for nights after it", () => {
     const fresh = night({ startedAt: PRE_FIX_BEFORE_MS + 1, timeToSleepMs: 3 * 60_000, sleptAtMs: 3 * 60_000 });
     expect(rollup([fresh]).bestTimeToSleepMs).toBe(3 * 60_000);
+  });
+});
+
+describe("leanComparison", () => {
+  it("is nothing until a night leaned and either side has a timed night", () => {
+    expect(leanComparison([night(), night()])).toBeNull();
+    expect(leanComparison([night({ shuffle: "leaned", sleptAtMs: null, timeToSleepMs: null })])).toBeNull();
+  });
+  it("splits typical time to sleep by whether the shuffle leaned", () => {
+    const c = leanComparison([
+      night({ shuffle: "leaned", sleptAtMs: 20 * 60_000, timeToSleepMs: 20 * 60_000 }),
+      night({ shuffle: "leaned", sleptAtMs: null, timeToSleepMs: null }), // no time: not counted
+      night({ sleptAtMs: 40 * 60_000, timeToSleepMs: 40 * 60_000 }),
+      night({ sleptAtMs: 30 * 60_000, timeToSleepMs: 30 * 60_000 }),
+    ])!;
+    expect(c.leaned).toEqual({ timedNights: 1, medianMs: 20 * 60_000 });
+    expect(c.plain).toEqual({ timedNights: 2, medianMs: 35 * 60_000 });
+  });
+  it("shows with an untimed leaned side when the other side is timed", () => {
+    const c = leanComparison([
+      night({ shuffle: "leaned", sleptAtMs: null, timeToSleepMs: null }),
+      night({ sleptAtMs: 30 * 60_000, timeToSleepMs: 30 * 60_000 }),
+    ]);
+    expect(c).toEqual({ leaned: { timedNights: 0, medianMs: null }, plain: { timedNights: 1, medianMs: 30 * 60_000 } });
+  });
+  it("leaves out what the headline median does: an 'awake' night and an implausibly fast onset", () => {
+    const tooFast = MIN_PLAUSIBLE_ONSET_MS - 1;
+    const c = leanComparison([
+      night({ shuffle: "leaned", sleptAtMs: 20 * 60_000, timeToSleepMs: 20 * 60_000 }),
+      night({ shuffle: "leaned", sleptAtMs: 5 * 60_000, timeToSleepMs: 5 * 60_000, selfLabel: "awake" }),
+      night({ sleptAtMs: 30 * 60_000, timeToSleepMs: 30 * 60_000 }),
+      night({ sleptAtMs: tooFast, timeToSleepMs: tooFast }),
+    ])!;
+    expect(c.leaned).toEqual({ timedNights: 1, medianMs: 20 * 60_000 });
+    expect(c.plain).toEqual({ timedNights: 1, medianMs: 30 * 60_000 });
   });
 });

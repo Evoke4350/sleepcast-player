@@ -11,7 +11,7 @@
 // per-episode credit would be one observation per episode forever and would
 // never converge on anything. Feeds accumulate dozens of nights.
 
-import type { RestNight } from "./types";
+import type { FeedWeight, RestNight } from "./types";
 
 export const CREDIT_ONSET = 2;
 export const CREDIT_SLEPT = 1;
@@ -29,11 +29,16 @@ export const PENALTY_SKIP = -1;
 export const WEIGHT_FLOOR = 0.25;
 
 /** Below this many nights a feed is not ranked and not suggested — with one
- *  night's evidence the app would state a preference it does not have. */
+ *  night's evidence the app would state a preference it does not have —
+ *  and, for a listener who opted in, doesn't lean the shuffle either
+ *  (shuffleWeights). */
 export const MIN_NIGHTS = 3;
 
 // Matches the ported Python's curve exactly (sleepscore.py's WEIGHT_SLOPE).
 const WEIGHT_SLOPE = 0.25;
+/** The most a feed can weigh: the best a night can credit is onset plus
+ *  slept-through. */
+export const WEIGHT_MAX = 1 + WEIGHT_SLOPE * (CREDIT_ONSET + CREDIT_SLEPT);
 
 export interface FeedScore {
   feedId: string;
@@ -41,8 +46,9 @@ export interface FeedScore {
   score: number;
   /** Nights this feed appeared in — not nights in the ledger. */
   nights: number;
-  /** max(WEIGHT_FLOOR, 1 + slope × mean credit). Ranks the suggestion and
-   *  nothing else: the shuffle is deliberately untouched (see the spec, §8). */
+  /** max(WEIGHT_FLOOR, 1 + slope × mean credit). Ranks the suggestion, and
+   *  leans the shuffle only for a listener who opts in, read through
+   *  clampWeight (shuffleWeights; the spec, §8). */
   weight: number;
   onsetNights: number;
   skipNights: number;
@@ -117,6 +123,101 @@ export function meetsSuggestionGate(f: FeedScore): boolean {
   return f.nights >= MIN_NIGHTS && f.onsetNights >= 1 && f.score > 0;
 }
 
+/** A weight as the shuffle reads it: one that isn't a positive finite
+ *  number counts as 1 (no lean). */
+export function asWeight(raw: number): number {
+  return Number.isFinite(raw) && raw > 0 ? raw : 1;
+}
+
+/** A lineup's lean: the weight of each of its feeds that isn't ×1 (absent
+ *  means ×1), or undefined when its feeds all weigh the same (the shuffle
+ *  normalises, so equal weights lean nothing: a plain shuffle, and recorded
+ *  as one). */
+export function lineupLean(
+  weightOf: FeedWeight,
+  pool: readonly { feedId: string }[],
+): Record<string, number> | undefined {
+  const all = new Map<string, number>();
+  for (const e of pool) if (!all.has(e.feedId)) all.set(e.feedId, asWeight(weightOf(e.feedId))); // once per feed, read as the shuffle reads it
+  if (new Set(all.values()).size < 2) return undefined; // one weight, or none
+  return leanRecord([...all].filter(([, w]) => w !== 1));
+}
+
+/** A lean as a record with no prototype: a feed id like "constructor"
+ *  can't find an inherited property, so a plain lookup is safe. */
+function leanRecord(entries: Iterable<[string, number]>): Record<string, number> {
+  return Object.assign(Object.create(null) as Record<string, number>, Object.fromEntries(entries));
+}
+
+/** The shuffle's lean, for a listener who has opted in (settings
+ *  favorWhatWorks): a feed with MIN_NIGHTS or more scored nights leans by
+ *  its weight (0.75 to WEIGHT_MAX under today's credits, never below
+ *  WEIGHT_FLOOR: toward what has put them under, away from what they skip,
+ *  never ruled out); any other feed is 1, no lean without evidence either
+ *  way. Unlike the suggestion, a net-negative feed counts here: leaning away
+ *  is the other half of the point. Takes feeds already scored (scoreFeeds);
+ *  weights go through clampWeight (WEIGHT_FLOOR..WEIGHT_MAX), which also
+ *  rounds them to hundredths: a difference below that changes no pick that
+ *  matters, so it neither makes a night "leaned" nor shows as a weight. */
+export function shuffleWeights(scored: readonly FeedScore[]): FeedWeight {
+  const w = new Map(
+    scored.filter((f) => f.nights >= MIN_NIGHTS).map((f) => [f.feedId, clampWeight(f.weight)]),
+  );
+  return (feedId) => w.get(feedId) ?? 1;
+}
+
+/** A weight within WEIGHT_FLOOR..WEIGHT_MAX, rounded to hundredths: the one
+ *  rule both a new night's lean (shuffleWeights) and a revived one
+ *  (validLean) go through, so the two can't disagree. */
+function clampWeight(w: number): number {
+  return Math.round(Math.min(WEIGHT_MAX, Math.max(WEIGHT_FLOOR, w)) * 100) / 100;
+}
+
+/** A stored lean (a revived snapshot's), if it is one, in lineupLean's
+ *  shape: its positive finite entries, clamped and rounded by clampWeight
+ *  (so a snapshot from before a change to the credits still revives
+ *  leaning, within today's bounds), then any that come out 1 dropped
+ *  (absent means 1); an entry that isn't a positive finite number is
+ *  dropped too. None left, or not an object at all, is none, a plain
+ *  shuffle. Returned as a prototype-less record, like lineupLean's. */
+export function validLean(x: unknown): Record<string, number> | undefined {
+  if (!x || typeof x !== "object" || Array.isArray(x)) return undefined;
+  const kept: [string, number][] = [];
+  for (const [feedId, w] of Object.entries(x as Record<string, unknown>)) {
+    if (typeof w !== "number" || !Number.isFinite(w) || w <= 0) continue;
+    const c = clampWeight(w);
+    if (c !== 1) kept.push([feedId, c]);
+  }
+  return kept.length ? leanRecord(kept) : undefined;
+}
+
+/** The night's lean, fixed at its start. A revived night keeps the one it
+ *  was snapshotted with (validLean; none if none), whatever the setting,
+ *  scores or revived lineup are by then. A new night leans by the scores
+ *  when the listener opted in and they tell its lineup's feeds apart (the
+ *  episodes not blocked at its start); else none, a plain shuffle. `nights`
+ *  and `blocked` are read only when needed. */
+export function nightLean(
+  favorWhatWorks: boolean,
+  pool: readonly { id: string; feedId: string }[],
+  resume: { shuffleLean?: unknown } | null | undefined,
+  nights: () => readonly RestNight[],
+  blocked: () => readonly string[],
+): Record<string, number> | undefined {
+  // A revived night is the same night: it keeps its lean as it began, so
+  // it's recorded as it was (leaned by what was in effect), even when the
+  // snapshot's cut-down pool leaves feeds that weigh the same (those picks
+  // are then plain, which the weights already give).
+  if (resume) return validLean(resume.shuffleLean);
+  if (!favorWhatWorks) return undefined;
+  // Over what can play at the start: a feed whose episodes are all blocked
+  // doesn't make the lineup lean. (What fails later doesn't change it: the
+  // night is labelled by what was in effect as it began.)
+  const out = new Set(blocked());
+  const lineup = pool.filter((e) => !out.has(e.id));
+  return lineupLean(shuffleWeights(scoreFeeds(nights())), lineup);
+}
+
 /** Scored feeds with enough evidence to say anything about. */
 export function rankedFeeds(nights: readonly RestNight[]): FeedScore[] {
   return scoreFeeds(nights).filter(meetsSuggestionGate);
@@ -154,11 +255,21 @@ export function medianTimeToSleep(
   return times.length % 2 ? times[mid] : Math.round((times[mid - 1] + times[mid]) / 2);
 }
 
-/** "1 night" / "3 nights" — singularises the unit the count names, not
- *  just the number, so a feed with one recorded night doesn't read as a
- *  typo ("1 nights"). */
-function pluralNights(n: number): string {
-  return `${n} night${n === 1 ? "" : "s"}`;
+/** A time to sleep in minutes, for the evidence sentence and the panel it
+ *  is checked against. A round-trip through Math.round already collapses
+ *  anything under 30 seconds to 0 — "Gone in 0 min" is technically the true
+ *  minute count but reads like the detector glitched, not like a fast, real
+ *  result — so that reads "under a minute". */
+export function fmtOnsetMinutes(ms: number): string {
+  const mins = Math.round(ms / 60_000);
+  return mins === 0 ? "under a minute" : `${mins} min`;
+}
+
+/** "1 night" / "3 nights" (or "1 timed night" with `kind`) — singularises
+ *  the unit the count names, not just the number, so a feed with one
+ *  recorded night doesn't read as a typo ("1 nights"). */
+export function pluralNights(n: number, kind?: string): string {
+  return `${n} ${kind ? `${kind} ` : ""}night${n === 1 ? "" : "s"}`;
 }
 
 /**
@@ -173,11 +284,7 @@ export function evidenceFor(nights: readonly RestNight[], f: FeedScore): string 
       ? `You've skipped it on ${f.skipNights} of ${pluralNights(f.nights)}.`
       : `It's played on ${pluralNights(f.nights)}.`;
   }
-  const mins = Math.round(median / 60_000);
-  // A round-trip through Math.round already collapses anything under 30
-  // seconds to 0 — "Gone in 0 min" is technically the true minute count but
-  // reads like the detector glitched, not like a fast, real result.
-  const minsPhrase = mins === 0 ? "under a minute" : `${mins} min`;
+  const minsPhrase = fmtOnsetMinutes(median);
   // f.onsetNights counts every night onsetFeedId matched this feed, including
   // one where onsetAfterMs is absent — this module doesn't trust its producer
   // (see scoreFeeds' de-dup comments) so that combination isn't ruled out.

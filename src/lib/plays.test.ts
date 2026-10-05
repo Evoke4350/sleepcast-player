@@ -118,6 +118,11 @@ describe("pickNextEpisode", () => {
     const b = pickNextEpisode(eps, [], () => 0.5);
     expect(a!.id).toBe(b!.id);
   });
+
+  it("returns the last episode, not nothing, when rand returns 1", () => {
+    const eps = ["a", "b", "c"].map(ep);
+    expect(pickNextEpisode(eps, [], () => 1)?.id).toBe("c");
+  });
 });
 
 describe("playsSince", () => {
@@ -148,5 +153,49 @@ describe("playAtMoment", () => {
 
   it("returns null for an empty ledger", () => {
     expect(playAtMoment([], 100)).toBeNull();
+  });
+});
+
+describe("pickNextEpisode with feed weights (favor what puts me under)", () => {
+  const feedEp = (id: string, feedId: string) => ({ id, title: id, feedId });
+
+  it("picks in proportion to each episode's feed weight", () => {
+    // a weighs 3, b weighs 1: rand in [0, .75) lands on a, [.75, 1) on b.
+    const eps = [feedEp("a", "good"), feedEp("b", "meh")];
+    const w = (f: string) => (f === "good" ? 3 : 1);
+    expect(pickNextEpisode(eps, [], () => 0.74, w)?.id).toBe("a");
+    expect(pickNextEpisode(eps, [], () => 0.76, w)?.id).toBe("b");
+  });
+
+  it("never rules a feed out while its weight is positive", () => {
+    const eps = [feedEp("a", "good"), feedEp("b", "skipped")];
+    const w = (f: string) => (f === "good" ? 1.75 : 0.25);
+    expect(pickNextEpisode(eps, [], () => 0.99, w)?.id).toBe("b");
+  });
+
+  it("still keeps freshness first: a heard episode isn't brought back by its weight", () => {
+    const eps = [feedEp("a", "good"), feedEp("b", "meh"), feedEp("c", "meh")];
+    const plays = [play("a", 1, { feedId: "good" })];
+    for (let i = 0; i < 20; i++) {
+      // Fresh episodes clear the freshness floor here, so the heard one isn't
+      // a candidate, and no weight on its feed brings it back.
+      expect(pickNextEpisode(eps, plays, () => i / 20, (f) => (f === "good" ? 100 : 1))?.id).not.toBe("a");
+    }
+  });
+
+  it("returns the last episode, not nothing, when rounding leaves a sliver", () => {
+    // These weights and a rand just under 1 leave r a hair above 0 after
+    // the loop.
+    const ws = [0.009999999999999998, 0.617, 0.719, 0.414, 0.48];
+    const eps = ws.map((_, i) => feedEp(`e${i}`, `f${i}`));
+    const w = (f: string) => ws[Number(f.slice(1))];
+    expect(pickNextEpisode(eps, [], () => 1 - Number.EPSILON / 2, w)?.id).toBe("e4");
+  });
+
+  it("counts an invalid weight as 1: a feed is never ruled out", () => {
+    const eps = [feedEp("a", "bad"), feedEp("b", "fine")];
+    const w = (f: string) => (f === "bad" ? 0 : 1);
+    expect(pickNextEpisode(eps, [], () => 0.4, w)?.id).toBe("a");
+    expect(pickNextEpisode(eps, [], () => 0.4, (f) => (f === "bad" ? NaN : 1))?.id).toBe("a");
   });
 });
