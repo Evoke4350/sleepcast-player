@@ -38,8 +38,9 @@ export function RestView({ onClose }: { onClose: () => void }) {
   const counted = useMemo(() => scored.filter(meetsSuggestionGate), [scored]);
   const notYetCounted = useMemo(() => scored.filter((f) => !meetsSuggestionGate(f)), [scored]);
   const leanOf = useMemo(() => (favorWhatWorks ? shuffleWeights(scored) : null), [scored, favorWhatWorks]);
-  // Leaned nights against plain ones, once there are leaned nights: the
-  // baseline the setting keeps is only worth keeping if it is compared.
+  // Leaned nights against plain ones, once there are leaned nights and
+  // either side has a timed one (leanComparison): the baseline the setting
+  // keeps is only worth keeping if it is compared.
   const compared = useMemo(() => leanComparison(nights), [nights]);
 
   // What actually played last night, from the play ledger. Entries only exist
@@ -73,6 +74,7 @@ export function RestView({ onClose }: { onClose: () => void }) {
           {feedTitles[f.feedId] ?? "a show you removed"}
         </span>
         <span className="shrink-0 text-xs text-[#8a7a5c]">
+          {/* Worded as the evidence sentence words it, so the two can be checked against each other. */}
           {orDash(median, fmtOnsetMinutes)}
         </span>
         <span className="shrink-0 text-[10px] text-[#4a4540]">
@@ -173,9 +175,10 @@ export function RestView({ onClose }: { onClose: () => void }) {
       )}
       {/* Outside the scored section: timed nights stay comparable even when
           no feed has scored nights (slept nights with no feed attributed). */}
+      {/* The headline's measure split by lean, so formatted like it (fmtDuration). */}
       {compared && (
         <p className="text-[11px] leading-snug text-[#8a7a5c]">
-          {`Typical time to sleep: ${orDash(compared.leaned.medianMs, fmtDuration)} on nights the shuffle leaned (${pluralNights(compared.leaned.timedNights, "timed")}), ${orDash(compared.plain.medianMs, fmtDuration)} on plain-shuffle nights (${pluralNights(compared.plain.timedNights, "timed")}). A rough guide: the two differ in more than the lean (which shows, which weeks).`}
+          {`How long you usually take: ${orDash(compared.leaned.medianMs, fmtDuration)} on nights the shuffle leaned (${pluralNights(compared.leaned.timedNights, "timed")}), ${orDash(compared.plain.medianMs, fmtDuration)} on plain-shuffle nights (${pluralNights(compared.plain.timedNights, "timed")}). A rough guide: the two differ in more than the lean (which shows, which weeks).`}
         </p>
       )}
       <p className="text-xs text-[#4a4540]">
@@ -187,10 +190,7 @@ export function RestView({ onClose }: { onClose: () => void }) {
   );
 }
 
-/** A median, or "—" when there is none. Rows pass fmtOnsetMinutes (a
- *  feed's median, worded as the evidence sentence words it, so the two can
- *  be checked against each other); the comparison passes fmtDuration (a
- *  night-start median, formatted like the headline). */
+/** A median through `fmt`, or "—" when there is none. */
 function orDash(ms: number | null, fmt: (ms: number) => string): string {
   return ms === null ? "—" : fmt(ms);
 }
