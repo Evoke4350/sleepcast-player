@@ -705,9 +705,11 @@ export function YouTubeNight({
           (args) => buildYouTubePlayer(YT, hostRef.current!, args, { autoplay: true, shouldStartOnReady: () => true }),
           { onEnded: handleEnded, onError: handleError, onStateEvent: handleStateEvent },
         );
+        // A supplied lead already blocked is no lead: don't open on a known failure.
+        const lead = leadEpisode && !deadRef.current.has(leadEpisode.id) ? leadEpisode : null;
         const first =
           resume?.episode ??
-          leadEpisode ??
+          lead ??
           nextPlayable(pool, deadRef.current, null, getPlays(), Math.random, shuffle.weightOf);
         if (!first) {
           setStatus("error");
@@ -718,7 +720,7 @@ export function YouTubeNight({
         // Once per night, here rather than in startEpisode, which also runs on
         // every Next and would count a lineup instead of a night.
         beacon("youtube_night");
-        startEpisode(first, resume ? resume.position : leadEpisode ? leadPosition : 0);
+        startEpisode(first, resume ? resume.position : lead ? leadPosition : 0);
         tickHandleRef.current = setInterval(tickGuarded, 1000);
         if (noise.on) {
           const bn = new BrownNoise();

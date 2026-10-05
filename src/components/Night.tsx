@@ -991,7 +991,7 @@ export function Night({
           return next;
         });
         const resumable = resume?.episode && !resume.episode.youtubeId ? resume.episode : null;
-        const lead = leadEpisode && !leadEpisode.youtubeId ? leadEpisode : null;
+        const lead = leadEpisode && !leadEpisode.youtubeId && !deadRef.current.has(leadEpisode.id) ? leadEpisode : null;
         const first =
           resumable ?? lead ?? nextPlayable(pool, deadRef.current, null, getPlays(), Math.random, shuffle.weightOf);
         beginNight(first, resumable ? resume!.position : lead ? leadPosition : 0);

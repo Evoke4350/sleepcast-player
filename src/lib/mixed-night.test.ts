@@ -75,6 +75,12 @@ describe("a lead somebody else supplied", () => {
     expect(preferVideoLead(pod("p2"), mixed, dead, [], () => 0)?.id).toBe("p2");
   });
 
+  it("drops a supplied lead that is already dead", () => {
+    expect(preferVideoLead(yt("v1"), mixed, new Set(["v1"]), [], () => 0)?.id).toBe("v2");
+    const allVideosDead = new Set(["v1", "v2", "p1"]);
+    expect(preferVideoLead(pod("p1"), mixed, allVideosDead, [], () => 0)?.id).toBe("p2");
+  });
+
   it("keeps a podcast lead on an all-podcast pool", () => {
     expect(preferVideoLead(pod("p1"), [pod("p1"), pod("p2")], none, [], () => 0)?.id).toBe("p1");
   });

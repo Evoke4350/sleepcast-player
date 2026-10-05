@@ -50,7 +50,7 @@ describe("reconcileLive", () => {
   });
 
   it("leaves a plain or malformed-lean snapshot unmarked", () => {
-    for (const shuffleLean of [undefined, {}, { a: 1 }]) {
+    for (const shuffleLean of [undefined, {}, { a: 1 }, null, [1.5], { a: -1 }, { a: "x" }]) {
       localStorage.clear();
       reconcileLive(snap({ shuffleLean: shuffleLean as Record<string, number> | undefined }), T0 + 10 * 60 * 60_000);
       expect(loadNights()[0]).not.toHaveProperty("shuffle");

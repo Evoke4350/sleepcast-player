@@ -37,7 +37,10 @@ export function preferVideoLead(
   rand: () => number = Math.random,
   weightOf?: FeedWeight,
 ): Episode | null {
-  if (lead?.youtubeId) return lead;
+  // A supplied lead that is already dead (blocked since it was chosen) is no
+  // lead: opening on it would spend the waking gesture on a known failure.
+  const supplied = lead && !dead.has(lead.id) ? lead : null;
+  if (supplied?.youtubeId) return supplied;
   const alive = aliveIn(pool, dead);
   const videos = alive.filter((e) => !!e.youtubeId);
   // Freshness is the ordinary rule, applied to the videos alone — a lead that
@@ -46,5 +49,5 @@ export function preferVideoLead(
   // No video alive. A supplied podcast lead stands. With none, a podcast lead
   // (or null when nothing at all is alive — pickNextEpisode's empty guard):
   // dropping a podcast here left the night with nothing to play.
-  return lead ?? pickNextEpisode(alive, plays, rand, weightOf);
+  return supplied ?? pickNextEpisode(alive, plays, rand, weightOf);
 }
