@@ -24,7 +24,10 @@ export class RestSession {
 
   private leaned = false;
 
-  constructor(readonly startedAt: number, readonly timerMinutes: number) {
+  /** `revived.shuffleLeaned`: a pick before the reload was shaped by the
+   *  lean, so the revived night is a leaned one already. */
+  constructor(readonly startedAt: number, readonly timerMinutes: number, revived?: { shuffleLeaned?: boolean } | null) {
+    this.leaned = revived?.shuffleLeaned === true;
     const params = currentParams(loadParams(), loadNights());
     this.detector = new SleepDetector(params);
   }

@@ -262,4 +262,8 @@ describe("RestSession shuffle record", () => {
     expect(s.finish("faded", 1000).shuffle).toBe("leaned");
     expect(new RestSession(0, 45).finish("faded", 1000)).not.toHaveProperty("shuffle");
   });
+
+  it("a revived night whose picks before the reload leaned is leaned already", () => {
+    expect(new RestSession(0, 45, { shuffleLeaned: true }).finish("faded", 1000).shuffle).toBe("leaned");
+  });
 });

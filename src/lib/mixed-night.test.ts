@@ -112,3 +112,13 @@ describe("the lead picks forward the night's lean", () => {
     expect(chooseLead([a, b], none, [], () => 0.7)?.id).toBe("vb"); // plain
   });
 });
+
+describe("preferVideoLead and the lean's record", () => {
+  it("keeps a podcast lead without picking when no video is alive, so no pick counts as leaned", () => {
+    const heard: string[] = [];
+    const w = Object.assign((f: string) => (f === "swm" ? 1.5 : 1), { onLeanedPick: () => heard.push("leaned") });
+    const pods = [pod("p1"), { ...pod("p2"), feedId: "other" }];
+    expect(preferVideoLead(pod("p1"), [...pods, yt("v1")], new Set(["v1"]), [], () => 0, w)?.id).toBe("p1");
+    expect(heard).toEqual([]);
+  });
+});

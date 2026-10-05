@@ -299,9 +299,9 @@ export interface LiveSession {
   /** Whether the night was a varied mix (lastNight, and the re-anchor's
    *  follow-on night, carry it). */
   wasVaried?: boolean;
-  /** The night's shuffle lean (lineupLean), absent for a plain shuffle:
-   *  kept for a revive (whatever the setting or scores are by then) and for
-   *  the reconciled RestNight's record. */
+  /** The night's shuffle weights (lineupLean), absent for a plain shuffle:
+   *  kept for a revive, whatever the setting or scores are by then. (The
+   *  record of whether they shaped a pick is shuffleLeaned.) */
   shuffleLean?: Record<string, number>;
   /** Whether a pick tonight was actually shaped by the lean (the night's
    *  record; RestSession.shuffleLeaned), carried into a revive and into the

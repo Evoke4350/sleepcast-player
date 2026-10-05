@@ -673,8 +673,7 @@ export function YouTubeNight({
     // time-to-sleep, timeline and snapshots count from the real start, not
     // from the tap on "keep going".
     const nightStart = revivedNightStart(resume?.nightStartedAt, Date.now());
-    restRef.current = new RestSession(nightStart, timerMinutes);
-    if (resume?.shuffleLeaned === true) restRef.current.noteShuffleLeaned(); // its picks before the reload
+    restRef.current = new RestSession(nightStart, timerMinutes, resume);
     restRef.current.seedInteractions(resume?.interactions ?? 0);
     deadRef.current = new Set(loadBlocked());
     if (resume) {

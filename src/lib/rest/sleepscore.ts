@@ -132,7 +132,13 @@ export function lineupLean(
   for (const e of pool) all.set(e.feedId, weightOf(e.feedId));
   const ws = [...all.values()];
   if (!ws.some((w) => w !== ws[0])) return undefined;
-  return Object.fromEntries([...all].filter(([, w]) => w !== 1));
+  return leanRecord([...all].filter(([, w]) => w !== 1));
+}
+
+/** A lean as a record with no prototype: a feed id like "constructor"
+ *  can't find an inherited property, so a plain lookup is safe. */
+function leanRecord(entries: Iterable<[string, number]>): Record<string, number> {
+  return Object.assign(Object.create(null) as Record<string, number>, Object.fromEntries(entries));
 }
 
 /** The shuffle's lean, for a listener who has opted in (settings
@@ -151,12 +157,11 @@ export function shuffleWeights(scored: readonly FeedScore[]): (feedId: string) =
   return (feedId) => w.get(feedId) ?? 1;
 }
 
-/** A stored lean, if it is one, in lineupLean's shape: at least one entry,
- *  every weight a number in WEIGHT_FLOOR..WEIGHT_MAX other than 1 (absent
- *  means 1). Anything else (null, a number, all-1 or out-of-range weights,
- *  a malformed snapshot) is none, a plain shuffle. Every reader of a stored
- *  lean goes through this, so the players and reconcile agree on what a
- *  night was. */
+/** A stored lean (a revived snapshot's), if it is one, in lineupLean's
+ *  shape: at least one entry, every weight a number in WEIGHT_FLOOR..
+ *  WEIGHT_MAX other than 1 (absent means 1). Anything else (null, a number,
+ *  all-1 or out-of-range weights, a malformed snapshot) is none, a plain
+ *  shuffle. Returned as a prototype-less record, like lineupLean's. */
 export function validLean(x: unknown): Record<string, number> | undefined {
   if (!x || typeof x !== "object" || Array.isArray(x)) return undefined;
   const entries = Object.entries(x as Record<string, unknown>);
@@ -164,7 +169,7 @@ export function validLean(x: unknown): Record<string, number> | undefined {
   for (const [, w] of entries) {
     if (typeof w !== "number" || !(w >= WEIGHT_FLOOR && w <= WEIGHT_MAX) || w === 1) return undefined;
   }
-  return x as Record<string, number>;
+  return leanRecord(entries as [string, number][]);
 }
 
 /** The night's lean, fixed at its start: a revived night keeps the one it
@@ -183,8 +188,7 @@ export function nightLean(
     // its feeds no longer tell apart is a plain night, recorded as one.
     const stored = validLean(resume.shuffleLean);
     if (!stored) return undefined;
-    // Own keys only: a feed id like "constructor" mustn't find an inherited one.
-    return lineupLean((feedId) => (Object.hasOwn(stored, feedId) ? stored[feedId] : 1), pool);
+    return lineupLean((feedId) => stored[feedId] ?? 1, pool);
   }
   return favorWhatWorks ? lineupLean(shuffleWeights(scoreFeeds(nights())), pool) : undefined;
 }

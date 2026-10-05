@@ -55,6 +55,10 @@ export function preferVideoLead(
   weightOf?: FeedWeight,
 ): Episode | null {
   if (lead?.youtubeId) return lead;
+  // A podcast lead is only ever overridden by a video: with none alive,
+  // keep it without picking (a pick thrown away must not count as one the
+  // lean shaped).
+  if (lead && !pool.some((e) => e.youtubeId && !dead.has(e.id))) return lead;
   const video = chooseLead(pool, dead, plays, rand, weightOf);
   // No supplied lead: chooseLead's pick stands, podcast or not. Dropping a
   // podcast here (every video dead) left the night with nothing to play.
