@@ -12,11 +12,7 @@
 import type { Episode } from "./engine";
 import { pickNextEpisode, type Play } from "./plays";
 import type { FeedWeight } from "./rest/types";
-
-/** The episodes that can still play. */
-function aliveIn(pool: readonly Episode[], dead: ReadonlySet<string>): Episode[] {
-  return pool.filter((e) => !dead.has(e.id));
-}
+import { aliveIn } from "./youtube-night";
 
 /** The videos among episodes that can still play. */
 function videosOf(alive: readonly Episode[]): Episode[] {

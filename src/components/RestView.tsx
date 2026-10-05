@@ -69,7 +69,7 @@ export function RestView({ onClose }: { onClose: () => void }) {
           {feedTitles[f.feedId] ?? "a feed you removed"}
         </span>
         <span className="shrink-0 text-xs text-[#8a7a5c]">
-          {fmtMedian(median)}
+          {orDash(median, fmtOnsetMinutes)}
         </span>
         <span className="shrink-0 text-[10px] text-[#4a4540]">
           {pluralNights(f.nights)}
@@ -170,7 +170,7 @@ export function RestView({ onClose }: { onClose: () => void }) {
           no feed has scored nights (slept nights with no feed attributed). */}
       {compared && (
         <p className="text-[11px] leading-snug text-[#8a7a5c]">
-          {`Typical time to sleep: ${fmtNightMedian(compared.leaned.medianMs)} on nights with the lean on (${pluralNights(compared.leaned.nights, "timed")}), ${fmtNightMedian(compared.plain.medianMs)} on other nights (${pluralNights(compared.plain.nights, "timed")}). A rough guide: the two differ in more than the lean (which shows, which weeks).`}
+          {`Typical time to sleep: ${orDash(compared.leaned.medianMs, fmtDuration)} on nights with the lean on (${pluralNights(compared.leaned.nights, "timed")}), ${orDash(compared.plain.medianMs, fmtDuration)} on other nights (${pluralNights(compared.plain.nights, "timed")}). A rough guide: the two differ in more than the lean (which shows, which weeks).`}
         </p>
       )}
       <p className="text-xs text-[#4a4540]">
@@ -188,15 +188,10 @@ function leanLabel(weight: number): string {
   return `weighs ×${weight.toFixed(2)}`;
 }
 
-/** A feed row's median (how long that feed had been playing): worded as the
- *  evidence sentence words it (fmtOnsetMinutes), so the two can be checked
- *  against each other; "—" when there is none. */
-function fmtMedian(ms: number | null): string {
-  return ms === null ? "—" : fmtOnsetMinutes(ms);
-}
-
-/** A night's median time to sleep (from the night's start, as the headline
- *  figure): formatted like the headline (fmtDuration); "—" when none. */
-function fmtNightMedian(ms: number | null): string {
-  return ms === null ? "—" : fmtDuration(ms);
+/** A median, or "—" when there is none. Rows pass fmtOnsetMinutes (a
+ *  feed's median, worded as the evidence sentence words it, so the two can
+ *  be checked against each other); the comparison passes fmtDuration (a
+ *  night-start median, formatted like the headline). */
+function orDash(ms: number | null, fmt: (ms: number) => string): string {
+  return ms === null ? "—" : fmt(ms);
 }

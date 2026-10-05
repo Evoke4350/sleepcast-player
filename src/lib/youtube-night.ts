@@ -84,6 +84,12 @@ export function shouldGiveUp({ state, hasEverPlayed, elapsedMs, limitMs }: GiveU
   return true;
 }
 
+/** The episodes that can still play: the one rule for a night's pickers
+ *  (nextPlayable, and the mixed-night lead). */
+export function aliveIn(pool: readonly Episode[], dead: ReadonlySet<string>): Episode[] {
+  return pool.filter((e) => !dead.has(e.id));
+}
+
 /**
  * The next video to try, or null when there is nothing left.
  *
@@ -99,7 +105,7 @@ export function nextPlayable(
   rand: () => number = Math.random,
   weightOf?: FeedWeight,
 ): Episode | null {
-  const alive = pool.filter((e) => !dead.has(e.id));
+  const alive = aliveIn(pool, dead);
   if (!alive.length) return null;
   // Prefer anything other than what is playing, but fall back to it: one
   // survivor repeating beats a night that stops on a technicality.
