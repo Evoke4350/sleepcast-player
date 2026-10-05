@@ -156,7 +156,7 @@ export function RestView({ onClose }: { onClose: () => void }) {
             than three nights, that have never led, or that net negative
             aren't counted yet.
             {favorWhatWorks
-              ? ` Favor what puts me under is on: a feed with ${MIN_NIGHTS} or more nights, counted or not, comes up more or less often by its record.`
+              ? ` Favor what puts me under is on: a feed with ${MIN_NIGHTS} or more nights, counted or not, weighs by its record against the other shows in a night's lineup (others weigh ×1).`
               : ""}
           </p>
         </section>
@@ -170,9 +170,8 @@ export function RestView({ onClose }: { onClose: () => void }) {
   );
 }
 
-/** How a feed leans in the shuffle, for its row: nothing at no lean. */
+/** A feed's weight in a leaning shuffle, for its row: nothing at 1. The
+ *  shuffle weighs a night's lineup against itself, so this is relative. */
 function leanLabel(weight: number): string {
-  if (weight > 1) return " · comes up more";
-  if (weight < 1) return " · comes up less";
-  return "";
+  return weight === 1 ? "" : ` · weighs ×${weight.toFixed(2).replace(/0$/, "")}`;
 }

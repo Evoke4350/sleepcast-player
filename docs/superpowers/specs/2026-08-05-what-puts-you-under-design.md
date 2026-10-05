@@ -24,6 +24,7 @@ on their behalf. It is to make the choice obvious and show the reasoning.
 3. One suggestion before a night starts, with its evidence beside it, and a way
    to disagree in one tap.
 4. Nothing in the shuffle changes. The score suggests; it does not reweight.
+   (Revisited 2026-10-04: an opt-in lean; see §8.)
 
 ## 3. Non-goals
 
@@ -186,7 +187,7 @@ night counts, median time-to-sleep, and skip counts. This is the auditable half
 — the reason the design is B rather than a black-box recommender. If the model
 is wrong about the user, the user can see that it is wrong.
 
-## 8. Why the shuffle is untouched
+## 8. Why the shuffle is untouched (by default)
 
 The score suggests and nothing else. A scorer that silently reweights nights
 before it has been trusted is hard to notice going wrong: the pool quietly
@@ -201,10 +202,14 @@ The shuffle can now lean on the score, but only when the listener turns on
 "Favor what puts me under" in setup (`settings.favorWhatWorks`, off by
 default). That keeps this section's concerns: the listener chooses it
 knowingly, off is the plain shuffle to compare against, and the rest view
-marks each feed that "comes up more" or "less". A feed leans only after
+shows each feed's weight. A feed leans only after
 `MIN_NIGHTS` scored nights (by its `weight`, so never below
 `WEIGHT_FLOOR`); other feeds don't lean. Freshness still comes first:
 `pickNextEpisode` weights only among the episodes it would have picked from.
+A night whose lineup's feeds all weigh the same doesn't lean (the shuffle
+normalises), and is recorded as plain. The night's lean is fixed at its start
+and carried in its snapshot, so a revive keeps it; each RestNight records
+`shuffle: "leaned"` when it leaned.
 
 ## 9. Error handling
 

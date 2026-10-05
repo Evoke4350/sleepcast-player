@@ -7,6 +7,7 @@ import {
   WEIGHT_FLOOR,
   MIN_NIGHTS,
   shuffleWeights,
+  lineupLean,
 } from "./sleepscore";
 import type { RestNight } from "./types";
 
@@ -417,5 +418,17 @@ describe("shuffleWeights (favor what puts me under)", () => {
     const w = shuffleWeights([onset("once")]);
     expect(w("once")).toBe(1);
     expect(w("never-seen")).toBe(1);
+  });
+});
+
+describe("lineupLean", () => {
+  const pool = (...feeds: string[]) => feeds.map((feedId) => ({ feedId }));
+  it("is each lineup feed's weight when they differ", () => {
+    const w = (f: string) => (f === "a" ? 1.5 : 1);
+    expect(lineupLean(w, pool("a", "b", "a"))).toEqual({ a: 1.5, b: 1 });
+  });
+  it("is none when the lineup's feeds weigh the same: the shuffle is plain", () => {
+    expect(lineupLean(() => 1, pool("a", "b"))).toBeUndefined();
+    expect(lineupLean(() => 1.75, pool("only"))).toBeUndefined();
   });
 });

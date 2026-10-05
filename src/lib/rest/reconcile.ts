@@ -45,7 +45,7 @@ export function reconcileLive(l: LiveSession, now: number): void {
     timeToSleepMs: null,
     interactions: l.interactions ?? 0, // touches before the tab died
     detector: "none",
-    ...(l.favorWhatWorks ? { shuffle: "leaned" as const } : {}),
+    ...(l.shuffleLean ? { shuffle: "leaned" as const } : {}),
   });
   clearLive();
 }

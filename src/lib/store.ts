@@ -299,9 +299,10 @@ export interface LiveSession {
   /** Whether the night was a varied mix (lastNight, and the re-anchor's
    *  follow-on night, carry it). */
   wasVaried?: boolean;
-  /** Whether the night's shuffle leans on the scores: kept for a revive
-   *  (whatever the setting is by then) and for the reconciled RestNight. */
-  favorWhatWorks?: boolean;
+  /** The night's shuffle lean (lineupLean), absent for a plain shuffle:
+   *  kept for a revive (whatever the setting or scores are by then) and for
+   *  the reconciled RestNight's record. */
+  shuffleLean?: Record<string, number>;
 }
 
 /** What a revived night resumes from: the snapshot, as the players take it.
@@ -316,7 +317,6 @@ type ResumeFields = Omit<LiveSession, "current" | NightSessionField>;
  *  `resume`: one copy of each. One list, for the type and for resumeFrom. */
 const NIGHT_SESSION_FIELDS = [
   "pool", "skipIntroByFeedId", "feedTitles", "artworkByFeedId", "wasVaried", "timerMinutes", "modeKind",
-  "favorWhatWorks",
 ] as const satisfies readonly (keyof LiveSession)[];
 type NightSessionField = (typeof NIGHT_SESSION_FIELDS)[number];
 

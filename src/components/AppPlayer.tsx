@@ -181,9 +181,7 @@ export function AppPlayer() {
   // reload needs before audio can start again.
   function handleResume() {
     if (!live) return;
-    applyNightSettings(resumeMode(live));
-    // The lean it began with, not the setting now (absent: a plain shuffle).
-    setFavorWhatWorks(live.favorWhatWorks === true);
+    applyNightSettings(resumeMode(live)); // (the lean comes with the snapshot)
     setResume(resumeFrom(live));
     setSession({
       pool: live.pool,
@@ -255,7 +253,7 @@ export function AppPlayer() {
           feedTrim={feedTrim}
           noise={noise}
           wasVaried={session.wasVaried ?? false}
-        favorWhatWorks={favorWhatWorks}
+          favorWhatWorks={favorWhatWorks}
         />
       );
     }
@@ -275,7 +273,7 @@ export function AppPlayer() {
           feedTrim={feedTrim}
           noise={noise}
           wasVaried={session.wasVaried ?? false}
-        favorWhatWorks={favorWhatWorks}
+          favorWhatWorks={favorWhatWorks}
         />
       );
     }

@@ -177,9 +177,12 @@ describe("pickNextEpisode with feed weights (favor what puts me under)", () => {
   });
 
   it("never returns a zero-weight episode, even when rounding leaves a sliver", () => {
-    const eps = [feedEp("a", "good"), feedEp("b", "never")];
-    const w = (f: string) => (f === "good" ? 1 : 0);
-    expect(pickNextEpisode(eps, [], () => 0.9999999999999999, w)?.id).toBe("a");
+    // These weights and a rand just under 1 leave r a hair above 0 after
+    // the loop: the fallback must land on the last positive one.
+    const ws = [0.466, 0.515, 0.13, 0.304, 0.085, 0];
+    const eps = ws.map((_, i) => feedEp(`e${i}`, `f${i}`));
+    const w = (f: string) => ws[Number(f.slice(1))];
+    expect(pickNextEpisode(eps, [], () => 1 - Number.EPSILON / 2, w)?.id).toBe("e4");
   });
 
   it("falls back to a plain pick when no weight is positive", () => {

@@ -36,7 +36,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useLazyRef } from "../lib/use-lazy-ref";
-import { useNightShuffleWeights } from "../lib/use-night-shuffle";
+import { useNightShuffle } from "../lib/use-night-shuffle";
 import { useStateRef } from "../lib/use-state-ref";
 import { useNightExtensions } from "../lib/use-night-extensions";
 import type { Episode, PlayMode } from "../lib/engine";
@@ -154,7 +154,7 @@ export function Night({
   wasVaried = false,
   favorWhatWorks = false,
 }: NightProps) {
-  const weightOfRef = useNightShuffleWeights(favorWhatWorks);
+  const shuffle = useNightShuffle(favorWhatWorks, pool, resume);
   const hostRef = useRef<HTMLDivElement | null>(null);
   // Both backends live for the whole night; `liveRef` is whichever one the
   // current episode picked, and every command goes through it. `offRef` holds
@@ -416,7 +416,7 @@ export function Night({
       currentEpRef.current?.id ?? null,
       getPlays(),
       Math.random,
-      weightOfRef.current,
+      shuffle.weightOf,
     );
     // Nothing left that can play. Ending is the honest outcome: continuing
     // would be an hour of black screen with the timer running down.
@@ -589,7 +589,7 @@ export function Night({
       interactions: restRef.current?.interactionCount,
       extensions: extensionsRef.current,
       wasVaried: wasVariedRef.current,
-      favorWhatWorks: weightOfRef.current !== undefined,
+      shuffleLean: shuffle.lean,
       remainingMs,
       totalSeconds: totalSecondsRef.current,
       // Where the episode is, not a raw reading: the backend may still be
@@ -862,7 +862,7 @@ export function Night({
     // time-to-sleep, timeline and snapshots count from the real start, not
     // from the tap on "keep going".
     const nightStart = revivedNightStart(resume?.nightStartedAt, Date.now());
-    restRef.current = new RestSession(nightStart, timerMinutes, weightOfRef.current !== undefined);
+    restRef.current = new RestSession(nightStart, timerMinutes, shuffle.lean !== undefined);
     restRef.current.seedInteractions(resume?.interactions ?? 0);
     deadRef.current = new Set(loadBlocked());
     if (resume) {
@@ -963,7 +963,7 @@ export function Night({
         // longer covering it.
         const first =
           resume?.episode ??
-          preferVideoLead(leadEpisode, pool, deadRef.current, getPlays(), Math.random, weightOfRef.current);
+          preferVideoLead(leadEpisode, pool, deadRef.current, getPlays(), Math.random, shuffle.weightOf);
         // leadPosition is a saved position in the supplied lead and in nothing
         // else, so it only travels with it. When preferVideoLead swapped a
         // video in, the night starts that video from its own beginning rather
@@ -991,7 +991,7 @@ export function Night({
         const resumable = resume?.episode && !resume.episode.youtubeId ? resume.episode : null;
         const lead = leadEpisode && !leadEpisode.youtubeId ? leadEpisode : null;
         const first =
-          resumable ?? lead ?? nextPlayable(pool, deadRef.current, null, getPlays(), Math.random, weightOfRef.current);
+          resumable ?? lead ?? nextPlayable(pool, deadRef.current, null, getPlays(), Math.random, shuffle.weightOf);
         beginNight(first, resumable ? resume!.position : lead ? leadPosition : 0);
       });
 
