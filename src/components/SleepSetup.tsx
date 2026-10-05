@@ -106,7 +106,6 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
   const timerMinutes = appState.settings.timerMinutes;
   const quarterHourRule = appState.settings.quarterHourRule;
 
-  const favorWhatWorks = appState.settings.favorWhatWorks;
   /** An on/off setting, saved. */
   function setFlag(key: "quarterHourRule" | "favorWhatWorks" | "leveling", on: boolean) {
     updateAndSave({ ...appState, settings: { ...appState.settings, [key]: on } });
@@ -1192,7 +1191,7 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
           <label className="flex items-start gap-3">
             <input
               type="checkbox"
-              checked={favorWhatWorks}
+              checked={appState.settings.favorWhatWorks}
               onChange={(e) => setFlag("favorWhatWorks", e.target.checked)}
               className="mt-0.5 h-4 w-4 accent-[#6e5d44]"
             />
