@@ -25,10 +25,10 @@ const NOW = 1_000_000 + 60_000; // 1 min after the night ended
 
 describe("nextInSpread", () => {
   it("returns the first unplayed episode in order", () => {
-    expect(nextInSpread([ep("a"), ep("b")], ["a"])?.id).toBe("b");
+    expect(nextInSpread([ep("a"), ep("b")], ["a"], [])?.id).toBe("b");
   });
   it("null when all played", () => {
-    expect(nextInSpread([ep("a")], ["a"])).toBeNull();
+    expect(nextInSpread([ep("a")], ["a"], [])).toBeNull();
   });
 
   it("skips a blocked episode, keeping the spread's order", () => {
@@ -36,7 +36,7 @@ describe("nextInSpread", () => {
     expect(nextInSpread([ep("a"), ep("b")], ["a"], ["b"])).toBeNull();
   });
   it("null for an empty pool", () => {
-    expect(nextInSpread([], [])).toBeNull();
+    expect(nextInSpread([], [], [])).toBeNull();
   });
 });
 

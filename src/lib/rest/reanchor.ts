@@ -7,7 +7,7 @@ export const REANCHOR_WINDOW_MS = 6 * 60 * 60 * 1000;
 // First pool episode not yet heard this night and not blocked (an episode
 // can be blocked mid-night and stay in the saved pool); null if the spread is
 // spent.
-export function nextInSpread(pool: Episode[], playedIds: string[], blocked: readonly string[] = []): Episode | null {
+export function nextInSpread(pool: Episode[], playedIds: string[], blocked: readonly string[]): Episode | null {
   const skip = new Set([...playedIds, ...blocked]);
   for (const e of pool) {
     if (!skip.has(e.id)) return e;

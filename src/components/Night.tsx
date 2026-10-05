@@ -929,6 +929,12 @@ export function Night({
       tick();
     }
 
+    // leadPosition is a saved position in the supplied lead and in nothing
+    // else, so it only travels with it. When preferVideoLead swapped another
+    // episode in, the night starts that one from its own beginning rather
+    // than dropping into it at a timestamp that belongs to another episode.
+    const leadStart = (ep: Episode | null) => (ep && ep.id === leadEpisode?.id ? leadPosition : 0);
+
     loadYouTubeApi()
       .then((YT) => {
         if (cancelled || !hostRef.current) return;
@@ -966,14 +972,7 @@ export function Night({
         const first =
           resume?.episode ??
           preferVideoLead(leadEpisode, pool, deadRef.current, getPlays(), Math.random, shuffle.weightOf);
-        // leadPosition is a saved position in the supplied lead and in nothing
-        // else, so it only travels with it. When preferVideoLead swapped a
-        // video in, the night starts that video from its own beginning rather
-        // than dropping into it at a timestamp that belongs to another episode.
-        beginNight(
-          first,
-          resume ? resume.position : first && first.id === leadEpisode?.id ? leadPosition : 0,
-        );
+        beginNight(first, resume ? resume.position : leadStart(first));
       })
       .catch(() => {
         // No IFrame API — offline, blocked, or Google is down. Run the night
@@ -995,7 +994,7 @@ export function Night({
         // lead or picks among the podcasts: the main path's one rule.
         const first =
           resumable ?? preferVideoLead(leadEpisode, pool, deadRef.current, getPlays(), Math.random, shuffle.weightOf);
-        beginNight(first, resumable ? resume!.position : first && first.id === leadEpisode?.id ? leadPosition : 0);
+        beginNight(first, resumable ? resume!.position : leadStart(first));
       });
 
     return () => {
