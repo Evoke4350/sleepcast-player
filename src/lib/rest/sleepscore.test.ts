@@ -410,14 +410,14 @@ describe("shuffleWeights (favor what puts me under)", () => {
   it("leans a feed with enough nights by its weight, toward and away", () => {
     const good = Array.from({ length: MIN_NIGHTS }, () => onset("good"));
     const bad = Array.from({ length: MIN_NIGHTS }, () => night({ skipped: ["bad"] }));
-    const w = shuffleWeights([...good, ...bad]);
+    const w = shuffleWeights(scoreFeeds([...good, ...bad]));
     expect(w("good")).toBeGreaterThan(1);
     expect(w("bad")).toBeLessThan(1);
     expect(w("bad")).toBeGreaterThanOrEqual(WEIGHT_FLOOR);
   });
 
   it("gives no lean without enough nights, or to a feed never scored", () => {
-    const w = shuffleWeights([onset("once")]);
+    const w = shuffleWeights(scoreFeeds([onset("once")]));
     expect(w("once")).toBe(1);
     expect(w("never-seen")).toBe(1);
   });
@@ -470,6 +470,6 @@ describe("validLean and rounding", () => {
       night({ onsetFeedId: "g", sleptThrough: ["f"] }),
       night({ onsetFeedId: "g", sleptThrough: ["f"] }),
     ];
-    expect(shuffleWeights(three)("f")).toBe(1.08);
+    expect(shuffleWeights(scoreFeeds(three))("f")).toBe(1.08);
   });
 });

@@ -1,7 +1,7 @@
 import { useMemo } from "react";
-import { loadNights, rollup, setSelfLabel } from "../lib/rest/ledger";
+import { loadNights, rollup, setSelfLabel, leanComparison } from "../lib/rest/ledger";
 import { recordFalsePositive } from "../lib/rest/calibrate";
-import { scoreFeeds, medianTimeToSleep, meetsSuggestionGate, leanFrom, MIN_NIGHTS } from "../lib/rest/sleepscore";
+import { scoreFeeds, medianTimeToSleep, meetsSuggestionGate, shuffleWeights, MIN_NIGHTS } from "../lib/rest/sleepscore";
 import { fmtDuration, lastNight } from "../lib/rest/surface";
 import { getPlays, loadState } from "../lib/store";
 import { playsSince, playAtMoment } from "../lib/plays";
@@ -33,7 +33,10 @@ export function RestView({ onClose }: { onClose: () => void }) {
   const scored = useMemo(() => scoreFeeds(nights), [nights]);
   const counted = useMemo(() => scored.filter(meetsSuggestionGate), [scored]);
   const notYetCounted = useMemo(() => scored.filter((f) => !meetsSuggestionGate(f)), [scored]);
-  const leanOf = useMemo(() => leanFrom(scored), [scored]);
+  const leanOf = useMemo(() => (favorWhatWorks ? shuffleWeights(scored) : null), [scored, favorWhatWorks]);
+  // Leaned nights against plain ones, once there are leaned nights: the
+  // baseline the setting keeps is only worth keeping if it is compared.
+  const compared = useMemo(() => leanComparison(nights), [nights]);
 
   // What actually played last night, from the play ledger. Entries only exist
   // once an episode ran past HEARD_SEC, so a track skipped in the first breath
@@ -56,7 +59,7 @@ export function RestView({ onClose }: { onClose: () => void }) {
   function feedRow(f: (typeof scored)[number]) {
     const median = medianTimeToSleep(nights, f.feedId);
     return (
-      <li key={f.feedId} className="flex items-baseline gap-2 text-sm">
+      <li key={f.feedId} className="flex flex-wrap items-baseline gap-x-2 text-sm">
         <span className="flex-1 truncate text-[#b0a898]">
           {/* Raw ids for builtins ("swm") are readable enough to ship;
               a removed custom feed's id ("custom-1699999999-ab3f2")
@@ -70,8 +73,11 @@ export function RestView({ onClose }: { onClose: () => void }) {
         <span className="shrink-0 text-[10px] text-[#4a4540]">
           {f.nights} night{f.nights === 1 ? "" : "s"}
           {f.skipNights > 0 ? ` · ${f.skipNights} skipped` : ""}
-          {favorWhatWorks ? leanLabel(leanOf(f.feedId)) : ""}
         </span>
+        {/* On its own line, so the title keeps its room at phone width. */}
+        {leanOf && leanOf(f.feedId) !== 1 && (
+          <span className="w-full text-right text-[10px] text-[#4a4540]">{leanLabel(leanOf(f.feedId))}</span>
+        )}
       </li>
     );
   }
@@ -157,6 +163,11 @@ export function RestView({ onClose }: { onClose: () => void }) {
               ? ` Favor what puts me under is on: a feed with ${MIN_NIGHTS} or more nights, counted or not, weighs by its record against the other shows in a night's lineup (others weigh ×1).`
               : ""}
           </p>
+          {compared && (
+            <p className="mt-2 text-[11px] leading-snug text-[#8a7a5c]">
+              {`Typical time to sleep: ${compared.leaned.medianMs === null ? "—" : fmtDuration(compared.leaned.medianMs)} on nights the shuffle leaned (${compared.leaned.nights}), ${compared.plain.medianMs === null ? "—" : fmtDuration(compared.plain.medianMs)} on plain ones (${compared.plain.nights}).`}
+            </p>
+          )}
         </section>
       )}
       <p className="text-xs text-[#4a4540]">
@@ -168,8 +179,8 @@ export function RestView({ onClose }: { onClose: () => void }) {
   );
 }
 
-/** A feed's weight in a leaning shuffle, for its row: nothing at 1. The
- *  shuffle weighs a night's lineup against itself, so this is relative. */
+/** A feed's weight in a leaning shuffle, for its row. The shuffle weighs a
+ *  night's lineup against itself, so this is relative. */
 function leanLabel(weight: number): string {
-  return weight === 1 ? "" : ` · weighs ×${weight.toFixed(2)}`;
+  return `weighs ×${weight.toFixed(2)}`;
 }

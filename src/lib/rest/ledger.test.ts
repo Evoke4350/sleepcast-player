@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { loadNights, appendNight, rollup, setSelfLabel, MIN_PLAUSIBLE_ONSET_MS, PRE_FIX_BEFORE_MS } from "./ledger";
+import { loadNights, appendNight, rollup, setSelfLabel, leanComparison, MIN_PLAUSIBLE_ONSET_MS, PRE_FIX_BEFORE_MS } from "./ledger";
 import { DEFAULT_PARAMS, LAMBDA_MAX, quietTicksToDecide, TICK_MS } from "./detector";
 import type { RestNight } from "./types";
 
@@ -123,5 +123,20 @@ describe("rollup floor for nights recorded before the detector fix", () => {
   it("uses the derived floor for nights after it", () => {
     const fresh = night({ startedAt: PRE_FIX_BEFORE_MS + 1, timeToSleepMs: 3 * 60_000, sleptAtMs: 3 * 60_000 });
     expect(rollup([fresh]).bestTimeToSleepMs).toBe(3 * 60_000);
+  });
+});
+
+describe("leanComparison", () => {
+  it("is nothing until a night leaned", () => {
+    expect(leanComparison([night(), night()])).toBeNull();
+  });
+  it("splits typical time to sleep by whether the shuffle leaned", () => {
+    const c = leanComparison([
+      night({ shuffle: "leaned", sleptAtMs: 20 * 60_000, timeToSleepMs: 20 * 60_000 }),
+      night({ sleptAtMs: 40 * 60_000, timeToSleepMs: 40 * 60_000 }),
+      night({ sleptAtMs: 30 * 60_000, timeToSleepMs: 30 * 60_000 }),
+    ])!;
+    expect(c.leaned).toEqual({ nights: 1, medianMs: 20 * 60_000 });
+    expect(c.plain).toEqual({ nights: 2, medianMs: 35 * 60_000 });
   });
 });

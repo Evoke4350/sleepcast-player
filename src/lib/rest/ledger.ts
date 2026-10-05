@@ -63,6 +63,19 @@ function plausibleFloor(n: RestNight): number {
   return n.startedAt < PRE_FIX_BEFORE_MS ? LEGACY_FLOOR_MS : MIN_PLAUSIBLE_ONSET_MS;
 }
 
+/** Leaned nights against plain ones (RestNight.shuffle), by the same rules
+ *  as the headline median: null until there is a leaned night to compare. */
+export function leanComparison(nights: RestNight[]): {
+  leaned: { nights: number; medianMs: number | null };
+  plain: { nights: number; medianMs: number | null };
+} | null {
+  const leaned = nights.filter((n) => n.shuffle === "leaned");
+  if (!leaned.length) return null;
+  const plain = nights.filter((n) => n.shuffle !== "leaned");
+  const side = (ns: RestNight[]) => ({ nights: ns.length, medianMs: rollup(ns).medianTimeToSleepMs });
+  return { leaned: side(leaned), plain: side(plain) };
+}
+
 export function rollup(nights: RestNight[]): RestRollup {
   // A night the listener marked "awake" was a detector false positive: it was
   // not slept, and its onset time is not a time-to-sleep. stepback.ts and

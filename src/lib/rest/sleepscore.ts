@@ -120,16 +120,6 @@ export function meetsSuggestionGate(f: FeedScore): boolean {
   return f.nights >= MIN_NIGHTS && f.onsetNights >= 1 && f.score > 0;
 }
 
-/** The shuffle's lean, for a listener who has opted in (settings
- *  favorWhatWorks): a feed with MIN_NIGHTS or more scored nights leans by
- *  its weight (WEIGHT_FLOOR to 1.75: toward what has put them under, away
- *  from what they skip, never ruled out); any other feed is 1, no lean
- *  without evidence either way. Unlike the suggestion, a net-negative feed
- *  counts here: leaning away is the other half of the point. */
-export function shuffleWeights(nights: readonly RestNight[]): (feedId: string) => number {
-  return leanFrom(scoreFeeds(nights));
-}
-
 /** A lineup's lean: the weight of each of its feeds that isn't ×1 (absent
  *  means ×1), or undefined when its feeds all weigh the same (the shuffle
  *  normalises, so equal weights lean nothing: a plain shuffle, and recorded
@@ -145,10 +135,16 @@ export function lineupLean(
   return Object.fromEntries([...all].filter(([, w]) => w !== 1));
 }
 
-/** shuffleWeights from feeds already scored. Rounded to hundredths: a
- *  difference below that changes no pick that matters, so it neither makes
- *  a night "leaned" nor shows as a weight. */
-export function leanFrom(scored: readonly FeedScore[]): (feedId: string) => number {
+/** The shuffle's lean, for a listener who has opted in (settings
+ *  favorWhatWorks): a feed with MIN_NIGHTS or more scored nights leans by
+ *  its weight (WEIGHT_FLOOR to 1.75: toward what has put them under, away
+ *  from what they skip, never ruled out); any other feed is 1, no lean
+ *  without evidence either way. Unlike the suggestion, a net-negative feed
+ *  counts here: leaning away is the other half of the point.
+ *  Takes feeds already scored (scoreFeeds). Weights are rounded to
+ *  hundredths: a difference below that changes no pick that matters, so it
+ *  neither makes a night "leaned" nor shows as a weight. */
+export function shuffleWeights(scored: readonly FeedScore[]): (feedId: string) => number {
   const w = new Map(
     scored.filter((f) => f.nights >= MIN_NIGHTS).map((f) => [f.feedId, Math.round(f.weight * 100) / 100]),
   );
@@ -183,7 +179,7 @@ export function nightLean(
   nights: () => readonly RestNight[],
 ): Record<string, number> | undefined {
   if (resume) return validLean(resume.shuffleLean);
-  return favorWhatWorks ? lineupLean(shuffleWeights(nights()), pool) : undefined;
+  return favorWhatWorks ? lineupLean(shuffleWeights(scoreFeeds(nights())), pool) : undefined;
 }
 
 /** Scored feeds with enough evidence to say anything about. */

@@ -140,7 +140,8 @@ those three.
 `weight` ranks the suggestion in §7 and does nothing else in v1. It is shaped
 as a multiplier rather than a raw score so that if §8 is ever revisited it can
 drive `pickNextEpisode` without a redesign — but nothing multiplies by it yet,
-and the tests assert that.
+and the tests assert that. (Revisited 2026-10-04: it now drives the opt-in
+lean; see the §8 addendum.)
 
 `WEIGHT_FLOOR = 0.25` is the important constant and comes straight from the
 Python: **never zero a feed out.** A feed that scored badly on two nights has
@@ -209,7 +210,8 @@ shows each feed's weight. A feed leans only after
 A night whose lineup's feeds all weigh the same doesn't lean (the shuffle
 normalises), and is recorded as plain. The night's lean is fixed at its start
 and carried in its snapshot, so a revive keeps it; each RestNight records
-`shuffle: "leaned"` when it leaned.
+`shuffle: "leaned"` when it leaned, and the rest view compares typical time
+to sleep on leaned nights against plain ones once there are leaned nights.
 
 ## 9. Error handling
 

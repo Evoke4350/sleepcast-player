@@ -4,7 +4,7 @@
 
 **Goal:** Learn which podcast feeds actually put this listener to sleep, from data the app records at the moment it happens, and suggest one before a night starts — with its evidence beside it.
 
-**Architecture:** `RestSession` already holds the inferred sleep onset but has never been told what was playing. It gains a timeline of episode starts and a set of skipped feeds, and resolves both against the onset in `finish()` — so attribution is a comparison inside an already-tested module, not a join across two stores. A pure scorer then rolls those per-night facts up per feed. The shuffle is untouched; the score only ranks a suggestion.
+**Architecture:** `RestSession` already holds the inferred sleep onset but has never been told what was playing. It gains a timeline of episode starts and a set of skipped feeds, and resolves both against the onset in `finish()` — so attribution is a comparison inside an already-tested module, not a join across two stores. A pure scorer then rolls those per-night facts up per feed. The shuffle is untouched; the score only ranks a suggestion. (Revisited 2026-10-04: an opt-in lean; see the spec's §8 addendum.)
 
 **Tech Stack:** TypeScript strict, React 19 islands, Vitest (jsdom), no new dependencies.
 
@@ -831,7 +831,7 @@ git commit -m "Show the working, so a wrong model can be seen to be wrong"
 ## Deferred, on purpose
 
 - **Time-of-night conditioning** (spec §6). Computable from `RestNight.startedAt`, but it splits already-thin evidence and needs its own bucket-level confidence gate. Worth doing once there are enough nights to split.
-- **Reweighting the shuffle** (spec §8). Deliberately not now: a scorer that silently narrows the pool before it has been trusted is hard to notice going wrong, and there would be no baseline left to compare against.
+- **Reweighting the shuffle** (spec §8; since done as an opt-in, 2026-10-04). Deliberately not now: a scorer that silently narrows the pool before it has been trusted is hard to notice going wrong, and there would be no baseline left to compare against.
 - **Validating the detector against `selfLabel`** (spec open question 2). Every credit here inherits `sleptAtMs`. If the detector is systematically early or late, every attribution lands on the wrong episode — and nothing in this plan would reveal that.
 
 ## Still open after this plan
