@@ -475,6 +475,11 @@ describe("nightLean", () => {
 });
 
 describe("validLean and rounding", () => {
+  it("rounds as shuffleWeights does: a hair off 1 is no lean", () => {
+    expect(validLean({ a: 1.004 })).toBeUndefined();
+    expect(validLean({ a: 0.999, b: 1.234 })).toEqual({ b: 1.23 });
+  });
+
   it("accepts only lineupLean's shape: weights in range and not 1", () => {
     expect(validLean({ a: 1.25 })).toEqual({ a: 1.25 });
     expect(validLean(undefined)).toBeUndefined();

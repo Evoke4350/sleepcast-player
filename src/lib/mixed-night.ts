@@ -13,11 +13,8 @@ import type { Episode } from "./engine";
 import { aliveIn, pickNextEpisode, type Play } from "./plays";
 import type { FeedWeight } from "./rest/types";
 
-/** The videos among episodes that can still play. */
-function videosOf(alive: readonly Episode[]): Episode[] {
-  return alive.filter((e) => !!e.youtubeId);
-}
-
+/** The lead for a night nobody had an opinion about (preferVideoLead with
+ *  no lead). */
 export function chooseLead(
   pool: readonly Episode[],
   dead: ReadonlySet<string>,
@@ -25,28 +22,19 @@ export function chooseLead(
   rand: () => number = Math.random,
   weightOf?: FeedWeight,
 ): Episode | null {
-  const alive = aliveIn(pool, dead);
-  const videos = videosOf(alive);
-  // Freshness is the ordinary rule, applied to the videos alone — a lead that
-  // hands back last night's video would be a worse start than a random one.
-  // The `alive` fallback covers two cases, correctly by construction: when
-  // `alive` is all podcasts (no videos in the pool, or all videos dead),
-  // pickNextEpisode picks among them, which is the required podcast lead; when
-  // `alive` is itself empty (nothing playable at all), pickNextEpisode's own
-  // empty-array guard returns null. No extra guard needed here.
-  return pickNextEpisode(videos.length ? videos : alive, plays, rand, weightOf);
+  return preferVideoLead(null, pool, dead, plays, rand, weightOf);
 }
 
 /**
- * The lead a mixed night should actually open on, given one somebody supplied.
+ * The lead a mixed night should actually open on, given one somebody supplied
+ * (or none: chooseLead).
  *
- * chooseLead alone only covers the night nobody had an opinion about. Leads
- * arrive from three other places — the 3am re-anchor, a search result or
- * suggestion in setup, and a resumed night — and the re-anchor's is picked in
- * array order with no idea that kinds exist. Letting any of them through
- * unexamined spends the night's one waking gesture on a podcast and leaves the
- * first video to land mid-sleep, which is exactly the failure leading with
- * video exists to prevent.
+ * Leads arrive from three places besides chooseLead — the 3am re-anchor, a
+ * search result or suggestion in setup, and a resumed night — and the
+ * re-anchor's is picked in array order with no idea that kinds exist. Letting
+ * any of them through unexamined spends the night's one waking gesture on a
+ * podcast and leaves the first video to land mid-sleep, which is exactly the
+ * failure leading with video exists to prevent.
  *
  * A supplied podcast lead is only overridden by a video, never by another
  * podcast: the listener may have chosen this one, and swapping it for a
@@ -61,11 +49,13 @@ export function preferVideoLead(
   weightOf?: FeedWeight,
 ): Episode | null {
   if (lead?.youtubeId) return lead;
-  // No supplied lead: chooseLead's pick stands, podcast or not. Dropping a
-  // podcast here (every video dead) left the night with nothing to play.
-  if (!lead) return chooseLead(pool, dead, plays, rand, weightOf);
-  // A podcast lead is only ever overridden by a video: with none alive,
-  // keep it without picking one only to throw it away.
-  const videos = videosOf(aliveIn(pool, dead));
-  return videos.length ? pickNextEpisode(videos, plays, rand, weightOf) : lead;
+  const alive = aliveIn(pool, dead);
+  const videos = alive.filter((e) => !!e.youtubeId);
+  // Freshness is the ordinary rule, applied to the videos alone — a lead that
+  // hands back last night's video would be a worse start than a random one.
+  if (videos.length) return pickNextEpisode(videos, plays, rand, weightOf);
+  // No video alive. A supplied podcast lead stands. With none, a podcast lead
+  // (or null when nothing at all is alive — pickNextEpisode's empty guard):
+  // dropping a podcast here left the night with nothing to play.
+  return lead ?? pickNextEpisode(alive, plays, rand, weightOf);
 }

@@ -15,11 +15,13 @@ export function RestView({ onClose }: { onClose: () => void }) {
   // every BUILTIN_FEEDS entry regardless of what's saved, and removeCustomFeed
   // no-ops on builtins. So a lookup miss below is always a removed custom feed.
   // (And whether the shuffle leans: shown per feed while it's on, so the
-  // lean is as auditable as the ranking.)
-  const { feedTitles, favorWhatWorks } = useMemo(() => {
+  // lean is as auditable as the ranking; only for a feed that is on, since
+  // a removed or switched-off feed is in no lineup to lean.)
+  const { feedTitles, enabledFeeds, favorWhatWorks } = useMemo(() => {
     const s = loadState();
     return {
       feedTitles: Object.fromEntries(s.feeds.map((f) => [f.id, f.title])),
+      enabledFeeds: new Set(s.feeds.filter((f) => f.enabled).map((f) => f.id)),
       favorWhatWorks: s.settings.favorWhatWorks,
     };
   }, []);
@@ -58,7 +60,7 @@ export function RestView({ onClose }: { onClose: () => void }) {
   // can never drift apart in what they show per feed.
   function feedRow(f: (typeof scored)[number]) {
     const median = medianTimeToSleep(nights, f.feedId);
-    const lean = leanOf?.(f.feedId);
+    const lean = enabledFeeds.has(f.feedId) ? leanOf?.(f.feedId) : undefined;
     return (
       <li key={f.feedId} className="flex flex-wrap items-baseline gap-x-2 text-sm">
         <span className="flex-1 truncate text-[#b0a898]">
@@ -170,7 +172,7 @@ export function RestView({ onClose }: { onClose: () => void }) {
           no feed has scored nights (slept nights with no feed attributed). */}
       {compared && (
         <p className="text-[11px] leading-snug text-[#8a7a5c]">
-          {`Typical time to sleep: ${orDash(compared.leaned.medianMs, fmtDuration)} on nights the shuffle leaned (${pluralNights(compared.leaned.nights, "timed")}), ${orDash(compared.plain.medianMs, fmtDuration)} on plain-shuffle nights (${pluralNights(compared.plain.nights, "timed")}). A rough guide: the two differ in more than the lean (which shows, which weeks).`}
+          {`Typical time to sleep: ${orDash(compared.leaned.medianMs, fmtDuration)} on nights the shuffle leaned (${pluralNights(compared.leaned.timedNights, "timed")}), ${orDash(compared.plain.medianMs, fmtDuration)} on plain-shuffle nights (${pluralNights(compared.plain.timedNights, "timed")}). A rough guide: the two differ in more than the lean (which shows, which weeks).`}
         </p>
       )}
       <p className="text-xs text-[#4a4540]">

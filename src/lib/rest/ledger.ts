@@ -67,8 +67,8 @@ function plausibleFloor(n: RestNight): number {
  *  as the headline median: null until there is a leaned night and either
  *  side has a timed one, so there is something to compare. */
 export function leanComparison(nights: readonly RestNight[]): {
-  leaned: { nights: number; medianMs: number | null };
-  plain: { nights: number; medianMs: number | null };
+  leaned: { timedNights: number; medianMs: number | null };
+  plain: { timedNights: number; medianMs: number | null };
 } | null {
   const leaned: RestNight[] = [];
   const plain: RestNight[] = [];
@@ -79,10 +79,10 @@ export function leanComparison(nights: readonly RestNight[]): {
   const side = (ns: RestNight[]) => {
     const tts = believableOnsets(ns.filter(isSlept));
     const m = median(tts);
-    return { nights: tts.length, medianMs: m === null ? null : Math.round(m) };
+    return { timedNights: tts.length, medianMs: m === null ? null : Math.round(m) };
   };
   const c = { leaned: side(leaned), plain: side(plain) };
-  return c.leaned.nights > 0 || c.plain.nights > 0 ? c : null;
+  return c.leaned.timedNights > 0 || c.plain.timedNights > 0 ? c : null;
 }
 
 /** A night that was slept: an onset, and not marked "awake" (see rollup). */

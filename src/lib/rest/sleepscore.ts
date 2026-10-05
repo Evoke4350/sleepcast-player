@@ -156,28 +156,28 @@ function leanRecord(entries: Iterable<[string, number]>): Record<string, number>
  *  never ruled out); any other feed is 1, no lean
  *  without evidence either way. Unlike the suggestion, a net-negative feed
  *  counts here: leaning away is the other half of the point.
- *  Takes feeds already scored (scoreFeeds); weights are clamped to
- *  WEIGHT_FLOOR..WEIGHT_MAX (clampWeight), then rounded to
+ *  Takes feeds already scored (scoreFeeds); weights go through clampWeight
+ *  (WEIGHT_FLOOR..WEIGHT_MAX), which also rounds them to
  *  hundredths: a difference below that changes no pick that matters, so it
  *  neither makes a night "leaned" nor shows as a weight. */
 export function shuffleWeights(scored: readonly FeedScore[]): FeedWeight {
   const w = new Map(
-    scored.filter((f) => f.nights >= MIN_NIGHTS).map((f) => [f.feedId, Math.round(clampWeight(f.weight) * 100) / 100]),
+    scored.filter((f) => f.nights >= MIN_NIGHTS).map((f) => [f.feedId, clampWeight(f.weight)]),
   );
   return (feedId) => w.get(feedId) ?? 1;
 }
 
-/** A weight within WEIGHT_FLOOR..WEIGHT_MAX: the one clamp both a new
- *  night's lean (shuffleWeights) and a revived one (validLean) go through,
- *  so the two can't disagree if the credits change. */
+/** A weight within WEIGHT_FLOOR..WEIGHT_MAX, rounded to hundredths: the one
+ *  rule both a new night's lean (shuffleWeights) and a revived one
+ *  (validLean) go through, so the two can't disagree. */
 function clampWeight(w: number): number {
-  return Math.min(WEIGHT_MAX, Math.max(WEIGHT_FLOOR, w));
+  return Math.round(Math.min(WEIGHT_MAX, Math.max(WEIGHT_FLOOR, w)) * 100) / 100;
 }
 
 /** A stored lean (a revived snapshot's), if it is one, in lineupLean's
  *  shape: its entries that are positive finite weights other than 1 (an
- *  entry that isn't is dropped: absent means 1), clamped to WEIGHT_FLOOR..
- *  WEIGHT_MAX (so a snapshot from before a change to the credits still
+ *  entry that isn't is dropped: absent means 1), clamped (and rounded) by
+ *  clampWeight (so a snapshot from before a change to the credits still
  *  revives leaning, within today's bounds). None left, or not an object at
  *  all, is none, a plain shuffle. Returned as a prototype-less record, like
  *  lineupLean's. */
@@ -185,8 +185,9 @@ export function validLean(x: unknown): Record<string, number> | undefined {
   if (!x || typeof x !== "object" || Array.isArray(x)) return undefined;
   const kept: [string, number][] = [];
   for (const [feedId, w] of Object.entries(x as Record<string, unknown>)) {
-    if (typeof w !== "number" || !Number.isFinite(w) || w <= 0 || w === 1) continue;
-    kept.push([feedId, clampWeight(w)]);
+    if (typeof w !== "number" || !Number.isFinite(w) || w <= 0) continue;
+    const c = clampWeight(w);
+    if (c !== 1) kept.push([feedId, c]);
   }
   return kept.length ? leanRecord(kept) : undefined;
 }
