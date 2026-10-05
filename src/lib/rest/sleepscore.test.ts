@@ -417,6 +417,16 @@ describe("shuffleWeights (favor what puts me under)", () => {
     expect(w("bad")).toBeGreaterThanOrEqual(WEIGHT_FLOOR);
   });
 
+  it("clamps a weight to WEIGHT_FLOOR..WEIGHT_MAX, as validLean does", () => {
+    const f = scoreFeeds(Array.from({ length: MIN_NIGHTS }, () => onset("x")))[0];
+    const w = shuffleWeights([
+      { ...f, feedId: "hi", weight: WEIGHT_MAX + 3 },
+      { ...f, feedId: "lo", weight: 0 },
+    ]);
+    expect(w("hi")).toBe(WEIGHT_MAX);
+    expect(w("lo")).toBe(WEIGHT_FLOOR);
+  });
+
   it("gives no lean without enough nights, or to a feed never scored", () => {
     const w = shuffleWeights(scoreFeeds([onset("once")]));
     expect(w("once")).toBe(1);

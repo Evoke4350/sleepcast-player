@@ -156,14 +156,22 @@ function leanRecord(entries: Iterable<[string, number]>): Record<string, number>
  *  never ruled out); any other feed is 1, no lean
  *  without evidence either way. Unlike the suggestion, a net-negative feed
  *  counts here: leaning away is the other half of the point.
- *  Takes feeds already scored (scoreFeeds). Weights are rounded to
+ *  Takes feeds already scored (scoreFeeds); weights are clamped to
+ *  WEIGHT_FLOOR..WEIGHT_MAX (clampWeight), then rounded to
  *  hundredths: a difference below that changes no pick that matters, so it
  *  neither makes a night "leaned" nor shows as a weight. */
 export function shuffleWeights(scored: readonly FeedScore[]): FeedWeight {
   const w = new Map(
-    scored.filter((f) => f.nights >= MIN_NIGHTS).map((f) => [f.feedId, Math.round(f.weight * 100) / 100]),
+    scored.filter((f) => f.nights >= MIN_NIGHTS).map((f) => [f.feedId, Math.round(clampWeight(f.weight) * 100) / 100]),
   );
   return (feedId) => w.get(feedId) ?? 1;
+}
+
+/** A weight within WEIGHT_FLOOR..WEIGHT_MAX: the one clamp both a new
+ *  night's lean (shuffleWeights) and a revived one (validLean) go through,
+ *  so the two can't disagree if the credits change. */
+function clampWeight(w: number): number {
+  return Math.min(WEIGHT_MAX, Math.max(WEIGHT_FLOOR, w));
 }
 
 /** A stored lean (a revived snapshot's), if it is one, in lineupLean's
@@ -178,7 +186,7 @@ export function validLean(x: unknown): Record<string, number> | undefined {
   const kept: [string, number][] = [];
   for (const [feedId, w] of Object.entries(x as Record<string, unknown>)) {
     if (typeof w !== "number" || !Number.isFinite(w) || w <= 0 || w === 1) continue;
-    kept.push([feedId, Math.min(WEIGHT_MAX, Math.max(WEIGHT_FLOOR, w))]);
+    kept.push([feedId, clampWeight(w)]);
   }
   return kept.length ? leanRecord(kept) : undefined;
 }

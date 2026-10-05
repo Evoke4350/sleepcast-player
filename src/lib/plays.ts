@@ -98,8 +98,8 @@ export function aliveIn<E extends { id: string }>(pool: readonly E[], dead: Read
 
 /** One of `items`, uniformly, or in proportion to its feed's weight (read
  *  through asWeight). A feed is never ruled out because the weights it is
- *  given are clamped upstream to WEIGHT_FLOOR..WEIGHT_MAX (shuffleWeights,
- *  validLean). */
+ *  given are clamped upstream to WEIGHT_FLOOR..WEIGHT_MAX (clampWeight, via
+ *  shuffleWeights and validLean). */
 function weightedPick<E extends { feedId?: string }>(items: E[], rand: () => number, weightOf?: FeedWeight): E {
   // (pickNextEpisode never passes an empty list.)
   if (!weightOf) return items[Math.min(items.length - 1, Math.floor(rand() * items.length))];
