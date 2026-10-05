@@ -212,10 +212,10 @@ shows each feed's weight other than ×1 while the setting is on, for feeds
 that are on (setup builds no lineup from a switched-off or removed feed; a
 3am re-anchor carries the faded night's lineup, so a feed switched off since
 can still lean that night, unlisted). The leaned-vs-other comparison stays
-either way. A feed leans only after
-`MIN_NIGHTS` scored nights, by its `weight` read through `clampWeight`
-(within `WEIGHT_FLOOR`..`WEIGHT_MAX`, rounded to hundredths, so a weight
-that rounds to 1 is no lean); other feeds don't lean. Freshness still comes
+either way. A feed leans only after `MIN_NIGHTS` scored nights, by its
+`weight` read through `clampWeight` (within `WEIGHT_FLOOR`..`WEIGHT_MAX`,
+rounded to hundredths, so a weight that rounds to 1 is no lean); other feeds
+don't lean. Freshness still comes
 first: `pickNextEpisode` weights only among the episodes it would have picked
 from. The weight multiplies each episode's odds, not the feed's, so a feed's
 share of picks also scales with how many fresh episodes it has: ×1.75 on two

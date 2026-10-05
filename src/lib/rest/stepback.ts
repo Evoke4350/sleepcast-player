@@ -11,6 +11,7 @@
 // as a night that wasn't slept through. That is honest, and it means the
 // offer never fires off the back of afternoon listening.
 
+import { isSlept } from "./ledger";
 import type { RestNight } from "./types";
 
 const DAY = 86_400_000;
@@ -49,9 +50,7 @@ export function qualifiesForStepBack(nights: RestNight[]): boolean {
   const window = nights.slice(-STEPBACK_WINDOW);
   if (window.length < STEPBACK_MIN_NIGHTS) return false;
 
-  const slept = window.filter(
-    (n) => n.sleptAtMs !== null && n.timeToSleepMs !== null && n.selfLabel !== "awake",
-  );
+  const slept = window.filter(isSlept);
   if (slept.length / window.length < STEPBACK_SLEPT_RATIO) return false;
 
   const m = median(slept.map((n) => n.timeToSleepMs as number));

@@ -91,7 +91,7 @@ export function leanComparison(
 }
 
 /** A night that was slept: an onset, and not marked "awake" (see rollup). */
-function isSlept(n: RestNight): boolean {
+export function isSlept(n: RestNight): boolean {
   return n.sleptAtMs !== null && n.timeToSleepMs !== null && n.selfLabel !== "awake";
 }
 
@@ -104,8 +104,8 @@ function believableOnsets(slept: readonly RestNight[]): number[] {
 
 export function rollup(nights: RestNight[]): RestRollup {
   // A night the listener marked "awake" was a detector false positive: it was
-  // not slept, and its onset time is not a time-to-sleep. stepback.ts and
-  // scoreFeeds already discard these; the headline stats must agree.
+  // not slept, and its onset time is not a time-to-sleep. stepback.ts (through
+  // isSlept) and scoreFeeds discard these too; the headline stats must agree.
   const slept = nights.filter(isSlept);
   // Onsets below this are pre-fix artifacts. The detector used to anchor onset
   // at the first quiet tick, so a night nobody touched recorded ~0ms and the
