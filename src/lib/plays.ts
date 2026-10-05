@@ -90,6 +90,12 @@ export function pickNextEpisode<E extends { id: string; feedId?: string }>(
   return weightedPick(candidates, rand, weightOf);
 }
 
+/** The episodes that can still play: the one rule for a night's pickers
+ *  (nextPlayable, and the mixed-night lead). */
+export function aliveIn<E extends { id: string }>(pool: readonly E[], dead: ReadonlySet<string>): E[] {
+  return pool.filter((e) => !dead.has(e.id));
+}
+
 /** One of `items`, uniformly, or in proportion to its feed's weight (read
  *  through asWeight). A feed is never ruled out because the weights it is
  *  given are clamped upstream to WEIGHT_FLOOR..WEIGHT_MAX (shuffleWeights,

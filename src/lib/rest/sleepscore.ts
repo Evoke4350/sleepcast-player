@@ -139,8 +139,7 @@ export function lineupLean(
 ): Record<string, number> | undefined {
   const all = new Map<string, number>();
   for (const e of pool) if (!all.has(e.feedId)) all.set(e.feedId, asWeight(weightOf(e.feedId))); // once per feed, read as the shuffle reads it
-  const ws = [...all.values()];
-  if (!ws.some((w) => w !== ws[0])) return undefined;
+  if (new Set(all.values()).size < 2) return undefined; // one weight, or none
   return leanRecord([...all].filter(([, w]) => w !== 1));
 }
 

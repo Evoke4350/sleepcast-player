@@ -8,7 +8,7 @@
 
 import type { Episode } from "./engine";
 import type { Transport as BackendTransport } from "./media/backend";
-import { pickNextEpisode, type Play } from "./plays";
+import { aliveIn, pickNextEpisode, type Play } from "./plays";
 import type { FeedWeight } from "./rest/types";
 import { classifyYouTubeError } from "./youtube-errors";
 
@@ -82,12 +82,6 @@ export function shouldGiveUp({ state, hasEverPlayed, elapsedMs, limitMs }: GiveU
   if (state === YT_STATE.PLAYING || state === YT_STATE.PAUSED) return false;
   if (!hasEverPlayed && (state === YT_STATE.UNSTARTED || state === YT_STATE.CUED)) return false;
   return true;
-}
-
-/** The episodes that can still play: the one rule for a night's pickers
- *  (nextPlayable, and the mixed-night lead). */
-export function aliveIn(pool: readonly Episode[], dead: ReadonlySet<string>): Episode[] {
-  return pool.filter((e) => !dead.has(e.id));
 }
 
 /**
