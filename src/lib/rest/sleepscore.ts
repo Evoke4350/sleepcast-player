@@ -29,7 +29,9 @@ export const PENALTY_SKIP = -1;
 export const WEIGHT_FLOOR = 0.25;
 
 /** Below this many nights a feed is not ranked and not suggested — with one
- *  night's evidence the app would state a preference it does not have. */
+ *  night's evidence the app would state a preference it does not have —
+ *  and, for a listener who opted in, doesn't lean the shuffle either
+ *  (shuffleWeights). */
 export const MIN_NIGHTS = 3;
 
 // Matches the ported Python's curve exactly (sleepscore.py's WEIGHT_SLOPE).
@@ -234,11 +236,11 @@ export function medianTimeToSleep(
   return times.length % 2 ? times[mid] : Math.round((times[mid - 1] + times[mid]) / 2);
 }
 
-/** "1 night" / "3 nights" — singularises the unit the count names, not
- *  just the number, so a feed with one recorded night doesn't read as a
- *  typo ("1 nights"). */
-export function pluralNights(n: number): string {
-  return `${n} night${n === 1 ? "" : "s"}`;
+/** "1 night" / "3 nights" (or "1 timed night" with `kind`) — singularises
+ *  the unit the count names, not just the number, so a feed with one
+ *  recorded night doesn't read as a typo ("1 nights"). */
+export function pluralNights(n: number, kind?: string): string {
+  return `${n} ${kind ? `${kind} ` : ""}night${n === 1 ? "" : "s"}`;
 }
 
 /**

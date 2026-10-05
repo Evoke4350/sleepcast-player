@@ -203,7 +203,8 @@ The shuffle can now lean on the score, but only when the listener turns on
 "Favor what puts me under" in setup (`settings.favorWhatWorks`, off by
 default). That keeps this section's concerns: the listener chooses it
 knowingly, off is the plain shuffle to compare against, and the rest view
-shows each feed's weight. A feed leans only after
+shows each feed's weight while the setting is on (the leaned-vs-other
+comparison stays either way). A feed leans only after
 `MIN_NIGHTS` scored nights (by its `weight`, so never below
 `WEIGHT_FLOOR`); other feeds don't lean. Freshness still comes first:
 `pickNextEpisode` weights only among the episodes it would have picked from.
