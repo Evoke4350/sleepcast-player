@@ -36,8 +36,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useLazyRef } from "../lib/use-lazy-ref";
-import { loadNights } from "../lib/rest/ledger";
-import { shuffleWeights } from "../lib/rest/sleepscore";
+import { useNightShuffleWeights } from "../lib/use-night-shuffle";
 import { useStateRef } from "../lib/use-state-ref";
 import { useNightExtensions } from "../lib/use-night-extensions";
 import type { Episode, PlayMode } from "../lib/engine";
@@ -155,9 +154,7 @@ export function Night({
   wasVaried = false,
   favorWhatWorks = false,
 }: NightProps) {
-  // The night's shuffle lean, fixed at its start: what has put this listener
-  // under, when they opted in (shuffleWeights); else a plain shuffle.
-  const weightOfRef = useLazyRef(() => (favorWhatWorks ? shuffleWeights(loadNights()) : undefined));
+  const weightOfRef = useNightShuffleWeights(favorWhatWorks);
   const hostRef = useRef<HTMLDivElement | null>(null);
   // Both backends live for the whole night; `liveRef` is whichever one the
   // current episode picked, and every command goes through it. `offRef` holds
@@ -592,6 +589,7 @@ export function Night({
       interactions: restRef.current?.interactionCount,
       extensions: extensionsRef.current,
       wasVaried: wasVariedRef.current,
+      favorWhatWorks: weightOfRef.current !== undefined,
       remainingMs,
       totalSeconds: totalSecondsRef.current,
       // Where the episode is, not a raw reading: the backend may still be
@@ -864,7 +862,7 @@ export function Night({
     // time-to-sleep, timeline and snapshots count from the real start, not
     // from the tap on "keep going".
     const nightStart = revivedNightStart(resume?.nightStartedAt, Date.now());
-    restRef.current = new RestSession(nightStart, timerMinutes);
+    restRef.current = new RestSession(nightStart, timerMinutes, weightOfRef.current !== undefined);
     restRef.current.seedInteractions(resume?.interactions ?? 0);
     deadRef.current = new Set(loadBlocked());
     if (resume) {

@@ -182,6 +182,8 @@ export function AppPlayer() {
   function handleResume() {
     if (!live) return;
     applyNightSettings(resumeMode(live));
+    // The lean it began with, not the setting now (absent: a plain shuffle).
+    setFavorWhatWorks(live.favorWhatWorks === true);
     setResume(resumeFrom(live));
     setSession({
       pool: live.pool,

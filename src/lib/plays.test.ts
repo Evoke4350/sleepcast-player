@@ -176,6 +176,12 @@ describe("pickNextEpisode with feed weights (favor what puts me under)", () => {
     }
   });
 
+  it("never returns a zero-weight episode, even when rounding leaves a sliver", () => {
+    const eps = [feedEp("a", "good"), feedEp("b", "never")];
+    const w = (f: string) => (f === "good" ? 1 : 0);
+    expect(pickNextEpisode(eps, [], () => 0.9999999999999999, w)?.id).toBe("a");
+  });
+
   it("falls back to a plain pick when no weight is positive", () => {
     const eps = [feedEp("a", "x"), feedEp("b", "y")];
     expect(pickNextEpisode(eps, [], () => 0.6, () => 0)?.id).toBe("b");

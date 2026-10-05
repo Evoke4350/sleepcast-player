@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { loadNights, rollup, setSelfLabel } from "../lib/rest/ledger";
 import { recordFalsePositive } from "../lib/rest/calibrate";
-import { scoreFeeds, medianTimeToSleep, meetsSuggestionGate, shuffleWeights } from "../lib/rest/sleepscore";
+import { scoreFeeds, medianTimeToSleep, meetsSuggestionGate, leanFrom, MIN_NIGHTS } from "../lib/rest/sleepscore";
 import { fmtDuration, lastNight } from "../lib/rest/surface";
 import { getPlays, loadState } from "../lib/store";
 import { playsSince, playAtMoment } from "../lib/plays";
@@ -14,14 +14,15 @@ export function RestView({ onClose }: { onClose: () => void }) {
   // Only custom feeds can go missing from here — loadState always re-merges
   // every BUILTIN_FEEDS entry regardless of what's saved, and removeCustomFeed
   // no-ops on builtins. So a lookup miss below is always a removed custom feed.
-  const feedTitles = useMemo(() => {
+  // (And whether the shuffle leans: shown per feed while it's on, so the
+  // lean is as auditable as the ranking.)
+  const { feedTitles, favorWhatWorks } = useMemo(() => {
     const s = loadState();
-    return Object.fromEntries(s.feeds.map((f) => [f.id, f.title]));
+    return {
+      feedTitles: Object.fromEntries(s.feeds.map((f) => [f.id, f.title])) as Record<string, string>,
+      favorWhatWorks: s.settings.favorWhatWorks,
+    };
   }, []);
-  // When the listener has opted in, the shuffle leans by these same scores:
-  // shown per feed, so the lean is as auditable as the ranking.
-  const favorWhatWorks = useMemo(() => loadState().settings.favorWhatWorks, []);
-  const leanOf = useMemo(() => shuffleWeights(nights), [nights]);
 
   // scoreFeeds, not rankedFeeds: the panel shows everything including feeds
   // below the suggestion threshold. Its whole job is to be auditable, and
@@ -32,6 +33,7 @@ export function RestView({ onClose }: { onClose: () => void }) {
   const scored = useMemo(() => scoreFeeds(nights), [nights]);
   const counted = useMemo(() => scored.filter(meetsSuggestionGate), [scored]);
   const notYetCounted = useMemo(() => scored.filter((f) => !meetsSuggestionGate(f)), [scored]);
+  const leanOf = useMemo(() => leanFrom(scored), [scored]);
 
   // What actually played last night, from the play ledger. Entries only exist
   // once an episode ran past HEARD_SEC, so a track skipped in the first breath
@@ -144,7 +146,7 @@ export function RestView({ onClose }: { onClose: () => void }) {
           {notYetCounted.length > 0 && (
             <div className={counted.length > 0 ? "mt-4" : "mt-2"}>
               <p className="text-[10px] uppercase tracking-widest text-[#4a4540]">
-                not enough nights yet
+                not counted for the suggestion yet
               </p>
               <ul className="mt-2 space-y-1.5">{notYetCounted.map(feedRow)}</ul>
             </div>
@@ -154,7 +156,7 @@ export function RestView({ onClose }: { onClose: () => void }) {
             than three nights, that have never led, or that net negative
             aren't counted yet.
             {favorWhatWorks
-              ? " Favor what puts me under is on: feeds with three or more nights come up more or less often by their record."
+              ? ` Favor what puts me under is on: a feed with ${MIN_NIGHTS} or more nights, counted or not, comes up more or less often by its record.`
               : ""}
           </p>
         </section>

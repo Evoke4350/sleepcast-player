@@ -101,11 +101,15 @@ function weightedPick<E extends { feedId?: string }>(items: E[], rand: () => num
   const total = ws.reduce((a, b) => a + b, 0);
   if (!(total > 0)) return items[Math.floor(rand() * items.length)] ?? null;
   let r = rand() * total;
+  let lastPositive = 0;
   for (let i = 0; i < items.length; i++) {
+    if (ws[i] <= 0) continue;
+    lastPositive = i;
     r -= ws[i];
     if (r < 0) return items[i];
   }
-  return items[items.length - 1];
+  // Rounding left a sliver: the last item that can be picked at all.
+  return items[lastPositive];
 }
 
 /** Plays that began at or after a cutoff, oldest first — i.e. one night's worth. */

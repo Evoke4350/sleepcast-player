@@ -27,6 +27,9 @@ export interface RestNight {
   sleptThrough?: string[];
   /** Feeds you manually skipped or blocked during the night. */
   skipped?: string[];
+  /** "leaned": the night's shuffle leaned on the scores (favorWhatWorks).
+   *  Absent: a plain shuffle, the baseline to compare against. */
+  shuffle?: "leaned";
 }
 export interface RestRollup {
   nights: number;

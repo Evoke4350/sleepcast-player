@@ -44,6 +44,11 @@ describe("reconcileLive", () => {
     expect(loadLastNight()?.playedIds).toEqual(["a", "b"]);
   });
 
+  it("records whether a killed night's shuffle leaned", () => {
+    reconcileLive(snap({ favorWhatWorks: true }), T0 + 10 * 60 * 60_000);
+    expect(loadNights()[0].shuffle).toBe("leaned");
+  });
+
   it("keeps whether the night was a varied mix", () => {
     reconcileLive(snap({ wasVaried: true }), T0 + 10 * 60 * 60_000);
     expect(loadLastNight()?.wasVaried).toBe(true);

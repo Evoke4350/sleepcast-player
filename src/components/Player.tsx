@@ -1,7 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useLazyRef } from "../lib/use-lazy-ref";
-import { loadNights } from "../lib/rest/ledger";
-import { shuffleWeights } from "../lib/rest/sleepscore";
+import { useNightShuffleWeights } from "../lib/use-night-shuffle";
 import { useStateRef } from "../lib/use-state-ref";
 import { useNightExtensions } from "../lib/use-night-extensions";
 
@@ -107,9 +106,7 @@ const LOCK_RETRY_MS = 10_000;
 const LOCK_SYNC_EVENTS = ["play", "pause", "playing", "waiting", "seeked", "loadedmetadata", "durationchange", "ratechange", "loadstart"] as const;
 
 export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, skipIntroByFeedId, feedTitles, artworkByFeedId, onEnd, resume = null, leadEpisode = null, leadPosition = 0, quarterHourRule = false, wasVaried = false, favorWhatWorks = false }: PlayerProps) {
-  // The night's shuffle lean, fixed at its start: what has put this listener
-  // under, when they opted in (shuffleWeights); else a plain shuffle.
-  const weightOfRef = useLazyRef(() => (favorWhatWorks ? shuffleWeights(loadNights()) : undefined));
+  const weightOfRef = useNightShuffleWeights(favorWhatWorks);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const endTimeRef = useRef<number | null>(null);
@@ -662,6 +659,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       interactions: restRef.current?.interactionCount,
       extensions: extensionsRef.current,
       wasVaried: wasVariedRef.current,
+      favorWhatWorks: weightOfRef.current !== undefined,
       touches: restRef.current?.touchCount,
       ruleSpent: ruleSpentRef.current,
       remainingMs,
@@ -894,7 +892,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     // time-to-sleep, timeline and snapshots count from the real start, not
     // from the tap on "keep going".
     const nightStart = revivedNightStart(resume?.nightStartedAt, Date.now());
-    restRef.current = new RestSession(nightStart, timerMinutes);
+    restRef.current = new RestSession(nightStart, timerMinutes, weightOfRef.current !== undefined);
     restRef.current.seedInteractions(resume?.interactions ?? 0, resume?.touches);
     ruleSpentRef.current = resume?.ruleSpent === true; // at most once a night, reloads included
     nightStartedAtRef.current = nightStart; // the quarter-hour rule's clock too

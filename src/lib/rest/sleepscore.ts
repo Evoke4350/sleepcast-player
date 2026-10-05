@@ -125,9 +125,12 @@ export function meetsSuggestionGate(f: FeedScore): boolean {
  *  without evidence either way. Unlike the suggestion, a net-negative feed
  *  counts here: leaning away is the other half of the point. */
 export function shuffleWeights(nights: readonly RestNight[]): (feedId: string) => number {
-  const w = new Map(
-    scoreFeeds(nights).filter((f) => f.nights >= MIN_NIGHTS).map((f) => [f.feedId, f.weight]),
-  );
+  return leanFrom(scoreFeeds(nights));
+}
+
+/** shuffleWeights from feeds already scored. */
+export function leanFrom(scored: readonly FeedScore[]): (feedId: string) => number {
+  const w = new Map(scored.filter((f) => f.nights >= MIN_NIGHTS).map((f) => [f.feedId, f.weight]));
   return (feedId) => w.get(feedId) ?? 1;
 }
 
