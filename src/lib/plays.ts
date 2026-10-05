@@ -54,7 +54,9 @@ export function migrateLegacyHistory(ids: string[]): Play[] {
 
 /**
  * Choose the next episode: unheard first, and when unheard material runs low,
- * the *oldest*-heard episodes come back before newer ones.
+ * the *oldest*-heard episodes come back before newer ones. Among those, a
+ * uniform pick, or, given `weightOf` (the opt-in "favor what puts me under"
+ * lean, rest/sleepscore), one in proportion to each episode's feed weight.
  *
  * The old pickRandomEpisode fell back to the entire pool the moment its filter
  * emptied, which made the episode heard ten minutes ago exactly as likely as
@@ -93,11 +95,18 @@ export type FeedWeight = (feedId: string) => number;
  *  weight that isn't a positive number counts as none; if none is, uniform. */
 function weightedPick<E extends { feedId?: string }>(items: E[], rand: () => number, weightOf?: FeedWeight): E | null {
   if (!items.length) return null;
-  if (!weightOf) return items[Math.floor(rand() * items.length)] ?? null;
-  const ws = items.map((e) => {
-    const w = weightOf(e.feedId ?? "");
-    return Number.isFinite(w) && w > 0 ? w : 0;
-  });
+  // One path: no lean is every feed at 1. Each feed's weight is asked once.
+  const perFeed = new Map<string, number>();
+  const weightFor = (feedId: string) => {
+    let w = perFeed.get(feedId);
+    if (w === undefined) {
+      const raw = weightOf ? weightOf(feedId) : 1;
+      w = Number.isFinite(raw) && raw > 0 ? raw : 0;
+      perFeed.set(feedId, w);
+    }
+    return w;
+  };
+  const ws = items.map((e) => weightFor(e.feedId ?? ""));
   const total = ws.reduce((a, b) => a + b, 0);
   if (!(total > 0)) return items[Math.floor(rand() * items.length)] ?? null;
   let r = rand() * total;

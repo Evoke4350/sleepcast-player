@@ -34,6 +34,8 @@ export const MIN_NIGHTS = 3;
 
 // Matches the ported Python's curve exactly (sleepscore.py's WEIGHT_SLOPE).
 const WEIGHT_SLOPE = 0.25;
+/** The most a feed can weigh: per-night credit is at most +3. */
+export const WEIGHT_MAX = 1 + WEIGHT_SLOPE * 3;
 
 export interface FeedScore {
   feedId: string;
@@ -153,15 +155,19 @@ export function leanFrom(scored: readonly FeedScore[]): (feedId: string) => numb
   return (feedId) => w.get(feedId) ?? 1;
 }
 
-/** A stored lean, if it is one: an object of positive finite weights with at
- *  least one entry; anything else (null, a number, a malformed snapshot) is
- *  none, a plain shuffle. Every reader of a stored lean goes through this,
- *  so the players and reconcile agree on what a night was. */
+/** A stored lean, if it is one, in lineupLean's shape: at least one entry,
+ *  every weight a number in WEIGHT_FLOOR..WEIGHT_MAX other than 1 (absent
+ *  means 1). Anything else (null, a number, all-1 or out-of-range weights,
+ *  a malformed snapshot) is none, a plain shuffle. Every reader of a stored
+ *  lean goes through this, so the players and reconcile agree on what a
+ *  night was. */
 export function validLean(x: unknown): Record<string, number> | undefined {
   if (!x || typeof x !== "object" || Array.isArray(x)) return undefined;
   const entries = Object.entries(x as Record<string, unknown>);
   if (!entries.length) return undefined;
-  for (const [, w] of entries) if (typeof w !== "number" || !Number.isFinite(w) || w <= 0) return undefined;
+  for (const [, w] of entries) {
+    if (typeof w !== "number" || !(w >= WEIGHT_FLOOR && w <= WEIGHT_MAX) || w === 1) return undefined;
+  }
   return x as Record<string, number>;
 }
 

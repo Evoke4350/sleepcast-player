@@ -12,6 +12,9 @@ export function useNightShuffle(
 ): { lean: Record<string, number> | undefined; weightOf: FeedWeight | undefined; leaned: boolean } {
   return useLazyRef(() => {
     const lean = nightLean(favorWhatWorks, pool, resume, loadNights);
-    return { lean, weightOf: lean ? (feedId: string) => lean[feedId] ?? 1 : undefined, leaned: lean !== undefined };
+    // A Map, not the object: a feed id like "constructor" mustn't find an
+    // inherited property.
+    const byFeed = lean ? new Map(Object.entries(lean)) : undefined;
+    return { lean, weightOf: byFeed ? (feedId: string) => byFeed.get(feedId) ?? 1 : undefined, leaned: lean !== undefined };
   }).current;
 }

@@ -16,7 +16,7 @@ Copied from the spec (`docs/superpowers/specs/2026-08-05-what-puts-you-under-des
 - **`WEIGHT_FLOOR = 0.25`** — never zero a feed out, or the scorer eliminates its own exploration and converges on whatever it tried first.
 - **`MIN_NIGHTS = 3`** — a feed below this is not ranked and not suggested.
 - **Feed-level only.** No episode-level scoring.
-- **The shuffle is untouched.** `pickNextEpisode` must not change; nothing multiplies by `weight`.
+- **The shuffle is untouched.** `pickNextEpisode` must not change; nothing multiplies by `weight`. (Revisited 2026-10-04: an opt-in lean, "Favor what puts me under"; see the spec's §8 addendum.)
 - **The pick never appears without its evidence**, and always with a one-tap refusal.
 - **No server, no accounts, no network.** Everything is `localStorage`, same as the rest of the app.
 - New `RestNight` fields are **optional** — 90 stored nights lack them and `loadNights()` must keep parsing those.

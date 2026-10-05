@@ -441,7 +441,7 @@ describe("nightLean", () => {
   const never = () => { throw new Error("the ledger shouldn't be read"); };
 
   it("a revived night keeps its snapshot's lean, whatever the setting", () => {
-    expect(nightLean(false, pool, { shuffleLean: { good: 1.5, other: 1 } }, never)).toEqual({ good: 1.5, other: 1 });
+    expect(nightLean(false, pool, { shuffleLean: { good: 1.5 } }, never)).toEqual({ good: 1.5 });
   });
   it("a revived night without one (or with a malformed one) stays plain, even with the setting on", () => {
     expect(nightLean(true, pool, {}, never)).toBeUndefined();
@@ -456,14 +456,20 @@ describe("nightLean", () => {
 });
 
 describe("validLean and rounding", () => {
-  it("accepts only objects of positive finite weights", () => {
+  it("accepts only lineupLean's shape: weights in range and not 1", () => {
     expect(validLean({ a: 1.25 })).toEqual({ a: 1.25 });
     expect(validLean(undefined)).toBeUndefined();
+    expect(validLean({ a: 1 })).toBeUndefined(); // nothing leans
+    expect(validLean({ a: 1e6 })).toBeUndefined(); // out of range
   });
   it("rounds weights to hundredths", () => {
-    // One skip in 60 nights: weight 1 - 0.25/60 = 0.9958, shown and used as 1.
-    const nights = [night({ skipped: ["f"] }), ...Array.from({ length: 59 }, () => night({ sleptThrough: ["x"] }))];
-    const w = shuffleWeights([...nights, ...Array.from({ length: 59 }, () => night({ sleptThrough: [] }))]);
-    expect(Math.round(w("f") * 100) / 100).toBe(w("f"));
+    // f: skipped once, slept through twice, over 3 nights: mean credit 1/3,
+    // weight 1 + 0.25/3 = 1.0833, used and shown as 1.08.
+    const three = [
+      night({ skipped: ["f"] }),
+      night({ onsetFeedId: "g", sleptThrough: ["f"] }),
+      night({ onsetFeedId: "g", sleptThrough: ["f"] }),
+    ];
+    expect(shuffleWeights(three)("f")).toBe(1.08);
   });
 });
