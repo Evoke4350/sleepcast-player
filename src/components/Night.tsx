@@ -964,11 +964,11 @@ export function Night({
         //
         // Everything else goes through preferVideoLead, including a supplied
         // one. A lead can arrive from the 3am re-anchor, which picks the first
-        // unplayed episode in array order and knows nothing about kinds — take
-        // it as given and the night opens on a podcast, the waking gesture is
-        // spent on something that never needed it, and the first video switch
-        // lands mid-sleep at "awaiting-start" with the autoplay exemption no
-        // longer covering it.
+        // unplayed, unblocked episode in array order and knows nothing about
+        // kinds — take it as given and the night opens on a podcast, the
+        // waking gesture is spent on something that never needed it, and the
+        // first video switch lands mid-sleep at "awaiting-start" with the
+        // autoplay exemption no longer covering it.
         const first =
           resume?.episode ??
           preferVideoLead(leadEpisode, pool, deadRef.current, getPlays(), Math.random, shuffle.weightOf);
@@ -977,9 +977,9 @@ export function Night({
       .catch(() => {
         // No IFrame API — offline, blocked, or Google is down. Run the night
         // podcast-only rather than losing it entirely: every video is
-        // unplayable, so mark them dead and let nextPlayable route around
-        // them. If the lineup was all video there is nothing left, and
-        // beginNight says so.
+        // unplayable, so mark them dead: preferVideoLead then opens on a
+        // podcast, and nextPlayable routes around them after. If the lineup
+        // was all video there is nothing left, and beginNight says so.
         if (cancelled) return;
         for (const e of pool) if (e.youtubeId) deadRef.current.add(e.id);
         // Out of the lineup too: listed, they looked playable, and a tap

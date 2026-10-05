@@ -70,7 +70,7 @@ export function RestView({ onClose }: { onClose: () => void }) {
               a removed custom feed's id ("custom-1699999999-ab3f2")
               is not, so a title-less feed gets a plain label instead
               of leaking that internal id into the UI. */}
-          {feedTitles[f.feedId] ?? "a feed you removed"}
+          {feedTitles[f.feedId] ?? "a show you removed"}
         </span>
         <span className="shrink-0 text-xs text-[#8a7a5c]">
           {orDash(median, fmtOnsetMinutes)}
