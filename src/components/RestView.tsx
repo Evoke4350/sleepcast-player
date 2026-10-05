@@ -168,7 +168,7 @@ export function RestView({ onClose }: { onClose: () => void }) {
       )}
       {/* Outside the scored section: leaned nights stay comparable even when
           no feed has scored nights (all marked awake, say). */}
-      {compared && (
+      {compared && (compared.leaned.nights > 0 || compared.plain.nights > 0) && (
         <p className="text-[11px] leading-snug text-[#8a7a5c]">
           {`Typical time to sleep: ${fmtMedian(compared.leaned.medianMs)} on nights the shuffle leaned (${compared.leaned.nights}), ${fmtMedian(compared.plain.medianMs)} on other nights (${compared.plain.nights}).`}
         </p>

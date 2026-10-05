@@ -129,7 +129,7 @@ export function lineupLean(
   pool: readonly { feedId: string }[],
 ): Record<string, number> | undefined {
   const all = new Map<string, number>();
-  for (const e of pool) all.set(e.feedId, weightOf(e.feedId));
+  for (const e of pool) if (!all.has(e.feedId)) all.set(e.feedId, weightOf(e.feedId)); // once per feed
   const ws = [...all.values()];
   if (!ws.some((w) => w !== ws[0])) return undefined;
   return leanRecord([...all].filter(([, w]) => w !== 1));

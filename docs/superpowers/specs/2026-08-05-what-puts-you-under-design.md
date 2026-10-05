@@ -210,7 +210,8 @@ shows each feed's weight. A feed leans only after
 A night whose lineup's feeds all weigh the same doesn't lean (the shuffle
 normalises), and is recorded as plain. The night's lean is fixed at its start
 and carried in its snapshot, so a revive keeps it; a RestNight records
-`shuffle: "leaned"` once a pick that night was actually shaped by the lean
+`shuffle: "leaned"` once a pick that night, before sleep was inferred, was
+actually shaped by the lean
 (its candidates weighed differently; a chosen lead or a pick among equal
 weights is plain), and the rest view compares typical time
 to sleep on leaned nights against plain ones once there are leaned nights.
