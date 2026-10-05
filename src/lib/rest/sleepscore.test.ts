@@ -444,11 +444,8 @@ describe("nightLean", () => {
   it("a revived night keeps its snapshot's lean, whatever the setting", () => {
     expect(nightLean(false, pool, { shuffleLean: { good: 1.5 } }, never)).toEqual({ good: 1.5 });
   });
-  it("a revived lean is read by own keys only", () => {
-    expect(nightLean(true, [{ feedId: "constructor" }, { feedId: "good" }], { shuffleLean: { good: 1.5 } }, never)).toEqual({ good: 1.5 });
-  });
-  it("a revived lineup cut down to feeds the lean doesn't tell apart is plain", () => {
-    expect(nightLean(true, [{ feedId: "good" }], { shuffleLean: { good: 1.5, other: 0.75 } }, never)).toBeUndefined();
+  it("a revived night keeps its lean even when its cut-down lineup has one feed (the same night, recorded as it began)", () => {
+    expect(nightLean(true, [{ feedId: "good" }], { shuffleLean: { good: 1.5, other: 0.75 } }, never)).toEqual({ good: 1.5, other: 0.75 });
   });
   it("a revived night without one (or with a malformed one) stays plain, even with the setting on", () => {
     expect(nightLean(true, pool, {}, never)).toBeUndefined();

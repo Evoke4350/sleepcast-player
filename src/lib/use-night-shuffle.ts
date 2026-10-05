@@ -9,13 +9,13 @@ export function useNightShuffle(
   favorWhatWorks: boolean,
   pool: readonly { feedId: string }[],
   resume: { shuffleLean?: unknown } | null | undefined,
-): { lean: Record<string, number> | undefined; weightOf: FeedWeight | undefined } {
+): { lean: Record<string, number> | undefined; weightOf: FeedWeight | undefined; leaned: boolean } {
   return useLazyRef(() => {
     const lean = nightLean(favorWhatWorks, pool, resume, loadNights);
     // (lean has no prototype: a plain lookup can't hit an inherited key.)
     const weightOf: FeedWeight | undefined = lean
       ? (feedId: string) => lean[feedId] ?? 1
       : undefined;
-    return { lean, weightOf };
+    return { lean, weightOf, leaned: lean !== undefined };
   }).current;
 }

@@ -96,12 +96,13 @@ export type FeedWeight = (feedId: string) => number;
  *  feed is never ruled out, whatever its weight function says. */
 function weightedPick<E extends { feedId?: string }>(items: E[], rand: () => number, weightOf?: FeedWeight): E | null {
   if (!items.length) return null;
-  // One path: no lean is every feed at 1. Each feed's weight is asked once.
+  if (!weightOf) return items[Math.floor(rand() * items.length)] ?? items[items.length - 1];
+  // Each feed's weight is asked once.
   const perFeed = new Map<string, number>();
   const weightFor = (feedId: string) => {
     let w = perFeed.get(feedId);
     if (w === undefined) {
-      const raw = weightOf ? weightOf(feedId) : 1;
+      const raw = weightOf(feedId);
       w = Number.isFinite(raw) && raw > 0 ? raw : 1;
       perFeed.set(feedId, w);
     }

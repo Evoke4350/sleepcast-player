@@ -179,9 +179,8 @@ export function validLean(x: unknown): Record<string, number> | undefined {
 }
 
 /** The night's lean, fixed at its start. A revived night keeps the one it
- *  was snapshotted with (validLean; none if none), whatever the setting or
- *  scores are by then, over its revived lineup (lineupLean: none if that
- *  lineup's feeds weigh the same). A new night leans by the scores when the
+ *  was snapshotted with (validLean; none if none), whatever the setting,
+ *  scores or revived lineup are by then. A new night leans by the scores when the
  *  listener opted in and they tell its lineup's feeds apart; else none, a
  *  plain shuffle. `nights` is read only when needed. */
 export function nightLean(
@@ -190,13 +189,11 @@ export function nightLean(
   resume: { shuffleLean?: unknown } | null | undefined,
   nights: () => readonly RestNight[],
 ): Record<string, number> | undefined {
-  if (resume) {
-    // Over the revived lineup (the snapshot's pool is cut down), so a lean
-    // its feeds no longer tell apart is a plain night, recorded as one.
-    const stored = validLean(resume.shuffleLean);
-    if (!stored) return undefined;
-    return lineupLean((feedId) => stored[feedId] ?? 1, pool);
-  }
+  // A revived night is the same night: it keeps its lean as it began, so
+  // it's recorded as it was (leaned by what was in effect), even when the
+  // snapshot's cut-down pool leaves feeds that weigh the same (those picks
+  // are then plain, which the weights already give).
+  if (resume) return validLean(resume.shuffleLean);
   return favorWhatWorks ? lineupLean(shuffleWeights(scoreFeeds(nights())), pool) : undefined;
 }
 

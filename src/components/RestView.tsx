@@ -190,7 +190,7 @@ function leanLabel(weight: number): string {
 
 /** "1 timed night" / "3 timed nights": the nights a median rests on. */
 function timedNights(n: number): string {
-  return pluralNights(n).replace(" night", " timed night");
+  return `${n} timed night${n === 1 ? "" : "s"}`;
 }
 
 /** A median for the comparison line, formatted like the headline stats

@@ -192,6 +192,4 @@ describe("pickNextEpisode with feed weights (favor what puts me under)", () => {
     expect(pickNextEpisode(eps, [], () => 0.4, w)?.id).toBe("a");
     expect(pickNextEpisode(eps, [], () => 0.4, (f) => (f === "bad" ? NaN : 1))?.id).toBe("a");
   });
-
-
 });

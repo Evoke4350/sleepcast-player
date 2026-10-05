@@ -862,7 +862,7 @@ export function Night({
     // time-to-sleep, timeline and snapshots count from the real start, not
     // from the tap on "keep going".
     const nightStart = revivedNightStart(resume?.nightStartedAt, Date.now());
-    restRef.current = new RestSession(nightStart, timerMinutes, shuffle.lean !== undefined);
+    restRef.current = new RestSession(nightStart, timerMinutes, shuffle.leaned);
     restRef.current.seedInteractions(resume?.interactions ?? 0);
     deadRef.current = new Set(loadBlocked());
     if (resume) {
