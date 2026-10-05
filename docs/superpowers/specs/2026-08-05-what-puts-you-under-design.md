@@ -211,16 +211,20 @@ knowingly, off is the plain shuffle to compare against, and the rest view
 shows each feed's weight other than ×1 while the setting is on, for feeds
 that are on (a switched-off or removed feed is in no lineup). The
 leaned-vs-other comparison stays either way. A feed leans only after
-`MIN_NIGHTS` scored nights (by its `weight`, so never below
-`WEIGHT_FLOOR`); other feeds don't lean. Freshness still comes first:
-`pickNextEpisode` weights only among the episodes it would have picked from.
+`MIN_NIGHTS` scored nights, by its `weight` read through `clampWeight`
+(within `WEIGHT_FLOOR`..`WEIGHT_MAX`, rounded to hundredths, so a weight
+that rounds to 1 is no lean); other feeds don't lean. Freshness still comes
+first: `pickNextEpisode` weights only among the episodes it would have picked
+from. The weight multiplies each episode's odds, not the feed's, so a feed's
+share of picks also scales with how many fresh episodes it has: ×1.75 on two
+fresh episodes can still come up less than ×0.75 on fifty. The lean tilts the
+draw; it doesn't set each feed's share.
 A night whose lineup's feeds all weigh the same doesn't lean (the shuffle
 normalises), and is recorded as plain; the lineup is the episodes not blocked
 at the night's start, so a feed with every episode blocked doesn't count. The
 night's lean is fixed at its start and carried in its snapshot, so a revive
-keeps it. A RestNight records
-`shuffle: "leaned"` when the night had a lean in effect, whatever happened
-during it. That is deliberately by what was in effect, not by whether a pick
+keeps it. A RestNight records `shuffle: "leaned"` when the night had a lean
+in effect, whatever happened during it. That is deliberately by what was in effect, not by whether a pick
 the lean shaped came before sleep: that would be decided by the night itself
 (a restless night reaches more picks), so the slow nights would land on the
 leaned side. The rest view compares typical time to sleep on nights the shuffle
