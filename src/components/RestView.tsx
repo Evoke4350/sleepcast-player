@@ -164,7 +164,7 @@ export function RestView({ onClose }: { onClose: () => void }) {
           <p className="mt-2 text-[11px] leading-snug text-[#4a4540]">
             {`Ranked by what was playing when you went under. Shows with fewer than ${MIN_NIGHTS} nights, that have never led, or that net negative aren't counted yet.`}
             {favorWhatWorks
-              ? ` Favor what puts me under is on: a feed with ${MIN_NIGHTS} or more nights, counted or not, weighs by its record against the other shows in a night's lineup; a show with fewer nights weighs ×1, and shows that weigh the same lean nothing between them. A weight applies to each fresh episode, so a show with more of them still comes up more. Weights are listed for shows that are switched on.`
+              ? ` "Favor what puts me under" is on: a show with ${MIN_NIGHTS} or more nights, counted or not, weighs by its record against the other shows in a night's lineup; a show with fewer nights weighs ×1, and shows that weigh the same lean nothing between them. A weight applies to each fresh episode, so a show with more of them still comes up more. Weights are listed for shows that are switched on.`
               : ""}
           </p>
         </section>

@@ -219,18 +219,19 @@ from. The weight multiplies each episode's odds, not the feed's, so a feed's
 share of picks also scales with how many fresh episodes it has: ×1.75 on two
 fresh episodes can still come up less than ×0.75 on fifty. The lean tilts the
 draw; it doesn't set each feed's share.
+
 A night whose lineup's feeds all weigh the same doesn't lean (the shuffle
 normalises), and is recorded as plain; the lineup is the episodes not blocked
 at the night's start, so a feed with every episode blocked doesn't count. The
 night's lean is fixed at its start and carried in its snapshot, so a revive
 keeps it. A RestNight records `shuffle: "leaned"` when the night had a lean
-in effect, whatever happened during it. That is deliberately by what was in effect, not by whether a pick
-the lean shaped came before sleep: that would be decided by the night itself
-(a restless night reaches more picks), so the slow nights would land on the
-leaned side. The rest view compares typical time to sleep on nights the shuffle
-leaned against plain-shuffle nights, once a night the shuffle leaned exists
-(the setting on and the lineup's weights differing) and either side has a
-timed night.
+in effect, whatever happened during it. That is deliberately by what was in
+effect, not by whether a pick the lean shaped came before sleep: that would be
+decided by the night itself (a restless night reaches more picks), so the slow
+nights would land on the leaned side. The rest view compares typical time to
+sleep on nights the shuffle leaned against plain-shuffle nights, once a night
+the shuffle leaned exists (the setting on and the lineup's weights differing)
+and either side has a timed night.
 
 The lean feeds back into its own evidence. A feed leaned away from plays less
 often, so it reaches fewer nights where it is still on after onset (the +1
@@ -269,6 +270,20 @@ Everything above is pure functions over arrays, which is the point.
 
 The suggestion component gets a test that it renders the evidence line
 alongside the pick, since the guarantee is that the pick never appears alone.
+
+The opt-in lean (§8 addendum) is pinned by tests too:
+
+- **Bounds** — `shuffleWeights` and `validLean` clamp to
+  `WEIGHT_FLOOR`..`WEIGHT_MAX` and round to hundredths; a weight that rounds
+  to 1 is no lean.
+- **Plain when equal** — a lineup whose feeds weigh the same, or that is off,
+  gets no lean and is recorded plain.
+- **Start of night** — a new night leans over the episodes not blocked at its
+  start; a revived night keeps its snapshot's lean.
+- **Freshness first** — a heard episode stays out while fresh ones remain,
+  however heavy its feed.
+- **Labels** — a night with a lean is recorded `shuffle: "leaned"`, at its end
+  and when reconciled from a dead tab alike.
 
 ## 11. Open questions
 

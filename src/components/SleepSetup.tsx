@@ -106,12 +106,10 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
   const timerMinutes = appState.settings.timerMinutes;
   const quarterHourRule = appState.settings.quarterHourRule;
 
-  function toggleQuarterHourRule(on: boolean) {
-    updateAndSave({ ...appState, settings: { ...appState.settings, quarterHourRule: on } });
-  }
   const favorWhatWorks = appState.settings.favorWhatWorks;
-  function toggleFavorWhatWorks(on: boolean) {
-    updateAndSave({ ...appState, settings: { ...appState.settings, favorWhatWorks: on } });
+  /** An on/off setting, saved. */
+  function setFlag(key: "quarterHourRule" | "favorWhatWorks", on: boolean) {
+    updateAndSave({ ...appState, settings: { ...appState.settings, [key]: on } });
   }
   const enabledFeeds = appState.feeds.filter((f) => f.enabled);
 
@@ -1199,7 +1197,7 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
             <input
               type="checkbox"
               checked={favorWhatWorks}
-              onChange={(e) => toggleFavorWhatWorks(e.target.checked)}
+              onChange={(e) => setFlag("favorWhatWorks", e.target.checked)}
               className="mt-0.5 h-4 w-4 accent-[#6e5d44]"
             />
             <span className="text-xs text-[#6e5d44]">
@@ -1219,7 +1217,7 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
             <input
               type="checkbox"
               checked={quarterHourRule}
-              onChange={(e) => toggleQuarterHourRule(e.target.checked)}
+              onChange={(e) => setFlag("quarterHourRule", e.target.checked)}
               className="mt-0.5 h-4 w-4 accent-[#6e5d44]"
             />
             <span className="text-xs text-[#6e5d44]">
