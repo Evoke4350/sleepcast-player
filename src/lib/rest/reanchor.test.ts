@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { reanchorNext, nextInSpread, REANCHOR_WINDOW_MS, type ReanchorInput } from "./reanchor";
-
-const shouldReanchor = (input: ReanchorInput) => reanchorNext(input) !== null;
 import type { LastNight } from "../store";
 import type { Episode } from "../engine";
+
+const shouldReanchor = (input: ReanchorInput) => reanchorNext(input) !== null;
 
 function ep(id: string): Episode {
   return { id, title: id, url: `https://x/${id}`, feedId: "f" } as Episode;

@@ -98,7 +98,8 @@ export function AppPlayer() {
   const [reanchor, setReanchor] = useState<{ lastNight: LastNight; next: Episode } | null>(null);
 
   // The 3am catch: on mount and whenever the tab comes back to the foreground,
-  // ask the pure gate whether the user reopened in the dark soon after a night
+  // ask the gate (pure but for the blocked list, read through loadBlocked
+  // only when needed) whether the user reopened in the dark soon after a night
   // that faded, with something left in the spread. getHours() is read in memory
   // only — never shown, never sent.
   useEffect(() => {
@@ -120,7 +121,8 @@ export function AppPlayer() {
       const next = isQuiet(loadQuietUntil(), Date.now())
         ? null
         : reanchorNext({ lastNight, now: Date.now(), localHour: new Date().getHours(), blocked: loadBlocked });
-      setReanchor(next && lastNight ? { lastNight, next } : null);
+      // (reanchorNext only finds an episode when there is a last night.)
+      setReanchor(next ? { lastNight: lastNight!, next } : null);
     };
     check();
     const onVis = () => { if (!document.hidden) check(); };
