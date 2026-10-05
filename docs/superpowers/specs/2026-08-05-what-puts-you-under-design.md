@@ -93,6 +93,12 @@ export interface RestNight {
 }
 ```
 
+Added with the opt-in lean (2026-10-04, see the §8 addendum): `RestNight`
+also gains `shuffle?: "leaned"` (present when the night had a lean in effect),
+and the live snapshot (`LiveSession`) gains `shuffleLean?: Record<string,
+number>` (the night's weights, for a revive and for reconcile). Both optional,
+for the same reason.
+
 `RestSession` gains a timeline and a skip set, and resolves them in `finish()`:
 
 ```ts
