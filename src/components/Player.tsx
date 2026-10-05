@@ -91,7 +91,9 @@ export interface PlayerProps {
   /** Opt-in stimulus control (rest/quarterhour.ts). Off unless asked for. */
   quarterHourRule?: boolean;
   wasVaried?: boolean;
-  /** Opt-in: the shuffle leans by feed (rest/sleepscore shuffleWeights). */
+  /** Opt-in: the shuffle leans by feed (rest/sleepscore shuffleWeights).
+   *  Read once, at the night's start (useNightShuffle); a later change does
+   *  nothing to this night. */
   favorWhatWorks?: boolean;
 }
 
