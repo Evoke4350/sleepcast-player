@@ -22,23 +22,12 @@ export class RestSession {
   private timeline: { t: number; feedId: string; episodeId: string }[] = [];
   private skipped = new Set<string>();
 
-  /** When (ms since the night began) the first pick the lean shaped was
-   *  made, or null. */
-  private leanedAt: number | null = null;
-
-  /** `revived.shuffleLeanedAt`: the first lean-shaped pick before the
-   *  reload, kept so the revived night's record still sees it, while the
-   *  night keeps its start (`revived.nightStartedAt`): measured from a
-   *  start revivedNightStart replaced (a clock stepped back), it would be
-   *  compared on the wrong clock, so it's dropped. */
-  constructor(
-    readonly startedAt: number,
-    readonly timerMinutes: number,
-    revived?: { shuffleLeanedAt?: unknown; nightStartedAt?: number } | null,
-  ) {
-    const at = revived?.shuffleLeanedAt;
-    const sameClock = revived?.nightStartedAt === startedAt;
-    this.leanedAt = sameClock && typeof at === "number" && Number.isFinite(at) && at >= 0 ? at : null;
+  /** `shuffleLeaned`: the night's shuffle leaned on the scores (the
+   *  opt-in lean was in effect for it), recorded on its RestNight. By what
+   *  was in effect, not by whether a pick it shaped came before sleep: the
+   *  latter is decided by the night itself (a restless night reaches more
+   *  picks), which would bias the leaned-vs-other comparison. */
+  constructor(readonly startedAt: number, readonly timerMinutes: number, readonly shuffleLeaned = false) {
     const params = currentParams(loadParams(), loadNights());
     this.detector = new SleepDetector(params);
   }
@@ -92,21 +81,6 @@ export class RestSession {
     this.touches += count(touches);
   }
 
-  /** A pick the opt-in lean actually shaped (FeedWeight.onLeanedPick). The
-   *  first one's time is kept; the night is recorded as leaned when it came
-   *  before the inferred onset (wasLeaned): a pick after it (an auto-advance
-   *  while asleep) had no part in getting there. The detector only reports
-   *  an onset at the fade, after the fact, so this is a time compared in
-   *  finish(), not a flag set now. */
-  noteShuffleLeaned(now: number = Date.now()): void {
-    if (this.leanedAt === null) this.leanedAt = Math.max(0, now - this.startedAt);
-  }
-
-  /** The first lean-shaped pick's time, for the snapshot. */
-  get shuffleLeanedAt(): number | null {
-    return this.leanedAt;
-  }
-
   /** Called whenever an episode starts playing. */
   noteEpisode(feedId: string, episodeId: string, now: number = Date.now()): void {
     this.timeline.push({ t: now - this.startedAt, feedId, episodeId });
@@ -149,7 +123,7 @@ export class RestSession {
       timeToSleepMs: atMs,
       interactions: this.interactions,
       detector: this.onset ? "inference" : "none",
-      ...(wasLeaned(this.leanedAt, atMs) ? { shuffle: "leaned" as const } : {}),
+      ...(this.shuffleLeaned ? { shuffle: "leaned" as const } : {}),
       // Spread rather than assign: an absent field and an empty array must not
       // become two shapes in a ledger that already holds 90 nights without them.
       // at.t is when the credited feed itself started, so atMs - at.t is how
@@ -168,12 +142,4 @@ export class RestSession {
  *  start when it has a believable one, else now. */
 export function revivedNightStart(savedStart: number | undefined, now: number): number {
   return savedStart !== undefined && Number.isFinite(savedStart) && savedStart <= now ? savedStart : now;
-}
-
-/** Whether a night counts as leaned: its first lean-shaped pick (ms since
- *  the night began) came at or before sleep was inferred, or, with no onset
- *  (no time to sleep to credit), at all. Shared by finish() and reconcile. */
-export function wasLeaned(leanedAt: number | null | undefined, onsetAtMs: number | null): boolean {
-  if (typeof leanedAt !== "number" || !Number.isFinite(leanedAt) || leanedAt < 0) return false;
-  return onsetAtMs === null || leanedAt <= onsetAtMs;
 }

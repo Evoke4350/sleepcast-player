@@ -113,12 +113,10 @@ describe("the lead picks forward the night's lean", () => {
   });
 });
 
-describe("preferVideoLead and the lean's record", () => {
-  it("keeps a podcast lead without picking when no video is alive, so no pick counts as leaned", () => {
-    const heard: string[] = [];
-    const w = Object.assign((f: string) => (f === "swm" ? 1.5 : 1), { onLeanedPick: () => heard.push("leaned") });
+describe("preferVideoLead with no video alive", () => {
+  it("keeps a podcast lead without picking", () => {
     const pods = [pod("p1"), { ...pod("p2"), feedId: "other" }];
-    expect(preferVideoLead(pod("p1"), [...pods, yt("v1")], new Set(["v1"]), [], () => 0, w)?.id).toBe("p1");
-    expect(heard).toEqual([]);
+    const w = (f: string) => (f === "other" ? 1.75 : 1);
+    expect(preferVideoLead(pod("p1"), [...pods, yt("v1")], new Set(["v1"]), [], () => 0.99, w)?.id).toBe("p1");
   });
 });

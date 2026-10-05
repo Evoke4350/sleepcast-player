@@ -154,7 +154,7 @@ export function Night({
   wasVaried = false,
   favorWhatWorks = false,
 }: NightProps) {
-  const shuffle = useNightShuffle(favorWhatWorks, pool, resume, () => restRef.current?.noteShuffleLeaned());
+  const shuffle = useNightShuffle(favorWhatWorks, pool, resume);
   const hostRef = useRef<HTMLDivElement | null>(null);
   // Both backends live for the whole night; `liveRef` is whichever one the
   // current episode picked, and every command goes through it. `offRef` holds
@@ -590,7 +590,6 @@ export function Night({
       extensions: extensionsRef.current,
       wasVaried: wasVariedRef.current,
       shuffleLean: shuffle.lean,
-      shuffleLeanedAt: restRef.current?.shuffleLeanedAt ?? undefined,
       remainingMs,
       totalSeconds: totalSecondsRef.current,
       // Where the episode is, not a raw reading: the backend may still be
@@ -863,7 +862,7 @@ export function Night({
     // time-to-sleep, timeline and snapshots count from the real start, not
     // from the tap on "keep going".
     const nightStart = revivedNightStart(resume?.nightStartedAt, Date.now());
-    restRef.current = new RestSession(nightStart, timerMinutes, resume);
+    restRef.current = new RestSession(nightStart, timerMinutes, shuffle.lean !== undefined);
     restRef.current.seedInteractions(resume?.interactions ?? 0);
     deadRef.current = new Set(loadBlocked());
     if (resume) {

@@ -240,7 +240,7 @@ export function medianTimeToSleep(
 /** "1 night" / "3 nights" — singularises the unit the count names, not
  *  just the number, so a feed with one recorded night doesn't read as a
  *  typo ("1 nights"). */
-function pluralNights(n: number): string {
+export function pluralNights(n: number): string {
   return `${n} night${n === 1 ? "" : "s"}`;
 }
 

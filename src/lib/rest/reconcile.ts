@@ -9,7 +9,7 @@
 // without claiming a time-to-sleep.
 import { clearLive, isRevivable, nightTimerMinutes, saveLastNight, withCurrentPlayed, type LiveSession } from "../store";
 import { appendNight } from "./ledger";
-import { wasLeaned } from "./session";
+import { validLean } from "./sleepscore";
 
 /** A snapshot younger than this may belong to a night still playing in
  *  another tab (snapshots are rewritten every SNAPSHOT_EVERY_TICKS ticks,
@@ -46,8 +46,7 @@ export function reconcileLive(l: LiveSession, now: number): void {
     timeToSleepMs: null,
     interactions: l.interactions ?? 0, // touches before the tab died
     detector: "none",
-    // No onset was inferred for a killed night, so any lean-shaped pick counts.
-    ...(wasLeaned(l.shuffleLeanedAt, null) ? { shuffle: "leaned" as const } : {}),
+    ...(validLean(l.shuffleLean) ? { shuffle: "leaned" as const } : {}),
   });
   clearLive();
 }

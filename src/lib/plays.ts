@@ -88,11 +88,8 @@ export function pickNextEpisode<E extends { id: string; feedId?: string }>(
 }
 
 /** How much a feed's episodes lean in the shuffle (1 = no lean). See
- *  rest/sleepscore shuffleWeights; absent, the shuffle is plain.
- *  `onLeanedPick`, if set, hears each pick whose candidates' weights
- *  differed: a pick the lean actually shaped (one among equal weights, or
- *  from a lead the listener chose, is a plain pick). */
-export type FeedWeight = ((feedId: string) => number) & { onLeanedPick?: () => void };
+ *  rest/sleepscore shuffleWeights; absent, the shuffle is plain. */
+export type FeedWeight = (feedId: string) => number;
 
 /** One of `items`, uniformly, or in proportion to its feed's weight. A
  *  weight that isn't a positive finite number counts as 1 (no lean): a
@@ -111,7 +108,6 @@ function weightedPick<E extends { feedId?: string }>(items: E[], rand: () => num
     return w;
   };
   const ws = items.map((e) => weightFor(e.feedId ?? ""));
-  if (weightOf?.onLeanedPick && ws.some((w) => w !== ws[0])) weightOf.onLeanedPick();
   const total = ws.reduce((a, b) => a + b, 0);
   let r = rand() * total;
   for (let i = 0; i < items.length; i++) {

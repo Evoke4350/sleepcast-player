@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { loadNights, rollup, setSelfLabel, leanComparison } from "../lib/rest/ledger";
 import { recordFalsePositive } from "../lib/rest/calibrate";
-import { scoreFeeds, medianTimeToSleep, meetsSuggestionGate, shuffleWeights, MIN_NIGHTS } from "../lib/rest/sleepscore";
+import { scoreFeeds, medianTimeToSleep, meetsSuggestionGate, shuffleWeights, pluralNights, MIN_NIGHTS } from "../lib/rest/sleepscore";
 import { fmtDuration, lastNight } from "../lib/rest/surface";
 import { getPlays, loadState } from "../lib/store";
 import { playsSince, playAtMoment } from "../lib/plays";
@@ -72,7 +72,7 @@ export function RestView({ onClose }: { onClose: () => void }) {
           {median === null ? "—" : `${Math.round(median / 60_000)} min`}
         </span>
         <span className="shrink-0 text-[10px] text-[#4a4540]">
-          {f.nights} night{f.nights === 1 ? "" : "s"}
+          {pluralNights(f.nights)}
           {f.skipNights > 0 ? ` · ${f.skipNights} skipped` : ""}
         </span>
         {/* On its own line, so the title keeps its room at phone width. */}
@@ -170,7 +170,7 @@ export function RestView({ onClose }: { onClose: () => void }) {
           no feed has scored nights (all marked awake, say). */}
       {compared && (compared.leaned.nights > 0 || compared.plain.nights > 0) && (
         <p className="text-[11px] leading-snug text-[#8a7a5c]">
-          {`Typical time to sleep: ${fmtMedian(compared.leaned.medianMs)} on nights the shuffle leaned (${timedNights(compared.leaned.nights)}), ${fmtMedian(compared.plain.medianMs)} on other nights (${timedNights(compared.plain.nights)}).`}
+          {`Typical time to sleep: ${fmtMedian(compared.leaned.medianMs)} on nights with the lean on (${timedNights(compared.leaned.nights)}), ${fmtMedian(compared.plain.medianMs)} on other nights (${timedNights(compared.plain.nights)}).`}
         </p>
       )}
       <p className="text-xs text-[#4a4540]">
@@ -190,7 +190,7 @@ function leanLabel(weight: number): string {
 
 /** "1 timed night" / "3 timed nights": the nights a median rests on. */
 function timedNights(n: number): string {
-  return `${n} timed night${n === 1 ? "" : "s"}`;
+  return pluralNights(n).replace(" night", " timed night");
 }
 
 /** A median for the comparison line, formatted like the headline stats

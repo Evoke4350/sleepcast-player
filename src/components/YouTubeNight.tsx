@@ -122,7 +122,7 @@ export function YouTubeNight({
   wasVaried = false,
   favorWhatWorks = false,
 }: YouTubeNightProps) {
-  const shuffle = useNightShuffle(favorWhatWorks, pool, resume, () => restRef.current?.noteShuffleLeaned());
+  const shuffle = useNightShuffle(favorWhatWorks, pool, resume);
   const hostRef = useRef<HTMLDivElement | null>(null);
   const mediaRef = useRef<YouTubeMedia | null>(null);
   const lockRef = useRef<ScreenLock | null>(null);
@@ -459,7 +459,6 @@ export function YouTubeNight({
       extensions: extensionsRef.current,
       wasVaried: wasVariedRef.current,
       shuffleLean: shuffle.lean,
-      shuffleLeanedAt: restRef.current?.shuffleLeanedAt ?? undefined,
       remainingMs,
       totalSeconds: totalSecondsRef.current,
       position: witnessRef.current.snapshotAt(media.currentTime()),
@@ -673,7 +672,7 @@ export function YouTubeNight({
     // time-to-sleep, timeline and snapshots count from the real start, not
     // from the tap on "keep going".
     const nightStart = revivedNightStart(resume?.nightStartedAt, Date.now());
-    restRef.current = new RestSession(nightStart, timerMinutes, resume);
+    restRef.current = new RestSession(nightStart, timerMinutes, shuffle.lean !== undefined);
     restRef.current.seedInteractions(resume?.interactions ?? 0);
     deadRef.current = new Set(loadBlocked());
     if (resume) {

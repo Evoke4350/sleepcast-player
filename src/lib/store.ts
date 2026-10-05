@@ -300,13 +300,9 @@ export interface LiveSession {
    *  follow-on night, carry it). */
   wasVaried?: boolean;
   /** The night's shuffle weights (lineupLean), absent for a plain shuffle:
-   *  kept for a revive, whatever the setting or scores are by then. (The
-   *  record of whether they shaped a pick is shuffleLeanedAt.) */
+   *  kept for a revive, whatever the setting or scores are by then, and for
+   *  the reconciled RestNight's record (a night with a lean is leaned). */
   shuffleLean?: Record<string, number>;
-  /** When (ms since the night began) the first pick the lean actually
-   *  shaped was made (RestSession.shuffleLeanedAt), carried into a revive
-   *  and into the reconciled RestNight's record. */
-  shuffleLeanedAt?: number;
 }
 
 /** What a revived night resumes from: the snapshot, as the players take it.

@@ -172,7 +172,8 @@ describe("pickNextEpisode with feed weights (favor what puts me under)", () => {
     const eps = [feedEp("a", "good"), feedEp("b", "meh"), feedEp("c", "meh")];
     const plays = [play("a", 1, { feedId: "good" })];
     for (let i = 0; i < 20; i++) {
-      expect(pickNextEpisode(eps, plays, () => i / 20, () => 1)?.id).not.toBe("a");
+      // However heavy its feed, a heard episode stays out while fresh ones remain.
+      expect(pickNextEpisode(eps, plays, () => i / 20, (f) => (f === "good" ? 100 : 1))?.id).not.toBe("a");
     }
   });
 
@@ -192,13 +193,5 @@ describe("pickNextEpisode with feed weights (favor what puts me under)", () => {
     expect(pickNextEpisode(eps, [], () => 0.4, (f) => (f === "bad" ? NaN : 1))?.id).toBe("a");
   });
 
-  it("tells onLeanedPick only of picks whose candidates' weights differed", () => {
-    const heard: string[] = [];
-    const w = Object.assign((f: string) => (f === "good" ? 1.5 : 1), { onLeanedPick: () => heard.push("leaned") });
-    pickNextEpisode([feedEp("a", "other"), feedEp("b", "other")], [], () => 0, w); // equal weights: plain
-    expect(heard).toEqual([]);
-    pickNextEpisode([feedEp("a", "good"), feedEp("b", "other")], [], () => 0, w);
-    expect(heard).toEqual(["leaned"]);
-  });
 
 });
