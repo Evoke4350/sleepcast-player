@@ -64,7 +64,8 @@ function plausibleFloor(n: RestNight): number {
 }
 
 /** Leaned nights against plain ones (RestNight.shuffle), by the same rules
- *  as the headline median: null until there is a leaned night to compare. */
+ *  as the headline median: null until there is a leaned night and either
+ *  side has a timed one, so there is something to compare. */
 export function leanComparison(nights: RestNight[]): {
   leaned: { nights: number; medianMs: number | null };
   plain: { nights: number; medianMs: number | null };
@@ -77,7 +78,8 @@ export function leanComparison(nights: RestNight[]): {
     const tts = timedOnsets(ns);
     return { nights: tts.length, medianMs: median(tts) };
   };
-  return { leaned: side(leaned), plain: side(plain) };
+  const c = { leaned: side(leaned), plain: side(plain) };
+  return c.leaned.nights > 0 || c.plain.nights > 0 ? c : null;
 }
 
 /** A night that was slept: an onset, and not marked "awake" (see rollup). */
@@ -88,8 +90,13 @@ function isSlept(n: RestNight): boolean {
 /** The times to sleep the headline figures rest on: slept nights with a
  *  believable onset (see rollup). */
 function timedOnsets(nights: readonly RestNight[]): number[] {
-  return nights
-    .filter((n) => isSlept(n) && (n.timeToSleepMs as number) >= plausibleFloor(n))
+  return believableOnsets(nights.filter(isSlept));
+}
+
+/** Of slept nights, the believable times to sleep (see rollup). */
+function believableOnsets(slept: readonly RestNight[]): number[] {
+  return slept
+    .filter((n) => (n.timeToSleepMs as number) >= plausibleFloor(n))
     .map((n) => n.timeToSleepMs as number);
 }
 
@@ -106,7 +113,7 @@ export function rollup(nights: RestNight[]): RestRollup {
   //
   // The nights themselves still count as slept — the sleep was real, only the
   // figure was wrong — so this filters the time statistics, not the ledger.
-  const tts = timedOnsets(nights);
+  const tts = believableOnsets(slept);
   const last7 = nights.slice(-7);
   const avg7 = last7.length
     ? last7.reduce((s, n) => s + n.interactions, 0) / last7.length

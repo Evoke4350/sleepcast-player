@@ -127,8 +127,9 @@ describe("rollup floor for nights recorded before the detector fix", () => {
 });
 
 describe("leanComparison", () => {
-  it("is nothing until a night leaned", () => {
+  it("is nothing until a night leaned and either side has a timed night", () => {
     expect(leanComparison([night(), night()])).toBeNull();
+    expect(leanComparison([night({ shuffle: "leaned", sleptAtMs: null, timeToSleepMs: null })])).toBeNull();
   });
   it("splits typical time to sleep by whether the shuffle leaned", () => {
     const c = leanComparison([

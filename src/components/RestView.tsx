@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { loadNights, rollup, setSelfLabel, leanComparison } from "../lib/rest/ledger";
 import { recordFalsePositive } from "../lib/rest/calibrate";
-import { scoreFeeds, medianTimeToSleep, meetsSuggestionGate, shuffleWeights, pluralNights, MIN_NIGHTS } from "../lib/rest/sleepscore";
+import { scoreFeeds, medianTimeToSleep, meetsSuggestionGate, shuffleWeights, pluralNights, fmtOnsetMinutes, MIN_NIGHTS } from "../lib/rest/sleepscore";
 import { fmtDuration, lastNight } from "../lib/rest/surface";
 import { getPlays, loadState } from "../lib/store";
 import { playsSince, playAtMoment } from "../lib/plays";
@@ -168,7 +168,7 @@ export function RestView({ onClose }: { onClose: () => void }) {
       )}
       {/* Outside the scored section: leaned nights stay comparable even when
           no feed has scored nights (all marked awake, say). */}
-      {compared && (compared.leaned.nights > 0 || compared.plain.nights > 0) && (
+      {compared && (
         <p className="text-[11px] leading-snug text-[#8a7a5c]">
           {`Typical time to sleep: ${fmtMedian(compared.leaned.medianMs)} on nights with the lean on (${pluralNights(compared.leaned.nights, "timed")}), ${fmtMedian(compared.plain.medianMs)} on other nights (${pluralNights(compared.plain.nights, "timed")}). A rough guide: the two differ in more than the lean (which shows, which weeks).`}
         </p>
@@ -188,8 +188,9 @@ function leanLabel(weight: number): string {
   return `weighs ×${weight.toFixed(2)}`;
 }
 
-/** A median time to sleep, for the rows and the comparison line, formatted
- *  like the headline stats (fmtDuration); "—" when there is none. */
+/** A median time to sleep, for the rows and the comparison line: worded as
+ *  the evidence sentence words it (fmtOnsetMinutes), so the two can be
+ *  checked against each other; "—" when there is none. */
 function fmtMedian(ms: number | null): string {
-  return ms === null ? "—" : fmtDuration(ms);
+  return ms === null ? "—" : fmtOnsetMinutes(ms);
 }

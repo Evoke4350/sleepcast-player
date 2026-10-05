@@ -235,6 +235,16 @@ export function medianTimeToSleep(
   return times.length % 2 ? times[mid] : Math.round((times[mid - 1] + times[mid]) / 2);
 }
 
+/** A time to sleep in minutes, for the evidence sentence and the panel it
+ *  is checked against. A round-trip through Math.round already collapses
+ *  anything under 30 seconds to 0 — "Gone in 0 min" is technically the true
+ *  minute count but reads like the detector glitched, not like a fast, real
+ *  result — so that reads "under a minute". */
+export function fmtOnsetMinutes(ms: number): string {
+  const mins = Math.round(ms / 60_000);
+  return mins === 0 ? "under a minute" : `${mins} min`;
+}
+
 /** "1 night" / "3 nights" (or "1 timed night" with `kind`) — singularises
  *  the unit the count names, not just the number, so a feed with one
  *  recorded night doesn't read as a typo ("1 nights"). */
@@ -254,11 +264,7 @@ export function evidenceFor(nights: readonly RestNight[], f: FeedScore): string 
       ? `You've skipped it on ${f.skipNights} of ${pluralNights(f.nights)}.`
       : `It's played on ${pluralNights(f.nights)}.`;
   }
-  const mins = Math.round(median / 60_000);
-  // A round-trip through Math.round already collapses anything under 30
-  // seconds to 0 — "Gone in 0 min" is technically the true minute count but
-  // reads like the detector glitched, not like a fast, real result.
-  const minsPhrase = mins === 0 ? "under a minute" : `${mins} min`;
+  const minsPhrase = fmtOnsetMinutes(median);
   // f.onsetNights counts every night onsetFeedId matched this feed, including
   // one where onsetAfterMs is absent — this module doesn't trust its producer
   // (see scoreFeeds' de-dup comments) so that combination isn't ruled out.
