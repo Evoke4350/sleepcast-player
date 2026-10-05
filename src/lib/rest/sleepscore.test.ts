@@ -7,6 +7,7 @@ import {
   WEIGHT_FLOOR,
   MIN_NIGHTS,
   shuffleWeights,
+  WEIGHT_MAX,
   lineupLean,
   nightLean,
   validLean,
@@ -466,7 +467,7 @@ describe("validLean and rounding", () => {
     expect(validLean({ a: 1.25 })).toEqual({ a: 1.25 });
     expect(validLean(undefined)).toBeUndefined();
     expect(validLean({ a: 1 })).toBeUndefined(); // nothing leans
-    expect(validLean({ a: 1e6 })).toBeUndefined(); // out of range
+    expect(validLean({ a: 1e6 })).toEqual({ a: WEIGHT_MAX }); // clamped to today's bounds
   });
   it("rounds weights to hundredths", () => {
     // f: skipped once, slept through twice, over 3 nights: mean credit 1/3,

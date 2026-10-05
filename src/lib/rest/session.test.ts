@@ -275,9 +275,12 @@ describe("RestSession shuffle record", () => {
     expect(wasLeaned(15, 10)).toBe(false);
     expect(wasLeaned(15, null)).toBe(true);
     expect(wasLeaned(undefined, null)).toBe(false);
+    expect(wasLeaned(-5, null)).toBe(false);
   });
 
   it("a revived night whose picks before the reload leaned is leaned already", () => {
-    expect(new RestSession(0, 45, { shuffleLeanedAt: 300 }).finish("faded", 1000).shuffle).toBe("leaned");
+    expect(new RestSession(0, 45, { shuffleLeanedAt: 300, nightStartedAt: 0 }).finish("faded", 1000).shuffle).toBe("leaned");
+    // A revive whose start was replaced (a clock stepped back): another clock.
+    expect(new RestSession(5_000, 45, { shuffleLeanedAt: 300, nightStartedAt: 0 }).finish("faded", 6000)).not.toHaveProperty("shuffle");
   });
 });

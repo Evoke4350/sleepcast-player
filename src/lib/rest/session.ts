@@ -27,10 +27,18 @@ export class RestSession {
   private leanedAt: number | null = null;
 
   /** `revived.shuffleLeanedAt`: the first lean-shaped pick before the
-   *  reload, kept so the revived night's record still sees it. */
-  constructor(readonly startedAt: number, readonly timerMinutes: number, revived?: { shuffleLeanedAt?: unknown } | null) {
+   *  reload, kept so the revived night's record still sees it, while the
+   *  night keeps its start (`revived.nightStartedAt`): measured from a
+   *  start revivedNightStart replaced (a clock stepped back), it would be
+   *  compared on the wrong clock, so it's dropped. */
+  constructor(
+    readonly startedAt: number,
+    readonly timerMinutes: number,
+    revived?: { shuffleLeanedAt?: unknown; nightStartedAt?: number } | null,
+  ) {
     const at = revived?.shuffleLeanedAt;
-    this.leanedAt = typeof at === "number" && Number.isFinite(at) && at >= 0 ? at : null;
+    const sameClock = revived?.nightStartedAt === startedAt;
+    this.leanedAt = sameClock && typeof at === "number" && Number.isFinite(at) && at >= 0 ? at : null;
     const params = currentParams(loadParams(), loadNights());
     this.detector = new SleepDetector(params);
   }
@@ -166,6 +174,6 @@ export function revivedNightStart(savedStart: number | undefined, now: number): 
  *  the night began) came at or before sleep was inferred, or, with no onset
  *  (no time to sleep to credit), at all. Shared by finish() and reconcile. */
 export function wasLeaned(leanedAt: number | null | undefined, onsetAtMs: number | null): boolean {
-  if (typeof leanedAt !== "number" || !Number.isFinite(leanedAt)) return false;
+  if (typeof leanedAt !== "number" || !Number.isFinite(leanedAt) || leanedAt < 0) return false;
   return onsetAtMs === null || leanedAt <= onsetAtMs;
 }

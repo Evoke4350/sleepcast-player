@@ -144,8 +144,9 @@ function leanRecord(entries: Iterable<[string, number]>): Record<string, number>
 
 /** The shuffle's lean, for a listener who has opted in (settings
  *  favorWhatWorks): a feed with MIN_NIGHTS or more scored nights leans by
- *  its weight (WEIGHT_FLOOR to 1.75: toward what has put them under, away
- *  from what they skip, never ruled out); any other feed is 1, no lean
+ *  its weight (0.75 to WEIGHT_MAX under today's credits, never below
+ *  WEIGHT_FLOOR: toward what has put them under, away from what they skip,
+ *  never ruled out); any other feed is 1, no lean
  *  without evidence either way. Unlike the suggestion, a net-negative feed
  *  counts here: leaning away is the other half of the point.
  *  Takes feeds already scored (scoreFeeds). Weights are rounded to
@@ -159,18 +160,22 @@ export function shuffleWeights(scored: readonly FeedScore[]): (feedId: string) =
 }
 
 /** A stored lean (a revived snapshot's), if it is one, in lineupLean's
- *  shape: at least one entry, every weight a number in WEIGHT_FLOOR..
- *  WEIGHT_MAX other than 1 (absent means 1). Anything else (null, a number,
- *  all-1 or out-of-range weights, a malformed snapshot) is none, a plain
- *  shuffle. Returned as a prototype-less record, like lineupLean's. */
+ *  shape: at least one entry, every weight a positive finite number other
+ *  than 1 (absent means 1), clamped to WEIGHT_FLOOR..WEIGHT_MAX (so a
+ *  snapshot from before a change to the credits still revives leaning,
+ *  within today's bounds). Anything else (null, a number, all-1 weights, a
+ *  malformed snapshot) is none, a plain shuffle. Returned as a
+ *  prototype-less record, like lineupLean's. */
 export function validLean(x: unknown): Record<string, number> | undefined {
   if (!x || typeof x !== "object" || Array.isArray(x)) return undefined;
   const entries = Object.entries(x as Record<string, unknown>);
   if (!entries.length) return undefined;
-  for (const [, w] of entries) {
-    if (typeof w !== "number" || !(w >= WEIGHT_FLOOR && w <= WEIGHT_MAX) || w === 1) return undefined;
+  const clamped: [string, number][] = [];
+  for (const [feedId, w] of entries) {
+    if (typeof w !== "number" || !Number.isFinite(w) || w <= 0 || w === 1) return undefined;
+    clamped.push([feedId, Math.min(WEIGHT_MAX, Math.max(WEIGHT_FLOOR, w))]);
   }
-  return leanRecord(entries as [string, number][]);
+  return leanRecord(clamped);
 }
 
 /** The night's lean, fixed at its start. A revived night keeps the one it
