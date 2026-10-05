@@ -427,6 +427,17 @@ describe("shuffleWeights (favor what puts me under)", () => {
     expect(w("lo")).toBe(WEIGHT_FLOOR);
   });
 
+  it("rounds weights to hundredths", () => {
+    // f: skipped once, slept through twice, over 3 nights: mean credit 1/3,
+    // weight 1 + 0.25/3 = 1.0833, used and shown as 1.08.
+    const three = [
+      night({ skipped: ["f"] }),
+      night({ onsetFeedId: "g", sleptThrough: ["f"] }),
+      night({ onsetFeedId: "g", sleptThrough: ["f"] }),
+    ];
+    expect(shuffleWeights(scoreFeeds(three))("f")).toBe(1.08);
+  });
+
   it("rounds as validLean does: a new night a hair off 1 doesn't lean", () => {
     const f = scoreFeeds(Array.from({ length: MIN_NIGHTS }, () => onset("x")))[0];
     const w = shuffleWeights([{ ...f, feedId: "near", weight: 1.004 }]);
@@ -502,15 +513,5 @@ describe("validLean and rounding", () => {
     expect(validLean({ a: 1 })).toBeUndefined(); // nothing leans
     expect(validLean({ a: 1.5, b: 1, c: "x" })).toEqual({ a: 1.5 }); // odd entries dropped, not the lean
     expect(validLean({ a: 1e6 })).toEqual({ a: WEIGHT_MAX }); // clamped to today's bounds
-  });
-  it("rounds weights to hundredths", () => {
-    // f: skipped once, slept through twice, over 3 nights: mean credit 1/3,
-    // weight 1 + 0.25/3 = 1.0833, used and shown as 1.08.
-    const three = [
-      night({ skipped: ["f"] }),
-      night({ onsetFeedId: "g", sleptThrough: ["f"] }),
-      night({ onsetFeedId: "g", sleptThrough: ["f"] }),
-    ];
-    expect(shuffleWeights(scoreFeeds(three))("f")).toBe(1.08);
   });
 });

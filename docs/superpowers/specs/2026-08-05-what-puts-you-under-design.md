@@ -93,11 +93,11 @@ export interface RestNight {
 }
 ```
 
-Added with the opt-in lean (2026-10-04, see the §8 addendum): `RestNight`
-also gains `shuffle?: "leaned"` (present when the night had a lean in effect),
-and the live snapshot (`LiveSession`) gains `shuffleLean?: Record<string,
-number>` (the night's weights, for a revive and for reconcile). Both optional,
-for the same reason.
+Added with the opt-in lean (2026-10-04, see the §8 addendum): `RestNight` also
+gains `shuffle?: "leaned"` (present when the night had a lean in effect), and
+the live snapshot (`LiveSession`) gains `shuffleLean?: Record<string, number>`
+(the night's weights, for a revive and for reconcile). Both optional, for the
+same reason.
 
 `RestSession` gains a timeline and a skip set, and resolves them in `finish()`:
 
@@ -208,26 +208,25 @@ The shuffle can now lean on the score, but only when the listener turns on
 "Favor what puts me under" in setup (`settings.favorWhatWorks`, off by
 default). That keeps this section's concerns: the listener chooses it
 knowingly, off is the plain shuffle to compare against, and the rest view
-shows each feed's weight other than ×1 while the setting is on, for feeds
-that are on (setup builds no lineup from a switched-off or removed feed; a
-3am re-anchor carries the faded night's lineup, so a feed switched off since
-can still lean that night, unlisted). The leaned-vs-other comparison stays
-either way. A feed leans only after `MIN_NIGHTS` scored nights, by its
-`weight` read through `clampWeight` (within `WEIGHT_FLOOR`..`WEIGHT_MAX`,
-rounded to hundredths, so a weight that rounds to 1 is no lean); other feeds
-don't lean. Freshness still comes
-first: `pickNextEpisode` weights only among the episodes it would have picked
-from. The weight multiplies each episode's odds, not the feed's, so a feed's
-share of picks also scales with how many fresh episodes it has: ×1.75 on two
-fresh episodes can still come up less than ×0.75 on fifty. The lean tilts the
-draw; it doesn't set each feed's share.
+shows each feed's weight other than ×1 while the setting is on, for feeds that
+are on (setup builds no lineup from a switched-off or removed feed; a 3am
+re-anchor carries the faded night's lineup, so a feed switched off since can
+still lean that night, unlisted). The leaned-vs-other comparison stays either
+way. A feed leans only after `MIN_NIGHTS` scored nights, by its `weight` read
+through `clampWeight` (within `WEIGHT_FLOOR`..`WEIGHT_MAX`, rounded to
+hundredths, so a weight that rounds to 1 is no lean); other feeds don't lean.
+Freshness still comes first: `pickNextEpisode` weights only among the episodes
+it would have picked from. The weight multiplies each episode's odds, not the
+feed's, so a feed's share of picks also scales with how many fresh episodes it
+has: ×1.75 on two fresh episodes can still come up less than ×0.75 on fifty.
+The lean tilts the draw; it doesn't set each feed's share.
 
 A night whose lineup's feeds all weigh the same doesn't lean (the shuffle
 normalises), and is recorded as plain; the lineup is the episodes not blocked
 at the night's start, so a feed with every episode blocked doesn't count. The
 night's lean is fixed at its start and carried in its snapshot, so a revive
-keeps it. A RestNight records `shuffle: "leaned"` when the night had a lean
-in effect, whatever happened during it. That is deliberately by what was in
+keeps it. A RestNight records `shuffle: "leaned"` when the night had a lean in
+effect, whatever happened during it. That is deliberately by what was in
 effect, not by whether a pick the lean shaped came before sleep: that would be
 decided by the night itself (a restless night reaches more picks), so the slow
 nights would land on the leaned side. The rest view compares typical time to
@@ -240,9 +239,9 @@ often, so it reaches fewer nights where it is still on after onset (the +1
 slept-through credit) and its weight recovers more slowly than its record
 alone would have it. The weight is a mean per night the feed appeared, so
 playing less doesn't lower it directly, and WEIGHT_FLOOR keeps the feed in
-every lineup's draw, so it keeps gathering nights. This is accepted: it is
-the cost of leaning at all, and the plain shuffle (the setting off) is the
-check on it.
+every lineup's draw, so it keeps gathering nights. This is accepted: it is the
+cost of leaning at all, and the plain shuffle (the setting off) is the check
+on it.
 
 ## 9. Error handling
 
