@@ -189,3 +189,13 @@ describe("when a stalled video should be given up on", () => {
     expect(shouldGiveUp({ ...base, state: YT_STATE.UNSTARTED, hasEverPlayed: true })).toBe(true);
   });
 });
+
+describe("nextPlayable forwards the night's lean", () => {
+  test("weighs the candidates by feed", () => {
+    const a = { ...ep("a"), feedId: "liked" };
+    const b = { ...ep("b"), feedId: "other" };
+    const w = (f: string) => (f === "liked" ? 3 : 1);
+    expect(nextPlayable([a, b], none, null, [], () => 0.7, w)?.id).toBe("a");
+    expect(nextPlayable([a, b], none, null, [], () => 0.7)?.id).toBe("b");
+  });
+});

@@ -141,10 +141,41 @@ export function lineupLean(
   return ws.some((w) => w !== ws[0]) ? lean : undefined;
 }
 
-/** shuffleWeights from feeds already scored. */
+/** shuffleWeights from feeds already scored. Rounded to hundredths: a
+ *  difference below that changes no pick that matters, so it neither makes
+ *  a night "leaned" nor shows as a weight. */
 export function leanFrom(scored: readonly FeedScore[]): (feedId: string) => number {
-  const w = new Map(scored.filter((f) => f.nights >= MIN_NIGHTS).map((f) => [f.feedId, f.weight]));
+  const w = new Map(
+    scored.filter((f) => f.nights >= MIN_NIGHTS).map((f) => [f.feedId, Math.round(f.weight * 100) / 100]),
+  );
   return (feedId) => w.get(feedId) ?? 1;
+}
+
+/** A stored lean, if it is one: an object of positive finite weights with at
+ *  least one entry; anything else (null, a number, a malformed snapshot) is
+ *  none, a plain shuffle. Every reader of a stored lean goes through this,
+ *  so the players and reconcile agree on what a night was. */
+export function validLean(x: unknown): Record<string, number> | undefined {
+  if (!x || typeof x !== "object" || Array.isArray(x)) return undefined;
+  const entries = Object.entries(x as Record<string, unknown>);
+  if (!entries.length) return undefined;
+  for (const [, w] of entries) if (typeof w !== "number" || !Number.isFinite(w) || w <= 0) return undefined;
+  return x as Record<string, number>;
+}
+
+/** The night's lean, fixed at its start: a revived night keeps the one it
+ *  was snapshotted with (validLean; none if none), whatever the setting or
+ *  scores are by then; a new night leans by the scores when the listener
+ *  opted in and they tell its lineup's feeds apart (lineupLean); else none,
+ *  a plain shuffle. `nights` is read only when needed. */
+export function nightLean(
+  favorWhatWorks: boolean,
+  pool: readonly { feedId: string }[],
+  resume: { shuffleLean?: unknown } | null | undefined,
+  nights: () => readonly RestNight[],
+): Record<string, number> | undefined {
+  if (resume) return validLean(resume.shuffleLean);
+  return favorWhatWorks ? lineupLean(shuffleWeights(nights()), pool) : undefined;
 }
 
 /** Scored feeds with enough evidence to say anything about. */

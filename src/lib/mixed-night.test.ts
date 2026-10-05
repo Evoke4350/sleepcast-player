@@ -100,3 +100,15 @@ describe("preferVideoLead with no lead and no live video", () => {
     expect(lead?.id).toBe("p1");
   });
 });
+
+describe("the lead picks forward the night's lean", () => {
+  it("chooseLead and preferVideoLead weigh the video candidates by feed", () => {
+    const a = { ...yt("va"), feedId: "liked" };
+    const b = { ...yt("vb"), feedId: "skipped" };
+    const w = (f: string) => (f === "liked" ? 3 : 1);
+    // weights 3 and 1: rand .7 lands on the liked feed's video
+    expect(chooseLead([a, b], none, [], () => 0.7, w)?.id).toBe("va");
+    expect(preferVideoLead(null, [a, b], none, [], () => 0.7, w)?.id).toBe("va");
+    expect(chooseLead([a, b], none, [], () => 0.7)?.id).toBe("vb"); // plain
+  });
+});

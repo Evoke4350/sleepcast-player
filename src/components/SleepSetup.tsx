@@ -1203,9 +1203,10 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
               className="mt-0.5 h-4 w-4 accent-[#6e5d44]"
             />
             <span className="text-xs text-[#6e5d44]">
-              Shows you've drifted off to come up more often, and ones you
-              skip less, once each has a few nights behind it. Nothing is
-              ever ruled out. Off by default — off is a plain shuffle.
+              Shows you've drifted off to come up more often; shows you tend
+              to skip come up less often. Each needs a few nights behind it
+              first, and nothing is ever ruled out. Off by default — off is a
+              plain shuffle.
             </span>
           </label>
         </section>

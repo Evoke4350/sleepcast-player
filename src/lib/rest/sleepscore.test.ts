@@ -8,6 +8,8 @@ import {
   MIN_NIGHTS,
   shuffleWeights,
   lineupLean,
+  nightLean,
+  validLean,
 } from "./sleepscore";
 import type { RestNight } from "./types";
 
@@ -430,5 +432,38 @@ describe("lineupLean", () => {
   it("is none when the lineup's feeds weigh the same: the shuffle is plain", () => {
     expect(lineupLean(() => 1, pool("a", "b"))).toBeUndefined();
     expect(lineupLean(() => 1.75, pool("only"))).toBeUndefined();
+  });
+});
+
+describe("nightLean", () => {
+  const pool = [{ feedId: "good" }, { feedId: "other" }];
+  const scored = Array.from({ length: MIN_NIGHTS }, () => onset("good"));
+  const never = () => { throw new Error("the ledger shouldn't be read"); };
+
+  it("a revived night keeps its snapshot's lean, whatever the setting", () => {
+    expect(nightLean(false, pool, { shuffleLean: { good: 1.5, other: 1 } }, never)).toEqual({ good: 1.5, other: 1 });
+  });
+  it("a revived night without one (or with a malformed one) stays plain, even with the setting on", () => {
+    expect(nightLean(true, pool, {}, never)).toBeUndefined();
+    for (const bad of [null, 3, "x", [], {}, { a: -1 }, { a: NaN }]) {
+      expect(nightLean(true, pool, { shuffleLean: bad }, never)).toBeUndefined();
+    }
+  });
+  it("a new night leans only when the listener opted in", () => {
+    expect(nightLean(false, pool, null, never)).toBeUndefined();
+    expect(nightLean(true, pool, null, () => scored)?.good).toBeGreaterThan(1);
+  });
+});
+
+describe("validLean and rounding", () => {
+  it("accepts only objects of positive finite weights", () => {
+    expect(validLean({ a: 1.25 })).toEqual({ a: 1.25 });
+    expect(validLean(undefined)).toBeUndefined();
+  });
+  it("rounds weights to hundredths", () => {
+    // One skip in 60 nights: weight 1 - 0.25/60 = 0.9958, shown and used as 1.
+    const nights = [night({ skipped: ["f"] }), ...Array.from({ length: 59 }, () => night({ sleptThrough: ["x"] }))];
+    const w = shuffleWeights([...nights, ...Array.from({ length: 59 }, () => night({ sleptThrough: [] }))]);
+    expect(Math.round(w("f") * 100) / 100).toBe(w("f"));
   });
 });

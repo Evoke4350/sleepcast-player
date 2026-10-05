@@ -173,5 +173,5 @@ export function RestView({ onClose }: { onClose: () => void }) {
 /** A feed's weight in a leaning shuffle, for its row: nothing at 1. The
  *  shuffle weighs a night's lineup against itself, so this is relative. */
 function leanLabel(weight: number): string {
-  return weight === 1 ? "" : ` · weighs ×${weight.toFixed(2).replace(/0$/, "")}`;
+  return weight === 1 ? "" : ` · weighs ×${weight.toFixed(2)}`;
 }
