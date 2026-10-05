@@ -77,7 +77,7 @@ export function leanComparison(nights: readonly RestNight[]): {
   // The count the median rests on, not every night on the side. (Rounded:
   // a median of an even count can fall on a half millisecond.)
   const side = (ns: RestNight[]) => {
-    const tts = timedOnsets(ns);
+    const tts = believableOnsets(ns.filter(isSlept));
     const m = median(tts);
     return { nights: tts.length, medianMs: m === null ? null : Math.round(m) };
   };
@@ -88,12 +88,6 @@ export function leanComparison(nights: readonly RestNight[]): {
 /** A night that was slept: an onset, and not marked "awake" (see rollup). */
 function isSlept(n: RestNight): boolean {
   return n.sleptAtMs !== null && n.timeToSleepMs !== null && n.selfLabel !== "awake";
-}
-
-/** The times to sleep the headline figures rest on: slept nights with a
- *  believable onset (see rollup). */
-function timedOnsets(nights: readonly RestNight[]): number[] {
-  return believableOnsets(nights.filter(isSlept));
 }
 
 /** Of slept nights, the believable times to sleep (see rollup). */
