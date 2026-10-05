@@ -434,6 +434,11 @@ describe("lineupLean", () => {
     expect(lineupLean(() => 1, pool("a", "b"))).toBeUndefined();
     expect(lineupLean(() => 1.75, pool("only"))).toBeUndefined();
   });
+  it("reads an invalid weight as 1, as the shuffle does", () => {
+    expect(lineupLean((f) => (f === "a" ? 0 : 1), pool("a", "b"))).toBeUndefined();
+    expect(lineupLean((f) => (f === "a" ? NaN : 1), pool("a", "b"))).toBeUndefined();
+    expect(lineupLean((f) => (f === "a" ? -2 : 1.5), pool("a", "b"))).toEqual({ b: 1.5 });
+  });
 });
 
 describe("nightLean", () => {

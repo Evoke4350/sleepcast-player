@@ -11,6 +11,7 @@
 // per-episode credit would be one observation per episode forever and would
 // never converge on anything. Feeds accumulate dozens of nights.
 
+import { asWeight } from "../plays";
 import type { FeedWeight, RestNight } from "./types";
 
 export const CREDIT_ONSET = 2;
@@ -132,7 +133,7 @@ export function lineupLean(
   pool: readonly { feedId: string }[],
 ): Record<string, number> | undefined {
   const all = new Map<string, number>();
-  for (const e of pool) if (!all.has(e.feedId)) all.set(e.feedId, weightOf(e.feedId)); // once per feed
+  for (const e of pool) if (!all.has(e.feedId)) all.set(e.feedId, asWeight(weightOf(e.feedId))); // once per feed, read as the shuffle reads it
   const ws = [...all.values()];
   if (!ws.some((w) => w !== ws[0])) return undefined;
   return leanRecord([...all].filter(([, w]) => w !== 1));

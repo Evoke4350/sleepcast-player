@@ -118,6 +118,11 @@ describe("pickNextEpisode", () => {
     const b = pickNextEpisode(eps, [], () => 0.5);
     expect(a!.id).toBe(b!.id);
   });
+
+  it("returns the last episode, not nothing, when rand returns 1", () => {
+    const eps = ["a", "b", "c"].map(ep);
+    expect(pickNextEpisode(eps, [], () => 1)?.id).toBe("c");
+  });
 });
 
 describe("playsSince", () => {

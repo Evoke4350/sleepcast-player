@@ -89,19 +89,19 @@ export function pickNextEpisode<E extends { id: string; feedId?: string }>(
   return weightedPick(candidates, rand, weightOf);
 }
 
-/** One of `items`, uniformly, or in proportion to its feed's weight. A
- *  weight that isn't a positive finite number counts as 1 (no lean): a
- *  feed is never ruled out, whatever its weight function says. */
+/** One of `items`, uniformly, or in proportion to its feed's weight (read
+ *  through asWeight). A feed is never ruled out because the weights it is
+ *  given are clamped upstream to WEIGHT_FLOOR..WEIGHT_MAX (shuffleWeights,
+ *  validLean). */
 function weightedPick<E extends { feedId?: string }>(items: E[], rand: () => number, weightOf?: FeedWeight): E {
   // (pickNextEpisode never passes an empty list.)
-  if (!weightOf) return items[Math.floor(rand() * items.length)];
+  if (!weightOf) return items[Math.min(items.length - 1, Math.floor(rand() * items.length))];
   // Each feed's weight is asked once.
   const perFeed = new Map<string, number>();
   const weightFor = (feedId: string) => {
     let w = perFeed.get(feedId);
     if (w === undefined) {
-      const raw = weightOf(feedId);
-      w = Number.isFinite(raw) && raw > 0 ? raw : 1;
+      w = asWeight(weightOf(feedId));
       perFeed.set(feedId, w);
     }
     return w;
@@ -115,6 +115,12 @@ function weightedPick<E extends { feedId?: string }>(items: E[], rand: () => num
   }
   // Rounding left a sliver: the last item.
   return items[items.length - 1];
+}
+
+/** A weight as the shuffle reads it: one that isn't a positive finite
+ *  number counts as 1 (no lean). */
+export function asWeight(raw: number): number {
+  return Number.isFinite(raw) && raw > 0 ? raw : 1;
 }
 
 /** Plays that began at or after a cutoff, oldest first — i.e. one night's worth. */
