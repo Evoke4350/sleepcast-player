@@ -1,3 +1,7 @@
+/** How much a feed's episodes lean in the shuffle (1 = no lean); see
+ *  sleepscore shuffleWeights. */
+export type FeedWeight = (feedId: string) => number;
+
 export interface SleepSignal {
   t: number;              // ms since night start
   interacted: boolean;    // tap/skip/pause/extend/scrub this tick

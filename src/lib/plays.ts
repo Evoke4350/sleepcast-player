@@ -10,6 +10,8 @@
 // played last night; nothing in this file leaves the device or touches the
 // aggregate server counters.
 
+import type { FeedWeight } from "./rest/types";
+
 export interface Play {
   id: string; // episode guid or url
   title: string;
@@ -87,9 +89,6 @@ export function pickNextEpisode<E extends { id: string; feedId?: string }>(
   return weightedPick(candidates, rand, weightOf);
 }
 
-/** How much a feed's episodes lean in the shuffle (1 = no lean). See
- *  rest/sleepscore shuffleWeights; absent, the shuffle is plain. */
-export type FeedWeight = (feedId: string) => number;
 
 /** One of `items`, uniformly, or in proportion to its feed's weight. A
  *  weight that isn't a positive finite number counts as 1 (no lean): a

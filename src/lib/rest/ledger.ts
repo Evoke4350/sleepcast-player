@@ -76,7 +76,8 @@ export function leanComparison(nights: RestNight[]): {
   // The count the median rests on, not every night on the side.
   const side = (ns: RestNight[]) => {
     const tts = timedOnsets(ns);
-    return { nights: tts.length, medianMs: median(tts) };
+    const m = median(tts);
+    return { nights: tts.length, medianMs: m === null ? null : Math.round(m) };
   };
   const c = { leaned: side(leaned), plain: side(plain) };
   return c.leaned.nights > 0 || c.plain.nights > 0 ? c : null;

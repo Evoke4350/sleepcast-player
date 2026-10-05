@@ -1,7 +1,7 @@
 import { useLazyRef } from "./use-lazy-ref";
 import { loadNights } from "./rest/ledger";
 import { nightLean } from "./rest/sleepscore";
-import type { FeedWeight } from "./plays";
+import type { FeedWeight } from "./rest/types";
 
 export interface NightShuffle {
   lean: Record<string, number> | undefined;

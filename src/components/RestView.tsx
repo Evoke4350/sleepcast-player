@@ -19,7 +19,7 @@ export function RestView({ onClose }: { onClose: () => void }) {
   const { feedTitles, favorWhatWorks } = useMemo(() => {
     const s = loadState();
     return {
-      feedTitles: Object.fromEntries(s.feeds.map((f) => [f.id, f.title])) as Record<string, string>,
+      feedTitles: Object.fromEntries(s.feeds.map((f) => [f.id, f.title])),
       favorWhatWorks: s.settings.favorWhatWorks,
     };
   }, []);
@@ -76,7 +76,7 @@ export function RestView({ onClose }: { onClose: () => void }) {
           {f.skipNights > 0 ? ` · ${f.skipNights} skipped` : ""}
         </span>
         {/* On its own line, so the title keeps its room at phone width. */}
-        {lean && lean !== 1 && (
+        {lean !== undefined && lean !== 1 && (
           <span className="w-full text-right text-[10px] text-[#4a4540]">{leanLabel(lean)}</span>
         )}
       </li>
@@ -170,7 +170,7 @@ export function RestView({ onClose }: { onClose: () => void }) {
           no feed has scored nights (all marked awake, say). */}
       {compared && (
         <p className="text-[11px] leading-snug text-[#8a7a5c]">
-          {`Typical time to sleep: ${fmtMedian(compared.leaned.medianMs)} on nights with the lean on (${pluralNights(compared.leaned.nights, "timed")}), ${fmtMedian(compared.plain.medianMs)} on other nights (${pluralNights(compared.plain.nights, "timed")}). A rough guide: the two differ in more than the lean (which shows, which weeks).`}
+          {`Typical time to sleep: ${fmtNightMedian(compared.leaned.medianMs)} on nights with the lean on (${pluralNights(compared.leaned.nights, "timed")}), ${fmtNightMedian(compared.plain.medianMs)} on other nights (${pluralNights(compared.plain.nights, "timed")}). A rough guide: the two differ in more than the lean (which shows, which weeks).`}
         </p>
       )}
       <p className="text-xs text-[#4a4540]">
@@ -188,9 +188,15 @@ function leanLabel(weight: number): string {
   return `weighs ×${weight.toFixed(2)}`;
 }
 
-/** A median time to sleep, for the rows and the comparison line: worded as
- *  the evidence sentence words it (fmtOnsetMinutes), so the two can be
- *  checked against each other; "—" when there is none. */
+/** A feed row's median (how long that feed had been playing): worded as the
+ *  evidence sentence words it (fmtOnsetMinutes), so the two can be checked
+ *  against each other; "—" when there is none. */
 function fmtMedian(ms: number | null): string {
   return ms === null ? "—" : fmtOnsetMinutes(ms);
+}
+
+/** A night's median time to sleep (from the night's start, as the headline
+ *  figure): formatted like the headline (fmtDuration); "—" when none. */
+function fmtNightMedian(ms: number | null): string {
+  return ms === null ? "—" : fmtDuration(ms);
 }

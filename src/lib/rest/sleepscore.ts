@@ -11,8 +11,7 @@
 // per-episode credit would be one observation per episode forever and would
 // never converge on anything. Feeds accumulate dozens of nights.
 
-import type { RestNight } from "./types";
-import type { FeedWeight } from "../plays";
+import type { FeedWeight, RestNight } from "./types";
 
 export const CREDIT_ONSET = 2;
 export const CREDIT_SLEPT = 1;

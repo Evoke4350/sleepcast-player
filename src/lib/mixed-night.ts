@@ -10,7 +10,8 @@
 // The constraint is only on position one. Everything after it shuffles.
 
 import type { Episode } from "./engine";
-import { pickNextEpisode, type FeedWeight, type Play } from "./plays";
+import { pickNextEpisode, type Play } from "./plays";
+import type { FeedWeight } from "./rest/types";
 
 /** The videos among episodes that can still play. */
 function videosOf(alive: readonly Episode[]): Episode[] {

@@ -8,7 +8,8 @@
 
 import type { Episode } from "./engine";
 import type { Transport as BackendTransport } from "./media/backend";
-import { pickNextEpisode, type FeedWeight, type Play } from "./plays";
+import { pickNextEpisode, type Play } from "./plays";
+import type { FeedWeight } from "./rest/types";
 import { classifyYouTubeError } from "./youtube-errors";
 
 /** Retries allowed for one episode before it is skipped. */
