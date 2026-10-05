@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import type { Episode } from "../lib/engine";
 import { formatTime } from "../lib/engine";
-import { loadLive, clearLastNight, loadLastNight, type LiveSession, type LastNight, type ResumeDescriptor, resumeFrom, nightTimerMinutes, loadState, isRevivable, resumeMode } from "../lib/store";
+import { loadLive, clearLastNight, loadLastNight, type LiveSession, type LastNight, type ResumeDescriptor, resumeFrom, nightTimerMinutes, loadState, isRevivable, resumeMode, loadBlocked } from "../lib/store";
 import type { PlayMode } from "../lib/engine";
 import type { NoiseSettings } from "../lib/store";
 import { shouldReanchor, nextInSpread } from "../lib/rest/reanchor";
@@ -113,15 +113,16 @@ export function AppPlayer() {
         return;
       }
       const lastNight = loadLastNight();
+      const blocked = loadBlocked();
       // Quiet mode suppresses the 3am catch — that nudge is the main thing
       // "go quiet" is meant to turn off.
       // Re-read rather than trusting the closure: this listener is registered
       // once and would otherwise hold `quiet` from the first render forever.
-      if (isQuiet(loadQuietUntil(), Date.now()) || !shouldReanchor({ lastNight, now: Date.now(), localHour: new Date().getHours() })) {
+      if (isQuiet(loadQuietUntil(), Date.now()) || !shouldReanchor({ lastNight, now: Date.now(), localHour: new Date().getHours(), blocked })) {
         setReanchor(null);
         return;
       }
-      const next = nextInSpread(lastNight!.pool, lastNight!.playedIds);
+      const next = nextInSpread(lastNight!.pool, lastNight!.playedIds, blocked);
       if (next) setReanchor({ lastNight: lastNight!, next });
     };
     check();

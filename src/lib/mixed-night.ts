@@ -27,7 +27,9 @@ import type { FeedWeight } from "./rest/types";
  *
  * A supplied podcast lead is only overridden by a video, never by another
  * podcast: the listener may have chosen this one, and swapping it for a
- * different podcast buys nothing and ignores them.
+ * different podcast buys nothing and ignores them. The exception is a lead
+ * already dead (blocked since it was chosen): that is no lead, and the
+ * ordinary pick stands in for it.
  */
 export function preferVideoLead(
   lead: Episode | null | undefined,

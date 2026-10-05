@@ -26,6 +26,11 @@ describe("nextInSpread", () => {
   it("null when all played", () => {
     expect(nextInSpread([ep("a")], ["a"])).toBeNull();
   });
+
+  it("skips a blocked episode, keeping the spread's order", () => {
+    expect(nextInSpread([ep("a"), ep("b"), ep("c")], ["a"], ["b"])?.id).toBe("c");
+    expect(nextInSpread([ep("a"), ep("b")], ["a"], ["b"])).toBeNull();
+  });
   it("null for an empty pool", () => {
     expect(nextInSpread([], [])).toBeNull();
   });
@@ -37,6 +42,9 @@ describe("shouldReanchor", () => {
   });
   it("false when there is no last night", () => {
     expect(shouldReanchor({ lastNight: null, now: NOW, localHour: 3 })).toBe(false);
+  });
+  it("false when all that's left in the spread is blocked", () => {
+    expect(shouldReanchor({ lastNight: night(), now: NOW, localHour: 3, blocked: ["b"] })).toBe(false);
   });
   it("false when the night was ended or abandoned, not faded", () => {
     expect(shouldReanchor({ lastNight: night({ endedVia: "ended" }), now: NOW, localHour: 3 })).toBe(false);
