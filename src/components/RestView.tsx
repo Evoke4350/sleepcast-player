@@ -13,11 +13,18 @@ export function RestView({ onClose }: { onClose: () => void }) {
   const watch = useMemo(() => watchAgreement(nights), [nights]);
   const [pasted, setPasted] = useState("");
   const [pasteLine, setPasteLine] = useState<string | null>(null);
+  // A pasted import re-timed nights the home screen worked out its lines
+  // from (the goodbye, the step-back offer): leaving reloads, so they are
+  // read again, as the link's import does.
+  const [retimedHere, setRetimedHere] = useState(false);
   function importPasted() {
-    setPasteLine(watchNotice(importWatch(payloadFromPaste(pasted))));
+    const r = importWatch(payloadFromPaste(pasted));
+    setPasteLine(watchNotice(r));
     setPasted("");
     setNights(loadNights());
+    if (r.timed.length) setRetimedHere(true);
   }
+  const close = () => (retimedHere ? window.location.reload() : onClose());
   const r = useMemo(() => rollup(nights), [nights]);
   const last = nights.at(-1) ?? null;
 
@@ -108,7 +115,7 @@ export function RestView({ onClose }: { onClose: () => void }) {
     if (kind === "awake" && last.sleptAtMs !== null) {
       recordFalsePositive();
     }
-    onClose();
+    close();
   }
 
   return (
@@ -232,7 +239,7 @@ export function RestView({ onClose }: { onClose: () => void }) {
         counted only on this device. no account, nothing sent anywhere. we're
         rooting for the nights you don't need us.
       </p>
-      <button onClick={onClose} className="text-xs underline decoration-[#3a3325] underline-offset-4 hover:text-[#b59a76]">back</button>
+      <button onClick={close} className="text-xs underline decoration-[#3a3325] underline-offset-4 hover:text-[#b59a76]">back</button>
     </div>
   );
 }

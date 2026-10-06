@@ -33,10 +33,6 @@ interface SessionState {
   leadPosition?: number;
 }
 
-// The /app player: the setup screen until a night begins, then the immersive
-// player. A night in progress is snapshotted to localStorage (store.saveLive),
-// so a full reload — including iOS reclaiming the backgrounded tab — can offer
-// to resume it rather than waking you to silence.
 /** A #watch= link's import, if the page loaded with one: the fragment
  *  cleared, a killed tab's night settled first, and the line saying what it
  *  did. Run once per page load (an initializer called twice gets the first
@@ -60,6 +56,10 @@ function hasWatchLink(): boolean {
   return watchPayloadFromHash(window.location.hash) !== null;
 }
 
+// The /app player: the setup screen until a night begins, then the immersive
+// player. A night in progress is snapshotted to localStorage (store.saveLive),
+// so a full reload — including iOS reclaiming the backgrounded tab — can offer
+// to resume it rather than waking you to silence.
 export function AppPlayer() {
   const [session, setSession] = useState<SessionState | null>(null);
   const [resume, setResume] = useState<ResumeDescriptor | null>(null);
@@ -96,13 +96,10 @@ export function AppPlayer() {
   // the link waits until it ends.
   const sessionOn = session !== null;
   useEffect(() => {
-    if (!sessionOn && hasWatchLink()) {
-      window.location.reload();
-      return;
-    }
     const onHash = () => {
       if (!sessionOn && hasWatchLink()) window.location.reload();
     };
+    onHash(); // a link that waited for the night to end
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, [sessionOn]);

@@ -91,13 +91,13 @@ describe("paramsFromHistory keeps the detector able to decide", () => {
 });
 
 describe("calibration and watch onsets", () => {
-  it("doesn't learn from a night whose onset came after it ended", () => {
+  it("doesn't learn from watch-timed nights, whose touches run past the onset", () => {
     const n = (over: Partial<RestNight>): RestNight => ({
-      startedAt: 0, endedAt: 30 * 60_000, timerMinutes: 30, endedVia: "faded", sleptAtMs: 20 * 60_000,
-      timeToSleepMs: 20 * 60_000, interactions: 6, detector: "watch", ...over,
+      startedAt: 0, endedAt: 45 * 60_000, timerMinutes: 45, endedVia: "faded", sleptAtMs: 20 * 60_000,
+      timeToSleepMs: 20 * 60_000, interactions: 2, detector: "inference", ...over,
     });
     const observed = [n({}), n({}), n({})];
-    const late = n({ sleptAtMs: 120 * 60_000, timeToSleepMs: 120 * 60_000 });
-    expect(paramsFromHistory([...observed, late])).toEqual(paramsFromHistory(observed));
+    const watched = n({ detector: "watch", sleptAtMs: 6 * 60_000, timeToSleepMs: 6 * 60_000, interactions: 6 });
+    expect(paramsFromHistory([...observed, watched])).toEqual(paramsFromHistory(observed));
   });
 });

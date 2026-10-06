@@ -57,14 +57,17 @@ function stageAsleep(stage: string): boolean | null {
 /** A date with a time of day, in ms, or null. A date alone parses as
  *  midnight UTC: no onset at all. */
 function parseTime(text: string | undefined): number | null {
-  if (!text || !text.includes("T")) return null;
+  // A time of day as ISO 8601 writes it ("T23:15"): a weekday name has a
+  // "T" too, and parses as midnight.
+  if (!text || !/T\d{2}:\d{2}/.test(text)) return null;
   const t = Date.parse(text.trim());
   return Number.isFinite(t) ? t : null;
 }
 
 /** The samples in a Shortcut's payload; how many lines named a stage this
  *  doesn't recognise; and how many were malformed (either date without a
- *  time of day or unparseable, an end before the start, too few fields),
+ *  time of day or unparseable, an end before the start, too few fields or
+ *  an empty stage),
  *  which most likely means the Shortcut's date format is off. Blank lines
  *  are neither. */
 export function parseWatchPayload(text: string): { samples: SleepSample[]; unrecognised: number; malformed: number } {
@@ -79,7 +82,7 @@ export function parseWatchPayload(text: string): { samples: SleepSample[]; unrec
     // A bad end matters as much as a bad start: zero-length samples never
     // join into a stretch, so sleep that began before a night's start would
     // look like falling asleep at its next stage change.
-    if (start === null || end === null || end < start || stage === undefined) {
+    if (start === null || end === null || end < start || stage === undefined || !/[a-z0-9]/i.test(stage)) {
       malformed++;
       continue;
     }
@@ -97,9 +100,9 @@ export function parseWatchPayload(text: string): { samples: SleepSample[]; unrec
  *  stages abut, give or take a rounding second. */
 const CONTIGUOUS_MS = 60_000;
 
-/** The starts of each unbroken stretch of sleep, in time order: asleep
- *  samples merged where one begins within CONTIGUOUS_MS of the stretch's
- *  end so far. A stage change within a stretch is not falling asleep. */
+/** Each unbroken stretch of sleep, in time order: asleep samples merged
+ *  where one begins within CONTIGUOUS_MS of the stretch's end so far. A
+ *  stage change within a stretch is not falling asleep. */
 export function sleepStretches(samples: readonly SleepSample[]): { start: number; end: number }[] {
   const asleep = samples.filter((s) => s.asleep).sort((a, b) => a.start - b.start);
   const out: { start: number; end: number }[] = [];
@@ -109,6 +112,18 @@ export function sleepStretches(samples: readonly SleepSample[]): { start: number
     else out.push({ start: s.start, end: s.end });
   }
   return out;
+}
+
+/** The stretches that can be onsets: the payload covers a window (the
+ *  Shortcut's "last 2 days"), so a stretch beginning at its very first
+ *  sample may have begun before the window, its earlier stages cut off.
+ *  Its start would be a stage change, not falling asleep. (The cost: a
+ *  first-ever night with nothing before its sleep in the payload isn't
+ *  timed; the next morning's run, reading two days, times it.) */
+export function onsetStretches(samples: readonly SleepSample[]): { start: number; end: number }[] {
+  if (!samples.length) return [];
+  const earliest = Math.min(...samples.map((s) => s.start));
+  return sleepStretches(samples).filter((s) => s.start > earliest + CONTIGUOUS_MS);
 }
 
 /** The watch's onset for a night, from its start (ms), or null: the start
@@ -139,11 +154,16 @@ export function watchOnset(
  *  replaces. */
 export function retimed(n: RestNight, atMs: number): RestNight {
   const inferredAtMs = n.detector === "watch" ? (n.inferredAtMs ?? null) : n.sleptAtMs;
-  const { selfLabel: _label, ...unlabelled } = n;
-  const timed = { sleptAtMs: atMs, timeToSleepMs: atMs, detector: "watch" as const, inferredAtMs };
+  const { selfLabel: _l, onsetFeedId: _f, onsetEpisodeId: _e, onsetAfterMs: _a, sleptThrough: _s, ...base } = n;
   const covering = n.timeline?.some((e) => e.t <= atMs) ? n.timeline : undefined;
-  const { onsetFeedId: _f, onsetEpisodeId: _e, onsetAfterMs: _a, sleptThrough: _s, ...base } = unlabelled;
-  return { ...base, ...timed, ...(!onsetAfterEnd(n, atMs) && covering ? attribution(covering, atMs) : {}) };
+  return {
+    ...base,
+    sleptAtMs: atMs,
+    timeToSleepMs: atMs,
+    detector: "watch",
+    inferredAtMs,
+    ...(!onsetAfterEnd(n, atMs) && covering ? attribution(covering, atMs) : {}),
+  };
 }
 
 export interface WatchTiming {
@@ -160,7 +180,7 @@ export function applyWatch(
   nights: readonly RestNight[],
   samples: readonly SleepSample[],
 ): { nights: RestNight[]; timed: WatchTiming[]; unchanged: number } {
-  const stretches = sleepStretches(samples);
+  const stretches = onsetStretches(samples);
   const starts = [...new Set(nights.map((n) => n.startedAt))].sort((a, b) => a - b);
   const next = new Map(starts.map((s, i) => [s, starts[i + 1] ?? Infinity]));
   const timed: WatchTiming[] = [];

@@ -1,20 +1,18 @@
 import type { RestNight, DetectorParams } from "./types";
 import { DEFAULT_PARAMS, LAMBDA_MAX, TICK_MS } from "./detector";
-import { loadNights, loadParams, saveParams, onsetAfterEnd } from "./ledger";
+import { loadNights, loadParams, saveParams } from "./ledger";
 
 /** Re-estimate lambdaAwake from the user's own nights: interactions per awake
  *  tick, where "awake ticks" ≈ time-to-sleep / tick. Falls back to defaults
  *  with too little history. Clamped to a sane range. */
 export function paramsFromHistory(nights: RestNight[]): DetectorParams {
-  // A night marked "awake" has no real time-to-sleep to learn from. Nor does
-  // one whose onset (a watch's) came after the night ended: its touches
-  // were only counted while it played, not over the whole time-to-sleep.
+  // A night marked "awake" has no real time-to-sleep to learn from. Nor
+  // does a watch-timed one, for this estimate: its touches are counted over
+  // the whole night, not only before the watch's onset (the detector's
+  // onset follows the last touch, the watch's needn't), so after-onset
+  // touches would read as awake ones and make the detector bolder.
   const usable = nights.filter(
-    (n) =>
-      n.timeToSleepMs &&
-      n.timeToSleepMs > 0 &&
-      n.selfLabel !== "awake" &&
-      !onsetAfterEnd(n, n.timeToSleepMs),
+    (n) => n.timeToSleepMs && n.timeToSleepMs > 0 && n.selfLabel !== "awake" && n.detector !== "watch",
   );
   if (usable.length < 3) return DEFAULT_PARAMS;
   let interactions = 0;

@@ -40,7 +40,10 @@ the start of the first stretch that begins at or after the night's start,
 within `MATCH_WINDOW_MS` (4 h) and before the next night's start (a 3am
 re-anchor is its own night). A stretch that began before the night's start
 doesn't count, nor does a stage change within it: the listener was awake to
-press start.
+press start. Nor does a stretch beginning at the payload's very first sample:
+the window ("last 2 days") may have cut off its earlier stages, so its start
+could be a stage change. (A first-ever night with nothing before its sleep in
+the payload is timed by the next morning's run instead.)
 
 ## 4. Re-timing
 
@@ -73,13 +76,15 @@ offered for labelling.
 
 A watch onset is measured, so the detector's plausibility floor
 (`MIN_PLAUSIBLE_ONSET_MS`) doesn't apply to it: three minutes is a real night.
-Calibration (`paramsFromHistory`) reads `timeToSleepMs` as before, and so
-learns this listener's touch rate from measured awake time on watch nights,
-except where the onset came after the night ended (`onsetAfterEnd`): touches
-were only counted while it played.
+Calibration (`paramsFromHistory`) leaves watch nights out: their touches are
+counted over the whole night, not only before the watch's onset (the
+detector's onset follows the last touch; the watch's needn't), so after-onset
+touches would read as awake ones and make the detector bolder.
 
 ## 5. Surfaces
 
+- A paste import that re-timed a night reloads the page on leaving the rest
+  view, so the home screen's lines are read again.
 - Opening the link imports, clears the fragment at once (a reload or a shared
   link mustn't import again) and shows one line on the home screen: "your
   watch: asleep 12 min in; sleepcast guessed 20 min." A killed tab's night is
