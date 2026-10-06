@@ -87,12 +87,14 @@ describe("parseWatchPayload", () => {
   it("counts an empty stage, or a date whose only T is a word's, as malformed, not foreign", () => {
     const r = parseWatchPayload(
       [
+        // Lines run together (no url-encode step): a date in the stage.
+        "2026-10-05T23:40:00-07:00~2026-10-06T00:10:00-07:00~Core2026-10-06T00:10:00-07:00~2026-10-06T00:40:00-07:00~Deep",
         "2026-10-05T23:40:00-07:00~2026-10-06T00:10:00-07:00~",
         "2026-10-05T23:40:00-07:00~2026-10-06T00:10:00-07:00~ - ",
         "Tuesday, October 5, 2026~Tuesday, October 5, 2026~Core",
       ].join("\n"),
     );
-    expect(r).toMatchObject({ samples: [], unrecognised: 0, malformed: 3 });
+    expect(r).toMatchObject({ samples: [], unrecognised: 0, malformed: 4 });
   });
 
   it("counts an end that doesn't parse, lacks a time, or comes first as malformed", () => {
@@ -220,6 +222,15 @@ describe("applyWatch", () => {
     expect(timed[0].inferredAtMs).toBe(30 * MIN);
   });
 
+  it("leaves a night that began before the payload's window as it was", () => {
+    // Timed whole the morning after; two mornings on, the window opens
+    // mid-sleep, and a stretch after a brief wake would pass for its onset.
+    const timed = night({ detector: "watch", sleptAtMs: 20 * MIN, timeToSleepMs: 20 * MIN, inferredAtMs: 30 * MIN });
+    const r = applyWatch([timed], [asleepAt(60 * MIN, 10 * MIN), awakeAt(70 * MIN), asleepAt(75 * MIN, 60 * MIN)]);
+    expect(r.nights[0]).toBe(timed);
+    expect(r.timed).toEqual([]);
+  });
+
   it("counts a night the watch had already timed the same as unchanged, not timed", () => {
     const first = applyWatch([night()], [WINDOW_OPENS, asleepAt(15 * MIN)]);
     const again = applyWatch(first.nights, [WINDOW_OPENS, asleepAt(15 * MIN)]);
@@ -239,6 +250,17 @@ describe("importWatch", () => {
     expect(loadNights()[0].detector).toBe("watch");
     // 4 min is under the detector's plausibility floor; a watch onset is measured.
     expect(rollup(loadNights()).bestTimeToSleepMs).toBe(4 * MIN);
+  });
+
+  it("changes nothing when any line is malformed: a gap would split a stretch of sleep", () => {
+    appendNight(night());
+    const lines = [
+      OPENS_LINE,
+      "2026-10-05T23:20:00-07:00~2026-10-05T23:00:00-07:00~Core", // end before start
+      "2026-10-05T23:50:00-07:00~2026-10-06T00:30:00-07:00~Deep",
+    ];
+    expect(importWatch(lines.join("\n"))).toMatchObject({ timed: [], malformed: 1 });
+    expect(loadNights()[0].detector).toBe("inference");
   });
 
   it("changes nothing when any stage is unrecognised, as when only REM is in english", () => {
@@ -331,8 +353,11 @@ describe("watchNotice", () => {
     expect(watchNotice({ timed: [], unchanged: 0, samples: 0, unrecognised: 4, malformed: 0 })).toMatch(/english only/);
     expect(watchNotice({ timed: [], unchanged: 0, samples: 0, unrecognised: 0, malformed: 3 })).toMatch(/start date~end date~value/);
     expect(watchNotice({ timed: [], unchanged: 1, samples: 3, unrecognised: 0, malformed: 0 })).toMatch(/nothing new/);
-    expect(watchNotice({ timed: [t(12 * MIN, null)], unchanged: 0, samples: 3, unrecognised: 0, malformed: 2 })).toBe(
-      "your watch: asleep 12 min in. (2 lines couldn't be read: check the shortcut.)",
+    expect(watchNotice({ timed: [], unchanged: 0, samples: 3, unrecognised: 0, malformed: 2 })).toMatch(
+      /^2 lines of the watch data didn't read, so nothing was changed/,
+    );
+    expect(watchNotice({ timed: [t(20_000, null)], unchanged: 0, samples: 3, unrecognised: 0, malformed: 0 })).toBe(
+      "your watch: asleep within a minute.",
     );
   });
 });

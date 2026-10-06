@@ -66,8 +66,8 @@ function parseTime(text: string | undefined): number | null {
 
 /** The samples in a Shortcut's payload; how many lines named a stage this
  *  doesn't recognise; and how many were malformed (either date without a
- *  time of day or unparseable, an end before the start, too few fields or
- *  an empty stage),
+ *  time of day or unparseable, an end before the start, other than three
+ *  fields, or a stage that isn't a name or code),
  *  which most likely means the Shortcut's date format is off. Blank lines
  *  are neither. */
 export function parseWatchPayload(text: string): { samples: SleepSample[]; unrecognised: number; malformed: number } {
@@ -76,13 +76,18 @@ export function parseWatchPayload(text: string): { samples: SleepSample[]; unrec
   let malformed = 0;
   for (const line of text.split(/\r?\n/).slice(-MAX_SAMPLES)) {
     if (!line.trim()) continue;
-    const [startText, endText, stage] = line.split("~");
+    const fields = line.split("~");
+    const [startText, endText, stage] = fields;
     const start = parseTime(startText);
     const end = parseTime(endText);
     // A bad end matters as much as a bad start: zero-length samples never
     // join into a stretch, so sleep that began before a night's start would
     // look like falling asleep at its next stage change.
-    if (start === null || end === null || end < start || stage === undefined || !/[a-z0-9]/i.test(stage)) {
+    // A stage is a name or code: anything else (a date run into it, when
+    // the url-encode step was missed and the line breaks with it) is the
+    // Shortcut's format, not a language.
+    const stageOk = stage !== undefined && /[a-z0-9]/i.test(stage) && /^[a-z0-9 ()_-]+$/i.test(stage.trim());
+    if (fields.length !== 3 || start === null || end === null || end < start || !stageOk) {
       malformed++;
       continue;
     }
@@ -181,11 +186,17 @@ export function applyWatch(
   samples: readonly SleepSample[],
 ): { nights: RestNight[]; timed: WatchTiming[]; unchanged: number } {
   const stretches = onsetStretches(samples);
+  // A night that began before the payload's first sample can't be told
+  // apart from one the window cut into: whether sleep began before its
+  // start is unknown, and a stretch after a brief wake would pass for its
+  // onset. It keeps what it has (an earlier morning's run read it whole).
+  const earliest = samples.length ? Math.min(...samples.map((s) => s.start)) : Infinity;
   const starts = [...new Set(nights.map((n) => n.startedAt))].sort((a, b) => a - b);
   const next = new Map(starts.map((s, i) => [s, starts[i + 1] ?? Infinity]));
   const timed: WatchTiming[] = [];
   let unchanged = 0;
   const out = nights.map((n) => {
+    if (n.startedAt < earliest) return n;
     const at = watchOnset(n.startedAt, stretches, next.get(n.startedAt));
     if (at === null) return n;
     if (n.detector === "watch" && n.sleptAtMs === at) {
@@ -222,13 +233,15 @@ export function payloadFromPaste(text: string): string {
 /** Reads a payload into the rest ledger. Any unrecognised stage refuses
  *  the whole import: in several languages REM is still "REM" while the
  *  other stages aren't English, so the recognised part alone would time
- *  the night from its first REM stage, an hour or more late. */
+ *  the night from its first REM stage, an hour or more late. So does any
+ *  malformed line: a sample missing from inside a stretch splits it, and
+ *  its next stage change would pass for falling asleep. */
 export function importWatch(text: string): WatchImport {
   const { samples, unrecognised, malformed } = parseWatchPayload(text);
   let timed: WatchTiming[] = [];
   let unchanged = 0;
   let unsaved = false;
-  if (samples.length && !unrecognised) {
+  if (samples.length && !unrecognised && !malformed) {
     const r = applyWatch(loadNights(), samples);
     unchanged = r.unchanged;
     // Nothing re-timed, nothing to write (a full store would evict cached
@@ -264,21 +277,21 @@ function decodeLeniently(text: string): string {
 /** What an import did, in a line for the listener. */
 export function watchNotice(r: WatchImport): string {
   if (r.unsaved) return "your watch's times couldn't be saved: this browser's storage for sleepcast is full.";
-  if (r.unrecognised) return "your watch's sleep stages came in a language sleepcast can't read yet (english only), so nothing was changed.";
-  if (!r.samples) {
-    if (r.malformed) {
-      return "the watch data didn't read: in the shortcut, check the text is start date~end date~value, with both dates iso 8601 and the time included.";
-    }
-    return "nothing from your watch to read: is sleep tracking on?";
+  if (r.malformed) {
+    const lines = r.malformed === 1 ? "a line" : `${r.malformed} lines`;
+    return `${lines} of the watch data didn't read, so nothing was changed: in the shortcut, check the text is start date~end date~value, with both dates iso 8601 and the time included.`;
   }
-  const unread = r.malformed ? ` (${r.malformed === 1 ? "1 line" : `${r.malformed} lines`} couldn't be read: check the shortcut.)` : "";
+  if (r.unrecognised) return "your watch's sleep stages came in a language sleepcast can't read yet (english only), so nothing was changed.";
+  if (!r.samples) return "nothing from your watch to read: is sleep tracking on?";
   if (!r.timed.length) {
-    return (r.unchanged ? "nothing new: your watch had already timed these nights." : "your watch's sleep didn't start inside a sleepcast night.") + unread;
+    return r.unchanged ? "nothing new: your watch had already timed these nights." : "your watch's sleep didn't start inside a sleepcast night.";
   }
   const last = r.timed[r.timed.length - 1];
   const guess = last.inferredAtMs === null ? "" : `; sleepcast guessed ${fmtOnsetMinutes(last.inferredAtMs)}`;
   const lead = r.timed.length === 1 ? "your watch" : `your watch timed ${r.timed.length} nights. the latest`;
-  return `${lead}: asleep ${fmtOnsetMinutes(last.atMs)} in${guess}.${unread}`;
+  // "asleep under a minute in" doesn't read: the fast case gets its own words.
+  const when = fmtOnsetMinutes(last.atMs) === "under a minute" ? "asleep within a minute" : `asleep ${fmtOnsetMinutes(last.atMs)} in`;
+  return `${lead}: ${when}${guess}.`;
 }
 
 /** How the detector's guesses compare with the watch: nights the watch

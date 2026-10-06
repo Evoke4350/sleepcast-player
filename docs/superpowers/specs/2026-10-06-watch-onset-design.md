@@ -24,8 +24,12 @@ whole names) or its numeric code (HKCategoryValueSleepAnalysis 0–5). English
 names only, and any unrecognised name refuses the whole import: in several
 languages REM is still "REM" while the other stages aren't English, and the
 recognised part alone would time the night from its first REM stage. A line
-whose dates lack a time or don't parse (or whose end comes first) is
-malformed and reported. The newest 2000 lines are read.
+whose dates lack a time or don't parse (or whose end comes first), that
+hasn't three fields, or whose stage isn't a name or code is malformed, and any
+malformed line refuses the import too: a sample missing from inside a stretch
+would split it, and its next stage change would pass for falling asleep. The
+notice names the Shortcut's format as the likely cause. The newest 2000 lines
+are read.
 
 A home-screen copy of the site keeps its own storage, apart from Safari's, so
 the link can't reach it. For that, the Shortcut copies the lines instead, and
@@ -43,7 +47,9 @@ doesn't count, nor does a stage change within it: the listener was awake to
 press start. Nor does a stretch beginning at the payload's very first sample:
 the window ("last 2 days") may have cut off its earlier stages, so its start
 could be a stage change. (A first-ever night with nothing before its sleep in
-the payload is timed by the next morning's run instead.)
+the payload is timed by the next morning's run instead.) A night that began
+before the payload's first sample is left as it was: whether sleep began
+before its start can't be told, and an earlier morning's run read it whole.
 
 ## 4. Re-timing
 

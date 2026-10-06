@@ -5,7 +5,7 @@ import { loadLive, clearLastNight, loadLastNight, type LiveSession, type LastNig
 import type { PlayMode } from "../lib/engine";
 import type { NoiseSettings } from "../lib/store";
 import { reanchorNext } from "../lib/rest/reanchor";
-import { importWatch, watchNotice, watchPayloadFromHash } from "../lib/rest/watch";
+import { importWatch, watchNotice, watchPayloadFromHash, WATCH_HASH } from "../lib/rest/watch";
 import { DEFAULT_FEEL_MINUTES } from "../lib/timer-feel";
 import { SleepSetup } from "./SleepSetup";
 import { Player } from "./Player";
@@ -53,7 +53,7 @@ function takeWatchLink(): string | null {
 
 /** Whether the address now holds a #watch= link. */
 function hasWatchLink(): boolean {
-  return watchPayloadFromHash(window.location.hash) !== null;
+  return window.location.hash.startsWith(WATCH_HASH);
 }
 
 // The /app player: the setup screen until a night begins, then the immersive

@@ -21,8 +21,10 @@ export function RestView({ onClose }: { onClose: () => void }) {
     const r = importWatch(payloadFromPaste(pasted));
     setPasteLine(watchNotice(r));
     setPasted("");
-    setNights(loadNights());
-    if (r.timed.length) setRetimedHere(true);
+    if (r.timed.length) {
+      setNights(loadNights());
+      setRetimedHere(true);
+    }
   }
   const close = () => (retimedHere ? window.location.reload() : onClose());
   const r = useMemo(() => rollup(nights), [nights]);
