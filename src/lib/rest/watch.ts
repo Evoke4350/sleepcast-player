@@ -14,6 +14,7 @@
 import type { RestNight } from "./types";
 import { attribution } from "./session";
 import { loadNights, median, onsetAfterEnd, saveNights } from "./ledger";
+import { endKilledNight } from "./reconcile";
 import { fmtOnsetMinutes } from "./sleepscore";
 
 export interface SleepSample {
@@ -87,9 +88,10 @@ export function parseWatchPayload(text: string): { samples: SleepSample[]; unrec
     // A stage is a name or code: anything else (a date run into it, when
     // the url-encode step was missed and the line breaks with it) is the
     // Shortcut's format, not a language.
-    // Letters in any script: a localised name is a language matter (the
+    // Letters in any script, with their combining marks (Devanagari and
+    // Thai vowel signs): a localised name is a language matter (the
     // "english only" notice), not a format one.
-    const stageOk = stage !== undefined && /^[\p{L}\p{N} ()_-]+$/u.test(stage.trim()) && /[\p{L}\p{N}]/u.test(stage);
+    const stageOk = stage !== undefined && /^[\p{L}\p{M}\p{N} ()_-]+$/u.test(stage.trim()) && /[\p{L}\p{N}]/u.test(stage);
     if (fields.length !== 3 || start === null || end === null || end < start || !stageOk) {
       malformed++;
       continue;
@@ -246,7 +248,10 @@ export function payloadFromPaste(text: string): string {
  *  the night from its first REM stage, an hour or more late. So does any
  *  malformed line: a sample missing from inside a stretch splits it, and
  *  its next stage change would pass for falling asleep. */
-export function importWatch(text: string): WatchImport {
+export function importWatch(text: string, now = Date.now()): WatchImport {
+  // The night a killed tab left unrecorded is the one the import is for,
+  // by link or by paste alike (endKilledNight).
+  endKilledNight(now);
   const { samples, unrecognised, malformed } = parseWatchPayload(text);
   let timed: WatchTiming[] = [];
   let unchanged = 0;

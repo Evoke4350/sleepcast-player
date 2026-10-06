@@ -20,7 +20,8 @@ export function RestView({ onClose }: { onClose: () => void }) {
   function importPasted() {
     const r = importWatch(payloadFromPaste(pasted));
     setPasteLine(watchNotice(r));
-    setPasted("");
+    // Kept when refused, so what was pasted can be looked at.
+    if (r.timed.length || r.unchanged) setPasted("");
     if (r.timed.length) {
       setNights(loadNights());
       setRetimedHere(true);

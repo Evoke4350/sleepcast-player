@@ -134,7 +134,7 @@ function sortedTimeline(timeline: readonly TimelineEntry[]): TimelineEntry[] {
 /** What was playing at an onset `atMs` (from the night's start), and which
  *  feeds played on after it: the onset fields of a RestNight, for the
  *  detector's onset (finish) and the watch's alike (watch.ts). None for no
- *  onset. Spread rather than assigned: an absent field and an empty array
+ *  onset. `timeline` in time order: finish sorts it, and stores it so. Spread rather than assigned: an absent field and an empty array
  *  must not become two shapes in a ledger that already holds 90 nights
  *  without them. */
 export function attribution(
@@ -142,9 +142,8 @@ export function attribution(
   atMs: number | null,
 ): Pick<RestNight, "onsetFeedId" | "onsetEpisodeId" | "onsetAfterMs" | "sleptThrough"> {
   if (atMs === null) return {};
-  const sorted = sortedTimeline(timeline);
-  const at = sorted.filter((e) => e.t <= atMs).at(-1);
-  const sleptThrough = [...new Set(sorted.filter((e) => e.t > atMs).map((e) => e.feedId))];
+  const at = timeline.filter((e) => e.t <= atMs).at(-1);
+  const sleptThrough = [...new Set(timeline.filter((e) => e.t > atMs).map((e) => e.feedId))];
   return {
     // at.t is when the credited feed itself started, so atMs - at.t is how
     // long *it* had been playing — not timeToSleepMs, which is measured from

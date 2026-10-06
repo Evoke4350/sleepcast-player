@@ -13,7 +13,7 @@ import { YouTubeNight } from "./YouTubeNight";
 import { Night } from "./Night";
 import { isYouTubeLineup, isMixedLineup } from "../lib/youtube-night";
 import { RestView } from "./RestView";
-import { reconcileLive, settleLive, SNAPSHOT_FRESH_MS } from "../lib/rest/reconcile";
+import { reconcileLive, settleLive } from "../lib/rest/reconcile";
 import { ReanchorView } from "./ReanchorView";
 import { shouldGreetGoodbye, markGoodbyeSeen, fmtDuration } from "../lib/rest/surface";
 import { loadNights, loadQuietUntil, saveQuietUntil, loadStepBackAsked, markStepBackAsked } from "../lib/rest/ledger";
@@ -44,24 +44,10 @@ function takeWatchLink(): string | null {
   let line: string | null = null;
   if (payload !== null) {
     history.replaceState(null, "", window.location.pathname + window.location.search);
-    endKilledNight(Date.now());
     line = watchNotice(importWatch(payload));
   }
   watchLinkTaken = { line };
   return line;
-}
-
-/** A watch import means the night is over (the Shortcut runs in the
- *  morning): a killed tab's snapshot is recorded now, even one that could
- *  still be revived (a timerless night's, under LIVE_MAX_AGE_MS), as that
- *  is the night the import is for. Not one saved in the last
- *  SNAPSHOT_FRESH_MS: that night may still be playing in another tab. */
-function endKilledNight(now: number): void {
-  const l = loadLive();
-  if (!l) return;
-  const age = now - l.savedAt;
-  if (age >= 0 && age < SNAPSHOT_FRESH_MS) return;
-  reconcileLive(l, now);
 }
 
 /** Whether the address now holds a #watch= link. */
@@ -100,7 +86,11 @@ export function AppPlayer() {
   // Shortcut most needs to time, so it is recorded first (endKilledNight;
   // the `live` state below then finds no snapshot). The fragment is cleared
   // at once: a reload, or the link shared, mustn't import it again.
-  const [watchLine] = useState(takeWatchLink);
+  const [watchLine, setWatchLine] = useState(takeWatchLink);
+  // The morning's line is about the night before: gone once another starts.
+  useEffect(() => {
+    if (session) setWatchLine(null);
+  }, [session]);
   // The link can also land in a tab already open, where only the fragment
   // changes. Reload, so it is read as on any page load: everything here
   // (the resume card, setup's label offer, the goodbye) was worked out

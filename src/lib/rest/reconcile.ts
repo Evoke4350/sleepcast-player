@@ -7,7 +7,7 @@
 // The detector never saw the night finish, so there is no onset to report:
 // the ledger gets a detector:"none" night, which keeps the night count honest
 // without claiming a time-to-sleep.
-import { clearLive, isRevivable, nightTimerMinutes, saveLastNight, withCurrentPlayed, type LiveSession } from "../store";
+import { clearLive, isRevivable, loadLive, nightTimerMinutes, saveLastNight, withCurrentPlayed, type LiveSession } from "../store";
 import { appendNight } from "./ledger";
 import { validLean } from "./sleepscore";
 
@@ -61,11 +61,26 @@ export function reconcileLive(l: LiveSession, now: number): void {
 export function settleLive(l: LiveSession | null, now: number): LiveSession | null {
   if (!l) return null;
   if (isRevivable(l, now)) return l;
-  // Saved in the future means the clock stepped back since: not another
-  // tab's live night (it shares this clock), so reconcile it now rather than
-  // leave it to be offered hours late.
-  const age = now - l.savedAt;
-  if (age >= 0 && age < SNAPSHOT_FRESH_MS) return null;
-  reconcileLive(l, now);
+  reconcileUnlessFresh(l, now);
   return null;
+}
+
+/** Records a snapshot's night unless it may still be live in another tab.
+ *  Saved in the future means the clock stepped back since: not another
+ *  tab's live night (it shares this clock), so reconcile it now rather than
+ *  leave it to be offered hours late. */
+function reconcileUnlessFresh(l: LiveSession, now: number): void {
+  const age = now - l.savedAt;
+  if (age >= 0 && age < SNAPSHOT_FRESH_MS) return;
+  reconcileLive(l, now);
+}
+
+/** A watch import means the night is over (the Shortcut runs in the
+ *  morning): a killed tab's snapshot is recorded now, even one that could
+ *  still be revived (a timerless night's, under LIVE_MAX_AGE_MS), as that
+ *  is the night the import is for. Not one that may still be live in
+ *  another tab. */
+export function endKilledNight(now: number): void {
+  const l = loadLive();
+  if (l) reconcileUnlessFresh(l, now);
 }
