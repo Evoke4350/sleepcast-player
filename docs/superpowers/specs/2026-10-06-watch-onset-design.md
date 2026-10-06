@@ -78,7 +78,8 @@ A night with no timeline (older, or reconciled from a killed tab) still gets
 the watch's time, but any attribution it had, which was for a different onset,
 is dropped. A self-label ("slept"/"awake") was on the detector's claim,
 which the watch replaces, so it is dropped too, and a watch-timed night isn't
-offered for labelling.
+offered for labelling: `setSelfLabel` itself refuses one, so a screen in another
+tab still showing the offer from before the import can't label it.
 
 A watch onset is measured, so the detector's plausibility floor
 (`MIN_PLAUSIBLE_ONSET_MS`) doesn't apply to it: three minutes is a real night.
@@ -94,7 +95,10 @@ touches would read as awake ones and make the detector bolder.
 - Opening the link imports, clears the fragment at once (a reload or a shared
   link mustn't import again) and shows one line on the home screen: "your
   watch: asleep 12 min in; sleepcast guessed 20 min." A killed tab's night is
-  settled into the ledger first, so the morning import can time it, and a
+  recorded into the ledger first, so the morning import can time it: a watch
+  import means the night is over, so even a snapshot that could still be
+  revived (a timerless night's) is recorded, unless it was saved in the last
+  30 s (it may be playing in another tab). A
   link landing in an already open tab is caught on `hashchange`. The line
   also says when lines couldn't be read, when nothing was new, and when the
   re-timed nights couldn't be stored.

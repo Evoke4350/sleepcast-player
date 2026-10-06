@@ -579,8 +579,8 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
   function handleSleepLabel(kind: "slept" | "awake") {
     if (!greetNight) return;
     beacon(kind === "slept" ? "slept_yes" : "slept_no");
-    setSelfLabel(greetNight.startedAt, kind);
-    if (kind === "awake" && greetNight.sleptAtMs !== null) {
+    const labelled = setSelfLabel(greetNight.startedAt, kind);
+    if (labelled && kind === "awake" && labelled.sleptAtMs !== null) {
       recordFalsePositive();
     }
     setGreetNight(null);

@@ -206,3 +206,12 @@ describe("onsetAfterEnd", () => {
     expect(onsetAfterEnd({ ...n, endedAt: undefined }, 10 ** 9)).toBe(false);
   });
 });
+
+describe("setSelfLabel and watch nights", () => {
+  beforeEach(() => localStorage.clear());
+  it("won't label a watch-timed night", () => {
+    appendNight({ startedAt: 5, timerMinutes: 60, endedVia: "faded", sleptAtMs: 60_000, timeToSleepMs: 60_000, interactions: 0, detector: "watch" });
+    expect(setSelfLabel(5, "awake")).toBeNull();
+    expect(loadNights()[0]).not.toHaveProperty("selfLabel");
+  });
+});

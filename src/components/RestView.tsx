@@ -112,9 +112,9 @@ export function RestView({ onClose }: { onClose: () => void }) {
 
   function label(kind: "slept" | "awake") {
     if (!last) return;
-    setSelfLabel(last.startedAt, kind);
+    const labelled = setSelfLabel(last.startedAt, kind);
     // a confirmed false positive tightens the detector for next time
-    if (kind === "awake" && last.sleptAtMs !== null) {
+    if (labelled && kind === "awake" && labelled.sleptAtMs !== null) {
       recordFalsePositive();
     }
     close();

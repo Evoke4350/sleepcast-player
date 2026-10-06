@@ -6,10 +6,11 @@
 // sample is one line, "start~end~stage", with ISO 8601 dates and the stage as
 // Health names it (Core, Deep, REM, Awake, In Bed, ...).
 //
-// A night's onset is the first asleep sample that begins inside it. That
-// replaces the detector's guess (kept as inferredAtMs, to compare) and
-// re-attributes the night from its timeline, as RestSession.finish attributes
-// the detector's onset.
+// A night's onset is the start of the first stretch of sleep that begins
+// inside it (see watchOnset and onsetStretches). That replaces the
+// detector's guess (kept as inferredAtMs, to compare) and re-attributes the
+// night from its timeline, as RestSession.finish attributes the detector's
+// onset.
 import type { RestNight } from "./types";
 import { attribution } from "./session";
 import { loadNights, median, onsetAfterEnd, saveNights } from "./ledger";
@@ -86,7 +87,9 @@ export function parseWatchPayload(text: string): { samples: SleepSample[]; unrec
     // A stage is a name or code: anything else (a date run into it, when
     // the url-encode step was missed and the line breaks with it) is the
     // Shortcut's format, not a language.
-    const stageOk = stage !== undefined && /[a-z0-9]/i.test(stage) && /^[a-z0-9 ()_-]+$/i.test(stage.trim());
+    // Letters in any script: a localised name is a language matter (the
+    // "english only" notice), not a format one.
+    const stageOk = stage !== undefined && /^[\p{L}\p{N} ()_-]+$/u.test(stage.trim()) && /[\p{L}\p{N}]/u.test(stage);
     if (fields.length !== 3 || start === null || end === null || end < start || !stageOk) {
       malformed++;
       continue;
@@ -125,10 +128,17 @@ export function sleepStretches(samples: readonly SleepSample[]): { start: number
  *  Its start would be a stage change, not falling asleep. (The cost: a
  *  first-ever night with nothing before its sleep in the payload isn't
  *  timed; the next morning's run, reading two days, times it.) */
-export function onsetStretches(samples: readonly SleepSample[]): { start: number; end: number }[] {
-  if (!samples.length) return [];
-  const earliest = Math.min(...samples.map((s) => s.start));
+export function onsetStretches(
+  samples: readonly SleepSample[],
+  earliest = payloadStart(samples),
+): { start: number; end: number }[] {
   return sleepStretches(samples).filter((s) => s.start > earliest + CONTIGUOUS_MS);
+}
+
+/** Where the payload's window opens: its earliest sample (Infinity for
+ *  none). */
+function payloadStart(samples: readonly SleepSample[]): number {
+  return samples.reduce((m, s) => Math.min(m, s.start), Infinity);
 }
 
 /** The watch's onset for a night, from its start (ms), or null: the start
@@ -185,12 +195,12 @@ export function applyWatch(
   nights: readonly RestNight[],
   samples: readonly SleepSample[],
 ): { nights: RestNight[]; timed: WatchTiming[]; unchanged: number } {
-  const stretches = onsetStretches(samples);
+  const earliest = payloadStart(samples);
+  const stretches = onsetStretches(samples, earliest);
   // A night that began before the payload's first sample can't be told
   // apart from one the window cut into: whether sleep began before its
   // start is unknown, and a stretch after a brief wake would pass for its
   // onset. It keeps what it has (an earlier morning's run read it whole).
-  const earliest = samples.length ? Math.min(...samples.map((s) => s.start)) : Infinity;
   const starts = [...new Set(nights.map((n) => n.startedAt))].sort((a, b) => a - b);
   const next = new Map(starts.map((s, i) => [s, starts[i + 1] ?? Infinity]));
   const timed: WatchTiming[] = [];
@@ -290,7 +300,7 @@ export function watchNotice(r: WatchImport): string {
   const guess = last.inferredAtMs === null ? "" : `; sleepcast guessed ${fmtOnsetMinutes(last.inferredAtMs)}`;
   const lead = r.timed.length === 1 ? "your watch" : `your watch timed ${r.timed.length} nights. the latest`;
   // "asleep under a minute in" doesn't read: the fast case gets its own words.
-  const when = fmtOnsetMinutes(last.atMs) === "under a minute" ? "asleep within a minute" : `asleep ${fmtOnsetMinutes(last.atMs)} in`;
+  const when = Math.round(last.atMs / 60_000) === 0 ? "asleep within a minute" : `asleep ${fmtOnsetMinutes(last.atMs)} in`;
   return `${lead}: ${when}${guess}.`;
 }
 

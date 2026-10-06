@@ -80,6 +80,8 @@ describe("parseWatchPayload", () => {
     expect(english.samples.map((s) => s.asleep)).toEqual([true, true, false, true]);
     const german = parseWatchPayload(["Kern", "Tief", "REM-Schlaf", "Wach", "Im Bett"].map(line).join("\n"));
     expect(german).toMatchObject({ samples: [], unrecognised: 5 });
+    // Accents and other scripts are a language too, not a malformed line.
+    expect(parseWatchPayload(["Éveillé", "コア", "Paradoxal"].map(line).join("\n"))).toMatchObject({ samples: [], unrecognised: 3, malformed: 0 });
     // Nor an inherited key, from a link anyone can write.
     expect(parseWatchPayload(["constructor", "__proto__", "toString"].map(line).join("\n"))).toMatchObject({ samples: [], unrecognised: 3 });
   });

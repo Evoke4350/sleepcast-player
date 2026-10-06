@@ -56,10 +56,14 @@ export function pruneTimelines(nights: RestNight[], now: number): RestNight[] {
   });
 }
 
+/** Labels a night, and returns it; null when there is none, or when it is
+ *  watch-timed (measured, so there is nothing to confirm: a screen still
+ *  showing the offer from before an import, in another tab, mustn't label
+ *  it, nor tighten the detector for a call it didn't make). */
 export function setSelfLabel(startedAt: number, label: "slept" | "awake"): RestNight | null {
   const nights = loadNights();
   const i = nights.findIndex((n) => n.startedAt === startedAt);
-  if (i === -1) return null;
+  if (i === -1 || nights[i].detector === "watch") return null;
   nights[i] = { ...nights[i], selfLabel: label };
   save(nights);
   return nights[i];
