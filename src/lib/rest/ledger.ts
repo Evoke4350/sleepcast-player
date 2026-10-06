@@ -56,7 +56,15 @@ export function setSelfLabel(startedAt: number, label: "slept" | "awake"): RestN
   return nights[i];
 }
 
-function median(xs: number[]): number | null {
+/** Whether to ask if the listener really slept on a night: it claims an
+ *  onset nobody has confirmed or denied, and the onset was the detector's
+ *  guess. A watch-timed night was measured, so there is nothing to confirm
+ *  (and an "awake" would tighten the detector for a call it didn't make). */
+export function offerForLabel(n: RestNight): boolean {
+  return n.sleptAtMs !== null && n.selfLabel === undefined && n.detector !== "watch";
+}
+
+export function median(xs: readonly number[]): number | null {
   if (!xs.length) return null;
   const s = [...xs].sort((a, b) => a - b);
   const m = Math.floor(s.length / 2);

@@ -12,11 +12,13 @@
 // the detector's onset.
 import type { RestNight } from "./types";
 import { attribution } from "./session";
-import { updateNights } from "./ledger";
+import { median, updateNights } from "./ledger";
 import { fmtOnsetMinutes } from "./sleepscore";
 
 export interface SleepSample {
   start: number;
+  /** The sample's end; its start when the payload's end didn't parse. */
+  end: number;
   asleep: boolean;
 }
 
@@ -31,61 +33,93 @@ export const MATCH_WINDOW_MS = 4 * 60 * 60 * 1000;
  *  samples is a few hundred): the fragment is anyone's to write. */
 export const MAX_SAMPLES = 2000;
 
-/** Health's sleep stage codes (HKCategoryValueSleepAnalysis), for a
+/** Health's sleep stages, by code (HKCategoryValueSleepAnalysis, for a
  *  Shortcut that hands the value over as a number: in bed 0, asleep
- *  (unspecified) 1, awake 2, core 3, deep 4, REM 5. */
-const STAGE_CODES: Record<string, boolean> = { "0": false, "1": true, "2": false, "3": true, "4": true, "5": true };
+ *  (unspecified) 1, awake 2, core 3, deep 4, REM 5) and by English name,
+ *  letters only, so "In Bed", "Asleep (Core)" and "REM Sleep" all match.
+ *  Whole names only: a substring match read the German "REM-Schlaf" as
+ *  sleep while missing "Kern", timing the night from its first REM stage.
+ *  Anything else is unrecognised, rather than guessed at. */
+const STAGES = new Map<string, boolean>([
+  ["0", false], ["1", true], ["2", false], ["3", true], ["4", true], ["5", true],
+  ["inbed", false], ["awake", false],
+  ["asleep", true], ["unspecified", true], ["asleepunspecified", true],
+  ["core", true], ["asleepcore", true], ["coresleep", true],
+  ["deep", true], ["asleepdeep", true], ["deepsleep", true],
+  ["rem", true], ["asleeprem", true], ["remsleep", true],
+]);
 
-/** Whether a stage is sleep: by Health's code, or by its English name.
- *  "Asleep" (unspecified, from older watches) counts; Awake and In Bed don't.
- *  Anything else is unrecognised, rather than guessed at: a localised
- *  "In Bed" read as sleep would be a confident wrong onset. */
 function stageAsleep(stage: string): boolean | null {
-  const s = stage.trim().toLowerCase();
-  if (s in STAGE_CODES) return STAGE_CODES[s];
-  if (/awake|in ?bed/.test(s)) return false;
-  if (/core|deep|rem|asleep|unspecified/.test(s)) return true;
-  return null;
+  return STAGES.get(stage.toLowerCase().replace(/[^a-z0-9]/g, "")) ?? null;
 }
 
-/** The samples in a Shortcut's payload, and how many lines named a stage
- *  this doesn't recognise. Malformed lines (no time of day, unparseable
- *  dates) are skipped. */
-export function parseWatchPayload(text: string): { samples: SleepSample[]; unrecognised: number } {
+/** A date with a time of day, in ms, or null. A date alone parses as
+ *  midnight UTC: no onset at all. */
+function parseTime(text: string | undefined): number | null {
+  if (!text || !text.includes("T")) return null;
+  const t = Date.parse(text.trim());
+  return Number.isFinite(t) ? t : null;
+}
+
+/** The samples in a Shortcut's payload; how many lines named a stage this
+ *  doesn't recognise; and how many were malformed (no time of day, a date
+ *  that doesn't parse, too few fields), which most likely means the
+ *  Shortcut's date format is off. Blank lines are neither. */
+export function parseWatchPayload(text: string): { samples: SleepSample[]; unrecognised: number; malformed: number } {
   const samples: SleepSample[] = [];
   let unrecognised = 0;
+  let malformed = 0;
   for (const line of text.split(/\r?\n/).slice(0, MAX_SAMPLES)) {
-    const [startText, , stage] = line.split("~");
-    if (!startText || stage === undefined) continue;
-    // A date with no time of day parses as midnight UTC: no onset at all.
-    if (!startText.includes("T")) continue;
-    const start = Date.parse(startText.trim());
-    if (!Number.isFinite(start)) continue;
+    if (!line.trim()) continue;
+    const [startText, endText, stage] = line.split("~");
+    const start = parseTime(startText);
+    if (start === null || stage === undefined) {
+      malformed++;
+      continue;
+    }
     const asleep = stageAsleep(stage);
     if (asleep === null) {
       unrecognised++;
       continue;
     }
-    samples.push({ start, asleep });
+    const end = parseTime(endText);
+    samples.push({ start, end: end !== null && end >= start ? end : start, asleep });
   }
-  return { samples, unrecognised };
+  return { samples, unrecognised, malformed };
 }
 
-/** The watch's onset for a night, from its start (ms), or null: the first
- *  asleep sample beginning at or after the start, before MATCH_WINDOW_MS
- *  and before the next night's start (a 3am re-anchor is its own night). */
+/** Asleep samples closer than this are one stretch of sleep: the watch's
+ *  stages abut, give or take a rounding second. */
+const CONTIGUOUS_MS = 60_000;
+
+/** The starts of each unbroken stretch of sleep, in time order: asleep
+ *  samples merged where one begins within CONTIGUOUS_MS of the stretch's
+ *  end so far. A stage change within a stretch is not falling asleep. */
+function sleepStretches(samples: readonly SleepSample[]): { start: number; end: number }[] {
+  const asleep = samples.filter((s) => s.asleep).sort((a, b) => a.start - b.start);
+  const out: { start: number; end: number }[] = [];
+  for (const s of asleep) {
+    const cur = out.at(-1);
+    if (cur && s.start <= cur.end + CONTIGUOUS_MS) cur.end = Math.max(cur.end, s.end);
+    else out.push({ start: s.start, end: s.end });
+  }
+  return out;
+}
+
+/** The watch's onset for a night, from its start (ms), or null: the start
+ *  of the first stretch of sleep that begins at or after the night's start,
+ *  before MATCH_WINDOW_MS and before the next night's start (a 3am
+ *  re-anchor is its own night). A stretch that began before the night's
+ *  start doesn't count, nor does a stage change within it: the listener
+ *  was awake to press start, whatever the watch scored. */
 export function watchOnset(
   startedAt: number,
   samples: readonly SleepSample[],
   nextStartedAt = Infinity,
 ): number | null {
   const limit = Math.min(startedAt + MATCH_WINDOW_MS, nextStartedAt);
-  let first: number | null = null;
-  for (const s of samples) {
-    if (!s.asleep || s.start < startedAt || s.start >= limit) continue;
-    if (first === null || s.start < first) first = s.start;
-  }
-  return first === null ? null : first - startedAt;
+  const first = sleepStretches(samples).find((s) => s.start >= startedAt);
+  return first && first.start < limit ? first.start - startedAt : null;
 }
 
 /** A night re-timed by the watch's onset \`atMs\`. Attribution comes from the
@@ -96,35 +130,14 @@ export function watchOnset(
  *  or "awake" label was on the detector's claim, which the watch replaces. */
 export function retimed(n: RestNight, atMs: number): RestNight {
   const inferredAtMs = n.detector === "watch" ? (n.inferredAtMs ?? null) : n.sleptAtMs;
-  const {
-    onsetFeedId: _f,
-    onsetEpisodeId: _e,
-    onsetAfterMs: _a,
-    sleptThrough: _s,
-    selfLabel: _l,
-    ...base
-  } = n;
+  const { selfLabel: _label, ...unlabelled } = n;
+  const timed = { sleptAtMs: atMs, timeToSleepMs: atMs, detector: "watch" as const, inferredAtMs };
   const afterEnd = n.endedAt !== undefined && n.startedAt + atMs > n.endedAt;
-  const credited = afterEnd
-    ? {}
-    : n.timeline
-      ? attribution(n.timeline, atMs)
-      : n.detector === "watch"
-        ? {
-            ...(n.onsetFeedId !== undefined ? { onsetFeedId: n.onsetFeedId } : {}),
-            ...(n.onsetEpisodeId !== undefined ? { onsetEpisodeId: n.onsetEpisodeId } : {}),
-            ...(n.onsetAfterMs !== undefined ? { onsetAfterMs: n.onsetAfterMs } : {}),
-            ...(n.sleptThrough !== undefined ? { sleptThrough: n.sleptThrough } : {}),
-          }
-        : {};
-  return {
-    ...base,
-    sleptAtMs: atMs,
-    timeToSleepMs: atMs,
-    detector: "watch",
-    inferredAtMs,
-    ...credited,
-  };
+  // Already watch-timed with no timeline left to redo it: its attribution
+  // is this onset's, so it stands.
+  if (!afterEnd && !n.timeline && n.detector === "watch") return { ...unlabelled, ...timed };
+  const { onsetFeedId: _f, onsetEpisodeId: _e, onsetAfterMs: _a, sleptThrough: _s, ...base } = unlabelled;
+  return { ...base, ...timed, ...(!afterEnd && n.timeline ? attribution(n.timeline, atMs) : {}) };
 }
 
 export interface WatchTiming {
@@ -156,6 +169,7 @@ export interface WatchImport {
   timed: WatchTiming[];
   samples: number;
   unrecognised: number;
+  malformed: number;
 }
 
 /** A pasted payload: the lines themselves, or a whole #watch= link. */
@@ -166,7 +180,7 @@ export function payloadFromPaste(text: string): string {
 
 /** Reads a payload into the rest ledger. */
 export function importWatch(text: string): WatchImport {
-  const { samples, unrecognised } = parseWatchPayload(text);
+  const { samples, unrecognised, malformed } = parseWatchPayload(text);
   let timed: WatchTiming[] = [];
   if (samples.length) {
     updateNights((nights) => {
@@ -175,25 +189,31 @@ export function importWatch(text: string): WatchImport {
       return r.nights;
     });
   }
-  return { timed, samples: samples.length, unrecognised };
+  return { timed, samples: samples.length, unrecognised, malformed };
 }
 
-/** The payload in a location hash, or null when it isn't a watch import. */
+/** The payload in a location hash, or null when it isn't a watch import.
+ *  Decoded leniently: a Shortcut missing its url-encode step leaves a bare
+ *  "%" that would make decodeURIComponent throw on the whole payload, so
+ *  each escape is decoded on its own and a bad one left as it was (its line
+ *  then counts as malformed, and the notice says so). */
 export function watchPayloadFromHash(hash: string): string | null {
   if (!hash.startsWith(WATCH_HASH)) return null;
-  try {
-    return decodeURIComponent(hash.slice(WATCH_HASH.length));
-  } catch {
-    return null;
-  }
+  return hash.slice(WATCH_HASH.length).replace(/(%[0-9a-f]{2})+/gi, (run) => {
+    try {
+      return decodeURIComponent(run);
+    } catch {
+      return run;
+    }
+  });
 }
 
 /** What an import did, in a line for the listener. */
 export function watchNotice(r: WatchImport): string {
   if (!r.samples) {
-    return r.unrecognised
-      ? "your watch's sleep stages came in a language sleepcast can't read yet (english only)."
-      : "nothing from your watch to read: is sleep tracking on?";
+    if (r.unrecognised) return "your watch's sleep stages came in a language sleepcast can't read yet (english only).";
+    if (r.malformed) return "the watch data had no times of day: in the shortcut, set both dates to iso 8601 with the time included.";
+    return "nothing from your watch to read: is sleep tracking on?";
   }
   if (!r.timed.length) return "your watch's sleep didn't start inside a sleepcast night.";
   const last = r.timed[r.timed.length - 1];
@@ -213,13 +233,11 @@ export function watchAgreement(nights: readonly RestNight[]): {
   const watched = nights.filter((n) => n.detector === "watch" && n.sleptAtMs !== null);
   const gaps = watched
     .filter((n) => n.inferredAtMs !== undefined && n.inferredAtMs !== null)
-    .map((n) => Math.abs((n.inferredAtMs as number) - (n.sleptAtMs as number)))
-    .sort((a, b) => a - b);
-  const m = Math.floor(gaps.length / 2);
-  const median = !gaps.length ? null : gaps.length % 2 ? gaps[m] : (gaps[m - 1] + gaps[m]) / 2;
+    .map((n) => Math.abs((n.inferredAtMs as number) - (n.sleptAtMs as number)));
+  const m = median(gaps);
   return {
     watchNights: watched.length,
     compared: gaps.length,
-    medianOffMs: median === null ? null : Math.round(median / 1000) * 1000,
+    medianOffMs: m === null ? null : Math.round(m / 1000) * 1000,
   };
 }

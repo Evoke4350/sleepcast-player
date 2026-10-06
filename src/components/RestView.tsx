@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { loadNights, rollup, setSelfLabel, leanComparison } from "../lib/rest/ledger";
+import { loadNights, rollup, setSelfLabel, leanComparison, offerForLabel } from "../lib/rest/ledger";
 import { recordFalsePositive } from "../lib/rest/calibrate";
 import { scoreFeeds, medianTimeToSleep, meetsSuggestionGate, shuffleWeights, pluralNights, fmtOnsetMinutes, MIN_NIGHTS } from "../lib/rest/sleepscore";
 import { fmtDuration, lastNight } from "../lib/rest/surface";
@@ -149,8 +149,7 @@ export function RestView({ onClose }: { onClose: () => void }) {
           </ul>
         </div>
       )}
-      {/* A watch-timed night was measured, not guessed: nothing to confirm. */}
-      {last && last.sleptAtMs !== null && last.selfLabel === undefined && last.detector !== "watch" && (
+      {last && offerForLabel(last) && (
         <div className="space-y-2 border-t border-[#241f30] pt-6 text-sm">
           <p>did you fall asleep to it last time?</p>
           <div className="flex justify-center gap-3">

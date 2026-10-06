@@ -31,8 +31,8 @@ function night(over: Partial<RestNight> = {}): RestNight {
     ...over,
   };
 }
-const asleepAt = (ms: number): SleepSample => ({ start: START + ms, asleep: true });
-const awakeAt = (ms: number): SleepSample => ({ start: START + ms, asleep: false });
+const asleepAt = (ms: number, forMs = 5 * MIN): SleepSample => ({ start: START + ms, end: START + ms + forMs, asleep: true });
+const awakeAt = (ms: number, forMs = 5 * MIN): SleepSample => ({ start: START + ms, end: START + ms + forMs, asleep: false });
 
 describe("parseWatchPayload", () => {
   it("reads start~end~stage lines, asleep by stage", () => {
@@ -51,8 +51,8 @@ describe("parseWatchPayload", () => {
     expect(samples[2].start).toBe(START + 40 * MIN);
   });
 
-  it("skips malformed lines and counts stages it doesn't know", () => {
-    const { samples, unrecognised } = parseWatchPayload(
+  it("skips malformed lines and counts them, and stages it doesn't know", () => {
+    const { samples, unrecognised, malformed } = parseWatchPayload(
       [
         "",
         "nonsense",
@@ -62,8 +62,26 @@ describe("parseWatchPayload", () => {
         "2026-10-05T23:40:00-07:00~2026-10-06T00:10:00-07:00~Core\r",
       ].join("\n"),
     );
-    expect(samples).toEqual([{ start: START + 40 * MIN, asleep: true }]);
+    expect(samples).toEqual([{ start: START + 40 * MIN, end: START + 70 * MIN, asleep: true }]);
     expect(unrecognised).toBe(1);
+    expect(malformed).toBe(3);
+  });
+
+  it("matches whole stage names, so a localised name isn't half-read", () => {
+    const line = (stage: string) => `2026-10-05T23:40:00-07:00~2026-10-06T00:10:00-07:00~${stage}`;
+    const english = parseWatchPayload(["Asleep (Core)", "REM Sleep", "In Bed", "asleepUnspecified"].map(line).join("\n"));
+    expect(english.samples.map((s) => s.asleep)).toEqual([true, true, false, true]);
+    const german = parseWatchPayload(["Kern", "Tief", "REM-Schlaf", "Wach", "Im Bett"].map(line).join("\n"));
+    expect(german).toMatchObject({ samples: [], unrecognised: 5 });
+    // Nor an inherited key, from a link anyone can write.
+    expect(parseWatchPayload(["constructor", "__proto__", "toString"].map(line).join("\n"))).toMatchObject({ samples: [], unrecognised: 3 });
+  });
+
+  it("takes an end that doesn't parse, or comes first, as the start", () => {
+    const { samples } = parseWatchPayload(
+      ["2026-10-05T23:40:00-07:00~nope~Core", "2026-10-05T23:40:00-07:00~2026-10-05T23:00:00-07:00~Core"].join("\n"),
+    );
+    expect(samples.map((s) => s.end - s.start)).toEqual([0, 0]);
   });
 
   it("reads Health's numeric stage codes too", () => {
@@ -85,6 +103,14 @@ describe("watchOnset", () => {
   });
   it("counts an onset at the very start", () => {
     expect(watchOnset(START, [asleepAt(0)])).toBe(0);
+  });
+  it("doesn't take a stage change in sleep that began before the start for falling asleep", () => {
+    // Core from 10 min before start to 20 min after, then REM: one stretch.
+    expect(watchOnset(START, [asleepAt(-10 * MIN, 30 * MIN), asleepAt(20 * MIN, 30 * MIN)])).toBeNull();
+    // Woke, then slept again: the new stretch is the onset.
+    expect(
+      watchOnset(START, [asleepAt(-10 * MIN, 30 * MIN), awakeAt(20 * MIN, 10 * MIN), asleepAt(30 * MIN, 30 * MIN)]),
+    ).toBe(30 * MIN);
   });
 });
 
@@ -156,7 +182,7 @@ describe("importWatch", () => {
   it("re-times the stored night, and the headline counts a fast watch onset", () => {
     appendNight(night());
     const r = importWatch("2026-10-05T23:04:00-07:00~2026-10-05T23:30:00-07:00~Core");
-    expect(r).toEqual({ timed: [{ startedAt: START, atMs: 4 * MIN, inferredAtMs: 30 * MIN }], samples: 1, unrecognised: 0 });
+    expect(r).toEqual({ timed: [{ startedAt: START, atMs: 4 * MIN, inferredAtMs: 30 * MIN }], samples: 1, unrecognised: 0, malformed: 0 });
     expect(loadNights()[0].detector).toBe("watch");
     // 4 min is under the detector's plausibility floor; a watch onset is measured.
     expect(rollup(loadNights()).bestTimeToSleepMs).toBe(4 * MIN);
@@ -164,7 +190,7 @@ describe("importWatch", () => {
 
   it("leaves storage alone when nothing parses", () => {
     appendNight(night());
-    expect(importWatch("garbage")).toEqual({ timed: [], samples: 0, unrecognised: 0 });
+    expect(importWatch("garbage")).toEqual({ timed: [], samples: 0, unrecognised: 0, malformed: 1 });
     expect(loadNights()[0].detector).toBe("inference");
   });
 });
@@ -174,7 +200,8 @@ describe("watchPayloadFromHash", () => {
     expect(watchPayloadFromHash("#watch=a~b~Core%0Ac~d~REM")).toBe("a~b~Core\nc~d~REM");
     expect(watchPayloadFromHash("#other")).toBeNull();
     expect(watchPayloadFromHash("")).toBeNull();
-    expect(watchPayloadFromHash("#watch=%E0%A4%A")).toBeNull();
+    // A bare % (no url-encode step) spoils only its own escape.
+    expect(watchPayloadFromHash("#watch=a~b~Core%0A100%~x")).toBe("a~b~Core\n100%~x");
   });
 });
 
@@ -188,15 +215,15 @@ describe("payloadFromPaste", () => {
 describe("watchNotice", () => {
   const t = (atMs: number, inferredAtMs: number | null) => ({ startedAt: START, atMs, inferredAtMs });
   it("says what the import did", () => {
-    expect(watchNotice({ timed: [t(12 * MIN, 30 * MIN)], samples: 3, unrecognised: 0 })).toBe(
+    expect(watchNotice({ timed: [t(12 * MIN, 30 * MIN)], samples: 3, unrecognised: 0, malformed: 0 })).toBe(
       "your watch: asleep 12 min in; sleepcast guessed 30 min.",
     );
-    expect(watchNotice({ timed: [t(5 * MIN, null), t(12 * MIN, null)], samples: 3, unrecognised: 0 })).toBe(
+    expect(watchNotice({ timed: [t(5 * MIN, null), t(12 * MIN, null)], samples: 3, unrecognised: 0, malformed: 0 })).toBe(
       "your watch timed 2 nights. the latest: asleep 12 min in.",
     );
-    expect(watchNotice({ timed: [], samples: 3, unrecognised: 0 })).toMatch(/didn't start inside/);
-    expect(watchNotice({ timed: [], samples: 0, unrecognised: 0 })).toMatch(/sleep tracking/);
-    expect(watchNotice({ timed: [], samples: 0, unrecognised: 4 })).toMatch(/english only/);
+    expect(watchNotice({ timed: [], samples: 3, unrecognised: 0, malformed: 0 })).toMatch(/didn't start inside/);
+    expect(watchNotice({ timed: [], samples: 0, unrecognised: 0, malformed: 0 })).toMatch(/sleep tracking/);
+    expect(watchNotice({ timed: [], samples: 0, unrecognised: 4, malformed: 0 })).toMatch(/english only/);
   });
 });
 

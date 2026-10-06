@@ -59,12 +59,16 @@ export function AppPlayer() {
 
   // An Apple Watch import (sleepcast.pro/#watch=..., from the iOS Shortcut;
   // rest/watch.ts). Read before the goodbye below, so last night's line
-  // shows the watch's time. The fragment is cleared at once: a reload, or
-  // the link shared, mustn't import it again.
+  // shows the watch's time. A night whose tab was killed is only in the
+  // ledger once its snapshot is settled, and that is the night the morning
+  // Shortcut most needs to time, so it is settled first (settleLive is
+  // idempotent: the `live` state below settles nothing twice). The fragment
+  // is cleared at once: a reload, or the link shared, mustn't import it again.
   const [watchLine] = useState(() => {
     const payload = watchPayloadFromHash(window.location.hash);
     if (payload === null) return null;
     history.replaceState(null, "", window.location.pathname + window.location.search);
+    settleLive(loadLive(), Date.now());
     return watchNotice(importWatch(payload));
   });
 

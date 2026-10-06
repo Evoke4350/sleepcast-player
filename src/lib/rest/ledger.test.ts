@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { loadNights, appendNight, rollup, setSelfLabel, leanComparison, pruneTimelines, MIN_PLAUSIBLE_ONSET_MS, PRE_FIX_BEFORE_MS, TIMELINE_KEEP_MS } from "./ledger";
+import { loadNights, appendNight, rollup, setSelfLabel, leanComparison, pruneTimelines, offerForLabel, MIN_PLAUSIBLE_ONSET_MS, PRE_FIX_BEFORE_MS, TIMELINE_KEEP_MS } from "./ledger";
 import { DEFAULT_PARAMS, LAMBDA_MAX, quietTicksToDecide, TICK_MS } from "./detector";
 import type { RestNight } from "./types";
 
@@ -182,5 +182,18 @@ describe("timelines", () => {
     const [first, second] = loadNights();
     expect(first).not.toHaveProperty("timeline");
     expect(second.timeline).toEqual(timeline);
+  });
+});
+
+describe("offerForLabel", () => {
+  const n = (over: Partial<RestNight>): RestNight => ({
+    startedAt: 0, timerMinutes: 60, endedVia: "faded", sleptAtMs: 600_000, timeToSleepMs: 600_000,
+    interactions: 0, detector: "inference", ...over,
+  });
+  it("asks about the detector's unconfirmed onset, never a watch's", () => {
+    expect(offerForLabel(n({}))).toBe(true);
+    expect(offerForLabel(n({ selfLabel: "slept" }))).toBe(false);
+    expect(offerForLabel(n({ sleptAtMs: null, timeToSleepMs: null, detector: "none" }))).toBe(false);
+    expect(offerForLabel(n({ detector: "watch" }))).toBe(false);
   });
 });

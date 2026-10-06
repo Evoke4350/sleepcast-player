@@ -22,7 +22,7 @@ import { diverseByMeta, formatTime } from "../lib/engine";
 import { parseFeedFor, youtubeFeedUrl } from "../lib/youtube";
 import { beacon } from "../lib/beacon";
 import type { Episode } from "../lib/engine";
-import { loadNights, setSelfLabel } from "../lib/rest/ledger";
+import { loadNights, offerForLabel, setSelfLabel } from "../lib/rest/ledger";
 import { recordFalsePositive } from "../lib/rest/calibrate";
 import { rankedFeeds, evidenceFor } from "../lib/rest/sleepscore";
 import type { RestNight } from "../lib/rest/types";
@@ -94,7 +94,7 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
   const [lastEpisode] = useState(() => loadLastEpisode());
   const [greetNight, setGreetNight] = useState<RestNight | null>(() => {
     const last = loadNights().at(-1) ?? null;
-    return last && last.sleptAtMs !== null && last.selfLabel === undefined ? last : null;
+    return last && offerForLabel(last) ? last : null;
   });
 
   // A returning listener saw the welcome — fire once. (Aggregate, no PII.)
