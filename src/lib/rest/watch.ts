@@ -4,7 +4,9 @@
 // sleepcast.pro/#watch=<samples>. The fragment never reaches the server, so the
 // samples go from Health to this browser's storage and nowhere else. Each
 // sample is one line, "start~end~stage", with ISO 8601 dates and the stage as
-// Health names it (Core, Deep, REM, Awake, In Bed, ...).
+// Health names it (Core, Deep, REM, Awake, In Bed, ...). A first line,
+// "window~start", says where the Shortcut's window opens (it reads samples
+// starting after it).
 //
 // A night's onset is the start of the first stretch of sleep that begins
 // inside it (see watchOnset and onsetStretches). That replaces the
@@ -66,18 +68,32 @@ function parseTime(text: string | undefined): number | null {
   return Number.isFinite(t) ? t : null;
 }
 
-/** The samples in a Shortcut's payload; how many lines named a stage this
- *  doesn't recognise; and how many were malformed (either date without a
- *  time of day or unparseable, an end before the start, other than three
- *  fields, or a stage that isn't a name or code),
- *  which most likely means the Shortcut's date format is off. Blank lines
- *  are neither. */
-export function parseWatchPayload(text: string): { samples: SleepSample[]; unrecognised: number; malformed: number } {
+/** The payload's first line: where the Shortcut's window opens. */
+const WINDOW_LINE = "window~";
+
+/** A Shortcut's payload: where its window opens (null when the window line
+ *  is missing or its date doesn't parse), its samples, how many lines named
+ *  a stage this doesn't recognise, and how many were malformed (either date
+ *  without a time of day or unparseable, an end before the start, other
+ *  than three fields, or a stage that isn't a name or code), which most
+ *  likely means the Shortcut's format is off. Blank lines are neither. */
+export function parseWatchPayload(text: string): {
+  windowStart: number | null;
+  samples: SleepSample[];
+  unrecognised: number;
+  malformed: number;
+} {
   const samples: SleepSample[] = [];
   let unrecognised = 0;
   let malformed = 0;
-  for (const line of text.split(/\r?\n/).slice(-MAX_SAMPLES)) {
-    if (!line.trim()) continue;
+  const lines = text.split(/\r?\n/).filter((l) => l.trim());
+  let windowStart: number | null = null;
+  if (lines[0]?.startsWith(WINDOW_LINE)) {
+    windowStart = parseTime(lines.shift()!.slice(WINDOW_LINE.length));
+    // There, but its date doesn't read: the format, not a missing line.
+    if (windowStart === null) malformed++;
+  }
+  for (const line of lines.slice(-MAX_SAMPLES)) {
     const fields = line.split("~");
     const [startText, endText, stage] = fields;
     const start = parseTime(startText);
@@ -103,7 +119,7 @@ export function parseWatchPayload(text: string): { samples: SleepSample[]; unrec
     }
     samples.push({ start, end, asleep });
   }
-  return { samples, unrecognised, malformed };
+  return { windowStart, samples, unrecognised, malformed };
 }
 
 /** Asleep samples closer than this are one stretch of sleep: the watch's
@@ -122,25 +138,6 @@ export function sleepStretches(samples: readonly SleepSample[]): { start: number
     else out.push({ start: s.start, end: s.end });
   }
   return out;
-}
-
-/** The stretches that can be onsets: the payload covers a window (the
- *  Shortcut's "last 2 days"), so a stretch beginning at its very first
- *  sample may have begun before the window, its earlier stages cut off.
- *  Its start would be a stage change, not falling asleep. (The cost: a
- *  first-ever night with nothing before its sleep in the payload isn't
- *  timed; the next morning's run, reading two days, times it.) */
-export function onsetStretches(
-  samples: readonly SleepSample[],
-  earliest = payloadStart(samples),
-): { start: number; end: number }[] {
-  return sleepStretches(samples).filter((s) => s.start > earliest + CONTIGUOUS_MS);
-}
-
-/** Where the payload's window opens: its earliest sample (Infinity for
- *  none). */
-function payloadStart(samples: readonly SleepSample[]): number {
-  return samples.reduce((m, s) => Math.min(m, s.start), Infinity);
 }
 
 /** The watch's onset for a night, from its start (ms), or null: the start
@@ -192,23 +189,24 @@ export interface WatchTiming {
 /** Every night the samples time, re-timed; the rest as they were, in the
  *  same order. `timed` lists the nights whose time this changed;
  *  `unchanged` counts those the watch had already timed the same (the
- *  Shortcut reads two days, so each morning re-reads the night before). */
+ *  Shortcut reads two days, so each morning re-reads the night before).
+ *  Only nights that began after the window opened: for an earlier one the
+ *  window may have cut its sleep off (whether it began before the night's
+ *  start is unknown, and a stage change after a brief wake would pass for
+ *  its onset), so it keeps what it has. A night after the window opened
+ *  has every sample that began within it, its first-ever one included. */
 export function applyWatch(
   nights: readonly RestNight[],
   samples: readonly SleepSample[],
+  windowStart: number,
 ): { nights: RestNight[]; timed: WatchTiming[]; unchanged: number } {
-  const earliest = payloadStart(samples);
-  const stretches = onsetStretches(samples, earliest);
-  // A night that began before the payload's first sample can't be told
-  // apart from one the window cut into: whether sleep began before its
-  // start is unknown, and a stretch after a brief wake would pass for its
-  // onset. It keeps what it has (an earlier morning's run read it whole).
+  const stretches = sleepStretches(samples);
   const starts = [...new Set(nights.map((n) => n.startedAt))].sort((a, b) => a - b);
   const next = new Map(starts.map((s, i) => [s, starts[i + 1] ?? Infinity]));
   const timed: WatchTiming[] = [];
   let unchanged = 0;
   const out = nights.map((n) => {
-    if (n.startedAt < earliest) return n;
+    if (n.startedAt < windowStart) return n;
     const at = watchOnset(n.startedAt, stretches, next.get(n.startedAt));
     if (at === null) return n;
     if (n.detector === "watch" && n.sleptAtMs === at) {
@@ -230,6 +228,8 @@ export interface WatchImport {
   /** A killed tab's night was recorded first (endKilledNight): a resume
    *  offer on screen is gone. */
   endedNight?: boolean;
+  /** No window line (a Shortcut built before it was added): refused. */
+  noWindow?: boolean;
   samples: number;
   unrecognised: number;
   malformed: number;
@@ -245,7 +245,8 @@ export function payloadFromPaste(text: string): string {
   return (/%[0-9a-f]{2}/i.test(text) ? decodeLeniently(text) : text).trim();
 }
 
-/** Reads a payload into the rest ledger. Any unrecognised stage refuses
+/** Reads a payload into the rest ledger. A payload without its window
+ *  line is refused (applyWatch needs it). Any unrecognised stage refuses
  *  the whole import: in several languages REM is still "REM" while the
  *  other stages aren't English, so the recognised part alone would time
  *  the night from its first REM stage, an hour or more late. So does any
@@ -255,12 +256,13 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
   // The night a killed tab left unrecorded is the one the import is for,
   // by link or by paste alike (endKilledNight).
   const endedNight = endKilledNight(now);
-  const { samples, unrecognised, malformed } = parseWatchPayload(text);
+  const { windowStart, samples, unrecognised, malformed } = parseWatchPayload(text);
+  const noWindow = samples.length > 0 && windowStart === null;
   let timed: WatchTiming[] = [];
   let unchanged = 0;
   let unsaved = false;
-  if (samples.length && !unrecognised && !malformed) {
-    const r = applyWatch(loadNights(), samples);
+  if (samples.length && windowStart !== null && !unrecognised && !malformed) {
+    const r = applyWatch(loadNights(), samples, windowStart);
     unchanged = r.unchanged;
     // Nothing re-timed, nothing to write (a full store would evict cached
     // feeds to make room for no change).
@@ -274,6 +276,7 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
     unchanged,
     ...(unsaved ? { unsaved } : {}),
     ...(endedNight ? { endedNight } : {}),
+    ...(noWindow ? { noWindow } : {}),
     samples: samples.length,
     unrecognised,
     malformed,
@@ -307,6 +310,9 @@ function decodeLeniently(text: string): string {
 
 /** What an import did, in a line for the listener. */
 export function watchNotice(r: WatchImport): string {
+  if (r.noWindow && !r.malformed && !r.unrecognised) {
+    return "the watch shortcut needs its window line, so nothing was changed: see the updated steps at sleepcast.pro/watch.";
+  }
   if (r.unsaved) return "your watch's times couldn't be saved: this browser's storage for sleepcast is full.";
   if (r.malformed) {
     const lines = r.malformed === 1 ? "a line" : `${r.malformed} lines`;

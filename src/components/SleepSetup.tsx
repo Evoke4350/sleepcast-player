@@ -578,8 +578,9 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
   // false positive (we thought you slept, you didn't) tightens it for next time.
   function handleSleepLabel(kind: "slept" | "awake") {
     if (!greetNight) return;
-    beacon(kind === "slept" ? "slept_yes" : "slept_no");
     const labelled = setSelfLabel(greetNight.startedAt, kind);
+    // Counted only when it took: a watch-timed night refuses the label.
+    if (labelled) beacon(kind === "slept" ? "slept_yes" : "slept_no");
     if (labelled && kind === "awake" && labelled.sleptAtMs !== null) {
       recordFalsePositive();
     }

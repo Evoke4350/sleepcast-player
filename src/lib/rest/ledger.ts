@@ -30,8 +30,9 @@ function save(nights: RestNight[]): boolean {
  *  episode ids don't crowd local storage. */
 export const TIMELINE_KEEP_MS = 7 * 24 * 60 * 60 * 1000;
 
-export function appendNight(n: RestNight): void {
-  save(pruneTimelines([...loadNights(), n], n.startedAt));
+/** Whether it was stored. */
+export function appendNight(n: RestNight): boolean {
+  return save(pruneTimelines([...loadNights(), n], n.startedAt));
 }
 
 /** Every night, replaced (the watch import); whether the save took. */

@@ -35,8 +35,12 @@ import PlayerLayout from "../layouts/PlayerLayout.astro";
       <p>in the shortcuts app, make a new shortcut called <em>sleepcast watch</em> and add these actions, in order:</p>
       <ol class="list-decimal space-y-3 pl-5">
         <li>
+          <strong>adjust date</strong>: subtract <em>2 days</em> from the <em>current date</em>. this is where the
+          shortcut's window opens.
+        </li>
+        <li>
           <strong>find health samples</strong>. set it to find health samples where <em>type</em> is <em>sleep analysis</em>,
-          add a filter <em>start date</em> is in the last <em>2 days</em>, add a filter <em>source</em> is your apple
+          add a filter <em>start date</em> is after the <em>adjusted date</em>, add a filter <em>source</em> is your apple
           watch (so another sleep app's coarser samples don't blur the watch's), and sort by <em>start date</em>, oldest
           first.
         </li>
@@ -51,7 +55,12 @@ import PlayerLayout from "../layouts/PlayerLayout.astro";
           </p>
         </li>
         <li><strong>combine text</strong>: combine <em>repeat results</em> with <em>new lines</em>.</li>
-        <li><strong>url encode</strong> the <em>combined text</em>.</li>
+        <li>
+          <strong>text</strong>, on two lines: <span class="font-mono text-xs text-[#d9c3a0]">window~</span> followed by the
+          <em>adjusted date</em> (iso 8601, time included, as above), then on the next line the <em>combined text</em>.
+          the first line tells sleepcast where the window opens, so a night it cut into isn't misread.
+        </li>
+        <li><strong>url encode</strong> that <em>text</em>.</li>
         <li>
           <strong>text</strong>: <span class="font-mono text-xs text-[#d9c3a0]">https://sleepcast.pro/#watch=</span>
           followed straight away by the <em>url encoded text</em> variable.
@@ -73,13 +82,14 @@ import PlayerLayout from "../layouts/PlayerLayout.astro";
       <h2 class="mt-8 text-base text-[#d9c3a0]">the paste version (home-screen app)</h2>
       <p>
         build the same shortcut, but in place of the last three actions add <strong>copy to clipboard</strong> with the
-        <em>combined text</em>. run it, open sleepcast, go to <em>your rest</em>, then <em>paste from your watch</em>, and
+        two-line <em>text</em> (the window line, then the samples). run it, open sleepcast, go to <em>your rest</em>, then <em>paste from your watch</em>, and
         paste.
       </p>
 
       <h2 class="mt-8 text-base text-[#d9c3a0]">what it changes</h2>
       <ul class="list-disc space-y-1 pl-5">
         <li>a night is timed by the first stretch of sleep that begins inside it, within four hours of pressing start. sleep that had already begun when you pressed start doesn't count, nor do its later stages.</li>
+        <li>only nights that began after the window opened are timed: an earlier one may have been cut into, so it keeps its time from the morning before.</li>
         <li>what was playing at that moment gets the credit in <em>what puts you under</em>, for nights in the last week.</li>
         <li>sleepcast keeps its own guess beside the watch's, and <em>your rest</em> shows how far apart they typically are.</li>
         <li>running it twice over the same nights changes nothing further.</li>

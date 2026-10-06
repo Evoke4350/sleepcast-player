@@ -21,8 +21,8 @@ export function RestView({ onClose }: { onClose: () => void }) {
   function importPasted() {
     const r = importWatch(payloadFromPaste(pasted));
     setPasteLine(watchNotice(r));
-    // Kept when refused (malformed, unrecognised), so it can be looked at.
-    if (!r.malformed && !r.unrecognised) setPasted("");
+    // Kept when refused or not saved, so it can be looked at or tried again.
+    if (!r.malformed && !r.unrecognised && !r.unsaved && !r.noWindow) setPasted("");
     if (r.timed.length || r.endedNight) {
       setNights(loadNights());
       setChangedHere(true);

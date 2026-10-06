@@ -165,3 +165,22 @@ describe("endKilledNight (a watch import)", () => {
     expect(loadLive()).not.toBeNull();
   });
 });
+
+describe("reconcileLive when storage is full", () => {
+  beforeEach(() => localStorage.clear());
+  it("keeps the snapshot it couldn't record, and says so", () => {
+    saveLive(snap());
+    const setItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = () => {
+      throw new Error("QuotaExceededError");
+    };
+    let recorded: boolean;
+    try {
+      recorded = reconcileLive(snap(), T0 + 10 * 60 * 60_000);
+    } finally {
+      Storage.prototype.setItem = setItem;
+    }
+    expect(recorded).toBe(false);
+    expect(loadLive()).not.toBeNull();
+  });
+});

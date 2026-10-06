@@ -1,7 +1,7 @@
 import { useState, useEffect, type ReactNode } from "react";
 import type { Episode } from "../lib/engine";
 import { formatTime } from "../lib/engine";
-import { loadLive, clearLastNight, loadLastNight, type LiveSession, type LastNight, type ResumeDescriptor, resumeFrom, nightTimerMinutes, loadState, isRevivable, resumeMode, loadBlocked } from "../lib/store";
+import { loadLive, clearLive, clearLastNight, loadLastNight, type LiveSession, type LastNight, type ResumeDescriptor, resumeFrom, nightTimerMinutes, loadState, isRevivable, resumeMode, loadBlocked } from "../lib/store";
 import type { PlayMode } from "../lib/engine";
 import type { NoiseSettings } from "../lib/store";
 import { reanchorNext } from "../lib/rest/reanchor";
@@ -50,15 +50,19 @@ function takeWatchLink(): string | null {
   return line;
 }
 
-/** A link that landed mid-night, held here (not in the address, where a
- *  reload mid-night would import it and end the night) until the night
- *  ends. Lost if the tab is killed first: the next morning's run, reading
+/** A link that landed mid-night (or with the rest view open), held here
+ *  (not in the address, where a reload mid-night would import it and end
+ *  the night) until the night ends. Lost if the tab is killed first: the next morning's run, reading
  *  two days, makes it up. */
 let pendingWatchHash: string | null = null;
 
 /** The address without its fragment. */
+function hereWithout(): string {
+  return window.location.pathname + window.location.search;
+}
+
 function clearHash(): void {
-  history.replaceState(null, "", window.location.pathname + window.location.search);
+  history.replaceState(null, "", hereWithout());
 }
 
 /** One quiet line above setup (the goodbye, the watch's result). */
@@ -112,24 +116,25 @@ export function AppPlayer() {
   // (the resume card, setup's label offer, the goodbye) was worked out
   // from the ledger before the import. Not while a night is on (a tab
   // frozen mid-night and woken by the link): the import would end it, so
-  // the link is held until the night ends (pendingWatchHash).
-  const sessionOn = session !== null;
+  // the link is held until the night ends (pendingWatchHash). Nor while
+  // the rest view is open, where a reload would lose a paste in progress.
+  const holdLink = session !== null || view === "rest";
   useEffect(() => {
     const reloadWith = (hash: string) => {
-      history.replaceState(null, "", window.location.pathname + window.location.search + hash);
+      history.replaceState(null, "", hereWithout() + hash);
       window.location.reload();
     };
     const onHash = () => {
       if (!isWatchHash(window.location.hash)) return;
-      if (!sessionOn) return reloadWith(window.location.hash);
+      if (!holdLink) return reloadWith(window.location.hash);
       pendingWatchHash = window.location.hash;
       clearHash();
     };
-    if (!sessionOn && pendingWatchHash !== null) return reloadWith(pendingWatchHash);
+    if (!holdLink && pendingWatchHash !== null) return reloadWith(pendingWatchHash);
     onHash();
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
-  }, [sessionOn]);
+  }, [holdLink]);
 
   const [goodbye] = useState(() => (isQuiet(loadQuietUntil(), Date.now()) ? null : shouldGreetGoodbye(Date.now())));
 
@@ -230,7 +235,9 @@ export function AppPlayer() {
   function recordStoredNight(keepItsLastNight: boolean) {
     if (keepItsLastNight) clearLastNight();
     const stored = loadLive();
-    if (stored) reconcileLive(stored, Date.now());
+    // Gone either way: a night turned down or replaced mustn't be offered
+    // again, even if storage was too full to record it.
+    if (stored && !reconcileLive(stored, Date.now())) clearLive();
     if (!keepItsLastNight) clearLastNight();
     setLive(null);
   }

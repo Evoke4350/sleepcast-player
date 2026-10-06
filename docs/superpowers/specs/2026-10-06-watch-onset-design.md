@@ -18,7 +18,10 @@ source, so another sleep app's coarser samples can't blur them) and opens
 server, so the samples go from Health to the browser's storage and nowhere
 else. No account, no endpoint, no native build.
 
-Payload: one sample per line, `start~end~stage`, ISO 8601 dates with time, the
+Payload: a first line `window~<start>` (where the Shortcut's window opens: it
+reads samples starting after "now minus 2 days"; without it the import is
+refused, with a notice pointing at the updated steps), then one sample per
+line, `start~end~stage`, ISO 8601 dates with time, the
 stage as Health names it (Core, Deep, REM, Asleep, Awake, In Bed, matched as
 whole names) or its numeric code (HKCategoryValueSleepAnalysis 0–5). English
 names only, and any unrecognised name refuses the whole import: in several
@@ -44,12 +47,11 @@ the start of the first stretch that begins at or after the night's start,
 within `MATCH_WINDOW_MS` (4 h) and before the next night's start (a 3am
 re-anchor is its own night). A stretch that began before the night's start
 doesn't count, nor does a stage change within it: the listener was awake to
-press start. Nor does a stretch beginning at the payload's very first sample:
-the window ("last 2 days") may have cut off its earlier stages, so its start
-could be a stage change. (A first-ever night with nothing before its sleep in
-the payload is timed by the next morning's run instead.) A night that began
-before the payload's first sample is left as it was: whether sleep began
-before its start can't be told, and an earlier morning's run read it whole.
+press start. Only nights that began after the window opened are matched: for
+an earlier one the window may have cut its sleep off (whether it began before
+the night's start is unknown, and a stage change after a brief wake would pass
+for its onset), so it keeps what it has. A night after the window opened has
+every sample that began within it, so its first-ever night is timed too.
 
 ## 4. Re-timing
 
@@ -122,7 +124,8 @@ touches would read as awake ones and make the detector bolder.
   pause) credits the paused episode. Recording pauses would mean every
   player noting them; the case is rare, and the credit goes to the show the
   listener was drifting to.
-- A link that lands while a night is on is held in memory until it ends; if
+- A link that lands while a night is on (or the rest view is open) is held
+  in memory until it ends; if
   the tab is killed first it is lost, and the next morning's run (two days)
   makes it up.
 

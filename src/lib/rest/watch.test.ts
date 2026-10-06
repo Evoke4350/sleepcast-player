@@ -12,7 +12,6 @@ import {
   MATCH_WINDOW_MS,
   MAX_SAMPLES,
   sleepStretches,
-  onsetStretches,
   type SleepSample,
 } from "./watch";
 import { appendNight, loadNights, rollup } from "./ledger";
@@ -36,10 +35,9 @@ function night(over: Partial<RestNight> = {}): RestNight {
 }
 const asleepAt = (ms: number, forMs = 5 * MIN): SleepSample => ({ start: START + ms, end: START + ms + forMs, asleep: true });
 const awakeAt = (ms: number, forMs = 5 * MIN): SleepSample => ({ start: START + ms, end: START + ms + forMs, asleep: false });
-/** A payload's first sample, well before the night: what a two-day window
- *  holds, so the night's own sleep isn't the window's edge (onsetStretches). */
-const WINDOW_OPENS = awakeAt(-12 * 60 * MIN);
-const OPENS_LINE = "2026-10-05T11:00:00-07:00~2026-10-05T11:05:00-07:00~Awake";
+/** Where a payload's window opens, well before the night. */
+const WINDOW = START - 12 * 60 * MIN;
+const OPENS_LINE = "window~2026-10-05T11:00:00-07:00";
 
 describe("parseWatchPayload", () => {
   it("reads start~end~stage lines, asleep by stage", () => {
@@ -112,6 +110,16 @@ describe("parseWatchPayload", () => {
       ].join("\n"),
     );
     expect(r).toMatchObject({ samples: [], malformed: 3 });
+  });
+
+  it("reads the window line first, and counts one whose date doesn't read as malformed", () => {
+    const body = "2026-10-05T23:40:00-07:00~2026-10-06T00:10:00-07:00~Core";
+    expect(parseWatchPayload(`window~2026-10-04T08:00:00-07:00\n${body}`)).toMatchObject({
+      windowStart: Date.parse("2026-10-04T08:00:00-07:00"),
+      malformed: 0,
+    });
+    expect(parseWatchPayload(body).windowStart).toBeNull();
+    expect(parseWatchPayload(`window~yesterday\n${body}`)).toMatchObject({ windowStart: null, malformed: 1 });
   });
 
   it("reads Health's numeric stage codes too", () => {
@@ -197,12 +205,11 @@ describe("retimed", () => {
   });
 });
 
-describe("onsetStretches", () => {
-  it("doesn't take a stretch at the payload's first sample for falling asleep: it may have begun before", () => {
-    // The window opens mid-sleep: the first sample is a stage change.
-    expect(onsetStretches([asleepAt(5 * MIN, 60 * MIN), awakeAt(65 * MIN), asleepAt(90 * MIN)]).map((s) => s.start)).toEqual([START + 90 * MIN]);
-    expect(onsetStretches([WINDOW_OPENS, asleepAt(5 * MIN)]).map((s) => s.start)).toEqual([START + 5 * MIN]);
-    expect(onsetStretches([])).toEqual([]);
+describe("applyWatch and the window", () => {
+  it("times a night that began after the window opened, its first-ever one included", () => {
+    // A new watch: nothing before this night's sleep in the payload.
+    const r = applyWatch([night()], [asleepAt(20 * MIN)], START - 60 * MIN);
+    expect(r.timed.map((x) => x.atMs)).toEqual([20 * MIN]);
   });
 });
 
@@ -220,7 +227,7 @@ describe("applyWatch", () => {
   it("times each night by its own samples, the rest unchanged, order kept", () => {
     const second = night({ startedAt: START + 3 * 60 * MIN, endedAt: START + 4 * 60 * MIN });
     const other = night({ startedAt: START - 24 * 60 * MIN });
-    const { nights, timed } = applyWatch([other, night(), second], [WINDOW_OPENS, asleepAt(15 * MIN), asleepAt(3 * 60 * MIN + 5 * MIN)]);
+    const { nights, timed } = applyWatch([other, night(), second], [asleepAt(15 * MIN), asleepAt(3 * 60 * MIN + 5 * MIN)], WINDOW);
     expect(nights[0]).toBe(other);
     expect(nights[1].timeToSleepMs).toBe(15 * MIN);
     expect(nights[2].timeToSleepMs).toBe(5 * MIN);
@@ -232,14 +239,15 @@ describe("applyWatch", () => {
     // Timed whole the morning after; two mornings on, the window opens
     // mid-sleep, and a stretch after a brief wake would pass for its onset.
     const timed = night({ detector: "watch", sleptAtMs: 20 * MIN, timeToSleepMs: 20 * MIN, inferredAtMs: 30 * MIN });
-    const r = applyWatch([timed], [asleepAt(60 * MIN, 10 * MIN), awakeAt(70 * MIN), asleepAt(75 * MIN, 60 * MIN)]);
+    // The window opened an hour into it.
+    const r = applyWatch([timed], [asleepAt(60 * MIN, 10 * MIN), awakeAt(70 * MIN), asleepAt(75 * MIN, 60 * MIN)], START + 60 * MIN);
     expect(r.nights[0]).toBe(timed);
     expect(r.timed).toEqual([]);
   });
 
   it("counts a night the watch had already timed the same as unchanged, not timed", () => {
-    const first = applyWatch([night()], [WINDOW_OPENS, asleepAt(15 * MIN)]);
-    const again = applyWatch(first.nights, [WINDOW_OPENS, asleepAt(15 * MIN)]);
+    const first = applyWatch([night()], [asleepAt(15 * MIN)], WINDOW);
+    const again = applyWatch(first.nights, [asleepAt(15 * MIN)], WINDOW);
     expect(again.timed).toEqual([]);
     expect(again.unchanged).toBe(1);
     expect(again.nights[0]).toBe(first.nights[0]);
@@ -252,7 +260,7 @@ describe("importWatch", () => {
   it("re-times the stored night, and the headline counts a fast watch onset", () => {
     appendNight(night());
     const r = importWatch(`${OPENS_LINE}\n2026-10-05T23:04:00-07:00~2026-10-05T23:30:00-07:00~Core`);
-    expect(r).toEqual({ timed: [{ startedAt: START, atMs: 4 * MIN, inferredAtMs: 30 * MIN }], unchanged: 0, samples: 2, unrecognised: 0, malformed: 0 });
+    expect(r).toEqual({ timed: [{ startedAt: START, atMs: 4 * MIN, inferredAtMs: 30 * MIN }], unchanged: 0, samples: 1, unrecognised: 0, malformed: 0 });
     expect(loadNights()[0].detector).toBe("watch");
     // 4 min is under the detector's plausibility floor; a watch onset is measured.
     expect(rollup(loadNights()).bestTimeToSleepMs).toBe(4 * MIN);
@@ -281,7 +289,7 @@ describe("importWatch", () => {
   it("reads the newest lines when there are too many", () => {
     appendNight(night());
     const old = Array.from({ length: MAX_SAMPLES }, () => "2026-10-01T23:05:00-07:00~2026-10-01T23:50:00-07:00~Core");
-    const r = importWatch([...old, OPENS_LINE, "2026-10-05T23:06:00-07:00~2026-10-05T23:50:00-07:00~Core"].join("\n"));
+    const r = importWatch([OPENS_LINE, ...old, "2026-10-05T23:06:00-07:00~2026-10-05T23:50:00-07:00~Core"].join("\n"));
     expect(r.timed.map((x) => x.atMs)).toEqual([6 * MIN]);
   });
 
@@ -317,6 +325,14 @@ describe("importWatch", () => {
       Storage.prototype.setItem = setItem;
     }
     expect(writes).toBe(0);
+  });
+
+  it("refuses a payload without its window line, and says the shortcut needs it", () => {
+    appendNight(night());
+    const r = importWatch("2026-10-05T23:04:00-07:00~2026-10-05T23:30:00-07:00~Core");
+    expect(r).toMatchObject({ timed: [], noWindow: true });
+    expect(watchNotice(r)).toMatch(/window line/);
+    expect(loadNights()[0].detector).toBe("inference");
   });
 
   it("leaves storage alone when nothing parses", () => {

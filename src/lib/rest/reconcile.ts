@@ -17,7 +17,9 @@ import { validLean } from "./sleepscore";
  *  when it ends. */
 export const SNAPSHOT_FRESH_MS = 30_000;
 
-export function reconcileLive(l: LiveSession, now: number): void {
+/** Whether the night was stored: if not (storage full), the snapshot is
+ *  kept, so the night isn't lost from both the ledger and the resume offer. */
+export function reconcileLive(l: LiveSession, now: number): boolean {
   const elapsedMs = Math.max(0, l.totalSeconds * 1000 - Math.max(0, l.remainingMs));
   const timerMinutes = nightTimerMinutes(l);
   // As if it faded on schedule. A timerless night (one-episode, all-night)
@@ -38,7 +40,7 @@ export function reconcileLive(l: LiveSession, now: number): void {
     endedAt,
     wasVaried: l.wasVaried ?? false, // steers which lineup a re-anchor continues
   });
-  appendNight({
+  const recorded = appendNight({
     startedAt,
     // Last seen alive, not the scheduled fade above: the tab (and its
     // audio, and its touch count) died by its last snapshot, so nothing
@@ -52,7 +54,8 @@ export function reconcileLive(l: LiveSession, now: number): void {
     detector: "none",
     ...(validLean(l.shuffleLean) ? { shuffle: "leaned" as const } : {}),
   });
-  clearLive();
+  if (recorded) clearLive();
+  return recorded;
 }
 
 /** On page load: return the snapshot if it should be offered for revival;
@@ -72,8 +75,7 @@ export function settleLive(l: LiveSession | null, now: number): LiveSession | nu
 function reconcileUnlessFresh(l: LiveSession, now: number): boolean {
   const age = now - l.savedAt;
   if (age >= 0 && age < SNAPSHOT_FRESH_MS) return false;
-  reconcileLive(l, now);
-  return true;
+  return reconcileLive(l, now);
 }
 
 /** A watch import means the night is over (the Shortcut runs in the
