@@ -29,8 +29,10 @@ export const WATCH_HASH = "#watch=";
  *  that night's: past it, the sleep belongs to no night sleepcast played. */
 export const MATCH_WINDOW_MS = 4 * 60 * 60 * 1000;
 
-/** A payload has at most this many lines read (a week of a busy night's
- *  samples is a few hundred): the fragment is anyone's to write. */
+/** A payload has at most its last this-many lines read (a week of a busy
+ *  night's samples is a few hundred): the fragment is anyone's to write.
+ *  The last, because the Shortcut sorts oldest first and the newest night
+ *  is the one a morning import is for. */
 export const MAX_SAMPLES = 2000;
 
 /** Health's sleep stages, by code (HKCategoryValueSleepAnalysis, for a
@@ -69,7 +71,7 @@ export function parseWatchPayload(text: string): { samples: SleepSample[]; unrec
   const samples: SleepSample[] = [];
   let unrecognised = 0;
   let malformed = 0;
-  for (const line of text.split(/\r?\n/).slice(0, MAX_SAMPLES)) {
+  for (const line of text.split(/\r?\n/).slice(-MAX_SAMPLES)) {
     if (!line.trim()) continue;
     const [startText, endText, stage] = line.split("~");
     const start = parseTime(startText);
@@ -95,7 +97,7 @@ const CONTIGUOUS_MS = 60_000;
 /** The starts of each unbroken stretch of sleep, in time order: asleep
  *  samples merged where one begins within CONTIGUOUS_MS of the stretch's
  *  end so far. A stage change within a stretch is not falling asleep. */
-function sleepStretches(samples: readonly SleepSample[]): { start: number; end: number }[] {
+export function sleepStretches(samples: readonly SleepSample[]): { start: number; end: number }[] {
   const asleep = samples.filter((s) => s.asleep).sort((a, b) => a.start - b.start);
   const out: { start: number; end: number }[] = [];
   for (const s of asleep) {
@@ -107,24 +109,27 @@ function sleepStretches(samples: readonly SleepSample[]): { start: number; end: 
 }
 
 /** The watch's onset for a night, from its start (ms), or null: the start
- *  of the first stretch of sleep that begins at or after the night's start,
- *  before MATCH_WINDOW_MS and before the next night's start (a 3am
- *  re-anchor is its own night). A stretch that began before the night's
- *  start doesn't count, nor does a stage change within it: the listener
- *  was awake to press start, whatever the watch scored. */
+ *  of the first stretch of sleep (sleepStretches) that begins at or after
+ *  the night's start, before MATCH_WINDOW_MS and before the next night's
+ *  start (a 3am re-anchor is its own night). A stretch that began before
+ *  the night's start doesn't count, nor does a stage change within it: the
+ *  listener was awake to press start, whatever the watch scored. */
 export function watchOnset(
   startedAt: number,
-  samples: readonly SleepSample[],
+  stretches: readonly { start: number }[],
   nextStartedAt = Infinity,
 ): number | null {
   const limit = Math.min(startedAt + MATCH_WINDOW_MS, nextStartedAt);
-  const first = sleepStretches(samples).find((s) => s.start >= startedAt);
+  const first = stretches.find((s) => s.start >= startedAt);
   return first && first.start < limit ? first.start - startedAt : null;
 }
 
-/** A night re-timed by the watch's onset \`atMs\`. Attribution comes from the
- *  night's timeline when it still has one; an onset after the night ended
- *  credits nothing (the audio had stopped). Without a timeline the
+/** A night re-timed by the watch's onset `atMs`. Attribution comes from the
+ *  night's timeline when it covers the onset; an onset after the night
+ *  ended credits nothing (the audio had stopped). A timeline that starts
+ *  after the onset (a night revived after a reload notes only what played
+ *  since) can't say what was playing then, and would credit every show
+ *  after the reload as slept through: it is no timeline. Without one the
  *  detector's attribution (for a different onset) is dropped, unless the
  *  night was already watch-timed, when it is still this onset's. A "slept"
  *  or "awake" label was on the detector's claim, which the watch replaces. */
@@ -133,11 +138,12 @@ export function retimed(n: RestNight, atMs: number): RestNight {
   const { selfLabel: _label, ...unlabelled } = n;
   const timed = { sleptAtMs: atMs, timeToSleepMs: atMs, detector: "watch" as const, inferredAtMs };
   const afterEnd = n.endedAt !== undefined && n.startedAt + atMs > n.endedAt;
+  const covering = n.timeline?.some((e) => e.t <= atMs) ? n.timeline : undefined;
   // Already watch-timed with no timeline left to redo it: its attribution
   // is this onset's, so it stands.
-  if (!afterEnd && !n.timeline && n.detector === "watch") return { ...unlabelled, ...timed };
+  if (!afterEnd && !covering && n.detector === "watch") return { ...unlabelled, ...timed };
   const { onsetFeedId: _f, onsetEpisodeId: _e, onsetAfterMs: _a, sleptThrough: _s, ...base } = unlabelled;
-  return { ...base, ...timed, ...(!afterEnd && n.timeline ? attribution(n.timeline, atMs) : {}) };
+  return { ...base, ...timed, ...(!afterEnd && covering ? attribution(covering, atMs) : {}) };
 }
 
 export interface WatchTiming {
@@ -147,26 +153,35 @@ export interface WatchTiming {
 }
 
 /** Every night the samples time, re-timed; the rest as they were, in the
- *  same order. */
+ *  same order. `timed` lists the nights whose time this changed;
+ *  `unchanged` counts those the watch had already timed the same (the
+ *  Shortcut reads two days, so each morning re-reads the night before). */
 export function applyWatch(
   nights: readonly RestNight[],
   samples: readonly SleepSample[],
-): { nights: RestNight[]; timed: WatchTiming[] } {
-  const starts = nights.map((n) => n.startedAt).sort((a, b) => a - b);
-  const nextAfter = (t: number) => starts.find((s) => s > t) ?? Infinity;
+): { nights: RestNight[]; timed: WatchTiming[]; unchanged: number } {
+  const stretches = sleepStretches(samples);
+  const starts = [...new Set(nights.map((n) => n.startedAt))].sort((a, b) => a - b);
+  const next = new Map(starts.map((s, i) => [s, starts[i + 1] ?? Infinity]));
   const timed: WatchTiming[] = [];
+  let unchanged = 0;
   const out = nights.map((n) => {
-    const at = watchOnset(n.startedAt, samples, nextAfter(n.startedAt));
+    const at = watchOnset(n.startedAt, stretches, next.get(n.startedAt));
     if (at === null) return n;
+    if (n.detector === "watch" && n.sleptAtMs === at) {
+      unchanged++;
+      return n;
+    }
     const r = retimed(n, at);
     timed.push({ startedAt: n.startedAt, atMs: at, inferredAtMs: r.inferredAtMs ?? null });
     return r;
   });
-  return { nights: out, timed: timed.sort((a, b) => a.startedAt - b.startedAt) };
+  return { nights: out, timed: timed.sort((a, b) => a.startedAt - b.startedAt), unchanged };
 }
 
 export interface WatchImport {
   timed: WatchTiming[];
+  unchanged: number;
   samples: number;
   unrecognised: number;
   malformed: number;
@@ -178,18 +193,23 @@ export function payloadFromPaste(text: string): string {
   return i >= 0 ? (watchPayloadFromHash(text.slice(i).trim()) ?? "") : text.trim();
 }
 
-/** Reads a payload into the rest ledger. */
+/** Reads a payload into the rest ledger. Any unrecognised stage refuses
+ *  the whole import: in several languages REM is still "REM" while the
+ *  other stages aren't English, so the recognised part alone would time
+ *  the night from its first REM stage, an hour or more late. */
 export function importWatch(text: string): WatchImport {
   const { samples, unrecognised, malformed } = parseWatchPayload(text);
   let timed: WatchTiming[] = [];
-  if (samples.length) {
+  let unchanged = 0;
+  if (samples.length && !unrecognised) {
     updateNights((nights) => {
       const r = applyWatch(nights, samples);
       timed = r.timed;
+      unchanged = r.unchanged;
       return r.nights;
     });
   }
-  return { timed, samples: samples.length, unrecognised, malformed };
+  return { timed, unchanged, samples: samples.length, unrecognised, malformed };
 }
 
 /** The payload in a location hash, or null when it isn't a watch import.
@@ -210,16 +230,19 @@ export function watchPayloadFromHash(hash: string): string | null {
 
 /** What an import did, in a line for the listener. */
 export function watchNotice(r: WatchImport): string {
+  if (r.unrecognised) return "your watch's sleep stages came in a language sleepcast can't read yet (english only), so nothing was changed.";
   if (!r.samples) {
-    if (r.unrecognised) return "your watch's sleep stages came in a language sleepcast can't read yet (english only).";
     if (r.malformed) return "the watch data had no times of day: in the shortcut, set both dates to iso 8601 with the time included.";
     return "nothing from your watch to read: is sleep tracking on?";
   }
-  if (!r.timed.length) return "your watch's sleep didn't start inside a sleepcast night.";
+  const unread = r.malformed ? ` (${r.malformed === 1 ? "1 line" : `${r.malformed} lines`} couldn't be read: check the shortcut.)` : "";
+  if (!r.timed.length) {
+    return (r.unchanged ? "nothing new: your watch had already timed these nights." : "your watch's sleep didn't start inside a sleepcast night.") + unread;
+  }
   const last = r.timed[r.timed.length - 1];
   const guess = last.inferredAtMs === null ? "" : `; sleepcast guessed ${fmtOnsetMinutes(last.inferredAtMs)}`;
   const lead = r.timed.length === 1 ? "your watch" : `your watch timed ${r.timed.length} nights. the latest`;
-  return `${lead}: asleep ${fmtOnsetMinutes(last.atMs)} in${guess}.`;
+  return `${lead}: asleep ${fmtOnsetMinutes(last.atMs)} in${guess}.${unread}`;
 }
 
 /** How the detector's guesses compare with the watch: nights the watch

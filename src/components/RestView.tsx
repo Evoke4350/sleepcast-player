@@ -8,16 +8,15 @@ import { playsSince, playAtMoment } from "../lib/plays";
 import { importWatch, payloadFromPaste, watchAgreement, watchNotice } from "../lib/rest/watch";
 
 export function RestView({ onClose }: { onClose: () => void }) {
-  // Bumped by a pasted watch import, to re-read the re-timed nights.
-  const [version, setVersion] = useState(0);
-  const nights = useMemo(() => loadNights(), [version]);
+  // Re-read after a pasted watch import re-times them.
+  const [nights, setNights] = useState(() => loadNights());
   const watch = useMemo(() => watchAgreement(nights), [nights]);
   const [pasted, setPasted] = useState("");
   const [pasteLine, setPasteLine] = useState<string | null>(null);
   function importPasted() {
     setPasteLine(watchNotice(importWatch(payloadFromPaste(pasted))));
     setPasted("");
-    setVersion((v) => v + 1);
+    setNights(loadNights());
   }
   const r = useMemo(() => rollup(nights), [nights]);
   const last = lastNight();

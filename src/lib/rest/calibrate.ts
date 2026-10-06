@@ -6,8 +6,16 @@ import { loadNights, loadParams, saveParams } from "./ledger";
  *  tick, where "awake ticks" ≈ time-to-sleep / tick. Falls back to defaults
  *  with too little history. Clamped to a sane range. */
 export function paramsFromHistory(nights: RestNight[]): DetectorParams {
-  // A night marked "awake" has no real time-to-sleep to learn from.
-  const usable = nights.filter((n) => n.timeToSleepMs && n.timeToSleepMs > 0 && n.selfLabel !== "awake");
+  // A night marked "awake" has no real time-to-sleep to learn from. Nor does
+  // one whose onset (a watch's) came after the night ended: its touches
+  // were only counted while it played, not over the whole time-to-sleep.
+  const usable = nights.filter(
+    (n) =>
+      n.timeToSleepMs &&
+      n.timeToSleepMs > 0 &&
+      n.selfLabel !== "awake" &&
+      !(n.endedAt !== undefined && n.startedAt + n.timeToSleepMs > n.endedAt),
+  );
   if (usable.length < 3) return DEFAULT_PARAMS;
   let interactions = 0;
   let awakeTicks = 0;

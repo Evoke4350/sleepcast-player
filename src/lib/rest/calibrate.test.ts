@@ -89,3 +89,15 @@ describe("paramsFromHistory keeps the detector able to decide", () => {
     expect(ticks * TICK_MS).toBeLessThan(25 * 60_000 - 60_000); // before the fade window
   });
 });
+
+describe("calibration and watch onsets", () => {
+  it("doesn't learn from a night whose onset came after it ended", () => {
+    const n = (over: Partial<RestNight>): RestNight => ({
+      startedAt: 0, endedAt: 30 * 60_000, timerMinutes: 30, endedVia: "faded", sleptAtMs: 20 * 60_000,
+      timeToSleepMs: 20 * 60_000, interactions: 6, detector: "watch", ...over,
+    });
+    const observed = [n({}), n({}), n({})];
+    const late = n({ sleptAtMs: 120 * 60_000, timeToSleepMs: 120 * 60_000 });
+    expect(paramsFromHistory([...observed, late])).toEqual(paramsFromHistory(observed));
+  });
+});

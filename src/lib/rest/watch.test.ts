@@ -10,6 +10,8 @@ import {
   watchAgreement,
   payloadFromPaste,
   MATCH_WINDOW_MS,
+  MAX_SAMPLES,
+  sleepStretches,
   type SleepSample,
 } from "./watch";
 import { appendNight, loadNights, rollup } from "./ledger";
@@ -94,22 +96,22 @@ describe("parseWatchPayload", () => {
 
 describe("watchOnset", () => {
   it("is the first asleep sample inside the night, from its start", () => {
-    expect(watchOnset(START, [awakeAt(5 * MIN), asleepAt(25 * MIN), asleepAt(18 * MIN)])).toBe(18 * MIN);
+    expect(watchOnset(START, sleepStretches([awakeAt(5 * MIN), asleepAt(25 * MIN), asleepAt(18 * MIN)]))).toBe(18 * MIN);
   });
   it("ignores sleep before the night began, past the window, or in the next night", () => {
-    expect(watchOnset(START, [asleepAt(-10 * MIN)])).toBeNull();
-    expect(watchOnset(START, [asleepAt(MATCH_WINDOW_MS)])).toBeNull();
-    expect(watchOnset(START, [asleepAt(90 * MIN)], START + 60 * MIN)).toBeNull();
+    expect(watchOnset(START, sleepStretches([asleepAt(-10 * MIN)]))).toBeNull();
+    expect(watchOnset(START, sleepStretches([asleepAt(MATCH_WINDOW_MS)]))).toBeNull();
+    expect(watchOnset(START, sleepStretches([asleepAt(90 * MIN)]), START + 60 * MIN)).toBeNull();
   });
   it("counts an onset at the very start", () => {
-    expect(watchOnset(START, [asleepAt(0)])).toBe(0);
+    expect(watchOnset(START, sleepStretches([asleepAt(0)]))).toBe(0);
   });
   it("doesn't take a stage change in sleep that began before the start for falling asleep", () => {
     // Core from 10 min before start to 20 min after, then REM: one stretch.
-    expect(watchOnset(START, [asleepAt(-10 * MIN, 30 * MIN), asleepAt(20 * MIN, 30 * MIN)])).toBeNull();
+    expect(watchOnset(START, sleepStretches([asleepAt(-10 * MIN, 30 * MIN), asleepAt(20 * MIN, 30 * MIN)]))).toBeNull();
     // Woke, then slept again: the new stretch is the onset.
     expect(
-      watchOnset(START, [asleepAt(-10 * MIN, 30 * MIN), awakeAt(20 * MIN, 10 * MIN), asleepAt(30 * MIN, 30 * MIN)]),
+      watchOnset(START, sleepStretches([asleepAt(-10 * MIN, 30 * MIN), awakeAt(20 * MIN, 10 * MIN), asleepAt(30 * MIN, 30 * MIN)])),
     ).toBe(30 * MIN);
   });
 });
@@ -163,6 +165,16 @@ describe("retimed", () => {
   });
 });
 
+describe("retimed, on a night revived after a reload", () => {
+  it("credits nothing when the timeline begins after the onset", () => {
+    // Revived at 4 h: the timeline holds only what played since.
+    const n = retimed(night({ endedAt: START + 6 * 60 * MIN, timeline: [{ t: 4 * 60 * MIN, feedId: "x", episodeId: "x1" }] }), 30 * MIN);
+    expect(n.timeToSleepMs).toBe(30 * MIN);
+    expect(n).not.toHaveProperty("onsetFeedId");
+    expect(n).not.toHaveProperty("sleptThrough");
+  });
+});
+
 describe("applyWatch", () => {
   it("times each night by its own samples, the rest unchanged, order kept", () => {
     const second = night({ startedAt: START + 3 * 60 * MIN, endedAt: START + 4 * 60 * MIN });
@@ -174,6 +186,14 @@ describe("applyWatch", () => {
     expect(timed.map((t) => t.atMs)).toEqual([15 * MIN, 5 * MIN]);
     expect(timed[0].inferredAtMs).toBe(30 * MIN);
   });
+
+  it("counts a night the watch had already timed the same as unchanged, not timed", () => {
+    const first = applyWatch([night()], [asleepAt(15 * MIN)]);
+    const again = applyWatch(first.nights, [asleepAt(15 * MIN)]);
+    expect(again.timed).toEqual([]);
+    expect(again.unchanged).toBe(1);
+    expect(again.nights[0]).toBe(first.nights[0]);
+  });
 });
 
 describe("importWatch", () => {
@@ -182,15 +202,31 @@ describe("importWatch", () => {
   it("re-times the stored night, and the headline counts a fast watch onset", () => {
     appendNight(night());
     const r = importWatch("2026-10-05T23:04:00-07:00~2026-10-05T23:30:00-07:00~Core");
-    expect(r).toEqual({ timed: [{ startedAt: START, atMs: 4 * MIN, inferredAtMs: 30 * MIN }], samples: 1, unrecognised: 0, malformed: 0 });
+    expect(r).toEqual({ timed: [{ startedAt: START, atMs: 4 * MIN, inferredAtMs: 30 * MIN }], unchanged: 0, samples: 1, unrecognised: 0, malformed: 0 });
     expect(loadNights()[0].detector).toBe("watch");
     // 4 min is under the detector's plausibility floor; a watch onset is measured.
     expect(rollup(loadNights()).bestTimeToSleepMs).toBe(4 * MIN);
   });
 
+  it("changes nothing when any stage is unrecognised, as when only REM is in english", () => {
+    appendNight(night());
+    const lines = ["2026-10-05T23:05:00-07:00~2026-10-05T23:50:00-07:00~Kern", "2026-10-06T00:20:00-07:00~2026-10-06T00:40:00-07:00~REM"];
+    const r = importWatch(lines.join("\n"));
+    expect(r).toMatchObject({ timed: [], samples: 1, unrecognised: 1 });
+    expect(loadNights()[0].detector).toBe("inference");
+    expect(watchNotice(r)).toMatch(/english only/);
+  });
+
+  it("reads the newest lines when there are too many", () => {
+    appendNight(night());
+    const old = Array.from({ length: MAX_SAMPLES }, () => "2026-10-01T23:05:00-07:00~2026-10-01T23:50:00-07:00~Core");
+    const r = importWatch([...old, "2026-10-05T23:06:00-07:00~2026-10-05T23:50:00-07:00~Core"].join("\n"));
+    expect(r.timed.map((x) => x.atMs)).toEqual([6 * MIN]);
+  });
+
   it("leaves storage alone when nothing parses", () => {
     appendNight(night());
-    expect(importWatch("garbage")).toEqual({ timed: [], samples: 0, unrecognised: 0, malformed: 1 });
+    expect(importWatch("garbage")).toEqual({ timed: [], unchanged: 0, samples: 0, unrecognised: 0, malformed: 1 });
     expect(loadNights()[0].detector).toBe("inference");
   });
 });
@@ -215,15 +251,20 @@ describe("payloadFromPaste", () => {
 describe("watchNotice", () => {
   const t = (atMs: number, inferredAtMs: number | null) => ({ startedAt: START, atMs, inferredAtMs });
   it("says what the import did", () => {
-    expect(watchNotice({ timed: [t(12 * MIN, 30 * MIN)], samples: 3, unrecognised: 0, malformed: 0 })).toBe(
+    expect(watchNotice({ timed: [t(12 * MIN, 30 * MIN)], unchanged: 0, samples: 3, unrecognised: 0, malformed: 0 })).toBe(
       "your watch: asleep 12 min in; sleepcast guessed 30 min.",
     );
-    expect(watchNotice({ timed: [t(5 * MIN, null), t(12 * MIN, null)], samples: 3, unrecognised: 0, malformed: 0 })).toBe(
+    expect(watchNotice({ timed: [t(5 * MIN, null), t(12 * MIN, null)], unchanged: 0, samples: 3, unrecognised: 0, malformed: 0 })).toBe(
       "your watch timed 2 nights. the latest: asleep 12 min in.",
     );
-    expect(watchNotice({ timed: [], samples: 3, unrecognised: 0, malformed: 0 })).toMatch(/didn't start inside/);
-    expect(watchNotice({ timed: [], samples: 0, unrecognised: 0, malformed: 0 })).toMatch(/sleep tracking/);
-    expect(watchNotice({ timed: [], samples: 0, unrecognised: 4, malformed: 0 })).toMatch(/english only/);
+    expect(watchNotice({ timed: [], unchanged: 0, samples: 3, unrecognised: 0, malformed: 0 })).toMatch(/didn't start inside/);
+    expect(watchNotice({ timed: [], unchanged: 0, samples: 0, unrecognised: 0, malformed: 0 })).toMatch(/sleep tracking/);
+    expect(watchNotice({ timed: [], unchanged: 0, samples: 0, unrecognised: 4, malformed: 0 })).toMatch(/english only/);
+    expect(watchNotice({ timed: [], unchanged: 0, samples: 0, unrecognised: 0, malformed: 3 })).toMatch(/iso 8601/);
+    expect(watchNotice({ timed: [], unchanged: 1, samples: 3, unrecognised: 0, malformed: 0 })).toMatch(/nothing new/);
+    expect(watchNotice({ timed: [t(12 * MIN, null)], unchanged: 0, samples: 3, unrecognised: 0, malformed: 2 })).toBe(
+      "your watch: asleep 12 min in. (2 lines couldn't be read: check the shortcut.)",
+    );
   });
 });
 

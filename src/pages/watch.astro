@@ -36,7 +36,9 @@ import PlayerLayout from "../layouts/PlayerLayout.astro";
       <ol class="list-decimal space-y-3 pl-5">
         <li>
           <strong>find health samples</strong>. set it to find health samples where <em>type</em> is <em>sleep analysis</em>,
-          add a filter <em>start date</em> is in the last <em>2 days</em>, and sort by <em>start date</em>, oldest first.
+          add a filter <em>start date</em> is in the last <em>2 days</em>, add a filter <em>source</em> is your apple
+          watch (so another sleep app's coarser samples don't blur the watch's), and sort by <em>start date</em>, oldest
+          first.
         </li>
         <li>
           <strong>repeat with each</strong> item in <em>health samples</em>. inside the repeat, add a
@@ -61,10 +63,11 @@ import PlayerLayout from "../layouts/PlayerLayout.astro";
         sleepcast guessed 20 min." the first time, health asks to let shortcuts read sleep data: allow it.
       </p>
 
-      <h2 class="mt-8 text-base text-[#d9c3a0]">run it on waking</h2>
+      <h2 class="mt-8 text-base text-[#d9c3a0]">run it every morning</h2>
       <p>
-        in shortcuts, automation, new automation, <em>sleep</em>, <em>waking up</em>, then run <em>sleepcast watch</em>
-        immediately. it runs as your sleep focus ends.
+        in shortcuts, automation, new automation, <em>time of day</em>, pick a time an hour or so after you usually get
+        up, daily, then run <em>sleepcast watch</em> immediately. not on waking: the watch can take a while to hand the
+        night's stages to your iphone, and too early it finds nothing yet. running it again later is always safe.
       </p>
 
       <h2 class="mt-8 text-base text-[#d9c3a0]">the paste version (home-screen app)</h2>
