@@ -216,3 +216,19 @@ describe("setSelfLabel and watch nights", () => {
     expect(loadNights()[0]).not.toHaveProperty("selfLabel");
   });
 });
+
+describe("setSelfLabel when storage is full", () => {
+  beforeEach(() => localStorage.clear());
+  it("returns null: the label didn't take", () => {
+    appendNight({ startedAt: 7, timerMinutes: 60, endedVia: "faded", sleptAtMs: 60_000, timeToSleepMs: 60_000, interactions: 0, detector: "inference" });
+    const setItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = () => {
+      throw new Error("QuotaExceededError");
+    };
+    try {
+      expect(setSelfLabel(7, "awake")).toBeNull();
+    } finally {
+      Storage.prototype.setItem = setItem;
+    }
+  });
+});

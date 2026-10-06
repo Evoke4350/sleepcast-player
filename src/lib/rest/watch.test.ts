@@ -131,7 +131,9 @@ describe("parseWatchPayload", () => {
     const lines = Array.from({ length: MAX_SAMPLES + 5 }, (_, i) => old(i));
     lines.sort();
     const r = parseWatchPayload(["window~2026-10-04T08:00:00-07:00", ...lines].join("\n"));
-    expect(r.windowStart).toBe(Date.parse(lines[5].split("~")[0]));
+    // Where the kept lines begin, or past the end of the dropped sleep (+1 min).
+    const droppedEnd = Math.max(...lines.slice(0, 5).map((l) => Date.parse(l.split("~")[1])));
+    expect(r.windowStart).toBe(Math.max(Date.parse(lines[5].split("~")[0]), droppedEnd + 60_000));
   });
 
   it("counts a would-be code that isn't one as malformed, not a language", () => {
@@ -299,8 +301,9 @@ describe("importWatch", () => {
   it("changes nothing when any stage is unrecognised, as when only REM is in english", () => {
     appendNight(night());
     const lines = ["2026-10-05T23:05:00-07:00~2026-10-05T23:50:00-07:00~Kern", "2026-10-06T00:20:00-07:00~2026-10-06T00:40:00-07:00~REM"];
-    const r = importWatch(lines.join("\n"));
-    expect(r).toMatchObject({ timed: [], samples: 1, unrecognised: 1 });
+    // With its window line: refused for the stage alone.
+    const r = importWatch([OPENS_LINE, ...lines].join("\n"));
+    expect(r).toMatchObject({ timed: [], samples: 1, unrecognised: 1, noWindow: false });
     expect(loadNights()[0].detector).toBe("inference");
     expect(watchNotice(r)).toMatch(/english only/);
   });
@@ -309,7 +312,19 @@ describe("importWatch", () => {
     appendNight(night());
     const old = Array.from({ length: MAX_SAMPLES }, () => "2026-10-01T23:05:00-07:00~2026-10-01T23:50:00-07:00~Core");
     const r = importWatch([OPENS_LINE, ...old, "2026-10-05T23:06:00-07:00~2026-10-05T23:50:00-07:00~Core"].join("\n"));
+    expect(r.samples).toBe(MAX_SAMPLES);
     expect(r.timed.map((x) => x.atMs)).toEqual([6 * MIN]);
+  });
+
+  it("moves the window past dropped sleep a kept sample could have joined", () => {
+    // The last dropped line is sleep ending 23:10; the first kept one starts
+    // 23:10:30, within a minute: one stretch, begun before the 23:00 night.
+    const dropped = "2026-10-05T22:30:00-07:00~2026-10-05T23:10:00-07:00~Core";
+    const kept = Array.from({ length: MAX_SAMPLES }, (_, i) =>
+      i === 0 ? "2026-10-05T23:10:30-07:00~2026-10-05T23:40:00-07:00~Deep" : "2026-10-06T06:00:00-07:00~2026-10-06T06:01:00-07:00~Awake",
+    );
+    const r = parseWatchPayload([OPENS_LINE, dropped, ...kept].join("\n"));
+    expect(r.windowStart).toBe(Date.parse("2026-10-05T23:10:00-07:00") + 60_000);
   });
 
   it("says so, and claims nothing, when the re-timed nights can't be stored", () => {

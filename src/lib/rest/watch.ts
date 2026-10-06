@@ -10,7 +10,7 @@
 // there, from its own start).
 //
 // A night's onset is the start of the first stretch of sleep that begins
-// inside it (see watchOnset and onsetStretches). That replaces the
+// inside it (see watchOnset and sleepStretches). That replaces the
 // detector's guess (kept as inferredAtMs, to compare) and re-attributes the
 // night from its timeline, as RestSession.finish attributes the detector's
 // onset.
@@ -110,6 +110,11 @@ export function parseWatchPayload(text: string): {
     // (A first kept line that doesn't parse is malformed, refused anyway.)
     const first = parseTime(kept[0].split("~")[0]);
     if (first !== null) windowStart = Math.max(windowStart, first);
+    // And past any dropped sleep a kept sample could have joined onto.
+    for (const line of lines.slice(0, lines.length - kept.length)) {
+      const end = parseTime(line.split("~")[1]);
+      if (end !== null) windowStart = Math.max(windowStart, end + CONTIGUOUS_MS);
+    }
   }
   for (const line of kept) {
     const fields = line.split("~");

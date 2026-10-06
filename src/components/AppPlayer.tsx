@@ -1,4 +1,4 @@
-import { useState, useEffect, type ReactNode } from "react";
+import { useState, useEffect, useRef, type ReactNode } from "react";
 import type { Episode } from "../lib/engine";
 import { formatTime } from "../lib/engine";
 import { loadLive, clearLive, clearLastNight, loadLastNight, type LiveSession, type LastNight, type ResumeDescriptor, resumeFrom, nightTimerMinutes, loadState, isRevivable, resumeMode, loadBlocked } from "../lib/store";
@@ -36,8 +36,9 @@ interface SessionState {
 }
 
 /** A #watch= link's import, if the page loaded with one (the head script
- *  took it out of the address), and the line saying what it did. Run once per page load (an initializer called twice gets the first
- *  call's line), as it writes to storage. */
+ *  took it out of the address), and the line saying what it did. Run once
+ *  per page load (an initializer called twice gets the first call's line),
+ *  as it writes to storage. */
 let watchLinkTaken: { line: string | null } | null = null;
 function takeWatchLink(): string | null {
   if (watchLinkTaken) return watchLinkTaken.line;
@@ -125,6 +126,10 @@ export function AppPlayer() {
   // the `live` state below then finds no snapshot). The fragment is cleared
   // at once: a reload, or the link shared, mustn't import it again.
   const [watchLine, setWatchLine] = useState(takeWatchLink);
+  // For the re-anchor check (registered once): only while the line shows,
+  // i.e. until another night starts.
+  const watchLineRef = useRef(watchLine);
+  watchLineRef.current = watchLine;
   // The morning's line is about the night before: gone once another starts.
   useEffect(() => {
     if (session) setWatchLine(null);
@@ -205,7 +210,7 @@ export function AppPlayer() {
       // Nor on a page load that read a watch link: the night it closed is
       // over (the import just said so), and the re-anchor would cover the
       // line saying what the watch found.
-      if (isRevivable(live, Date.now()) || takeWatchLink() !== null) {
+      if (isRevivable(live, Date.now()) || watchLineRef.current !== null) {
         setReanchor(null);
         return;
       }

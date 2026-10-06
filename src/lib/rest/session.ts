@@ -107,7 +107,11 @@ export class RestSession {
 
   finish(endedVia: RestNight["endedVia"], now: number): RestNight {
     const atMs = this.onset ? this.onset.atMs : null;
-    const timeline = sortedTimeline(this.timeline);
+    // In time order: noteEpisode takes an explicit `now`, so a clock
+    // adjustment or a resumed night can append an earlier t after a later
+    // one. Sorted on a copy, which must not mutate state a caller might
+    // still read.
+    const timeline = [...this.timeline].sort((a, b) => a.t - b.t);
     return {
       startedAt: this.startedAt,
       endedAt: now,
@@ -123,13 +127,6 @@ export class RestSession {
       ...(timeline.length ? { timeline } : {}),
     };
   }
-}
-
-/** A timeline in time order. noteEpisode takes an explicit `now`, so a clock
- *  adjustment or a resumed night can append an earlier t after a later one;
- *  sorted on a copy, which must not mutate state a caller might still read. */
-function sortedTimeline(timeline: readonly TimelineEntry[]): TimelineEntry[] {
-  return [...timeline].sort((a, b) => a.t - b.t);
 }
 
 /** When a revived night's session should say it began: the snapshot's real

@@ -17,8 +17,9 @@ export function loadNights(): RestNight[] {
   }
 }
 
-/** Whether the nights were stored. A lost stat is not worth throwing over
- *  (quota, private mode), but a caller reporting a change may need to know. */
+/** Stores the nights, the newest MAX_NIGHTS of them, and returns what it
+ *  stored; null when it couldn't (quota, private mode: a lost stat is not
+ *  worth throwing over, but a caller reporting a change needs to know). */
 export function saveNights(nights: RestNight[]): RestNight[] | null {
   const kept = nights.slice(-MAX_NIGHTS);
   try {
@@ -75,8 +76,9 @@ export function setSelfLabel(startedAt: number, label: "slept" | "awake"): RestN
   const i = nights.findIndex((n) => n.startedAt === startedAt);
   if (i === -1 || nights[i].detector === "watch") return null;
   nights[i] = { ...nights[i], selfLabel: label };
-  saveNights(nights);
-  return nights[i];
+  // A label that didn't store (storage full) didn't take: callers count and
+  // act on it only when it did.
+  return saveNights(nights) ? nights[i] : null;
 }
 
 /** Whether to ask if the listener really slept on a night: it claims an
@@ -86,7 +88,6 @@ export function setSelfLabel(startedAt: number, label: "slept" | "awake"): RestN
 export function offerForLabel(n: RestNight): boolean {
   return n.sleptAtMs !== null && n.selfLabel === undefined && n.detector !== "watch";
 }
-
 
 /** Floor on a believable onset: the fastest the detector can reach its
  *  decision bound at the most sensitive calibration (LAMBDA_MAX), counted from

@@ -79,16 +79,8 @@ export function killedNight(l: LiveSession, now: number): { night: RestNight; co
 export function settleLive(l: LiveSession | null, now: number): LiveSession | null {
   if (!l) return null;
   if (isRevivable(l, now)) return l;
-  reconcileUnlessFresh(l, now);
+  if (!isFresh(l, now)) reconcileLive(l, now);
   return null;
-}
-
-/** Records a snapshot's night unless it may still be live in another tab.
- *  Saved in the future means the clock stepped back since: not another
- *  tab's live night (it shares this clock), so reconcile it now rather than
- *  leave it to be offered hours late. */
-function reconcileUnlessFresh(l: LiveSession, now: number): boolean {
-  return isFresh(l, now) ? false : reconcileLive(l, now);
 }
 
 /** For a watch import, which means the night is over (the Shortcut runs in
@@ -103,6 +95,10 @@ export function killedNightToRecord(now: number): { night: RestNight; commit: ()
   return killedNight(l, now);
 }
 
+/** Whether a snapshot may still be live in another tab. Saved in the future
+ *  means the clock stepped back since: not another tab's live night (it
+ *  shares this clock), so it is reconciled now rather than offered hours
+ *  late. */
 function isFresh(l: LiveSession, now: number): boolean {
   const age = now - l.savedAt;
   return age >= 0 && age < SNAPSHOT_FRESH_MS;
