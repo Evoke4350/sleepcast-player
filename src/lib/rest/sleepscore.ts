@@ -12,7 +12,7 @@
 // never converge on anything. Feeds accumulate dozens of nights.
 
 import type { FeedWeight, RestNight } from "./types";
-import { median } from "./ledger";
+import { median } from "./stats";
 
 export const CREDIT_ONSET = 2;
 export const CREDIT_SLEPT = 1;

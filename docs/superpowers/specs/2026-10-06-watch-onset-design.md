@@ -118,7 +118,9 @@ touches would read as awake ones and make the detector bolder.
 - A link landing in a tab already open (only the fragment changes) is held
   and offered on the home screen ("your watch's night came in: read it"),
   read by a reload when tapped: never a reload by itself, which could end a
-  night still on or lose what was being typed.
+  night still on or lose what was being typed. The held link is handed across that
+  reload through session storage (read and cleared by the head script), never
+  back through the address.
 - The rest view: how many nights the watch timed and the median gap between
   sleepcast's guess and the watch; a link to /watch; the paste box.
 - /watch: the Shortcut, step by step, a daily automation at a set morning time

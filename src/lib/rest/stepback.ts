@@ -11,7 +11,8 @@
 // as a night that wasn't slept through. That is honest, and it means the
 // offer never fires off the back of afternoon listening.
 
-import { isSlept, median } from "./ledger";
+import { isSlept } from "./ledger";
+import { median } from "./stats";
 import type { RestNight } from "./types";
 
 const DAY = 86_400_000;

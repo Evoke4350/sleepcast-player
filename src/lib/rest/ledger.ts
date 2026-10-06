@@ -1,5 +1,6 @@
 import type { RestNight, RestRollup, DetectorParams } from "./types";
 import { retimed } from "./attribution";
+import { median } from "./stats";
 import { writeMakingRoom } from "../store";
 import { DEFAULT_PARAMS, LAMBDA_MAX, TICK_MS, quietTicksToDecide } from "./detector";
 
@@ -18,11 +19,12 @@ export function loadNights(): RestNight[] {
 
 /** Whether the nights were stored. A lost stat is not worth throwing over
  *  (quota, private mode), but a caller reporting a change may need to know. */
-export function saveNights(nights: RestNight[]): boolean {
+export function saveNights(nights: RestNight[]): RestNight[] | null {
+  const kept = nights.slice(-MAX_NIGHTS);
   try {
-    return writeMakingRoom(KEY, JSON.stringify(nights.slice(-MAX_NIGHTS)));
+    return writeMakingRoom(KEY, JSON.stringify(kept)) ? kept : null;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -38,7 +40,7 @@ export const TIMELINE_KEEP_MS = 7 * 24 * 60 * 60 * 1000;
  *  by ending it or by being reconciled. The night keeps the watch's time if
  *  it had one. */
 export function appendNight(n: RestNight): boolean {
-  return saveNights(pruneTimelines(withNight(loadNights(), n), n.startedAt));
+  return saveNights(pruneTimelines(withNight(loadNights(), n), n.startedAt)) !== null;
 }
 
 /** `nights` with `n` added, or replacing the night with its start (see
@@ -85,12 +87,6 @@ export function offerForLabel(n: RestNight): boolean {
   return n.sleptAtMs !== null && n.selfLabel === undefined && n.detector !== "watch";
 }
 
-export function median(xs: readonly number[]): number | null {
-  if (!xs.length) return null;
-  const s = [...xs].sort((a, b) => a - b);
-  const m = Math.floor(s.length / 2);
-  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
-}
 
 /** Floor on a believable onset: the fastest the detector can reach its
  *  decision bound at the most sensitive calibration (LAMBDA_MAX), counted from

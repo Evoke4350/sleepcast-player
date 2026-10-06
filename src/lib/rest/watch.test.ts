@@ -19,7 +19,7 @@ import type { RestNight } from "./types";
 
 const MIN = 60_000;
 /** An import's flags, all clear. */
-const FLAGS = { unsaved: false, endedNight: false, noWindow: false, badWindow: false };
+const FLAGS = { unsaved: false, noWindow: false, badWindow: false };
 const START = Date.parse("2026-10-05T23:00:00-07:00");
 
 function night(over: Partial<RestNight> = {}): RestNight {
@@ -321,7 +321,7 @@ describe("importWatch", () => {
     try {
       const r = importWatch(`${OPENS_LINE}\n2026-10-05T23:04:00-07:00~2026-10-05T23:30:00-07:00~Core`);
       expect(r).toMatchObject({ timed: [], unsaved: true });
-      expect(watchNotice(r)).toMatch(/couldn't be saved/);
+      expect(watchNotice(r)).toMatch(/nothing could be saved/);
     } finally {
       Storage.prototype.setItem = setItem;
     }
@@ -450,7 +450,6 @@ describe("importWatch and a killed tab's snapshot", () => {
     localStorage.setItem("sleepcast2.live", JSON.stringify({ savedAt: 1, remainingMs: 0, totalSeconds: 0, position: 0, current: { id: "e1", title: "", url: "", feedId: "f", date: "" }, playedIds: [], pool: [], skipIntroByFeedId: {}, feedTitles: {}, artworkByFeedId: {}, modeKind: "all-night" }));
     const r = importWatch("not the shortcut's text at all");
     expect(r.refused).toBe(true);
-    expect(r.endedNight).toBe(false);
     expect(localStorage.getItem("sleepcast2.live")).not.toBeNull();
     expect(loadNights()).toHaveLength(0);
   });
@@ -488,7 +487,8 @@ describe("importWatch with a killed tab's night, and full storage", () => {
     } finally {
       Storage.prototype.setItem = setItem;
     }
-    expect(r).toMatchObject({ unsaved: true, refused: true, endedNight: false });
+    expect(r).toMatchObject({ unsaved: true, refused: true });
+    expect(r).not.toHaveProperty("nights");
     expect(localStorage.getItem("sleepcast2.live")).not.toBeNull();
     expect(loadNights()).toHaveLength(0);
   });
@@ -497,7 +497,8 @@ describe("importWatch with a killed tab's night, and full storage", () => {
     const live = { savedAt: START + 10 * MIN, remainingMs: 0, totalSeconds: 0, position: 0, current: { id: "e1", title: "", url: "", feedId: "f", date: "" }, playedIds: [], pool: [], skipIntroByFeedId: {}, feedTitles: {}, artworkByFeedId: {}, nightStartedAt: START, modeKind: "all-night" };
     localStorage.setItem("sleepcast2.live", JSON.stringify(live));
     const r = importWatch(`${OPENS_LINE}\n2026-10-05T23:04:00-07:00~2026-10-05T23:30:00-07:00~Core`, START + 10 * 60 * MIN);
-    expect(r).toMatchObject({ endedNight: true, timed: [{ startedAt: START, atMs: 4 * MIN }] });
+    expect(r).toMatchObject({ timed: [{ startedAt: START, atMs: 4 * MIN }] });
+    expect(r.nights).toHaveLength(1);
     expect(localStorage.getItem("sleepcast2.live")).toBeNull();
     expect(loadNights()[0]).toMatchObject({ detector: "watch", timeToSleepMs: 4 * MIN });
   });

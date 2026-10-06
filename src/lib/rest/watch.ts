@@ -16,7 +16,8 @@
 // onset.
 import type { RestNight } from "./types";
 import { retimed } from "./attribution";
-import { loadNights, median, pruneTimelines, saveNights, withNight } from "./ledger";
+import { loadNights, pruneTimelines, saveNights, withNight } from "./ledger";
+import { median } from "./stats";
 import { killedNightToRecord } from "./reconcile";
 import { WATCH_HASH } from "./watch-hash";
 import { fmtOnsetMinutes, underAMinute } from "./sleepscore";
@@ -26,7 +27,6 @@ export interface SleepSample {
   end: number;
   asleep: boolean;
 }
-
 
 /** How long after a night's start the watch onset may come and still be
  *  that night's: past it, the sleep belongs to no night sleepcast played. */
@@ -227,10 +227,8 @@ export interface WatchImport {
   unchanged: number;
   /** The nights couldn't be stored (storage full): nothing changed. */
   unsaved: boolean;
-  /** A killed tab's night was recorded (killedNightToRecord): a resume
-   *  offer on screen is gone. */
-  endedNight: boolean;
-  /** The nights as saved, when something was. */
+  /** The nights as stored, when anything was (re-timed nights, or a killed
+   *  tab's night recorded): what the rest view shows next. */
   nights?: RestNight[];
   /** No window line (a Shortcut built before it was added): refused. */
   noWindow: boolean;
@@ -269,7 +267,6 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
   let timed: WatchTiming[] = [];
   let unchanged = 0;
   let unsaved = false;
-  let endedNight = false;
   let newestStartedAt: number | undefined;
   let saved: RestNight[] | undefined;
   if (samples.length && windowStart !== null && !refusedContent) {
@@ -285,11 +282,11 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
     // Nothing to write, nothing written (a full store would evict cached
     // feeds to make room for no change).
     if (r.timed.length || killed) {
-      if (saveNights(pruneTimelines(r.nights, now))) {
+      const stored = saveNights(pruneTimelines(r.nights, now));
+      if (stored) {
         killed?.commit();
-        endedNight = killed !== null;
         timed = r.timed;
-        saved = r.nights;
+        saved = stored;
       } else unsaved = true;
     }
   }
@@ -297,7 +294,6 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
     timed,
     unchanged,
     unsaved,
-    endedNight,
     ...(saved ? { nights: saved } : {}),
     noWindow,
     badWindow,
@@ -343,7 +339,7 @@ export function watchNotice(r: WatchImport): string {
   if (r.noWindow && !r.malformed && !r.unrecognised) {
     return "the watch shortcut needs its window line, so nothing was changed: see the updated steps at sleepcast.pro/watch.";
   }
-  if (r.unsaved) return "your watch's times couldn't be saved: this browser's storage for sleepcast is full.";
+  if (r.unsaved) return "nothing could be saved: this browser's storage for sleepcast is full.";
   if (r.malformed) {
     const lines = r.malformed === 1 ? "a line" : `${r.malformed} lines`;
     return `${lines} of the watch data didn't read, so nothing was changed: in the shortcut, check the text is start date~end date~value, with both dates iso 8601 and the time included.`;

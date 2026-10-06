@@ -6,6 +6,7 @@ import type { PlayMode } from "../lib/engine";
 import type { NoiseSettings } from "../lib/store";
 import { reanchorNext } from "../lib/rest/reanchor";
 import { importWatch, watchNotice, watchPayloadFromHash } from "../lib/rest/watch";
+import { WATCH_PENDING_KEY } from "../lib/rest/watch-hash";
 import { DEFAULT_FEEL_MINUTES } from "../lib/timer-feel";
 import { SleepSetup } from "./SleepSetup";
 import { Player } from "./Player";
@@ -34,9 +35,8 @@ interface SessionState {
   leadPosition?: number;
 }
 
-/** A #watch= link's import, if the page loaded with one: the fragment
- *  cleared, a killed tab's night settled first, and the line saying what it
- *  did. Run once per page load (an initializer called twice gets the first
+/** A #watch= link's import, if the page loaded with one (the head script
+ *  took it out of the address), and the line saying what it did. Run once per page load (an initializer called twice gets the first
  *  call's line), as it writes to storage. */
 let watchLinkTaken: { line: string | null } | null = null;
 function takeWatchLink(): string | null {
@@ -69,13 +69,19 @@ function takeHeldHash(): string | null {
  *  makes it up. */
 let pendingWatchHash: string | null = null;
 
-/** Reloads the page, with a held link if there is one, so it is read as on
- *  any page load. */
+/** Reloads the page, handing on a held link if there is one, so it is read
+ *  as on any page load: through session storage, which the head script
+ *  reads, never back through the address. */
 function reloadWithPending(): void {
-  history.replaceState(null, "", window.location.pathname + window.location.search + (pendingWatchHash ?? ""));
+  if (pendingWatchHash !== null) {
+    try {
+      sessionStorage.setItem(WATCH_PENDING_KEY, pendingWatchHash);
+    } catch {
+      /* private mode: the next morning's run makes it up */
+    }
+  }
   window.location.reload();
 }
-
 
 /** One quiet line above setup (the goodbye, the watch's result). */
 function HomeLine({ mark, markClass = "", children }: { mark: string; markClass?: string; children: ReactNode }) {
