@@ -15,11 +15,13 @@ export function loadNights(): RestNight[] {
   }
 }
 
-function save(nights: RestNight[]): void {
+/** Whether the nights were stored. A lost stat is not worth throwing over
+ *  (quota, private mode), but a caller reporting a change may need to know. */
+function save(nights: RestNight[]): boolean {
   try {
-    writeMakingRoom(KEY, JSON.stringify(nights.slice(-MAX_NIGHTS)));
+    return writeMakingRoom(KEY, JSON.stringify(nights.slice(-MAX_NIGHTS)));
   } catch {
-    /* quota / private mode: a lost stat is not worth throwing */
+    return false;
   }
 }
 
@@ -32,9 +34,17 @@ export function appendNight(n: RestNight): void {
   save(pruneTimelines([...loadNights(), n], n.startedAt));
 }
 
-/** Every night, rewritten by `f` and saved (the watch import). */
-export function updateNights(f: (nights: RestNight[]) => RestNight[]): void {
-  save(f(loadNights()));
+/** Every night, rewritten by `f` and saved (the watch import); whether
+ *  the save took. */
+export function updateNights(f: (nights: RestNight[]) => RestNight[]): boolean {
+  return save(f(loadNights()));
+}
+
+/** Whether an onset `atMs` (from the night's start) came after the night
+ *  ended: the audio had stopped, and nothing was observed by then. Unknown
+ *  (no endedAt, older nights) is taken as no. */
+export function onsetAfterEnd(n: RestNight, atMs: number): boolean {
+  return n.endedAt !== undefined && n.startedAt + atMs > n.endedAt;
 }
 
 /** Drops the timeline of any night that began more than TIMELINE_KEEP_MS

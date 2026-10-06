@@ -14,6 +14,8 @@ describe("surface", () => {
   it("fmtDuration renders minutes", () => {
     expect(fmtDuration(300000)).toBe("5 min");
     expect(fmtDuration(90000)).toBe("2 min");
+    // A watch onset can be this fast; read as the watch's own line reads it.
+    expect(fmtDuration(20_000)).toBe("under a minute");
   });
 
   it("greets goodbye once for a slept night, then not again", () => {

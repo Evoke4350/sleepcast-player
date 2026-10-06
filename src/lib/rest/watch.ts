@@ -12,12 +12,11 @@
 // the detector's onset.
 import type { RestNight } from "./types";
 import { attribution } from "./session";
-import { median, updateNights } from "./ledger";
+import { median, onsetAfterEnd, updateNights } from "./ledger";
 import { fmtOnsetMinutes } from "./sleepscore";
 
 export interface SleepSample {
   start: number;
-  /** The sample's end; its start when the payload's end didn't parse. */
   end: number;
   asleep: boolean;
 }
@@ -64,9 +63,10 @@ function parseTime(text: string | undefined): number | null {
 }
 
 /** The samples in a Shortcut's payload; how many lines named a stage this
- *  doesn't recognise; and how many were malformed (no time of day, a date
- *  that doesn't parse, too few fields), which most likely means the
- *  Shortcut's date format is off. Blank lines are neither. */
+ *  doesn't recognise; and how many were malformed (either date without a
+ *  time of day or unparseable, an end before the start, too few fields),
+ *  which most likely means the Shortcut's date format is off. Blank lines
+ *  are neither. */
 export function parseWatchPayload(text: string): { samples: SleepSample[]; unrecognised: number; malformed: number } {
   const samples: SleepSample[] = [];
   let unrecognised = 0;
@@ -75,7 +75,11 @@ export function parseWatchPayload(text: string): { samples: SleepSample[]; unrec
     if (!line.trim()) continue;
     const [startText, endText, stage] = line.split("~");
     const start = parseTime(startText);
-    if (start === null || stage === undefined) {
+    const end = parseTime(endText);
+    // A bad end matters as much as a bad start: zero-length samples never
+    // join into a stretch, so sleep that began before a night's start would
+    // look like falling asleep at its next stage change.
+    if (start === null || end === null || end < start || stage === undefined) {
       malformed++;
       continue;
     }
@@ -84,8 +88,7 @@ export function parseWatchPayload(text: string): { samples: SleepSample[]; unrec
       unrecognised++;
       continue;
     }
-    const end = parseTime(endText);
-    samples.push({ start, end: end !== null && end >= start ? end : start, asleep });
+    samples.push({ start, end, asleep });
   }
   return { samples, unrecognised, malformed };
 }
@@ -129,21 +132,18 @@ export function watchOnset(
  *  ended credits nothing (the audio had stopped). A timeline that starts
  *  after the onset (a night revived after a reload notes only what played
  *  since) can't say what was playing then, and would credit every show
- *  after the reload as slept through: it is no timeline. Without one the
- *  detector's attribution (for a different onset) is dropped, unless the
- *  night was already watch-timed, when it is still this onset's. A "slept"
- *  or "awake" label was on the detector's claim, which the watch replaces. */
+ *  after the reload as slept through: it is no timeline. Without one, any
+ *  attribution the night had is dropped: it was for a different onset
+ *  (applyWatch never re-times a night to the onset it already has). A
+ *  "slept" or "awake" label was on the detector's claim, which the watch
+ *  replaces. */
 export function retimed(n: RestNight, atMs: number): RestNight {
   const inferredAtMs = n.detector === "watch" ? (n.inferredAtMs ?? null) : n.sleptAtMs;
   const { selfLabel: _label, ...unlabelled } = n;
   const timed = { sleptAtMs: atMs, timeToSleepMs: atMs, detector: "watch" as const, inferredAtMs };
-  const afterEnd = n.endedAt !== undefined && n.startedAt + atMs > n.endedAt;
   const covering = n.timeline?.some((e) => e.t <= atMs) ? n.timeline : undefined;
-  // Already watch-timed with no timeline left to redo it: its attribution
-  // is this onset's, so it stands.
-  if (!afterEnd && !covering && n.detector === "watch") return { ...unlabelled, ...timed };
   const { onsetFeedId: _f, onsetEpisodeId: _e, onsetAfterMs: _a, sleptThrough: _s, ...base } = unlabelled;
-  return { ...base, ...timed, ...(!afterEnd && covering ? attribution(covering, atMs) : {}) };
+  return { ...base, ...timed, ...(!onsetAfterEnd(n, atMs) && covering ? attribution(covering, atMs) : {}) };
 }
 
 export interface WatchTiming {
@@ -182,15 +182,21 @@ export function applyWatch(
 export interface WatchImport {
   timed: WatchTiming[];
   unchanged: number;
+  /** The re-timed nights couldn't be stored (storage full): nothing changed. */
+  unsaved?: boolean;
   samples: number;
   unrecognised: number;
   malformed: number;
 }
 
-/** A pasted payload: the lines themselves, or a whole #watch= link. */
+/** A pasted payload: the lines themselves, still url-encoded or not (the
+ *  paste variant of the Shortcut may keep its url-encode step), or a whole
+ *  #watch= link. Encoded text has no raw line breaks; plain text never
+ *  holds an escape, as dates and stage names have no "%". */
 export function payloadFromPaste(text: string): string {
   const i = text.indexOf(WATCH_HASH);
-  return i >= 0 ? (watchPayloadFromHash(text.slice(i).trim()) ?? "") : text.trim();
+  if (i >= 0) return watchPayloadFromHash(text.slice(i).trim()) ?? "";
+  return (/%0a/i.test(text) ? decodeLeniently(text) : text).trim();
 }
 
 /** Reads a payload into the rest ledger. Any unrecognised stage refuses
@@ -201,15 +207,20 @@ export function importWatch(text: string): WatchImport {
   const { samples, unrecognised, malformed } = parseWatchPayload(text);
   let timed: WatchTiming[] = [];
   let unchanged = 0;
+  let unsaved = false;
   if (samples.length && !unrecognised) {
-    updateNights((nights) => {
+    const saved = updateNights((nights) => {
       const r = applyWatch(nights, samples);
       timed = r.timed;
       unchanged = r.unchanged;
       return r.nights;
     });
+    if (!saved && timed.length) {
+      unsaved = true;
+      timed = [];
+    }
   }
-  return { timed, unchanged, samples: samples.length, unrecognised, malformed };
+  return { timed, unchanged, ...(unsaved ? { unsaved } : {}), samples: samples.length, unrecognised, malformed };
 }
 
 /** The payload in a location hash, or null when it isn't a watch import.
@@ -219,7 +230,11 @@ export function importWatch(text: string): WatchImport {
  *  then counts as malformed, and the notice says so). */
 export function watchPayloadFromHash(hash: string): string | null {
   if (!hash.startsWith(WATCH_HASH)) return null;
-  return hash.slice(WATCH_HASH.length).replace(/(%[0-9a-f]{2})+/gi, (run) => {
+  return decodeLeniently(hash.slice(WATCH_HASH.length));
+}
+
+function decodeLeniently(text: string): string {
+  return text.replace(/(%[0-9a-f]{2})+/gi, (run) => {
     try {
       return decodeURIComponent(run);
     } catch {
@@ -230,6 +245,7 @@ export function watchPayloadFromHash(hash: string): string | null {
 
 /** What an import did, in a line for the listener. */
 export function watchNotice(r: WatchImport): string {
+  if (r.unsaved) return "your watch's times couldn't be saved: this browser's storage for sleepcast is full.";
   if (r.unrecognised) return "your watch's sleep stages came in a language sleepcast can't read yet (english only), so nothing was changed.";
   if (!r.samples) {
     if (r.malformed) return "the watch data had no times of day: in the shortcut, set both dates to iso 8601 with the time included.";

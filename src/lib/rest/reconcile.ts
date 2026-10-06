@@ -40,7 +40,10 @@ export function reconcileLive(l: LiveSession, now: number): void {
   });
   appendNight({
     startedAt,
-    endedAt,
+    // Last seen alive, not the scheduled fade above: the tab (and its
+    // audio, and its touch count) died by its last snapshot, so nothing
+    // after that was observed. Calibration and attribution read this.
+    endedAt: Math.max(startedAt, Math.min(endedAt, l.savedAt)),
     timerMinutes,
     endedVia: "faded",
     sleptAtMs: null,

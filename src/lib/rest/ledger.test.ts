@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { loadNights, appendNight, rollup, setSelfLabel, leanComparison, pruneTimelines, offerForLabel, MIN_PLAUSIBLE_ONSET_MS, PRE_FIX_BEFORE_MS, TIMELINE_KEEP_MS } from "./ledger";
+import { loadNights, appendNight, rollup, setSelfLabel, leanComparison, pruneTimelines, offerForLabel, onsetAfterEnd, MIN_PLAUSIBLE_ONSET_MS, PRE_FIX_BEFORE_MS, TIMELINE_KEEP_MS } from "./ledger";
 import { DEFAULT_PARAMS, LAMBDA_MAX, quietTicksToDecide, TICK_MS } from "./detector";
 import type { RestNight } from "./types";
 
@@ -195,5 +195,14 @@ describe("offerForLabel", () => {
     expect(offerForLabel(n({ selfLabel: "slept" }))).toBe(false);
     expect(offerForLabel(n({ sleptAtMs: null, timeToSleepMs: null, detector: "none" }))).toBe(false);
     expect(offerForLabel(n({ detector: "watch" }))).toBe(false);
+  });
+});
+
+describe("onsetAfterEnd", () => {
+  const n: RestNight = { startedAt: 1000, endedAt: 1000 + 600_000, timerMinutes: 10, endedVia: "faded", sleptAtMs: null, timeToSleepMs: null, interactions: 0, detector: "none" };
+  it("is whether the onset came after the night ended, unknown being no", () => {
+    expect(onsetAfterEnd(n, 600_000)).toBe(false);
+    expect(onsetAfterEnd(n, 600_001)).toBe(true);
+    expect(onsetAfterEnd({ ...n, endedAt: undefined }, 10 ** 9)).toBe(false);
   });
 });

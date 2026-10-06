@@ -79,11 +79,15 @@ describe("parseWatchPayload", () => {
     expect(parseWatchPayload(["constructor", "__proto__", "toString"].map(line).join("\n"))).toMatchObject({ samples: [], unrecognised: 3 });
   });
 
-  it("takes an end that doesn't parse, or comes first, as the start", () => {
-    const { samples } = parseWatchPayload(
-      ["2026-10-05T23:40:00-07:00~nope~Core", "2026-10-05T23:40:00-07:00~2026-10-05T23:00:00-07:00~Core"].join("\n"),
+  it("counts an end that doesn't parse, lacks a time, or comes first as malformed", () => {
+    const r = parseWatchPayload(
+      [
+        "2026-10-05T23:40:00-07:00~nope~Core",
+        "2026-10-05T23:40:00-07:00~2026-10-05~Core",
+        "2026-10-05T23:40:00-07:00~2026-10-05T23:00:00-07:00~Core",
+      ].join("\n"),
     );
-    expect(samples.map((s) => s.end - s.start)).toEqual([0, 0]);
+    expect(r).toMatchObject({ samples: [], malformed: 3 });
   });
 
   it("reads Health's numeric stage codes too", () => {
@@ -151,13 +155,17 @@ describe("retimed", () => {
     expect(n).not.toHaveProperty("sleptThrough");
   });
 
-  it("is idempotent: a re-import keeps the detector's original onset and the watch's attribution", () => {
-    const once = retimed(night({ onsetFeedId: "b", timeline }), 12 * MIN);
+  it("keeps the detector's original onset when re-timed again", () => {
+    const once = retimed(night({ timeline }), 12 * MIN);
+    expect(retimed(once, 25 * MIN).inferredAtMs).toBe(30 * MIN);
+  });
+
+  it("drops a previous watch onset's attribution once the timeline is gone", () => {
+    const once = retimed(night({ timeline }), 12 * MIN);
     const { timeline: _t, ...pruned } = once;
-    const twice = retimed(pruned, 12 * MIN);
-    expect(twice.inferredAtMs).toBe(30 * MIN);
-    expect(twice.onsetFeedId).toBe("a");
-    expect(twice.sleptThrough).toEqual(["b", "c"]);
+    const again = retimed(pruned, 25 * MIN);
+    expect(again).not.toHaveProperty("onsetFeedId");
+    expect(again).not.toHaveProperty("sleptThrough");
   });
 
   it("drops a self-label, which was on the detector's claim", () => {
@@ -224,6 +232,22 @@ describe("importWatch", () => {
     expect(r.timed.map((x) => x.atMs)).toEqual([6 * MIN]);
   });
 
+  it("says so, and claims nothing, when the re-timed nights can't be stored", () => {
+    appendNight(night());
+    const setItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = () => {
+      throw new Error("QuotaExceededError");
+    };
+    try {
+      const r = importWatch("2026-10-05T23:04:00-07:00~2026-10-05T23:30:00-07:00~Core");
+      expect(r).toMatchObject({ timed: [], unsaved: true });
+      expect(watchNotice(r)).toMatch(/couldn't be saved/);
+    } finally {
+      Storage.prototype.setItem = setItem;
+    }
+    expect(loadNights()[0].detector).toBe("inference");
+  });
+
   it("leaves storage alone when nothing parses", () => {
     appendNight(night());
     expect(importWatch("garbage")).toEqual({ timed: [], unchanged: 0, samples: 0, unrecognised: 0, malformed: 1 });
@@ -242,8 +266,9 @@ describe("watchPayloadFromHash", () => {
 });
 
 describe("payloadFromPaste", () => {
-  it("takes the lines, or the payload out of a whole link", () => {
+  it("takes the lines, still url-encoded or not, or the payload out of a whole link", () => {
     expect(payloadFromPaste("  a~b~Core\n")).toBe("a~b~Core");
+    expect(payloadFromPaste("a~b~Core%0Ac~d~REM")).toBe("a~b~Core\nc~d~REM");
     expect(payloadFromPaste("https://sleepcast.pro/#watch=a~b~Core%0Ac~d~REM")).toBe("a~b~Core\nc~d~REM");
   });
 });

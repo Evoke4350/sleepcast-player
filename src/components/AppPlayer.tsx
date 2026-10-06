@@ -37,6 +37,16 @@ interface SessionState {
 // player. A night in progress is snapshotted to localStorage (store.saveLive),
 // so a full reload — including iOS reclaiming the backgrounded tab — can offer
 // to resume it rather than waking you to silence.
+/** A #watch= link's import, if the page has one: the fragment cleared, a
+ *  killed tab's night settled first, and the line saying what it did. */
+function takeWatchLink(): string | null {
+  const payload = watchPayloadFromHash(window.location.hash);
+  if (payload === null) return null;
+  history.replaceState(null, "", window.location.pathname + window.location.search);
+  settleLive(loadLive(), Date.now());
+  return watchNotice(importWatch(payload));
+}
+
 export function AppPlayer() {
   const [session, setSession] = useState<SessionState | null>(null);
   const [resume, setResume] = useState<ResumeDescriptor | null>(null);
@@ -64,13 +74,17 @@ export function AppPlayer() {
   // Shortcut most needs to time, so it is settled first (settleLive is
   // idempotent: the `live` state below settles nothing twice). The fragment
   // is cleared at once: a reload, or the link shared, mustn't import it again.
-  const [watchLine] = useState(() => {
-    const payload = watchPayloadFromHash(window.location.hash);
-    if (payload === null) return null;
-    history.replaceState(null, "", window.location.pathname + window.location.search);
-    settleLive(loadLive(), Date.now());
-    return watchNotice(importWatch(payload));
-  });
+  const [watchLine, setWatchLine] = useState(takeWatchLink);
+  // The link can also land in a tab already open (only the fragment changes,
+  // so nothing remounts).
+  useEffect(() => {
+    const onHash = () => {
+      const line = takeWatchLink();
+      if (line !== null) setWatchLine(line);
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
 
   const [goodbye] = useState(() => (isQuiet(loadQuietUntil(), Date.now()) ? null : shouldGreetGoodbye(Date.now())));
 

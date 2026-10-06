@@ -39,6 +39,12 @@ describe("reconcileLive", () => {
     expect(loadLastNight()?.endedAt).toBe(T0 + 45 * 60_000);
   });
 
+  it("records the night's own end as when it was last seen alive", () => {
+    // Its touches (and audio) stopped with the tab: nothing after was observed.
+    reconcileLive(snap(), T0 + 10 * 60 * 60_000);
+    expect(loadNights()[0].endedAt).toBe(T0 + 20 * 60_000);
+  });
+
   it("marks the episode that was playing as played", () => {
     reconcileLive(snap(), T0 + 10 * 60 * 60_000);
     expect(loadLastNight()?.playedIds).toEqual(["a", "b"]);

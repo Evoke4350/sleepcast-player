@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { loadNights, rollup, setSelfLabel, leanComparison, offerForLabel } from "../lib/rest/ledger";
+import { loadNights, rollup, setSelfLabel, leanComparison, offerForLabel, onsetAfterEnd } from "../lib/rest/ledger";
 import { recordFalsePositive } from "../lib/rest/calibrate";
 import { scoreFeeds, medianTimeToSleep, meetsSuggestionGate, shuffleWeights, pluralNights, fmtOnsetMinutes, MIN_NIGHTS } from "../lib/rest/sleepscore";
 import { fmtDuration, lastNight } from "../lib/rest/surface";
@@ -60,10 +60,11 @@ export function RestView({ onClose }: { onClose: () => void }) {
     () => (last ? playsSince(getPlays(), last.startedAt) : []),
     [last?.startedAt],
   );
-  // The episode running at the moment the detector decided you'd gone.
+  // The episode running at the moment you went under: none when that was
+  // after the night ended (a watch onset can be), as the audio had stopped.
   const driftedDuring = useMemo(
     () =>
-      last && last.sleptAtMs !== null
+      last && last.sleptAtMs !== null && !onsetAfterEnd(last, last.sleptAtMs)
         ? playAtMoment(lastPlays, last.startedAt + last.sleptAtMs)
         : null,
     [lastPlays, last?.startedAt, last?.sleptAtMs],
