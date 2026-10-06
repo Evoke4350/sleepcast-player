@@ -9,6 +9,7 @@
 // without claiming a time-to-sleep.
 import { clearLive, isRevivable, loadLive, nightTimerMinutes, saveLastNight, withCurrentPlayed, type LiveSession } from "../store";
 import { appendNight } from "./ledger";
+import type { RestNight } from "./types";
 import { validLean } from "./sleepscore";
 
 /** A snapshot younger than this may belong to a night still playing in
@@ -20,6 +21,18 @@ export const SNAPSHOT_FRESH_MS = 30_000;
 /** Whether the night was stored: if not (storage full), the snapshot is
  *  kept, so the night isn't lost from both the ledger and the resume offer. */
 export function reconcileLive(l: LiveSession, now: number): boolean {
+  const k = killedNight(l, now);
+  // Only once the night is in the ledger: kept back, its last night mustn't
+  // say it faded (a re-anchor would continue a night recorded nowhere).
+  if (!appendNight(k.night)) return false;
+  k.commit();
+  return true;
+}
+
+/** A killed tab's night as the ledger records it, and `commit`, to run once
+ *  it is stored: the last-night record (for a re-anchor) and clearing the
+ *  snapshot. */
+export function killedNight(l: LiveSession, now: number): { night: RestNight; commit: () => void } {
   const elapsedMs = Math.max(0, l.totalSeconds * 1000 - Math.max(0, l.remainingMs));
   const timerMinutes = nightTimerMinutes(l);
   // As if it faded on schedule. A timerless night (one-episode, all-night)
@@ -30,7 +43,7 @@ export function reconcileLive(l: LiveSession, now: number): boolean {
   const startedAt = Math.min(l.nightStartedAt ?? l.savedAt - elapsedMs, endedAt);
   const playedIds = withCurrentPlayed(l);
 
-  const recorded = appendNight({
+  const night: RestNight = {
     startedAt,
     // Last seen alive, not the scheduled fade above: the tab (and its
     // audio, and its touch count) died by its last snapshot, so nothing
@@ -43,22 +56,21 @@ export function reconcileLive(l: LiveSession, now: number): boolean {
     interactions: l.interactions ?? 0, // touches before the tab died
     detector: "none",
     ...(validLean(l.shuffleLean) ? { shuffle: "leaned" as const } : {}),
-  });
-  // Only once the night is in the ledger: kept back, its last night mustn't
-  // say it faded (a re-anchor would continue a night recorded nowhere).
-  if (!recorded) return false;
-  saveLastNight({
-    pool: l.pool,
-    playedIds,
-    feedTitles: l.feedTitles,
-    artworkByFeedId: l.artworkByFeedId,
-    skipIntroByFeedId: l.skipIntroByFeedId,
-    endedVia: "faded",
-    endedAt,
-    wasVaried: l.wasVaried ?? false, // steers which lineup a re-anchor continues
-  });
-  clearLive();
-  return true;
+  };
+  const commit = () => {
+    saveLastNight({
+      pool: l.pool,
+      playedIds,
+      feedTitles: l.feedTitles,
+      artworkByFeedId: l.artworkByFeedId,
+      skipIntroByFeedId: l.skipIntroByFeedId,
+      endedVia: "faded",
+      endedAt,
+      wasVaried: l.wasVaried ?? false, // steers which lineup a re-anchor continues
+    });
+    clearLive();
+  };
+  return { night, commit };
 }
 
 /** On page load: return the snapshot if it should be offered for revival;
@@ -76,17 +88,22 @@ export function settleLive(l: LiveSession | null, now: number): LiveSession | nu
  *  tab's live night (it shares this clock), so reconcile it now rather than
  *  leave it to be offered hours late. */
 function reconcileUnlessFresh(l: LiveSession, now: number): boolean {
-  const age = now - l.savedAt;
-  if (age >= 0 && age < SNAPSHOT_FRESH_MS) return false;
-  return reconcileLive(l, now);
+  return isFresh(l, now) ? false : reconcileLive(l, now);
 }
 
-/** A watch import means the night is over (the Shortcut runs in the
- *  morning): a killed tab's snapshot is recorded now, even one that could
- *  still be revived (a timerless night's, under LIVE_MAX_AGE_MS), as that
- *  is the night the import is for. Not one that may still be live in
- *  another tab. Whether one was recorded. */
-export function endKilledNight(now: number): boolean {
+/** For a watch import, which means the night is over (the Shortcut runs in
+ *  the morning): a killed tab's snapshot as a night to record, even one
+ *  that could still be revived (a timerless night's, under
+ *  LIVE_MAX_AGE_MS), as that is the night the import is for. None when one
+ *  may still be live in another tab. The import records it with its own
+ *  write, and commits only once that took. */
+export function killedNightToRecord(now: number): { night: RestNight; commit: () => void } | null {
   const l = loadLive();
-  return l ? reconcileUnlessFresh(l, now) : false;
+  if (!l || isFresh(l, now)) return null;
+  return killedNight(l, now);
+}
+
+function isFresh(l: LiveSession, now: number): boolean {
+  const age = now - l.savedAt;
+  return age >= 0 && age < SNAPSHOT_FRESH_MS;
 }

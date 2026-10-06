@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { reconcileLive, settleLive, endKilledNight, SNAPSHOT_FRESH_MS } from "./reconcile";
+import { reconcileLive, settleLive, killedNightToRecord, SNAPSHOT_FRESH_MS } from "./reconcile";
 import { appendNight, loadNights } from "./ledger";
 import { loadLive, saveLive, loadLastNight, type LiveSession } from "../store";
 
@@ -145,24 +145,25 @@ describe("reconcileLive interactions", () => {
   });
 });
 
-describe("endKilledNight (a watch import)", () => {
+describe("killedNightToRecord (a watch import)", () => {
   beforeEach(() => localStorage.clear());
 
-  it("records a snapshot even when it could still be revived", () => {
+  it("offers a snapshot's night even when it could still be revived, and clears it only on commit", () => {
     // Timerless: revivable for hours, but the morning import ends the night.
     saveLive(snap({ remainingMs: 0, modeKind: "all-night" }));
     const now = T0 + 20 * 60_000 + 60 * 60_000;
     expect(settleLive(loadLive(), now)).not.toBeNull();
-    endKilledNight(now);
-    expect(loadNights()).toHaveLength(1);
+    const k = killedNightToRecord(now)!;
+    expect(k.night).toMatchObject({ startedAt: T0, detector: "none" });
+    expect(loadLive()).not.toBeNull();
+    k.commit();
     expect(loadLive()).toBeNull();
+    expect(loadLastNight()).not.toBeNull();
   });
 
-  it("leaves one that may still be playing in another tab", () => {
+  it("offers none that may still be playing in another tab", () => {
     saveLive(snap());
-    endKilledNight(T0 + 20 * 60_000 + SNAPSHOT_FRESH_MS - 1);
-    expect(loadNights()).toHaveLength(0);
-    expect(loadLive()).not.toBeNull();
+    expect(killedNightToRecord(T0 + 20 * 60_000 + SNAPSHOT_FRESH_MS - 1)).toBeNull();
   });
 });
 

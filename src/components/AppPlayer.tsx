@@ -72,14 +72,10 @@ let pendingWatchHash: string | null = null;
 /** Reloads the page, with a held link if there is one, so it is read as on
  *  any page load. */
 function reloadWithPending(): void {
-  history.replaceState(null, "", hereWithout() + (pendingWatchHash ?? ""));
+  history.replaceState(null, "", window.location.pathname + window.location.search + (pendingWatchHash ?? ""));
   window.location.reload();
 }
 
-/** The address without its fragment. */
-function hereWithout(): string {
-  return window.location.pathname + window.location.search;
-}
 
 /** One quiet line above setup (the goodbye, the watch's result). */
 function HomeLine({ mark, markClass = "", children }: { mark: string; markClass?: string; children: ReactNode }) {
@@ -119,7 +115,7 @@ export function AppPlayer() {
   // rest/watch.ts). Read before the goodbye below, so last night's line
   // shows the watch's time. A night whose tab was killed is only in the
   // ledger once its snapshot is recorded, and that is the night the morning
-  // Shortcut most needs to time, so it is recorded first (endKilledNight;
+  // Shortcut most needs to time, so the import records it (killedNightToRecord;
   // the `live` state below then finds no snapshot). The fragment is cleared
   // at once: a reload, or the link shared, mustn't import it again.
   const [watchLine, setWatchLine] = useState(takeWatchLink);
@@ -200,7 +196,10 @@ export function AppPlayer() {
       // KEY_LIVE, so normally only one of the two is present — this guards the
       // edge where an older faded night lingers under a still-live one.)
       const live = loadLive();
-      if (isRevivable(live, Date.now())) {
+      // Nor on a page load that read a watch link: the night it closed is
+      // over (the import just said so), and the re-anchor would cover the
+      // line saying what the watch found.
+      if (isRevivable(live, Date.now()) || takeWatchLink() !== null) {
         setReanchor(null);
         return;
       }

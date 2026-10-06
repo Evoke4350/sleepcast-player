@@ -18,7 +18,7 @@ export function loadNights(): RestNight[] {
 
 /** Whether the nights were stored. A lost stat is not worth throwing over
  *  (quota, private mode), but a caller reporting a change may need to know. */
-function save(nights: RestNight[]): boolean {
+export function saveNights(nights: RestNight[]): boolean {
   try {
     return writeMakingRoom(KEY, JSON.stringify(nights.slice(-MAX_NIGHTS)));
   } catch {
@@ -38,21 +38,21 @@ export const TIMELINE_KEEP_MS = 7 * 24 * 60 * 60 * 1000;
  *  by ending it or by being reconciled. The night keeps the watch's time if
  *  it had one. */
 export function appendNight(n: RestNight): boolean {
-  const nights = loadNights();
-  const i = nights.findIndex((x) => x.startedAt === n.startedAt);
-  if (i === -1) nights.push(n);
+  return saveNights(pruneTimelines(withNight(loadNights(), n), n.startedAt));
+}
+
+/** `nights` with `n` added, or replacing the night with its start (see
+ *  appendNight), for a caller that saves them itself. */
+export function withNight(nights: readonly RestNight[], n: RestNight): RestNight[] {
+  const out = [...nights];
+  const i = out.findIndex((x) => x.startedAt === n.startedAt);
+  if (i === -1) out.push(n);
   else {
-    const old = nights[i];
-    nights[i] = old.detector === "watch" && old.sleptAtMs !== null ? retimed(n, old.sleptAtMs) : n;
+    const old = out[i];
+    out[i] = old.detector === "watch" && old.sleptAtMs !== null ? retimed(n, old.sleptAtMs) : n;
   }
-  return save(pruneTimelines(nights, n.startedAt));
+  return out;
 }
-
-/** Every night, replaced (the watch import); whether the save took. */
-export function saveNights(nights: RestNight[]): boolean {
-  return save(nights);
-}
-
 
 /** Drops the timeline of any night that began more than TIMELINE_KEEP_MS
  *  before `now`. */
@@ -73,7 +73,7 @@ export function setSelfLabel(startedAt: number, label: "slept" | "awake"): RestN
   const i = nights.findIndex((n) => n.startedAt === startedAt);
   if (i === -1 || nights[i].detector === "watch") return null;
   nights[i] = { ...nights[i], selfLabel: label };
-  save(nights);
+  saveNights(nights);
   return nights[i];
 }
 

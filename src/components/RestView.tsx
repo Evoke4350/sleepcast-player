@@ -24,8 +24,8 @@ export function RestView({ onClose }: { onClose: (changed?: boolean) => void }) 
     setPasteLine(watchNotice(r));
     // Kept when refused or not saved, so it can be looked at or tried again.
     if (!r.refused) setPasted("");
-    if (r.timed.length || r.endedNight) {
-      setNights(loadNights());
+    if (r.nights) {
+      setNights(r.nights);
       setChangedHere(true);
     }
   }

@@ -12,6 +12,7 @@
 // never converge on anything. Feeds accumulate dozens of nights.
 
 import type { FeedWeight, RestNight } from "./types";
+import { median } from "./ledger";
 
 export const CREDIT_ONSET = 2;
 export const CREDIT_SLEPT = 1;
@@ -249,10 +250,8 @@ export function medianTimeToSleep(
   nights: readonly RestNight[],
   feedId: string,
 ): number | null {
-  const times = onsetTimesFor(nights, feedId).sort((a, b) => a - b);
-  if (!times.length) return null;
-  const mid = Math.floor(times.length / 2);
-  return times.length % 2 ? times[mid] : Math.round((times[mid - 1] + times[mid]) / 2);
+  const m = median(onsetTimesFor(nights, feedId));
+  return m === null ? null : Math.round(m);
 }
 
 /** A time to sleep in minutes, for the evidence sentence and the panel it

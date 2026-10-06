@@ -16,8 +16,8 @@
 // onset.
 import type { RestNight } from "./types";
 import { retimed } from "./attribution";
-import { loadNights, median, saveNights } from "./ledger";
-import { endKilledNight } from "./reconcile";
+import { loadNights, median, pruneTimelines, saveNights, withNight } from "./ledger";
+import { killedNightToRecord } from "./reconcile";
 import { WATCH_HASH } from "./watch-hash";
 import { fmtOnsetMinutes, underAMinute } from "./sleepscore";
 
@@ -225,17 +225,20 @@ export interface WatchImport {
    *  re-timed night is last night or an older one. */
   newestStartedAt?: number;
   unchanged: number;
-  /** The re-timed nights couldn't be stored (storage full): nothing changed. */
+  /** The nights couldn't be stored (storage full): nothing changed. */
   unsaved: boolean;
-  /** A killed tab's night was recorded first (endKilledNight): a resume
+  /** A killed tab's night was recorded (killedNightToRecord): a resume
    *  offer on screen is gone. */
   endedNight: boolean;
+  /** The nights as saved, when something was. */
+  nights?: RestNight[];
   /** No window line (a Shortcut built before it was added): refused. */
   noWindow: boolean;
   /** A window line whose date didn't read: refused. */
   badWindow: boolean;
   /** Refused for its content (malformed, unrecognised, no or bad window
-   *  line), or not saved: nothing changed, worth keeping to look at. */
+   *  line), or not saved: either way nothing changed (a killed tab's night
+   *  included), and it is worth keeping to look at. */
   refused: boolean;
   samples: number;
   unrecognised: number;
@@ -268,20 +271,26 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
   let unsaved = false;
   let endedNight = false;
   let newestStartedAt: number | undefined;
+  let saved: RestNight[] | undefined;
   if (samples.length && windowStart !== null && !refusedContent) {
     // The night a killed tab left unrecorded is the one the import is for,
-    // by link or by paste alike (endKilledNight). Only for an import that
-    // goes ahead: a refused one changes nothing, as its notice says.
-    endedNight = endKilledNight(now);
-    const nights = loadNights();
+    // by link or by paste alike: added here and written with the re-timed
+    // nights in one save, then its snapshot cleared (commit) only once that
+    // took. An import that is refused, or not saved, changes nothing.
+    const killed = killedNightToRecord(now);
+    const nights = killed ? withNight(loadNights(), killed.night) : loadNights();
     newestStartedAt = nights.reduce((m, n) => Math.max(m, n.startedAt), -Infinity);
     const r = applyWatch(nights, samples, windowStart);
     unchanged = r.unchanged;
-    // Nothing re-timed, nothing to write (a full store would evict cached
+    // Nothing to write, nothing written (a full store would evict cached
     // feeds to make room for no change).
-    if (r.timed.length) {
-      if (saveNights(r.nights)) timed = r.timed;
-      else unsaved = true;
+    if (r.timed.length || killed) {
+      if (saveNights(pruneTimelines(r.nights, now))) {
+        killed?.commit();
+        endedNight = killed !== null;
+        timed = r.timed;
+        saved = r.nights;
+      } else unsaved = true;
     }
   }
   return {
@@ -289,6 +298,7 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
     unchanged,
     unsaved,
     endedNight,
+    ...(saved ? { nights: saved } : {}),
     noWindow,
     badWindow,
     ...(timed.length && newestStartedAt !== undefined ? { newestStartedAt } : {}),
