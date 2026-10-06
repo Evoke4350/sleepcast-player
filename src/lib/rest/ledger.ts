@@ -23,8 +23,28 @@ function save(nights: RestNight[]): void {
   }
 }
 
+/** How long a night keeps its timeline: long enough for a watch import a
+ *  few mornings late to still attribute it, short enough that 90 nights of
+ *  episode ids don't crowd local storage. */
+export const TIMELINE_KEEP_MS = 7 * 24 * 60 * 60 * 1000;
+
 export function appendNight(n: RestNight): void {
-  save([...loadNights(), n]);
+  save(pruneTimelines([...loadNights(), n], n.startedAt));
+}
+
+/** Every night, rewritten by `f` and saved (the watch import). */
+export function updateNights(f: (nights: RestNight[]) => RestNight[]): void {
+  save(f(loadNights()));
+}
+
+/** Drops the timeline of any night that began more than TIMELINE_KEEP_MS
+ *  before `now`. */
+export function pruneTimelines(nights: RestNight[], now: number): RestNight[] {
+  return nights.map((n) => {
+    if (!n.timeline || now - n.startedAt <= TIMELINE_KEEP_MS) return n;
+    const { timeline: _drop, ...rest } = n;
+    return rest;
+  });
 }
 
 export function setSelfLabel(startedAt: number, label: "slept" | "awake"): RestNight | null {
@@ -59,7 +79,10 @@ export const MIN_PLAUSIBLE_ONSET_MS =
 export const PRE_FIX_BEFORE_MS = Date.UTC(2026, 6, 31);
 const LEGACY_FLOOR_MS = 7 * 60_000;
 
+/** A watch onset is measured, not inferred, so no detector floor applies:
+ *  falling asleep in 3 minutes is a real night, not an artifact. */
 function plausibleFloor(n: RestNight): number {
+  if (n.detector === "watch") return 0;
   return n.startedAt < PRE_FIX_BEFORE_MS ? LEGACY_FLOOR_MS : MIN_PLAUSIBLE_ONSET_MS;
 }
 

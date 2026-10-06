@@ -1,13 +1,24 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { loadNights, rollup, setSelfLabel, leanComparison } from "../lib/rest/ledger";
 import { recordFalsePositive } from "../lib/rest/calibrate";
 import { scoreFeeds, medianTimeToSleep, meetsSuggestionGate, shuffleWeights, pluralNights, fmtOnsetMinutes, MIN_NIGHTS } from "../lib/rest/sleepscore";
 import { fmtDuration, lastNight } from "../lib/rest/surface";
 import { getPlays, loadState } from "../lib/store";
 import { playsSince, playAtMoment } from "../lib/plays";
+import { importWatch, payloadFromPaste, watchAgreement, watchNotice } from "../lib/rest/watch";
 
 export function RestView({ onClose }: { onClose: () => void }) {
-  const nights = useMemo(() => loadNights(), []);
+  // Bumped by a pasted watch import, to re-read the re-timed nights.
+  const [version, setVersion] = useState(0);
+  const nights = useMemo(() => loadNights(), [version]);
+  const watch = useMemo(() => watchAgreement(nights), [nights]);
+  const [pasted, setPasted] = useState("");
+  const [pasteLine, setPasteLine] = useState<string | null>(null);
+  function importPasted() {
+    setPasteLine(watchNotice(importWatch(payloadFromPaste(pasted))));
+    setPasted("");
+    setVersion((v) => v + 1);
+  }
   const r = useMemo(() => rollup(nights), [nights]);
   const last = lastNight();
 
@@ -138,7 +149,8 @@ export function RestView({ onClose }: { onClose: () => void }) {
           </ul>
         </div>
       )}
-      {last && last.sleptAtMs !== null && last.selfLabel === undefined && (
+      {/* A watch-timed night was measured, not guessed: nothing to confirm. */}
+      {last && last.sleptAtMs !== null && last.selfLabel === undefined && last.detector !== "watch" && (
         <div className="space-y-2 border-t border-[#241f30] pt-6 text-sm">
           <p>did you fall asleep to it last time?</p>
           <div className="flex justify-center gap-3">
@@ -181,6 +193,42 @@ export function RestView({ onClose }: { onClose: () => void }) {
           {`How long you usually take: ${orDash(compared.leaned.medianMs, fmtDuration)} on nights the shuffle leaned (${pluralNights(compared.leaned.timedNights, "timed")}), ${orDash(compared.plain.medianMs, fmtDuration)} on plain-shuffle nights (${pluralNights(compared.plain.timedNights, "timed")}). A rough guide: the two differ in more than the lean (which shows, which weeks).`}
         </p>
       )}
+      <section className="space-y-2 border-t border-[#241f30] pt-6 text-xs">
+        {watch.watchNights > 0 ? (
+          <p>
+            {`your watch timed ${pluralNights(watch.watchNights)}.`}
+            {watch.medianOffMs !== null
+              ? ` sleepcast's own guess was ${fmtOnsetMinutes(watch.medianOffMs)} off it, typically (${pluralNights(watch.compared)} to compare).`
+              : ""}
+          </p>
+        ) : (
+          <p>have an apple watch? it can time your nights instead of sleepcast guessing.</p>
+        )}
+        <a href="/watch" className="block underline decoration-[#3a3325] underline-offset-4 hover:text-[#b59a76]">
+          set up the watch shortcut
+        </a>
+        {/* The home-screen app keeps its own storage, apart from Safari's, so
+            the Shortcut's link can't reach it: its copy-to-clipboard variant
+            is pasted here instead. */}
+        <details className="text-left">
+          <summary className="cursor-pointer text-center text-[#4a4540] hover:text-[#8a7a5c]">paste from your watch</summary>
+          <textarea
+            value={pasted}
+            onChange={(e) => setPasted(e.target.value)}
+            rows={3}
+            aria-label="watch sleep data"
+            className="mt-2 w-full rounded border border-[#241f30] bg-transparent p-2 text-[11px] text-[#b0a898]"
+          />
+          <button
+            onClick={importPasted}
+            disabled={!pasted.trim()}
+            className="mt-1 rounded-full border border-[#241f30] px-4 py-1 hover:border-[#6e5d44] disabled:opacity-40"
+          >
+            read it
+          </button>
+        </details>
+        {pasteLine && <p className="text-[#b0a898]">{pasteLine}</p>}
+      </section>
       <p className="text-xs text-[#4a4540]">
         counted only on this device. no account, nothing sent anywhere. we're
         rooting for the nights you don't need us.

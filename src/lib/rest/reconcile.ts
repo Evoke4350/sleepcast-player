@@ -40,6 +40,7 @@ export function reconcileLive(l: LiveSession, now: number): void {
   });
   appendNight({
     startedAt,
+    endedAt,
     timerMinutes,
     endedVia: "faded",
     sleptAtMs: null,

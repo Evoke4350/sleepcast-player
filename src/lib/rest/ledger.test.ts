@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { loadNights, appendNight, rollup, setSelfLabel, leanComparison, MIN_PLAUSIBLE_ONSET_MS, PRE_FIX_BEFORE_MS } from "./ledger";
+import { loadNights, appendNight, rollup, setSelfLabel, leanComparison, pruneTimelines, MIN_PLAUSIBLE_ONSET_MS, PRE_FIX_BEFORE_MS, TIMELINE_KEEP_MS } from "./ledger";
 import { DEFAULT_PARAMS, LAMBDA_MAX, quietTicksToDecide, TICK_MS } from "./detector";
 import type { RestNight } from "./types";
 
@@ -158,5 +158,29 @@ describe("leanComparison", () => {
     ])!;
     expect(c.leaned).toEqual({ timedNights: 1, medianMs: 20 * 60_000 });
     expect(c.plain).toEqual({ timedNights: 1, medianMs: 30 * 60_000 });
+  });
+});
+
+describe("timelines", () => {
+  beforeEach(() => localStorage.clear());
+  const timeline = [{ t: 0, feedId: "a", episodeId: "a1" }];
+  const at = (startedAt: number): RestNight => ({
+    startedAt, timerMinutes: 60, endedVia: "faded", sleptAtMs: null, timeToSleepMs: null,
+    interactions: 0, detector: "none", timeline,
+  });
+
+  it("are kept for TIMELINE_KEEP_MS, then dropped", () => {
+    const now = 100 * TIMELINE_KEEP_MS;
+    const [old, recent] = pruneTimelines([at(now - TIMELINE_KEEP_MS - 1), at(now - TIMELINE_KEEP_MS)], now);
+    expect(old).not.toHaveProperty("timeline");
+    expect(recent.timeline).toEqual(timeline);
+  });
+
+  it("are pruned as each night is appended", () => {
+    appendNight(at(0));
+    appendNight(at(TIMELINE_KEEP_MS + 1));
+    const [first, second] = loadNights();
+    expect(first).not.toHaveProperty("timeline");
+    expect(second.timeline).toEqual(timeline);
   });
 });

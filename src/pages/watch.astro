@@ -1,0 +1,86 @@
+---
+import PlayerLayout from "../layouts/PlayerLayout.astro";
+---
+
+<style is:global>
+  body { background: #050508; }
+</style>
+
+<PlayerLayout title="sleepcast — apple watch">
+  <main class="mx-auto w-full max-w-2xl px-6 py-16 text-[#b59a76]">
+    <a href="/" class="text-xs uppercase tracking-widest text-[#6e5d44] hover:text-[#b59a76]">&larr; back to sleepcast</a>
+
+    <h1 class="mt-8 text-2xl text-[#d9c3a0]">time your nights with an apple watch</h1>
+    <p class="mt-2 text-xs uppercase tracking-widest text-[#6e5d44]">an ios shortcut, built once</p>
+
+    <section class="mt-10 space-y-4 text-sm leading-relaxed">
+      <p>
+        sleepcast guesses when you fell asleep from how still the phone went. your watch knows: it records sleep stages.
+        this shortcut reads them from health and hands them to sleepcast, which then times your nights by the watch
+        instead, and shows how far off its own guess was.
+      </p>
+      <p>
+        the data goes from health to this browser and nowhere else: it travels in the part of the link after the
+        <code>#</code>, which browsers never send to a server.
+      </p>
+
+      <h2 class="mt-8 text-base text-[#d9c3a0]">before you start</h2>
+      <ul class="list-disc space-y-1 pl-5">
+        <li>sleep tracking is on: in the watch app on your iphone, sleep, then track sleep with apple watch.</li>
+        <li>you listen to sleepcast.pro in safari. a copy added to the home screen keeps its own storage, apart from safari's, so use the paste version below instead.</li>
+        <li>your iphone is in english. sleepcast reads health's stage names (core, deep, rem, awake, in bed) in english for now.</li>
+      </ul>
+
+      <h2 class="mt-8 text-base text-[#d9c3a0]">build the shortcut</h2>
+      <p>in the shortcuts app, make a new shortcut called <em>sleepcast watch</em> and add these actions, in order:</p>
+      <ol class="list-decimal space-y-3 pl-5">
+        <li>
+          <strong>find health samples</strong>. set it to find health samples where <em>type</em> is <em>sleep analysis</em>,
+          add a filter <em>start date</em> is in the last <em>2 days</em>, and sort by <em>start date</em>, oldest first.
+        </li>
+        <li>
+          <strong>repeat with each</strong> item in <em>health samples</em>. inside the repeat, add a
+          <strong>text</strong> action containing, with no spaces:
+          <div class="mt-2 rounded border border-[#241f30] px-3 py-2 font-mono text-xs text-[#d9c3a0]">start date~end date~value</div>
+          <p class="mt-2">
+            each of the three is the <em>repeat item</em> variable: tap it and pick its <em>start date</em>, <em>end date</em>
+            or <em>value</em>. for the two dates, set the date format to <em>iso 8601</em> and turn on
+            <em>include iso 8601 time</em>.
+          </p>
+        </li>
+        <li><strong>combine text</strong>: combine <em>repeat results</em> with <em>new lines</em>.</li>
+        <li><strong>url encode</strong> the <em>combined text</em>.</li>
+        <li>
+          <strong>text</strong>: <span class="font-mono text-xs text-[#d9c3a0]">https://sleepcast.pro/#watch=</span>
+          followed straight away by the <em>url encoded text</em> variable.
+        </li>
+        <li><strong>open urls</strong>: the text from the step before.</li>
+      </ol>
+      <p>
+        run it in the morning. sleepcast opens and says what the watch found, e.g. "your watch: asleep 12 min in;
+        sleepcast guessed 20 min." the first time, health asks to let shortcuts read sleep data: allow it.
+      </p>
+
+      <h2 class="mt-8 text-base text-[#d9c3a0]">run it on waking</h2>
+      <p>
+        in shortcuts, automation, new automation, <em>sleep</em>, <em>waking up</em>, then run <em>sleepcast watch</em>
+        immediately. it runs as your sleep focus ends.
+      </p>
+
+      <h2 class="mt-8 text-base text-[#d9c3a0]">the paste version (home-screen app)</h2>
+      <p>
+        build the same shortcut, but in place of the last three actions add <strong>copy to clipboard</strong> with the
+        <em>combined text</em>. run it, open sleepcast, go to <em>your rest</em>, then <em>paste from your watch</em>, and
+        paste.
+      </p>
+
+      <h2 class="mt-8 text-base text-[#d9c3a0]">what it changes</h2>
+      <ul class="list-disc space-y-1 pl-5">
+        <li>a night is timed by the first asleep stage that begins inside it, within four hours of pressing start.</li>
+        <li>what was playing at that moment gets the credit in <em>what puts you under</em>, for nights in the last week.</li>
+        <li>sleepcast keeps its own guess beside the watch's, and <em>your rest</em> shows how far apart they typically are.</li>
+        <li>running it twice over the same nights changes nothing further.</li>
+      </ul>
+    </section>
+  </main>
+</PlayerLayout>

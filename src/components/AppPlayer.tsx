@@ -5,6 +5,7 @@ import { loadLive, clearLastNight, loadLastNight, type LiveSession, type LastNig
 import type { PlayMode } from "../lib/engine";
 import type { NoiseSettings } from "../lib/store";
 import { reanchorNext } from "../lib/rest/reanchor";
+import { importWatch, watchNotice, watchPayloadFromHash } from "../lib/rest/watch";
 import { DEFAULT_FEEL_MINUTES } from "../lib/timer-feel";
 import { SleepSetup } from "./SleepSetup";
 import { Player } from "./Player";
@@ -55,6 +56,17 @@ export function AppPlayer() {
   const [feedTrim, setFeedTrim] = useState<Record<string, number>>({});
   const [noise, setNoise] = useState<NoiseSettings>({ on: false, level: 0.15 });
   const [leveling, setLeveling] = useState(false);
+
+  // An Apple Watch import (sleepcast.pro/#watch=..., from the iOS Shortcut;
+  // rest/watch.ts). Read before the goodbye below, so last night's line
+  // shows the watch's time. The fragment is cleared at once: a reload, or
+  // the link shared, mustn't import it again.
+  const [watchLine] = useState(() => {
+    const payload = watchPayloadFromHash(window.location.hash);
+    if (payload === null) return null;
+    history.replaceState(null, "", window.location.pathname + window.location.search);
+    return watchNotice(importWatch(payload));
+  });
 
   const [goodbye] = useState(() => (isQuiet(loadQuietUntil(), Date.now()) ? null : shouldGreetGoodbye(Date.now())));
 
@@ -355,6 +367,12 @@ export function AppPlayer() {
                 stay as you are
               </button>
             </div>
+          </div>
+        )}
+        {watchLine && (
+          <div className="mb-6 flex items-center justify-center gap-2 text-center text-xs text-[#6e5d44]">
+            <span className="text-sm text-[#8a7a5c]">⌚</span>
+            <span>{watchLine}</span>
           </div>
         )}
         {goodbye && (
