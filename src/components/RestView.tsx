@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { loadNights, rollup, setSelfLabel, leanComparison, offerForLabel } from "../lib/rest/ledger";
+import { loadNights, lastOf, rollup, setSelfLabel, leanComparison, offerForLabel } from "../lib/rest/ledger";
 import { recordFalsePositive } from "../lib/rest/calibrate";
 import { scoreFeeds, medianTimeToSleep, meetsSuggestionGate, shuffleWeights, pluralNights, fmtOnsetMinutes, MIN_NIGHTS } from "../lib/rest/sleepscore";
 import { getPlays, loadState } from "../lib/store";
@@ -31,7 +31,7 @@ export function RestView({ onClose }: { onClose: (changed?: boolean) => void }) 
   }
   const close = () => onClose(changedHere);
   const r = useMemo(() => rollup(nights), [nights]);
-  const last = nights.at(-1) ?? null;
+  const last = lastOf(nights);
 
   // Only custom feeds can go missing from here — loadState always re-merges
   // every BUILTIN_FEEDS entry regardless of what's saved, and removeCustomFeed

@@ -47,5 +47,5 @@ export function recordNightEnd(e: NightEnd): void {
   // "faded" is the natural end — stamp it so setup can offer a smaller re-arm.
   if (e.reason === "faded") recordSessionEnd(e.timerMinutes, e.modeKind);
   saveLastNight({ ...e.lastNight, endedVia: e.reason, endedAt: e.now });
-  if (e.rest) appendNight(e.rest.finish(e.reason, e.now));
+  if (e.rest) appendNight(e.rest.finish(e.reason, e.now), e.now);
 }

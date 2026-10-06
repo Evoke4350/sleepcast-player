@@ -1,8 +1,25 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { TAKE_WATCH_LINK } from "./watch-link-script";
 import { WATCH_PENDING_KEY } from "./rest/watch-hash";
 
-const run = () => new Function(TAKE_WATCH_LINK)();
+/** Runs the script, keeping the listeners it adds so each test removes
+ *  them (they would pile up across tests otherwise). */
+const added: [string, EventListenerOrEventListenerObject][] = [];
+const run = () => {
+  const add = window.addEventListener;
+  window.addEventListener = ((type: string, fn: EventListenerOrEventListenerObject) => {
+    added.push([type, fn]);
+    add.call(window, type, fn);
+  }) as typeof window.addEventListener;
+  try {
+    new Function(TAKE_WATCH_LINK)();
+  } finally {
+    window.addEventListener = add;
+  }
+};
+afterEach(() => {
+  for (const [type, fn] of added.splice(0)) window.removeEventListener(type, fn);
+});
 
 describe("the head script that moves a watch link out of the address", () => {
   beforeEach(() => {

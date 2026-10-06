@@ -24,7 +24,7 @@ export function reconcileLive(l: LiveSession, now: number): boolean {
   const k = killedNight(l, now);
   // Only once the night is in the ledger: kept back, its last night mustn't
   // say it faded (a re-anchor would continue a night recorded nowhere).
-  if (!appendNight(k.night)) return false;
+  if (!appendNight(k.night, now)) return false;
   k.commit();
   return true;
 }

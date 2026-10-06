@@ -78,6 +78,28 @@ function parseTime(text: string | undefined): number | null {
 /** The payload's first line: where the Shortcut's window opens. */
 const WINDOW_LINE = "window~";
 
+/** One sample line, read: a sample, or why it isn't one. A bad end matters
+ *  as much as a bad start: zero-length samples never join into a stretch,
+ *  so sleep that began before a night's start would look like falling
+ *  asleep at its next stage change. A stage is a name or code: anything
+ *  else (a date run into it, when the url-encode step was missed and the
+ *  line breaks with it) is the Shortcut's format, not a language. Letters
+ *  in any script, with their combining marks (Devanagari and Thai vowel
+ *  signs): a localised name is a language matter (the "english only"
+ *  notice), not a format one. */
+function parseLine(line: string): SleepSample | "malformed" | "unrecognised" {
+  const fields = line.split("~");
+  const [startText, endText, stage] = fields;
+  const start = parseTime(startText);
+  const end = parseTime(endText);
+  const stageOk = stage !== undefined && /^[\p{L}\p{M}\p{N} ()_-]+$/u.test(stage.trim()) && /[\p{L}\p{N}]/u.test(stage);
+  if (fields.length !== 3 || start === null || end === null || end < start || !stageOk) return "malformed";
+  const asleep = stageAsleep(stage);
+  if (asleep === "code") return "malformed";
+  if (asleep === null) return "unrecognised";
+  return { start, end, asleep };
+}
+
 /** A Shortcut's payload: where its window opens (null when the window line
  *  is missing or its date doesn't parse), its samples, how many lines named
  *  a stage this doesn't recognise, and how many were malformed (either date
@@ -91,9 +113,6 @@ export function parseWatchPayload(text: string): {
   unrecognised: number;
   malformed: number;
 } {
-  const samples: SleepSample[] = [];
-  let unrecognised = 0;
-  let malformed = 0;
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   let windowStart: number | null = null;
   let badWindow = false;
@@ -102,54 +121,24 @@ export function parseWatchPayload(text: string): {
     // There, but its date doesn't read: the format, not a missing line.
     badWindow = windowStart === null;
   }
-  const kept = lines.slice(-MAX_SAMPLES);
+  const parsed = lines.map(parseLine);
+  const kept = parsed.slice(-MAX_SAMPLES);
   // Lines dropped off the front: the window now opens where what's kept
   // begins (the Shortcut sorts oldest first), not where the window line
-  // said, or a night whose first stages were dropped would look whole.
-  if (kept.length < lines.length && windowStart !== null) {
+  // said, or a night whose first stages were dropped would look whole;
+  // and strictly past any dropped sleep a kept sample could have joined
+  // onto (only sleep joins: a dropped Awake or In Bed sample doesn't).
+  if (kept.length < parsed.length && windowStart !== null) {
     // (A first kept line that doesn't parse is malformed, refused anyway.)
-    const first = parseTime(kept[0].split("~")[0]);
-    if (first !== null) windowStart = Math.max(windowStart, first);
-    // And past any dropped sleep a kept sample could have joined onto
-    // (only sleep joins: a dropped Awake or In Bed sample doesn't).
-    for (const line of lines.slice(0, lines.length - kept.length)) {
-      const [, endText, stage] = line.split("~");
-      const end = parseTime(endText);
-      if (end !== null && stage !== undefined && stageAsleep(stage) === true) {
-        windowStart = Math.max(windowStart, end + CONTIGUOUS_MS);
-      }
+    const first = kept[0];
+    if (typeof first === "object") windowStart = Math.max(windowStart, first.start);
+    for (const p of parsed.slice(0, parsed.length - kept.length)) {
+      if (typeof p === "object" && p.asleep) windowStart = Math.max(windowStart, p.end + CONTIGUOUS_MS + 1);
     }
   }
-  for (const line of kept) {
-    const fields = line.split("~");
-    const [startText, endText, stage] = fields;
-    const start = parseTime(startText);
-    const end = parseTime(endText);
-    // A bad end matters as much as a bad start: zero-length samples never
-    // join into a stretch, so sleep that began before a night's start would
-    // look like falling asleep at its next stage change.
-    // A stage is a name or code: anything else (a date run into it, when
-    // the url-encode step was missed and the line breaks with it) is the
-    // Shortcut's format, not a language.
-    // Letters in any script, with their combining marks (Devanagari and
-    // Thai vowel signs): a localised name is a language matter (the
-    // "english only" notice), not a format one.
-    const stageOk = stage !== undefined && /^[\p{L}\p{M}\p{N} ()_-]+$/u.test(stage.trim()) && /[\p{L}\p{N}]/u.test(stage);
-    if (fields.length !== 3 || start === null || end === null || end < start || !stageOk) {
-      malformed++;
-      continue;
-    }
-    const asleep = stageAsleep(stage);
-    if (asleep === "code") {
-      malformed++;
-      continue;
-    }
-    if (asleep === null) {
-      unrecognised++;
-      continue;
-    }
-    samples.push({ start, end, asleep });
-  }
+  const samples = kept.filter((p): p is SleepSample => typeof p === "object");
+  const malformed = kept.filter((p) => p === "malformed").length;
+  const unrecognised = kept.filter((p) => p === "unrecognised").length;
   return { windowStart, badWindow, samples, unrecognised, malformed };
 }
 
@@ -335,7 +324,7 @@ function decodeLeniently(text: string): string {
       const esc = run.match(/%[0-9a-f]{2}/gi)!;
       let out = "";
       for (let i = 0; i < esc.length; ) {
-        let n = 4;
+        let n = Math.min(4, esc.length - i);
         for (; n > 0; n--) {
           try {
             out += decodeURIComponent(esc.slice(i, i + n).join(""));

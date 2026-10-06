@@ -7,6 +7,11 @@ import { DEFAULT_PARAMS, LAMBDA_MAX, TICK_MS, quietTicksToDecide } from "./detec
 const KEY = "sleepcast2.rest";
 const MAX_NIGHTS = 90;
 
+/** The most recently recorded night, or null. */
+export function lastOf(nights: readonly RestNight[]): RestNight | null {
+  return nights.at(-1) ?? null;
+}
+
 export function loadNights(): RestNight[] {
   try {
     const raw = localStorage.getItem(KEY);

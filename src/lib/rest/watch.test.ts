@@ -133,7 +133,7 @@ describe("parseWatchPayload", () => {
     const r = parseWatchPayload(["window~2026-10-04T08:00:00-07:00", ...lines].join("\n"));
     // Where the kept lines begin, or past the end of the dropped sleep (+1 min).
     const droppedEnd = Math.max(...lines.slice(0, 5).map((l) => Date.parse(l.split("~")[1])));
-    expect(r.windowStart).toBe(Math.max(Date.parse(lines[5].split("~")[0]), droppedEnd + 60_000));
+    expect(r.windowStart).toBe(Math.max(Date.parse(lines[5].split("~")[0]), droppedEnd + 60_000 + 1));
   });
 
   it("counts a would-be code that isn't one as malformed, not a language", () => {
@@ -331,7 +331,7 @@ describe("importWatch", () => {
       i === 0 ? "2026-10-05T23:10:30-07:00~2026-10-05T23:40:00-07:00~Deep" : "2026-10-06T06:00:00-07:00~2026-10-06T06:01:00-07:00~Awake",
     );
     const r = parseWatchPayload([OPENS_LINE, dropped, ...kept].join("\n"));
-    expect(r.windowStart).toBe(Date.parse("2026-10-05T23:10:00-07:00") + 60_000);
+    expect(r.windowStart).toBe(Date.parse("2026-10-05T23:10:00-07:00") + 60_000 + 1);
   });
 
   it("says so, and claims nothing, when the re-timed nights can't be stored", () => {
