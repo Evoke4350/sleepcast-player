@@ -30,16 +30,6 @@ export function reconcileLive(l: LiveSession, now: number): boolean {
   const startedAt = Math.min(l.nightStartedAt ?? l.savedAt - elapsedMs, endedAt);
   const playedIds = withCurrentPlayed(l);
 
-  saveLastNight({
-    pool: l.pool,
-    playedIds,
-    feedTitles: l.feedTitles,
-    artworkByFeedId: l.artworkByFeedId,
-    skipIntroByFeedId: l.skipIntroByFeedId,
-    endedVia: "faded",
-    endedAt,
-    wasVaried: l.wasVaried ?? false, // steers which lineup a re-anchor continues
-  });
   const recorded = appendNight({
     startedAt,
     // Last seen alive, not the scheduled fade above: the tab (and its
@@ -54,8 +44,21 @@ export function reconcileLive(l: LiveSession, now: number): boolean {
     detector: "none",
     ...(validLean(l.shuffleLean) ? { shuffle: "leaned" as const } : {}),
   });
-  if (recorded) clearLive();
-  return recorded;
+  // Only once the night is in the ledger: kept back, its last night mustn't
+  // say it faded (a re-anchor would continue a night recorded nowhere).
+  if (!recorded) return false;
+  saveLastNight({
+    pool: l.pool,
+    playedIds,
+    feedTitles: l.feedTitles,
+    artworkByFeedId: l.artworkByFeedId,
+    skipIntroByFeedId: l.skipIntroByFeedId,
+    endedVia: "faded",
+    endedAt,
+    wasVaried: l.wasVaried ?? false, // steers which lineup a re-anchor continues
+  });
+  clearLive();
+  return true;
 }
 
 /** On page load: return the snapshot if it should be offered for revival;

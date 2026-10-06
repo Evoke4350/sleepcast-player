@@ -4,8 +4,9 @@
 // from window.__sleepcastWatch (AppPlayer's takeWatchLink), told by a
 // "sleepcast-watch" event. Server-side only (PlayerLayout).
 import { createHash } from "node:crypto";
+import { WATCH_HASH } from "./rest/watch-hash";
 
-export const TAKE_WATCH_LINK = `(function(){function take(){if(location.hash.indexOf('#watch=')!==0)return;window.__sleepcastWatch=location.hash;history.replaceState(null,'',location.pathname+location.search);window.dispatchEvent(new Event('sleepcast-watch'))}take();addEventListener('popstate',take);addEventListener('hashchange',take)})();`;
+export const TAKE_WATCH_LINK = `(function(){function take(){if(location.hash.indexOf(${JSON.stringify(WATCH_HASH)})!==0)return;window.__sleepcastWatch=location.hash;history.replaceState(null,'',location.pathname+location.search);window.dispatchEvent(new Event('sleepcast-watch'))}take();addEventListener('popstate',take);addEventListener('hashchange',take)})();`;
 
 /** Its CSP hash: the CSP (astro.config.mjs) blocks an inline script it has
  *  no hash for, and Astro doesn't hash is:inline ones. Computed once. */

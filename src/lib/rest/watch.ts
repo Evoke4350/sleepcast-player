@@ -17,6 +17,7 @@ import type { RestNight } from "./types";
 import { retimed } from "./attribution";
 import { loadNights, median, saveNights } from "./ledger";
 import { endKilledNight } from "./reconcile";
+import { WATCH_HASH } from "./watch-hash";
 import { fmtOnsetMinutes, underAMinute } from "./sleepscore";
 
 export interface SleepSample {
@@ -25,8 +26,7 @@ export interface SleepSample {
   asleep: boolean;
 }
 
-/** The fragment key the Shortcut writes: #watch=... */
-export const WATCH_HASH = "#watch=";
+export { WATCH_HASH };
 
 /** How long after a night's start the watch onset may come and still be
  *  that night's: past it, the sleep belongs to no night sleepcast played. */
@@ -107,8 +107,9 @@ export function parseWatchPayload(text: string): {
   // begins (the Shortcut sorts oldest first), not where the window line
   // said, or a night whose first stages were dropped would look whole.
   if (kept.length < lines.length && windowStart !== null) {
+    // (A first kept line that doesn't parse is malformed, refused anyway.)
     const first = parseTime(kept[0].split("~")[0]);
-    windowStart = first === null ? null : Math.max(windowStart, first);
+    if (first !== null) windowStart = Math.max(windowStart, first);
   }
   for (const line of kept) {
     const fields = line.split("~");
@@ -219,6 +220,9 @@ export function applyWatch(
 
 export interface WatchImport {
   timed: WatchTiming[];
+  /** The newest night in the ledger's start, to tell whether the latest
+   *  re-timed night is last night or an older one. */
+  newestStartedAt?: number;
   unchanged: number;
   /** The re-timed nights couldn't be stored (storage full): nothing changed. */
   unsaved?: boolean;
@@ -255,17 +259,22 @@ export function payloadFromPaste(text: string): string {
  *  malformed line: a sample missing from inside a stretch splits it, and
  *  its next stage change would pass for falling asleep. */
 export function importWatch(text: string, now = Date.now()): WatchImport {
-  // The night a killed tab left unrecorded is the one the import is for,
-  // by link or by paste alike (endKilledNight).
-  const endedNight = endKilledNight(now);
   const { windowStart, badWindow, samples, unrecognised, malformed } = parseWatchPayload(text);
   const noWindow = samples.length > 0 && windowStart === null && !badWindow;
   const refusedContent = noWindow || badWindow || unrecognised > 0 || malformed > 0;
   let timed: WatchTiming[] = [];
   let unchanged = 0;
   let unsaved = false;
+  let endedNight = false;
+  let newestStartedAt: number | undefined;
   if (samples.length && windowStart !== null && !refusedContent) {
-    const r = applyWatch(loadNights(), samples, windowStart);
+    // The night a killed tab left unrecorded is the one the import is for,
+    // by link or by paste alike (endKilledNight). Only for an import that
+    // goes ahead: a refused one changes nothing, as its notice says.
+    endedNight = endKilledNight(now);
+    const nights = loadNights();
+    newestStartedAt = nights.reduce((m, n) => Math.max(m, n.startedAt), -Infinity);
+    const r = applyWatch(nights, samples, windowStart);
     unchanged = r.unchanged;
     // Nothing re-timed, nothing to write (a full store would evict cached
     // feeds to make room for no change).
@@ -281,16 +290,12 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
     ...(endedNight ? { endedNight } : {}),
     ...(noWindow ? { noWindow } : {}),
     ...(badWindow ? { badWindow } : {}),
+    ...(timed.length && newestStartedAt !== undefined ? { newestStartedAt } : {}),
     refused: refusedContent || unsaved,
     samples: samples.length,
     unrecognised,
     malformed,
   };
-}
-
-/** Whether a location hash is a watch import (without decoding it). */
-export function isWatchHash(hash: string): boolean {
-  return hash.startsWith(WATCH_HASH);
 }
 
 /** The payload in a location hash, or null when it isn't a watch import.
@@ -299,7 +304,7 @@ export function isWatchHash(hash: string): boolean {
  *  each escape is decoded on its own and a bad one left as it was (its line
  *  then counts as malformed, and the notice says so). */
 export function watchPayloadFromHash(hash: string): string | null {
-  if (!isWatchHash(hash)) return null;
+  if (!hash.startsWith(WATCH_HASH)) return null;
   return decodeLeniently(hash.slice(WATCH_HASH.length));
 }
 
@@ -333,7 +338,13 @@ export function watchNotice(r: WatchImport): string {
   }
   const last = r.timed[r.timed.length - 1];
   const guess = last.inferredAtMs === null ? "" : `; sleepcast guessed ${fmtOnsetMinutes(last.inferredAtMs)}`;
-  const lead = r.timed.length === 1 ? "your watch" : `your watch timed ${r.timed.length} nights. the latest`;
+  // Not last night's (it had no sleep the watch saw): say which night, or it
+  // reads as last night's beside the goodbye.
+  const older =
+    r.newestStartedAt !== undefined && last.startedAt < r.newestStartedAt
+      ? ` for ${new Date(last.startedAt).toLocaleDateString(undefined, { weekday: "long" }).toLowerCase()} night`
+      : "";
+  const lead = r.timed.length === 1 ? `your watch${older}` : `your watch timed ${r.timed.length} nights. the latest${older}`;
   // "asleep under a minute in" doesn't read: the fast case gets its own words.
   const when = underAMinute(last.atMs) ? "asleep within a minute" : `asleep ${fmtOnsetMinutes(last.atMs)} in`;
   return `${lead}: ${when}${guess}.`;

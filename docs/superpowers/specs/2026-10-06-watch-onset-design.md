@@ -138,6 +138,12 @@ touches would read as awake ones and make the detector bolder.
   pause) credits the paused episode. Recording pauses would mean every
   player noting them; the case is rare, and the credit goes to the show the
   listener was drifting to.
+- A night's `endedAt` is when its session finished. A timed night whose tab
+  was suspended past its timer and finished on waking records the waking
+  time, so a watch onset after the timer's scheduled end still credits the
+  last episode. The session doesn't know the timer's extensions, so its
+  scheduled end can't be told; reconciled nights (killed tabs) use last seen
+  alive instead.
 - A link held in an open tab (see §5) lives in memory until it is read; if
   the page goes first (the tab killed, a link followed) it is lost, and the
   next morning's run (two days) makes it up.

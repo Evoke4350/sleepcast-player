@@ -276,7 +276,7 @@ describe("importWatch", () => {
   it("re-times the stored night, and the headline counts a fast watch onset", () => {
     appendNight(night());
     const r = importWatch(`${OPENS_LINE}\n2026-10-05T23:04:00-07:00~2026-10-05T23:30:00-07:00~Core`);
-    expect(r).toEqual({ timed: [{ startedAt: START, atMs: 4 * MIN, inferredAtMs: 30 * MIN }], unchanged: 0, samples: 1, unrecognised: 0, malformed: 0, refused: false });
+    expect(r).toEqual({ timed: [{ startedAt: START, atMs: 4 * MIN, inferredAtMs: 30 * MIN }], newestStartedAt: START, unchanged: 0, samples: 1, unrecognised: 0, malformed: 0, refused: false });
     expect(loadNights()[0].detector).toBe("watch");
     // 4 min is under the detector's plausibility floor; a watch onset is measured.
     expect(rollup(loadNights()).bestTimeToSleepMs).toBe(4 * MIN);
@@ -438,5 +438,30 @@ describe("appendNight, the same night twice", () => {
     const [n] = loadNights();
     expect(loadNights()).toHaveLength(1);
     expect(n).toMatchObject({ interactions: 7, detector: "watch", sleptAtMs: 12 * MIN, inferredAtMs: 30 * MIN, onsetFeedId: "a" });
+  });
+});
+
+describe("importWatch and a killed tab's snapshot", () => {
+  beforeEach(() => localStorage.clear());
+  it("leaves it alone when the import is refused: nothing changed, as the notice says", () => {
+    localStorage.setItem("sleepcast2.live", JSON.stringify({ savedAt: 1, remainingMs: 0, totalSeconds: 0, position: 0, playedIds: [], pool: [], skipIntroByFeedId: {}, feedTitles: {}, artworkByFeedId: {}, modeKind: "all-night" }));
+    const r = importWatch("not the shortcut's text at all");
+    expect(r.refused).toBe(true);
+    expect(r).not.toHaveProperty("endedNight");
+    expect(localStorage.getItem("sleepcast2.live")).not.toBeNull();
+    expect(loadNights()).toHaveLength(0);
+  });
+});
+
+describe("watchNotice, for a night other than last night", () => {
+  it("names the night", () => {
+    const fri = Date.parse("2026-10-02T23:00:00-07:00");
+    const line = watchNotice({
+      timed: [{ startedAt: fri, atMs: 12 * MIN, inferredAtMs: null }],
+      newestStartedAt: fri + 24 * 60 * MIN,
+      unchanged: 0, samples: 3, unrecognised: 0, malformed: 0, refused: false,
+    });
+    const day = new Date(fri).toLocaleDateString(undefined, { weekday: "long" }).toLowerCase();
+    expect(line).toBe(`your watch for ${day} night: asleep 12 min in.`);
   });
 });
