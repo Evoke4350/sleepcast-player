@@ -6,7 +6,8 @@
 // sample is one line, "start~end~stage", with ISO 8601 dates and the stage as
 // Health names it (Core, Deep, REM, Awake, In Bed, ...). A first line,
 // "window~start", says where the Shortcut's window opens (it reads samples
-// starting after it).
+// ending after it, so sleep already under way when the window opens is
+// there, from its own start).
 //
 // A night's onset is the start of the first stretch of sleep that begins
 // inside it (see watchOnset and onsetStretches). That replaces the
@@ -26,7 +27,6 @@ export interface SleepSample {
   asleep: boolean;
 }
 
-export { WATCH_HASH };
 
 /** How long after a night's start the watch onset may come and still be
  *  that night's: past it, the sleep belongs to no night sleepcast played. */
@@ -191,8 +191,9 @@ export interface WatchTiming {
  *  Only nights that began after the window opened: for an earlier one the
  *  window may have cut its sleep off (whether it began before the night's
  *  start is unknown, and a stage change after a brief wake would pass for
- *  its onset), so it keeps what it has. A night after the window opened
- *  has every sample that began within it, its first-ever one included. */
+ *  its onset), so it keeps what it has. A night after the window opened has
+ *  every sample under way at or after its start (the Shortcut filters by
+ *  end date), its first-ever one included. */
 export function applyWatch(
   nights: readonly RestNight[],
   samples: readonly SleepSample[],
@@ -225,14 +226,14 @@ export interface WatchImport {
   newestStartedAt?: number;
   unchanged: number;
   /** The re-timed nights couldn't be stored (storage full): nothing changed. */
-  unsaved?: boolean;
+  unsaved: boolean;
   /** A killed tab's night was recorded first (endKilledNight): a resume
    *  offer on screen is gone. */
-  endedNight?: boolean;
+  endedNight: boolean;
   /** No window line (a Shortcut built before it was added): refused. */
-  noWindow?: boolean;
+  noWindow: boolean;
   /** A window line whose date didn't read: refused. */
-  badWindow?: boolean;
+  badWindow: boolean;
   /** Refused for its content (malformed, unrecognised, no or bad window
    *  line), or not saved: nothing changed, worth keeping to look at. */
   refused: boolean;
@@ -286,10 +287,10 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
   return {
     timed,
     unchanged,
-    ...(unsaved ? { unsaved } : {}),
-    ...(endedNight ? { endedNight } : {}),
-    ...(noWindow ? { noWindow } : {}),
-    ...(badWindow ? { badWindow } : {}),
+    unsaved,
+    endedNight,
+    noWindow,
+    badWindow,
     ...(timed.length && newestStartedAt !== undefined ? { newestStartedAt } : {}),
     refused: refusedContent || unsaved,
     samples: samples.length,
@@ -318,6 +319,12 @@ function decodeLeniently(text: string): string {
   });
 }
 
+/** The weekday a night belongs to, in English like the rest of the copy:
+ *  one started in the small hours (before 6am) is the evening before's. */
+function nightName(startedAt: number): string {
+  return new Date(startedAt - 6 * 60 * 60 * 1000).toLocaleDateString("en", { weekday: "long" }).toLowerCase();
+}
+
 /** What an import did, in a line for the listener. */
 export function watchNotice(r: WatchImport): string {
   if (r.badWindow) {
@@ -342,7 +349,7 @@ export function watchNotice(r: WatchImport): string {
   // reads as last night's beside the goodbye.
   const older =
     r.newestStartedAt !== undefined && last.startedAt < r.newestStartedAt
-      ? ` for ${new Date(last.startedAt).toLocaleDateString(undefined, { weekday: "long" }).toLowerCase()} night`
+      ? ` for ${nightName(last.startedAt)} night`
       : "";
   const lead = r.timed.length === 1 ? `your watch${older}` : `your watch timed ${r.timed.length} nights. the latest${older}`;
   // "asleep under a minute in" doesn't read: the fast case gets its own words.

@@ -19,7 +19,8 @@ server, so the samples go from Health to the browser's storage and nowhere
 else. No account, no endpoint, no native build.
 
 Payload: a first line `window~<start>` (where the Shortcut's window opens: it
-reads samples starting after "now minus 2 days"; without it the import is
+reads samples ending after "now minus 2 days", so a sample under way when
+the window opens is there from its own start; without it the import is
 refused, with a notice pointing at the updated steps), then one sample per
 line, `start~end~stage`, ISO 8601 dates with time, the
 stage as Health names it (Core, Deep, REM, Asleep, Awake, In Bed, matched as

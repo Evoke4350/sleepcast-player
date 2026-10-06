@@ -143,6 +143,7 @@ export function AppPlayer() {
       setWatchWaiting(true);
     };
     window.addEventListener("sleepcast-watch", onLink);
+    onLink(); // one that landed between the first render and this effect
     return () => window.removeEventListener("sleepcast-watch", onLink);
   }, []);
 
@@ -450,13 +451,13 @@ export function AppPlayer() {
           </div>
         )}
         {watchWaiting && (
-          <HomeLine mark="⌚">
+          <HomeLine mark="⌚︎">
             <button onClick={reloadWithPending} className="underline decoration-[#3a3325] underline-offset-4 hover:text-[#b59a76]">
               your watch's night came in: read it
             </button>
           </HomeLine>
         )}
-        {watchLine && <HomeLine mark="⌚">{watchLine}</HomeLine>}
+        {watchLine && <HomeLine mark="⌚︎">{watchLine}</HomeLine>}
         {goodbye && (
           <HomeLine mark="☾" markClass="player-moon">
             you slept{goodbye.timeToSleepMs !== null ? ` — gone in ${fmtOnsetMinutes(goodbye.timeToSleepMs)}` : ""}.

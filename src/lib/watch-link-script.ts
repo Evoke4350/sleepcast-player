@@ -2,7 +2,9 @@
 // sleep stages, rest/watch.ts) out of the address before analytics can read
 // the page's URL, on load and if one lands later. The island then reads it
 // from window.__sleepcastWatch (AppPlayer's takeWatchLink), told by a
-// "sleepcast-watch" event. Server-side only (PlayerLayout).
+// "sleepcast-watch" event. A second link before the island reads the first
+// replaces it: harmless, as each run reads two days. Server-side only
+// (PlayerLayout).
 import { createHash } from "node:crypto";
 import { WATCH_HASH } from "./rest/watch-hash";
 
