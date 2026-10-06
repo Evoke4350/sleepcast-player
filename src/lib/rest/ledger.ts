@@ -1,4 +1,5 @@
 import type { RestNight, RestRollup, DetectorParams } from "./types";
+import { retimed } from "./attribution";
 import { writeMakingRoom } from "../store";
 import { DEFAULT_PARAMS, LAMBDA_MAX, TICK_MS, quietTicksToDecide } from "./detector";
 
@@ -30,9 +31,21 @@ function save(nights: RestNight[]): boolean {
  *  episode ids don't crowd local storage. */
 export const TIMELINE_KEEP_MS = 7 * 24 * 60 * 60 * 1000;
 
-/** Whether it was stored. */
+/** Records a night; whether it was stored. A night with the same start
+ *  already there is the same night recorded twice, and this one replaces
+ *  it: a watch import records a suspended tab's snapshot (it can't tell one
+ *  from a killed tab's), and the tab may wake and record its night again,
+ *  by ending it or by being reconciled. The night keeps the watch's time if
+ *  it had one. */
 export function appendNight(n: RestNight): boolean {
-  return save(pruneTimelines([...loadNights(), n], n.startedAt));
+  const nights = loadNights();
+  const i = nights.findIndex((x) => x.startedAt === n.startedAt);
+  if (i === -1) nights.push(n);
+  else {
+    const old = nights[i];
+    nights[i] = old.detector === "watch" && old.sleptAtMs !== null ? retimed(n, old.sleptAtMs) : n;
+  }
+  return save(pruneTimelines(nights, n.startedAt));
 }
 
 /** Every night, replaced (the watch import); whether the save took. */
@@ -40,12 +53,6 @@ export function saveNights(nights: RestNight[]): boolean {
   return save(nights);
 }
 
-/** Whether an onset `atMs` (from the night's start) came after the night
- *  ended: the audio had stopped, and nothing was observed by then. Unknown
- *  (no endedAt, older nights) is taken as no. */
-export function onsetAfterEnd(n: RestNight, atMs: number): boolean {
-  return n.endedAt !== undefined && n.startedAt + atMs > n.endedAt;
-}
 
 /** Drops the timeline of any night that began more than TIMELINE_KEEP_MS
  *  before `now`. */

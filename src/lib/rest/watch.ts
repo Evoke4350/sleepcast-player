@@ -14,8 +14,8 @@
 // night from its timeline, as RestSession.finish attributes the detector's
 // onset.
 import type { RestNight } from "./types";
-import { attribution } from "./session";
-import { appendNight, loadNights, median, onsetAfterEnd, saveNights } from "./ledger";
+import { retimed } from "./attribution";
+import { loadNights, median, saveNights } from "./ledger";
 import { endKilledNight } from "./reconcile";
 import { fmtOnsetMinutes, underAMinute } from "./sleepscore";
 
@@ -175,30 +175,6 @@ export function watchOnset(
   const limit = Math.min(startedAt + MATCH_WINDOW_MS, nextStartedAt);
   const first = stretches.find((s) => s.start >= startedAt);
   return first && first.start < limit ? first.start - startedAt : null;
-}
-
-/** A night re-timed by the watch's onset `atMs`. Attribution comes from the
- *  night's timeline when it covers the onset; an onset after the night
- *  ended credits nothing (the audio had stopped). A timeline that starts
- *  after the onset (a night revived after a reload notes only what played
- *  since) can't say what was playing then, and would credit every show
- *  after the reload as slept through: it is no timeline. Without one, any
- *  attribution the night had is dropped: it was for a different onset
- *  (applyWatch never re-times a night to the onset it already has). A
- *  "slept" or "awake" label was on the detector's claim, which the watch
- *  replaces. */
-export function retimed(n: RestNight, atMs: number): RestNight {
-  const inferredAtMs = n.detector === "watch" ? (n.inferredAtMs ?? null) : n.sleptAtMs;
-  const { selfLabel: _l, onsetFeedId: _f, onsetEpisodeId: _e, onsetAfterMs: _a, sleptThrough: _s, ...base } = n;
-  const covering = n.timeline?.some((e) => e.t <= atMs) ? n.timeline : undefined;
-  return {
-    ...base,
-    sleptAtMs: atMs,
-    timeToSleepMs: atMs,
-    detector: "watch",
-    inferredAtMs,
-    ...(!onsetAfterEnd(n, atMs) && covering ? attribution(covering, atMs) : {}),
-  };
 }
 
 export interface WatchTiming {
@@ -381,17 +357,4 @@ export function watchAgreement(nights: readonly RestNight[]): {
     compared: gaps.length,
     medianOffMs: m === null ? null : Math.round(m / 1000) * 1000,
   };
-}
-
-/** Records a night that just ended. A night with the same start already
- *  there was recorded by a watch import from the snapshot of a tab that
- *  was only suspended (endKilledNight can't tell): this, the night as it
- *  really ended, replaces it, keeping the watch's time if it had one. */
-export function recordNight(n: RestNight): boolean {
-  const nights = loadNights();
-  const i = nights.findIndex((x) => x.startedAt === n.startedAt);
-  if (i === -1) return appendNight(n);
-  const old = nights[i];
-  nights[i] = old.detector === "watch" && old.sleptAtMs !== null ? retimed(n, old.sleptAtMs) : n;
-  return saveNights(nights);
 }

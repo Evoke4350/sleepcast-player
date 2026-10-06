@@ -5,7 +5,7 @@ import { loadLive, clearLive, clearLastNight, loadLastNight, type LiveSession, t
 import type { PlayMode } from "../lib/engine";
 import type { NoiseSettings } from "../lib/store";
 import { reanchorNext } from "../lib/rest/reanchor";
-import { importWatch, isWatchHash, watchNotice, watchPayloadFromHash } from "../lib/rest/watch";
+import { importWatch, watchNotice, watchPayloadFromHash } from "../lib/rest/watch";
 import { DEFAULT_FEEL_MINUTES } from "../lib/timer-feel";
 import { SleepSetup } from "./SleepSetup";
 import { Player } from "./Player";
@@ -138,7 +138,7 @@ export function AppPlayer() {
     // The head script has already moved it out of the address (analytics).
     const onLink = () => {
       const hash = takeHeldHash();
-      if (hash === null || !isWatchHash(hash)) return;
+      if (hash === null) return;
       pendingWatchHash = hash;
       setWatchWaiting(true);
     };

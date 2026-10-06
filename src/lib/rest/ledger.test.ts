@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { loadNights, appendNight, rollup, setSelfLabel, leanComparison, pruneTimelines, offerForLabel, onsetAfterEnd, MIN_PLAUSIBLE_ONSET_MS, PRE_FIX_BEFORE_MS, TIMELINE_KEEP_MS } from "./ledger";
+import { loadNights, appendNight, rollup, setSelfLabel, leanComparison, pruneTimelines, offerForLabel, MIN_PLAUSIBLE_ONSET_MS, PRE_FIX_BEFORE_MS, TIMELINE_KEEP_MS } from "./ledger";
 import { DEFAULT_PARAMS, LAMBDA_MAX, quietTicksToDecide, TICK_MS } from "./detector";
 import type { RestNight } from "./types";
+import { onsetAfterEnd } from "./attribution";
 
 const night = (over: Partial<RestNight> = {}): RestNight => ({
   startedAt: 1000, timerMinutes: 60, endedVia: "faded",

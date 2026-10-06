@@ -76,6 +76,12 @@ from the night's `timeline` with the same function `RestSession.finish` uses
 A timeline that starts after the onset (a night revived after a reload notes
 only what played since) can't say what was playing, so it counts as none.
 
+The same night can be recorded twice: a watch import records a killed tab's
+snapshot, and can't tell a suspended tab's from it; the tab may wake and
+record its night again (by ending it, or by being reconciled). The ledger's
+one writer, `appendNight`, replaces a night with the same start, keeping the
+watch's time (re-attributed from the real night's timeline) if it had one.
+
 A night with no timeline (older, or reconciled from a killed tab) still gets
 the watch's time, but any attribution it had, which was for a different onset,
 is dropped. A self-label ("slept"/"awake") was on the detector's claim,
@@ -95,8 +101,12 @@ touches would read as awake ones and make the detector bolder.
 - A paste import that re-timed a night, or recorded a killed tab's night
   first, reloads the page on leaving the rest view, so the home screen's
   lines (and the resume offer) are read again.
-- Opening the link imports, clears the fragment at once (a reload or a shared
-  link mustn't import again) and shows one line on the home screen: "your
+- A head script (PlayerLayout, hash-allowed in the CSP) moves the fragment
+  out of the address before analytics can read the page's URL, on load and
+  if a link lands later; the island reads it from there. So the sleep stages
+  never sit in an address anything else reads, and a reload or a shared link
+  can't import them again.
+- Opening the link imports and shows one line on the home screen: "your
   watch: asleep 12 min in; sleepcast guessed 20 min." A killed tab's night is
   recorded into the ledger first, so the morning import can time it: a watch
   import means the night is over, so even a snapshot that could still be
@@ -138,5 +148,7 @@ watch.test.ts: parsing (names, codes, malformed and localised lines), matching
 (window, the next night, before start), re-timing (attribution from the
 timeline, after the end, no timeline, idempotence, labels), the import against
 storage (including a fast onset under the detector's floor), the fragment and
-paste readers, the notice and the agreement summary. session.test.ts and
-ledger.test.ts cover the recorded timeline, `endedAt` and pruning.
+paste readers, the notice, the agreement summary and the same night recorded
+twice. session.test.ts and ledger.test.ts cover the recorded timeline,
+`endedAt` and pruning; reconcile.test.ts the killed night recorded first, a
+snapshot kept when storage is full, and a woken tab's night recorded again.

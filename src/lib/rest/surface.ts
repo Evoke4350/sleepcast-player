@@ -3,8 +3,7 @@ import { loadNights } from "./ledger";
 
 const GOODBYE_SEEN_KEY = "sleepcast2.rest.goodbye";
 
-
-export function lastNight(): RestNight | null {
+function lastNight(): RestNight | null {
   const n = loadNights();
   return n.length ? n[n.length - 1] : null;
 }

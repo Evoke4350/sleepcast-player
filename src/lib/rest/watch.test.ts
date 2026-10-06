@@ -2,13 +2,11 @@ import { describe, it, expect, beforeEach } from "vitest";
 import {
   parseWatchPayload,
   watchOnset,
-  retimed,
   applyWatch,
   importWatch,
   watchPayloadFromHash,
   watchNotice,
   watchAgreement,
-  recordNight,
   payloadFromPaste,
   MATCH_WINDOW_MS,
   MAX_SAMPLES,
@@ -16,6 +14,7 @@ import {
   type SleepSample,
 } from "./watch";
 import { appendNight, loadNights, rollup } from "./ledger";
+import { retimed } from "./attribution";
 import type { RestNight } from "./types";
 
 const MIN = 60_000;
@@ -424,10 +423,10 @@ describe("watchAgreement", () => {
   });
 });
 
-describe("recordNight", () => {
+describe("appendNight, the same night twice", () => {
   beforeEach(() => localStorage.clear());
   it("appends a new night", () => {
-    recordNight(night());
+    appendNight(night());
     expect(loadNights()).toHaveLength(1);
   });
   it("replaces a night a watch import recorded from a suspended tab, keeping the watch's time", () => {
@@ -435,7 +434,7 @@ describe("recordNight", () => {
     appendNight(night({ detector: "watch", sleptAtMs: 12 * MIN, timeToSleepMs: 12 * MIN, inferredAtMs: null }));
     const timeline = [{ t: 0, feedId: "a", episodeId: "a1" }];
     // The tab wakes and ends its night as it really was.
-    recordNight(night({ interactions: 7, timeline }));
+    appendNight(night({ interactions: 7, timeline }));
     const [n] = loadNights();
     expect(loadNights()).toHaveLength(1);
     expect(n).toMatchObject({ interactions: 7, detector: "watch", sleptAtMs: 12 * MIN, inferredAtMs: 30 * MIN, onsetFeedId: "a" });

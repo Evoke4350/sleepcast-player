@@ -1,5 +1,5 @@
 ---
-import { createHash } from "node:crypto";
+import { TAKE_WATCH_LINK, TAKE_WATCH_LINK_HASH } from "../lib/watch-link-script";
 import "../styles/globals.css";
 
 export interface Props {
@@ -8,12 +8,7 @@ export interface Props {
 
 const { title = "sleepcast" } = Astro.props;
 
-// Moves a #watch= fragment (an Apple Watch link's sleep stages) out of the
-// address before analytics can read it; see the comment in the head below.
-const TAKE_WATCH_LINK = `(function(){function take(){if(location.hash.indexOf('#watch=')!==0)return;window.__sleepcastWatch=location.hash;history.replaceState(null,'',location.pathname+location.search);window.dispatchEvent(new Event('sleepcast-watch'))}take();addEventListener('popstate',take);addEventListener('hashchange',take)})();`;
-// The CSP (astro.config.mjs) blocks an inline script it has no hash for, and
-// Astro doesn't hash is:inline ones: allow exactly this one.
-Astro.csp?.insertScriptHash(`sha256-${createHash("sha256").update(TAKE_WATCH_LINK).digest("base64")}`);
+Astro.csp?.insertScriptHash(TAKE_WATCH_LINK_HASH);
 ---
 
 <!doctype html>
