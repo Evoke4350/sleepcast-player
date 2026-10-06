@@ -1,8 +1,8 @@
 import { useMemo, useState } from "react";
-import { loadNights, rollup, setSelfLabel, leanComparison, offerForLabel, onsetAfterEnd } from "../lib/rest/ledger";
+import { loadNights, rollup, setSelfLabel, leanComparison, offerForLabel } from "../lib/rest/ledger";
 import { recordFalsePositive } from "../lib/rest/calibrate";
 import { scoreFeeds, medianTimeToSleep, meetsSuggestionGate, shuffleWeights, pluralNights, fmtOnsetMinutes, MIN_NIGHTS } from "../lib/rest/sleepscore";
-import { fmtDuration, lastNight } from "../lib/rest/surface";
+import { fmtDuration } from "../lib/rest/surface";
 import { getPlays, loadState } from "../lib/store";
 import { playsSince, playAtMoment } from "../lib/plays";
 import { importWatch, payloadFromPaste, watchAgreement, watchNotice } from "../lib/rest/watch";
@@ -19,7 +19,7 @@ export function RestView({ onClose }: { onClose: () => void }) {
     setNights(loadNights());
   }
   const r = useMemo(() => rollup(nights), [nights]);
-  const last = lastNight();
+  const last = nights.at(-1) ?? null;
 
   // Only custom feeds can go missing from here — loadState always re-merges
   // every BUILTIN_FEEDS entry regardless of what's saved, and removeCustomFeed
@@ -60,15 +60,15 @@ export function RestView({ onClose }: { onClose: () => void }) {
     () => (last ? playsSince(getPlays(), last.startedAt) : []),
     [last?.startedAt],
   );
-  // The episode running at the moment you went under: none when that was
-  // after the night ended (a watch onset can be), as the audio had stopped.
-  const driftedDuring = useMemo(
-    () =>
-      last && last.sleptAtMs !== null && !onsetAfterEnd(last, last.sleptAtMs)
-        ? playAtMoment(lastPlays, last.startedAt + last.sleptAtMs)
-        : null,
-    [lastPlays, last?.startedAt, last?.sleptAtMs],
-  );
+  // The episode running at the moment you went under. A watch onset was
+  // attributed from the night's own timeline, which knows when the audio
+  // was dead (after the end, or before a revive): its episode or none. The
+  // play ledger can't tell, so it only answers for the detector's onset.
+  const driftedDuring = useMemo(() => {
+    if (!last || last.sleptAtMs === null) return null;
+    if (last.detector === "watch") return lastPlays.find((p) => p.id === last.onsetEpisodeId) ?? null;
+    return playAtMoment(lastPlays, last.startedAt + last.sleptAtMs);
+  }, [lastPlays, last]);
 
   // Shared row markup so the two groups below (counted / not-yet-counted)
   // can never drift apart in what they show per feed.

@@ -248,6 +248,24 @@ describe("importWatch", () => {
     expect(loadNights()[0].detector).toBe("inference");
   });
 
+  it("writes nothing when nothing is re-timed", () => {
+    appendNight(night());
+    const line = "2026-10-05T23:04:00-07:00~2026-10-05T23:30:00-07:00~Core";
+    importWatch(line);
+    const setItem = Storage.prototype.setItem;
+    let writes = 0;
+    Storage.prototype.setItem = function (this: Storage, k: string, v: string) {
+      writes++;
+      return setItem.call(this, k, v);
+    };
+    try {
+      expect(importWatch(line)).toMatchObject({ timed: [], unchanged: 1 });
+    } finally {
+      Storage.prototype.setItem = setItem;
+    }
+    expect(writes).toBe(0);
+  });
+
   it("leaves storage alone when nothing parses", () => {
     appendNight(night());
     expect(importWatch("garbage")).toEqual({ timed: [], unchanged: 0, samples: 0, unrecognised: 0, malformed: 1 });
@@ -269,6 +287,7 @@ describe("payloadFromPaste", () => {
   it("takes the lines, still url-encoded or not, or the payload out of a whole link", () => {
     expect(payloadFromPaste("  a~b~Core\n")).toBe("a~b~Core");
     expect(payloadFromPaste("a~b~Core%0Ac~d~REM")).toBe("a~b~Core\nc~d~REM");
+    expect(payloadFromPaste("2026-10-06T23%3A15%3A00%2B02%3A00~x~Core")).toBe("2026-10-06T23:15:00+02:00~x~Core");
     expect(payloadFromPaste("https://sleepcast.pro/#watch=a~b~Core%0Ac~d~REM")).toBe("a~b~Core\nc~d~REM");
   });
 });
@@ -285,7 +304,7 @@ describe("watchNotice", () => {
     expect(watchNotice({ timed: [], unchanged: 0, samples: 3, unrecognised: 0, malformed: 0 })).toMatch(/didn't start inside/);
     expect(watchNotice({ timed: [], unchanged: 0, samples: 0, unrecognised: 0, malformed: 0 })).toMatch(/sleep tracking/);
     expect(watchNotice({ timed: [], unchanged: 0, samples: 0, unrecognised: 4, malformed: 0 })).toMatch(/english only/);
-    expect(watchNotice({ timed: [], unchanged: 0, samples: 0, unrecognised: 0, malformed: 3 })).toMatch(/iso 8601/);
+    expect(watchNotice({ timed: [], unchanged: 0, samples: 0, unrecognised: 0, malformed: 3 })).toMatch(/start date~end date~value/);
     expect(watchNotice({ timed: [], unchanged: 1, samples: 3, unrecognised: 0, malformed: 0 })).toMatch(/nothing new/);
     expect(watchNotice({ timed: [t(12 * MIN, null)], unchanged: 0, samples: 3, unrecognised: 0, malformed: 2 })).toBe(
       "your watch: asleep 12 min in. (2 lines couldn't be read: check the shortcut.)",

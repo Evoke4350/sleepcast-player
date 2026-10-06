@@ -12,7 +12,7 @@
 // the detector's onset.
 import type { RestNight } from "./types";
 import { attribution } from "./session";
-import { median, onsetAfterEnd, updateNights } from "./ledger";
+import { loadNights, median, onsetAfterEnd, saveNights } from "./ledger";
 import { fmtOnsetMinutes } from "./sleepscore";
 
 export interface SleepSample {
@@ -191,12 +191,12 @@ export interface WatchImport {
 
 /** A pasted payload: the lines themselves, still url-encoded or not (the
  *  paste variant of the Shortcut may keep its url-encode step), or a whole
- *  #watch= link. Encoded text has no raw line breaks; plain text never
- *  holds an escape, as dates and stage names have no "%". */
+ *  #watch= link. Plain text never holds an escape (dates and stage names
+ *  have no "%"), so any escape means it is still encoded. */
 export function payloadFromPaste(text: string): string {
   const i = text.indexOf(WATCH_HASH);
   if (i >= 0) return watchPayloadFromHash(text.slice(i).trim()) ?? "";
-  return (/%0a/i.test(text) ? decodeLeniently(text) : text).trim();
+  return (/%[0-9a-f]{2}/i.test(text) ? decodeLeniently(text) : text).trim();
 }
 
 /** Reads a payload into the rest ledger. Any unrecognised stage refuses
@@ -209,15 +209,13 @@ export function importWatch(text: string): WatchImport {
   let unchanged = 0;
   let unsaved = false;
   if (samples.length && !unrecognised) {
-    const saved = updateNights((nights) => {
-      const r = applyWatch(nights, samples);
-      timed = r.timed;
-      unchanged = r.unchanged;
-      return r.nights;
-    });
-    if (!saved && timed.length) {
-      unsaved = true;
-      timed = [];
+    const r = applyWatch(loadNights(), samples);
+    unchanged = r.unchanged;
+    // Nothing re-timed, nothing to write (a full store would evict cached
+    // feeds to make room for no change).
+    if (r.timed.length) {
+      if (saveNights(r.nights)) timed = r.timed;
+      else unsaved = true;
     }
   }
   return { timed, unchanged, ...(unsaved ? { unsaved } : {}), samples: samples.length, unrecognised, malformed };
@@ -248,7 +246,9 @@ export function watchNotice(r: WatchImport): string {
   if (r.unsaved) return "your watch's times couldn't be saved: this browser's storage for sleepcast is full.";
   if (r.unrecognised) return "your watch's sleep stages came in a language sleepcast can't read yet (english only), so nothing was changed.";
   if (!r.samples) {
-    if (r.malformed) return "the watch data had no times of day: in the shortcut, set both dates to iso 8601 with the time included.";
+    if (r.malformed) {
+      return "the watch data didn't read: in the shortcut, check the text is start date~end date~value, with both dates iso 8601 and the time included.";
+    }
     return "nothing from your watch to read: is sleep tracking on?";
   }
   const unread = r.malformed ? ` (${r.malformed === 1 ? "1 line" : `${r.malformed} lines`} couldn't be read: check the shortcut.)` : "";

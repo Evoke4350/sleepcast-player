@@ -11,7 +11,7 @@
 // as a night that wasn't slept through. That is honest, and it means the
 // offer never fires off the back of afternoon listening.
 
-import { isSlept } from "./ledger";
+import { isSlept, median } from "./ledger";
 import type { RestNight } from "./types";
 
 const DAY = 86_400_000;
@@ -31,13 +31,6 @@ export const STEPBACK_MEDIAN_MS = 20 * 60_000;
 
 /** How long "go quiet" lasts before the app resumes normal behaviour. */
 export const QUIET_DAYS = 30;
-
-function median(xs: number[]): number | null {
-  if (!xs.length) return null;
-  const s = [...xs].sort((a, b) => a - b);
-  const mid = Math.floor(s.length / 2);
-  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
-}
 
 /**
  * Whether the listener looks like they've stopped needing this.

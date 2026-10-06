@@ -37,14 +37,27 @@ interface SessionState {
 // player. A night in progress is snapshotted to localStorage (store.saveLive),
 // so a full reload — including iOS reclaiming the backgrounded tab — can offer
 // to resume it rather than waking you to silence.
-/** A #watch= link's import, if the page has one: the fragment cleared, a
- *  killed tab's night settled first, and the line saying what it did. */
+/** A #watch= link's import, if the page loaded with one: the fragment
+ *  cleared, a killed tab's night settled first, and the line saying what it
+ *  did. Run once per page load (an initializer called twice gets the first
+ *  call's line), as it writes to storage and history. */
+let watchLinkTaken: { line: string | null } | null = null;
 function takeWatchLink(): string | null {
+  if (watchLinkTaken) return watchLinkTaken.line;
   const payload = watchPayloadFromHash(window.location.hash);
-  if (payload === null) return null;
-  history.replaceState(null, "", window.location.pathname + window.location.search);
-  settleLive(loadLive(), Date.now());
-  return watchNotice(importWatch(payload));
+  let line: string | null = null;
+  if (payload !== null) {
+    history.replaceState(null, "", window.location.pathname + window.location.search);
+    settleLive(loadLive(), Date.now());
+    line = watchNotice(importWatch(payload));
+  }
+  watchLinkTaken = { line };
+  return line;
+}
+
+/** Whether the address now holds a #watch= link. */
+function hasWatchLink(): boolean {
+  return watchPayloadFromHash(window.location.hash) !== null;
 }
 
 export function AppPlayer() {
@@ -74,17 +87,25 @@ export function AppPlayer() {
   // Shortcut most needs to time, so it is settled first (settleLive is
   // idempotent: the `live` state below settles nothing twice). The fragment
   // is cleared at once: a reload, or the link shared, mustn't import it again.
-  const [watchLine, setWatchLine] = useState(takeWatchLink);
-  // The link can also land in a tab already open (only the fragment changes,
-  // so nothing remounts).
+  const [watchLine] = useState(takeWatchLink);
+  // The link can also land in a tab already open, where only the fragment
+  // changes. Reload, so it is read as on any page load: everything here
+  // (the resume card, setup's label offer, the goodbye) was worked out
+  // from the ledger before the import. Not while a night is on (a tab
+  // frozen mid-night and woken by the link): that night would be lost, so
+  // the link waits until it ends.
+  const sessionOn = session !== null;
   useEffect(() => {
+    if (!sessionOn && hasWatchLink()) {
+      window.location.reload();
+      return;
+    }
     const onHash = () => {
-      const line = takeWatchLink();
-      if (line !== null) setWatchLine(line);
+      if (!sessionOn && hasWatchLink()) window.location.reload();
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
-  }, []);
+  }, [sessionOn]);
 
   const [goodbye] = useState(() => (isQuiet(loadQuietUntil(), Date.now()) ? null : shouldGreetGoodbye(Date.now())));
 

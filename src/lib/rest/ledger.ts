@@ -34,10 +34,9 @@ export function appendNight(n: RestNight): void {
   save(pruneTimelines([...loadNights(), n], n.startedAt));
 }
 
-/** Every night, rewritten by `f` and saved (the watch import); whether
- *  the save took. */
-export function updateNights(f: (nights: RestNight[]) => RestNight[]): boolean {
-  return save(f(loadNights()));
+/** Every night, replaced (the watch import); whether the save took. */
+export function saveNights(nights: RestNight[]): boolean {
+  return save(nights);
 }
 
 /** Whether an onset `atMs` (from the night's start) came after the night
