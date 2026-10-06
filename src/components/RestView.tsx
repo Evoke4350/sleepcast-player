@@ -7,7 +7,9 @@ import { getPlays, loadState } from "../lib/store";
 import { playsSince, playAtMoment } from "../lib/plays";
 import { importWatch, payloadFromPaste, watchAgreement, watchNotice } from "../lib/rest/watch";
 
-export function RestView({ onClose }: { onClose: () => void }) {
+/** `onClose(changed)`: changed when a paste altered what the home screen
+ *  works its lines out from, which the caller reloads to read again. */
+export function RestView({ onClose }: { onClose: (changed?: boolean) => void }) {
   // Re-read after a pasted watch import re-times them.
   const [nights, setNights] = useState(() => loadNights());
   const watch = useMemo(() => watchAgreement(nights), [nights]);
@@ -15,20 +17,20 @@ export function RestView({ onClose }: { onClose: () => void }) {
   const [pasteLine, setPasteLine] = useState<string | null>(null);
   // A pasted import may change what the home screen worked out its lines
   // from: re-timed nights (the goodbye, the step-back offer), or a killed
-  // tab's night recorded first (the resume offer). Leaving then reloads, so
-  // they are read again, as the link's import does.
+  // tab's night recorded first (the resume offer). Leaving then says so, and
+  // the page reloads to read them again, as the link's import does.
   const [changedHere, setChangedHere] = useState(false);
   function importPasted() {
     const r = importWatch(payloadFromPaste(pasted));
     setPasteLine(watchNotice(r));
     // Kept when refused or not saved, so it can be looked at or tried again.
-    if (!r.malformed && !r.unrecognised && !r.unsaved && !r.noWindow) setPasted("");
+    if (!r.malformed && !r.unrecognised && !r.unsaved && !r.noWindow && !r.badWindow) setPasted("");
     if (r.timed.length || r.endedNight) {
       setNights(loadNights());
       setChangedHere(true);
     }
   }
-  const close = () => (changedHere ? window.location.reload() : onClose());
+  const close = () => onClose(changedHere);
   const r = useMemo(() => rollup(nights), [nights]);
   const last = nights.at(-1) ?? null;
 

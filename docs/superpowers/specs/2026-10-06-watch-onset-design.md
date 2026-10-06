@@ -92,18 +92,22 @@ touches would read as awake ones and make the detector bolder.
 
 ## 5. Surfaces
 
-- A paste import that re-timed a night reloads the page on leaving the rest
-  view, so the home screen's lines are read again.
+- A paste import that re-timed a night, or recorded a killed tab's night
+  first, reloads the page on leaving the rest view, so the home screen's
+  lines (and the resume offer) are read again.
 - Opening the link imports, clears the fragment at once (a reload or a shared
   link mustn't import again) and shows one line on the home screen: "your
   watch: asleep 12 min in; sleepcast guessed 20 min." A killed tab's night is
   recorded into the ledger first, so the morning import can time it: a watch
   import means the night is over, so even a snapshot that could still be
   revived (a timerless night's) is recorded, unless it was saved in the last
-  30 s (it may be playing in another tab). A
-  link landing in an already open tab is caught on `hashchange`. The line
-  also says when lines couldn't be read, when nothing was new, and when the
-  re-timed nights couldn't be stored.
+  30 s (it may be playing in another tab). The line also says when lines
+  couldn't be read, when nothing was new, and when the re-timed nights
+  couldn't be stored.
+- A link landing in a tab already open (only the fragment changes) is held
+  and offered on the home screen ("your watch's night came in: read it"),
+  read by a reload when tapped: never a reload by itself, which could end a
+  night still on or lose what was being typed.
 - The rest view: how many nights the watch timed and the median gap between
   sleepcast's guess and the watch; a link to /watch; the paste box.
 - /watch: the Shortcut, step by step, a daily automation at a set morning time
@@ -124,10 +128,9 @@ touches would read as awake ones and make the detector bolder.
   pause) credits the paused episode. Recording pauses would mean every
   player noting them; the case is rare, and the credit goes to the show the
   listener was drifting to.
-- A link that lands while a night is on (or the rest view is open) is held
-  in memory until it ends; if
-  the tab is killed first it is lost, and the next morning's run (two days)
-  makes it up.
+- A link held in an open tab (see §5) lives in memory until it is read; if
+  the page goes first (the tab killed, a link followed) it is lost, and the
+  next morning's run (two days) makes it up.
 
 ## 7. Testing
 

@@ -50,11 +50,19 @@ function takeWatchLink(): string | null {
   return line;
 }
 
-/** A link that landed mid-night (or with the rest view open), held here
- *  (not in the address, where a reload mid-night would import it and end
- *  the night) until the night ends. Lost if the tab is killed first: the next morning's run, reading
- *  two days, makes it up. */
+/** A link that landed in a tab already open, held here (not in the
+ *  address, where a reload mid-night would import it and end the night)
+ *  until the listener reads it. Lost if the page goes first (the tab
+ *  killed, a link followed): the next morning's run, reading two days,
+ *  makes it up. */
 let pendingWatchHash: string | null = null;
+
+/** Reloads the page, with a held link if there is one, so it is read as on
+ *  any page load. */
+function reloadWithPending(): void {
+  history.replaceState(null, "", hereWithout() + (pendingWatchHash ?? ""));
+  window.location.reload();
+}
 
 /** The address without its fragment. */
 function hereWithout(): string {
@@ -112,29 +120,22 @@ export function AppPlayer() {
     if (session) setWatchLine(null);
   }, [session]);
   // The link can also land in a tab already open, where only the fragment
-  // changes. Reload, so it is read as on any page load: everything here
-  // (the resume card, setup's label offer, the goodbye) was worked out
-  // from the ledger before the import. Not while a night is on (a tab
-  // frozen mid-night and woken by the link): the import would end it, so
-  // the link is held until the night ends (pendingWatchHash). Nor while
-  // the rest view is open, where a reload would lose a paste in progress.
-  const holdLink = session !== null || view === "rest";
+  // changes. It is held (pendingWatchHash) and offered on the home screen,
+  // read by a reload when the listener taps it: everything here (the resume
+  // card, setup's label offer, the goodbye) was worked out from the ledger
+  // before the import, and a reload by itself could end a night still on
+  // (a tab frozen mid-night) or lose what was being typed.
+  const [watchWaiting, setWatchWaiting] = useState(false);
   useEffect(() => {
-    const reloadWith = (hash: string) => {
-      history.replaceState(null, "", hereWithout() + hash);
-      window.location.reload();
-    };
     const onHash = () => {
       if (!isWatchHash(window.location.hash)) return;
-      if (!holdLink) return reloadWith(window.location.hash);
       pendingWatchHash = window.location.hash;
       clearHash();
+      setWatchWaiting(true);
     };
-    if (!holdLink && pendingWatchHash !== null) return reloadWith(pendingWatchHash);
-    onHash();
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
-  }, [holdLink]);
+  }, []);
 
   const [goodbye] = useState(() => (isQuiet(loadQuietUntil(), Date.now()) ? null : shouldGreetGoodbye(Date.now())));
 
@@ -391,7 +392,7 @@ export function AppPlayer() {
     );
   }
 
-  if (view === "rest") return <RestView onClose={() => setView("player")} />;
+  if (view === "rest") return <RestView onClose={(changed) => (changed ? reloadWithPending() : setView("player"))} />;
   return (
     <main className="flex-1 px-4 py-8 text-[#b59a76]">
       <div className="mx-auto max-w-xl">
@@ -438,6 +439,13 @@ export function AppPlayer() {
               </button>
             </div>
           </div>
+        )}
+        {watchWaiting && (
+          <HomeLine mark="⌚">
+            <button onClick={reloadWithPending} className="underline decoration-[#3a3325] underline-offset-4 hover:text-[#b59a76]">
+              your watch's night came in: read it
+            </button>
+          </HomeLine>
         )}
         {watchLine && <HomeLine mark="⌚">{watchLine}</HomeLine>}
         {goodbye && (

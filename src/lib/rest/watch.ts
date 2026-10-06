@@ -79,6 +79,7 @@ const WINDOW_LINE = "window~";
  *  likely means the Shortcut's format is off. Blank lines are neither. */
 export function parseWatchPayload(text: string): {
   windowStart: number | null;
+  badWindow: boolean;
   samples: SleepSample[];
   unrecognised: number;
   malformed: number;
@@ -86,14 +87,23 @@ export function parseWatchPayload(text: string): {
   const samples: SleepSample[] = [];
   let unrecognised = 0;
   let malformed = 0;
-  const lines = text.split(/\r?\n/).filter((l) => l.trim());
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   let windowStart: number | null = null;
-  if (lines[0]?.startsWith(WINDOW_LINE)) {
+  let badWindow = false;
+  if (lines[0]?.toLowerCase().startsWith(WINDOW_LINE)) {
     windowStart = parseTime(lines.shift()!.slice(WINDOW_LINE.length));
     // There, but its date doesn't read: the format, not a missing line.
-    if (windowStart === null) malformed++;
+    badWindow = windowStart === null;
   }
-  for (const line of lines.slice(-MAX_SAMPLES)) {
+  const kept = lines.slice(-MAX_SAMPLES);
+  // Lines dropped off the front: the window now opens where what's kept
+  // begins (the Shortcut sorts oldest first), not where the window line
+  // said, or a night whose first stages were dropped would look whole.
+  if (kept.length < lines.length && windowStart !== null) {
+    const first = parseTime(kept[0].split("~")[0]);
+    windowStart = first === null ? null : Math.max(windowStart, first);
+  }
+  for (const line of kept) {
     const fields = line.split("~");
     const [startText, endText, stage] = fields;
     const start = parseTime(startText);
@@ -114,12 +124,14 @@ export function parseWatchPayload(text: string): {
     }
     const asleep = stageAsleep(stage);
     if (asleep === null) {
-      unrecognised++;
+      // A code with no stage has no language: the format is off.
+      if (/^\d+$/.test(stage.trim())) malformed++;
+      else unrecognised++;
       continue;
     }
     samples.push({ start, end, asleep });
   }
-  return { windowStart, samples, unrecognised, malformed };
+  return { windowStart, badWindow, samples, unrecognised, malformed };
 }
 
 /** Asleep samples closer than this are one stretch of sleep: the watch's
@@ -230,6 +242,8 @@ export interface WatchImport {
   endedNight?: boolean;
   /** No window line (a Shortcut built before it was added): refused. */
   noWindow?: boolean;
+  /** A window line whose date didn't read: refused. */
+  badWindow?: boolean;
   samples: number;
   unrecognised: number;
   malformed: number;
@@ -256,12 +270,12 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
   // The night a killed tab left unrecorded is the one the import is for,
   // by link or by paste alike (endKilledNight).
   const endedNight = endKilledNight(now);
-  const { windowStart, samples, unrecognised, malformed } = parseWatchPayload(text);
-  const noWindow = samples.length > 0 && windowStart === null;
+  const { windowStart, badWindow, samples, unrecognised, malformed } = parseWatchPayload(text);
+  const noWindow = samples.length > 0 && windowStart === null && !badWindow;
   let timed: WatchTiming[] = [];
   let unchanged = 0;
   let unsaved = false;
-  if (samples.length && windowStart !== null && !unrecognised && !malformed) {
+  if (samples.length && windowStart !== null && !badWindow && !unrecognised && !malformed) {
     const r = applyWatch(loadNights(), samples, windowStart);
     unchanged = r.unchanged;
     // Nothing re-timed, nothing to write (a full store would evict cached
@@ -277,6 +291,7 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
     ...(unsaved ? { unsaved } : {}),
     ...(endedNight ? { endedNight } : {}),
     ...(noWindow ? { noWindow } : {}),
+    ...(badWindow ? { badWindow } : {}),
     samples: samples.length,
     unrecognised,
     malformed,
@@ -310,6 +325,9 @@ function decodeLeniently(text: string): string {
 
 /** What an import did, in a line for the listener. */
 export function watchNotice(r: WatchImport): string {
+  if (r.badWindow) {
+    return "the watch data's window line didn't read, so nothing was changed: in the shortcut, set the adjusted date to iso 8601 with the time included.";
+  }
   if (r.noWindow && !r.malformed && !r.unrecognised) {
     return "the watch shortcut needs its window line, so nothing was changed: see the updated steps at sleepcast.pro/watch.";
   }

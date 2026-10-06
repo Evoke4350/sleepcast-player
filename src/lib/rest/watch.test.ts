@@ -112,21 +112,32 @@ describe("parseWatchPayload", () => {
     expect(r).toMatchObject({ samples: [], malformed: 3 });
   });
 
-  it("reads the window line first, and counts one whose date doesn't read as malformed", () => {
+  it("reads the window line first, and flags one whose date doesn't read", () => {
     const body = "2026-10-05T23:40:00-07:00~2026-10-06T00:10:00-07:00~Core";
     expect(parseWatchPayload(`window~2026-10-04T08:00:00-07:00\n${body}`)).toMatchObject({
       windowStart: Date.parse("2026-10-04T08:00:00-07:00"),
       malformed: 0,
     });
     expect(parseWatchPayload(body).windowStart).toBeNull();
-    expect(parseWatchPayload(`window~yesterday\n${body}`)).toMatchObject({ windowStart: null, malformed: 1 });
+    expect(parseWatchPayload(`window~yesterday\n${body}`)).toMatchObject({ windowStart: null, badWindow: true, malformed: 0 });
+    // Spaces and case around it don't matter.
+    expect(parseWatchPayload(`  Window~2026-10-04T08:00:00-07:00\n${body}`).windowStart).toBe(Date.parse("2026-10-04T08:00:00-07:00"));
+  });
+
+  it("opens the window where the kept lines begin when the oldest were dropped", () => {
+    const old = (i: number) => `2026-10-04T${String(10 + (i % 10)).padStart(2, "0")}:00:00-07:00~2026-10-04T${String(10 + (i % 10)).padStart(2, "0")}:30:00-07:00~Core`;
+    const lines = Array.from({ length: MAX_SAMPLES + 5 }, (_, i) => old(i));
+    lines.sort();
+    const r = parseWatchPayload(["window~2026-10-04T08:00:00-07:00", ...lines].join("\n"));
+    expect(r.windowStart).toBe(Date.parse(lines[5].split("~")[0]));
   });
 
   it("reads Health's numeric stage codes too", () => {
     const line = (code: string) => `2026-10-05T23:40:00-07:00~2026-10-06T00:10:00-07:00~${code}`;
     const { samples, unrecognised } = parseWatchPayload(["0", "1", "2", "3", "4", "5", "9"].map(line).join("\n"));
     expect(samples.map((s) => s.asleep)).toEqual([false, true, false, true, true, true]);
-    expect(unrecognised).toBe(1);
+    // A code with no stage is the format, not a language.
+    expect(unrecognised).toBe(0);
   });
 });
 
@@ -325,6 +336,14 @@ describe("importWatch", () => {
       Storage.prototype.setItem = setItem;
     }
     expect(writes).toBe(0);
+  });
+
+  it("refuses a window line whose date doesn't read, and says so", () => {
+    appendNight(night());
+    const r = importWatch("window~Oct 4, 2026 at 8:00 AM\n2026-10-05T23:04:00-07:00~2026-10-05T23:30:00-07:00~Core");
+    expect(r).toMatchObject({ timed: [], badWindow: true });
+    expect(r).not.toHaveProperty("noWindow");
+    expect(watchNotice(r)).toMatch(/window line didn't read/);
   });
 
   it("refuses a payload without its window line, and says the shortcut needs it", () => {
