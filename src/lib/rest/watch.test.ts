@@ -316,6 +316,13 @@ describe("importWatch", () => {
     expect(r.timed.map((x) => x.atMs)).toEqual([6 * MIN]);
   });
 
+  it("doesn't move the window past a dropped Awake or In Bed sample", () => {
+    const dropped = "2026-10-05T22:00:00-07:00~2026-10-06T07:00:00-07:00~In Bed";
+    const kept = Array.from({ length: MAX_SAMPLES }, () => "2026-10-05T23:10:30-07:00~2026-10-05T23:40:00-07:00~Deep");
+    const r = parseWatchPayload([OPENS_LINE, dropped, ...kept].join("\n"));
+    expect(r.windowStart).toBe(Date.parse("2026-10-05T23:10:30-07:00"));
+  });
+
   it("moves the window past dropped sleep a kept sample could have joined", () => {
     // The last dropped line is sleep ending 23:10; the first kept one starts
     // 23:10:30, within a minute: one stretch, begun before the 23:00 night.
@@ -389,6 +396,8 @@ describe("watchPayloadFromHash", () => {
     expect(watchPayloadFromHash("#watch=a~b~Core%0Ac~d~REM")).toBe("a~b~Core\nc~d~REM");
     expect(watchPayloadFromHash("#other")).toBeNull();
     expect(watchPayloadFromHash("")).toBeNull();
+    // A bad byte spoils only itself: the good %0A beside it still breaks the line.
+    expect(watchPayloadFromHash("#watch=a~b~Core%E2%0Ac~d~REM")).toBe("a~b~Core%E2\nc~d~REM");
     // A bare % (no url-encode step) spoils only its own escape.
     expect(watchPayloadFromHash("#watch=a~b~Core%0A100%~x")).toBe("a~b~Core\n100%~x");
   });

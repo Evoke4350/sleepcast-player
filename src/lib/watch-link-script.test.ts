@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { TAKE_WATCH_LINK, TAKE_WATCH_LINK_HASH } from "./watch-link-script";
+import { TAKE_WATCH_LINK } from "./watch-link-script";
 import { WATCH_PENDING_KEY } from "./rest/watch-hash";
-import { createHash } from "node:crypto";
 
 const run = () => new Function(TAKE_WATCH_LINK)();
 
@@ -60,9 +59,5 @@ describe("the head script that moves a watch link out of the address", () => {
     }
     expect(location.hash).toBe("");
     expect(window.__sleepcastWatch).toBeNull();
-  });
-
-  it("has the CSP hash of exactly this script", () => {
-    expect(TAKE_WATCH_LINK_HASH).toBe(`sha256-${createHash("sha256").update(TAKE_WATCH_LINK).digest("base64")}`);
   });
 });

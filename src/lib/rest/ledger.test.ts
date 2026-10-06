@@ -178,8 +178,8 @@ describe("timelines", () => {
   });
 
   it("are pruned as each night is appended", () => {
-    appendNight(at(0));
-    appendNight(at(TIMELINE_KEEP_MS + 1));
+    appendNight(at(0), 0);
+    appendNight(at(TIMELINE_KEEP_MS + 1), TIMELINE_KEEP_MS + 1); // pruned against now
     const [first, second] = loadNights();
     expect(first).not.toHaveProperty("timeline");
     expect(second.timeline).toEqual(timeline);

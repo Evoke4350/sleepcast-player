@@ -39,13 +39,12 @@ interface SessionState {
  *  took it out of the address), and the line saying what it did. Run once
  *  per page load (an initializer called twice gets the first call's line),
  *  as it writes to storage. */
-let watchLinkTaken: { line: string | null } | null = null;
+let watchLinkLine: string | null | undefined; // undefined: not yet run
 function takeWatchLink(): string | null {
-  if (watchLinkTaken) return watchLinkTaken.line;
+  if (watchLinkLine !== undefined) return watchLinkLine;
   const payload = watchPayloadFromHash(takeHeldHash() ?? "");
-  const line = payload === null ? null : watchNotice(importWatch(payload));
-  watchLinkTaken = { line };
-  return line;
+  watchLinkLine = payload === null ? null : watchNotice(importWatch(payload));
+  return watchLinkLine;
 }
 
 declare global {
@@ -63,20 +62,13 @@ function takeHeldHash(): string | null {
   return h;
 }
 
-/** A link that landed in a tab already open, held here (not in the
- *  address, where a reload mid-night would import it and end the night)
- *  until the listener reads it. Lost if the page goes first (the tab
- *  killed, a link followed): the next morning's run, reading two days,
- *  makes it up. */
-let pendingWatchHash: string | null = null;
-
 /** Reloads the page, handing on a held link if there is one, so it is read
  *  as on any page load: through session storage, which the head script
  *  reads, never back through the address. */
-function reloadWithPending(): void {
-  if (pendingWatchHash !== null) {
+function reloadWithPending(held: string | null): void {
+  if (held !== null) {
     try {
-      sessionStorage.setItem(WATCH_PENDING_KEY, pendingWatchHash);
+      sessionStorage.setItem(WATCH_PENDING_KEY, held);
     } catch {
       /* private mode: the next morning's run makes it up */
     }
@@ -135,19 +127,21 @@ export function AppPlayer() {
     if (session) setWatchLine(null);
   }, [session]);
   // The link can also land in a tab already open, where only the fragment
-  // changes. It is held (pendingWatchHash) and offered on the home screen,
+  // changes. It is held (heldLink: not in the address, where a reload
+  // mid-night would import it and end the night; lost if the page goes
+  // first, which the next morning's two-day run makes up) and offered on
+  // the home screen,
   // read by a reload when the listener taps it: everything here (the resume
   // card, setup's label offer, the goodbye) was worked out from the ledger
   // before the import, and a reload by itself could end a night still on
   // (a tab frozen mid-night) or lose what was being typed.
-  const [watchWaiting, setWatchWaiting] = useState(false);
+  const [heldLink, setHeldLink] = useState<string | null>(null);
   useEffect(() => {
     // The head script has already moved it out of the address (analytics).
     const onLink = () => {
       const hash = takeHeldHash();
       if (hash === null) return;
-      pendingWatchHash = hash;
-      setWatchWaiting(true);
+      setHeldLink(hash);
     };
     window.addEventListener("sleepcast-watch", onLink);
     onLink(); // one that landed between the first render and this effect
@@ -412,7 +406,7 @@ export function AppPlayer() {
     );
   }
 
-  if (view === "rest") return <RestView onClose={(changed) => (changed ? reloadWithPending() : setView("player"))} />;
+  if (view === "rest") return <RestView onClose={(changed) => (changed ? reloadWithPending(heldLink) : setView("player"))} />;
   return (
     <main className="flex-1 px-4 py-8 text-[#b59a76]">
       <div className="mx-auto max-w-xl">
@@ -460,9 +454,9 @@ export function AppPlayer() {
             </div>
           </div>
         )}
-        {watchWaiting && (
+        {heldLink !== null && (
           <HomeLine mark="⌚︎">
-            <button onClick={reloadWithPending} className="underline decoration-[#3a3325] underline-offset-4 hover:text-[#b59a76]">
+            <button onClick={() => reloadWithPending(heldLink)} className="underline decoration-[#3a3325] underline-offset-4 hover:text-[#b59a76]">
               your watch's night came in: read it
             </button>
           </HomeLine>

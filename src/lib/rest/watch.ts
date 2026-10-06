@@ -110,10 +110,14 @@ export function parseWatchPayload(text: string): {
     // (A first kept line that doesn't parse is malformed, refused anyway.)
     const first = parseTime(kept[0].split("~")[0]);
     if (first !== null) windowStart = Math.max(windowStart, first);
-    // And past any dropped sleep a kept sample could have joined onto.
+    // And past any dropped sleep a kept sample could have joined onto
+    // (only sleep joins: a dropped Awake or In Bed sample doesn't).
     for (const line of lines.slice(0, lines.length - kept.length)) {
-      const end = parseTime(line.split("~")[1]);
-      if (end !== null) windowStart = Math.max(windowStart, end + CONTIGUOUS_MS);
+      const [, endText, stage] = line.split("~");
+      const end = parseTime(endText);
+      if (end !== null && stage !== undefined && stageAsleep(stage) === true) {
+        windowStart = Math.max(windowStart, end + CONTIGUOUS_MS);
+      }
     }
   }
   for (const line of kept) {
@@ -325,7 +329,27 @@ function decodeLeniently(text: string): string {
     try {
       return decodeURIComponent(run);
     } catch {
-      return run;
+      // A bad byte in the run: decode what can be, a character (1 to 4
+      // escapes of UTF-8) at a time, leaving only the bad escapes as they
+      // were, so a good %0A beside one still breaks the line.
+      const esc = run.match(/%[0-9a-f]{2}/gi)!;
+      let out = "";
+      for (let i = 0; i < esc.length; ) {
+        let n = 4;
+        for (; n > 0; n--) {
+          try {
+            out += decodeURIComponent(esc.slice(i, i + n).join(""));
+            break;
+          } catch {
+            /* shorter */
+          }
+        }
+        if (n === 0) {
+          out += esc[i];
+          i += 1;
+        } else i += n;
+      }
+      return out;
     }
   });
 }
