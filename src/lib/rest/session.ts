@@ -134,9 +134,11 @@ function sortedTimeline(timeline: readonly TimelineEntry[]): TimelineEntry[] {
 /** What was playing at an onset `atMs` (from the night's start), and which
  *  feeds played on after it: the onset fields of a RestNight, for the
  *  detector's onset (finish) and the watch's alike (watch.ts). None for no
- *  onset. `timeline` in time order: finish sorts it, and stores it so. Spread rather than assigned: an absent field and an empty array
- *  must not become two shapes in a ledger that already holds 90 nights
- *  without them. */
+ *  onset. `timeline` in time order: finish sorts it, and stores it so.
+ *  Spread rather than assigned: an absent field and an empty array must not
+ *  become two shapes in a ledger that already holds 90 nights without them.
+ *  The timeline knows episode starts, not pauses: an onset during a pause
+ *  credits the paused episode (spec §6). */
 export function attribution(
   timeline: readonly TimelineEntry[],
   atMs: number | null,

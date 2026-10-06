@@ -1,11 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import type { Episode } from "../lib/engine";
 import { formatTime } from "../lib/engine";
 import { loadLive, clearLastNight, loadLastNight, type LiveSession, type LastNight, type ResumeDescriptor, resumeFrom, nightTimerMinutes, loadState, isRevivable, resumeMode, loadBlocked } from "../lib/store";
 import type { PlayMode } from "../lib/engine";
 import type { NoiseSettings } from "../lib/store";
 import { reanchorNext } from "../lib/rest/reanchor";
-import { importWatch, watchNotice, watchPayloadFromHash, WATCH_HASH } from "../lib/rest/watch";
+import { importWatch, isWatchHash, watchNotice, watchPayloadFromHash } from "../lib/rest/watch";
 import { DEFAULT_FEEL_MINUTES } from "../lib/timer-feel";
 import { SleepSetup } from "./SleepSetup";
 import { Player } from "./Player";
@@ -43,16 +43,32 @@ function takeWatchLink(): string | null {
   const payload = watchPayloadFromHash(window.location.hash);
   let line: string | null = null;
   if (payload !== null) {
-    history.replaceState(null, "", window.location.pathname + window.location.search);
+    clearHash();
     line = watchNotice(importWatch(payload));
   }
   watchLinkTaken = { line };
   return line;
 }
 
-/** Whether the address now holds a #watch= link. */
-function hasWatchLink(): boolean {
-  return window.location.hash.startsWith(WATCH_HASH);
+/** A link that landed mid-night, held here (not in the address, where a
+ *  reload mid-night would import it and end the night) until the night
+ *  ends. Lost if the tab is killed first: the next morning's run, reading
+ *  two days, makes it up. */
+let pendingWatchHash: string | null = null;
+
+/** The address without its fragment. */
+function clearHash(): void {
+  history.replaceState(null, "", window.location.pathname + window.location.search);
+}
+
+/** One quiet line above setup (the goodbye, the watch's result). */
+function HomeLine({ mark, markClass = "", children }: { mark: string; markClass?: string; children: ReactNode }) {
+  return (
+    <div className="mb-6 flex items-center justify-center gap-2 text-center text-xs text-[#6e5d44]">
+      <span className={`${markClass} text-sm text-[#8a7a5c]`.trim()}>{mark}</span>
+      <span>{children}</span>
+    </div>
+  );
 }
 
 // The /app player: the setup screen until a night begins, then the immersive
@@ -95,14 +111,22 @@ export function AppPlayer() {
   // changes. Reload, so it is read as on any page load: everything here
   // (the resume card, setup's label offer, the goodbye) was worked out
   // from the ledger before the import. Not while a night is on (a tab
-  // frozen mid-night and woken by the link): that night would be lost, so
-  // the link waits until it ends.
+  // frozen mid-night and woken by the link): the import would end it, so
+  // the link is held until the night ends (pendingWatchHash).
   const sessionOn = session !== null;
   useEffect(() => {
-    const onHash = () => {
-      if (!sessionOn && hasWatchLink()) window.location.reload();
+    const reloadWith = (hash: string) => {
+      history.replaceState(null, "", window.location.pathname + window.location.search + hash);
+      window.location.reload();
     };
-    onHash(); // a link that waited for the night to end
+    const onHash = () => {
+      if (!isWatchHash(window.location.hash)) return;
+      if (!sessionOn) return reloadWith(window.location.hash);
+      pendingWatchHash = window.location.hash;
+      clearHash();
+    };
+    if (!sessionOn && pendingWatchHash !== null) return reloadWith(pendingWatchHash);
+    onHash();
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, [sessionOn]);
@@ -408,19 +432,11 @@ export function AppPlayer() {
             </div>
           </div>
         )}
-        {watchLine && (
-          <div className="mb-6 flex items-center justify-center gap-2 text-center text-xs text-[#6e5d44]">
-            <span className="text-sm text-[#8a7a5c]">⌚</span>
-            <span>{watchLine}</span>
-          </div>
-        )}
+        {watchLine && <HomeLine mark="⌚">{watchLine}</HomeLine>}
         {goodbye && (
-          <div className="mb-6 flex items-center justify-center gap-2 text-center text-xs text-[#6e5d44]">
-            <span className="player-moon text-sm text-[#8a7a5c]">☾</span>
-            <span>
-              you slept{goodbye.timeToSleepMs !== null ? ` — gone in ${fmtDuration(goodbye.timeToSleepMs)}` : ""}.
-            </span>
-          </div>
+          <HomeLine mark="☾" markClass="player-moon">
+            you slept{goodbye.timeToSleepMs !== null ? ` — gone in ${fmtDuration(goodbye.timeToSleepMs)}` : ""}.
+          </HomeLine>
         )}
         <SleepSetup onStart={handleStart} />
         <button onClick={() => setView("rest")} className="mt-8 block w-full text-center text-xs text-[#4a4540] underline decoration-[#2a2620] underline-offset-4 hover:text-[#8a7a5c]">

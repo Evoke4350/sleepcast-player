@@ -227,6 +227,9 @@ export interface WatchImport {
   unchanged: number;
   /** The re-timed nights couldn't be stored (storage full): nothing changed. */
   unsaved?: boolean;
+  /** A killed tab's night was recorded first (endKilledNight): a resume
+   *  offer on screen is gone. */
+  endedNight?: boolean;
   samples: number;
   unrecognised: number;
   malformed: number;
@@ -251,7 +254,7 @@ export function payloadFromPaste(text: string): string {
 export function importWatch(text: string, now = Date.now()): WatchImport {
   // The night a killed tab left unrecorded is the one the import is for,
   // by link or by paste alike (endKilledNight).
-  endKilledNight(now);
+  const endedNight = endKilledNight(now);
   const { samples, unrecognised, malformed } = parseWatchPayload(text);
   let timed: WatchTiming[] = [];
   let unchanged = 0;
@@ -266,7 +269,20 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
       else unsaved = true;
     }
   }
-  return { timed, unchanged, ...(unsaved ? { unsaved } : {}), samples: samples.length, unrecognised, malformed };
+  return {
+    timed,
+    unchanged,
+    ...(unsaved ? { unsaved } : {}),
+    ...(endedNight ? { endedNight } : {}),
+    samples: samples.length,
+    unrecognised,
+    malformed,
+  };
+}
+
+/** Whether a location hash is a watch import (without decoding it). */
+export function isWatchHash(hash: string): boolean {
+  return hash.startsWith(WATCH_HASH);
 }
 
 /** The payload in a location hash, or null when it isn't a watch import.
@@ -275,7 +291,7 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
  *  each escape is decoded on its own and a bad one left as it was (its line
  *  then counts as malformed, and the notice says so). */
 export function watchPayloadFromHash(hash: string): string | null {
-  if (!hash.startsWith(WATCH_HASH)) return null;
+  if (!isWatchHash(hash)) return null;
   return decodeLeniently(hash.slice(WATCH_HASH.length));
 }
 

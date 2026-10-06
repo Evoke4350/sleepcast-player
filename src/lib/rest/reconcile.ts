@@ -43,7 +43,7 @@ export function reconcileLive(l: LiveSession, now: number): void {
     // Last seen alive, not the scheduled fade above: the tab (and its
     // audio, and its touch count) died by its last snapshot, so nothing
     // after that was observed.
-    endedAt: Math.max(startedAt, Math.min(endedAt, l.savedAt)),
+    endedAt: Math.max(startedAt, Math.min(now, l.savedAt)),
     timerMinutes,
     endedVia: "faded",
     sleptAtMs: null,
@@ -69,18 +69,19 @@ export function settleLive(l: LiveSession | null, now: number): LiveSession | nu
  *  Saved in the future means the clock stepped back since: not another
  *  tab's live night (it shares this clock), so reconcile it now rather than
  *  leave it to be offered hours late. */
-function reconcileUnlessFresh(l: LiveSession, now: number): void {
+function reconcileUnlessFresh(l: LiveSession, now: number): boolean {
   const age = now - l.savedAt;
-  if (age >= 0 && age < SNAPSHOT_FRESH_MS) return;
+  if (age >= 0 && age < SNAPSHOT_FRESH_MS) return false;
   reconcileLive(l, now);
+  return true;
 }
 
 /** A watch import means the night is over (the Shortcut runs in the
  *  morning): a killed tab's snapshot is recorded now, even one that could
  *  still be revived (a timerless night's, under LIVE_MAX_AGE_MS), as that
  *  is the night the import is for. Not one that may still be live in
- *  another tab. */
-export function endKilledNight(now: number): void {
+ *  another tab. Whether one was recorded. */
+export function endKilledNight(now: number): boolean {
   const l = loadLive();
-  if (l) reconcileUnlessFresh(l, now);
+  return l ? reconcileUnlessFresh(l, now) : false;
 }

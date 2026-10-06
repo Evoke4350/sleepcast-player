@@ -13,21 +13,22 @@ export function RestView({ onClose }: { onClose: () => void }) {
   const watch = useMemo(() => watchAgreement(nights), [nights]);
   const [pasted, setPasted] = useState("");
   const [pasteLine, setPasteLine] = useState<string | null>(null);
-  // A pasted import re-timed nights the home screen worked out its lines
-  // from (the goodbye, the step-back offer): leaving reloads, so they are
-  // read again, as the link's import does.
-  const [retimedHere, setRetimedHere] = useState(false);
+  // A pasted import may change what the home screen worked out its lines
+  // from: re-timed nights (the goodbye, the step-back offer), or a killed
+  // tab's night recorded first (the resume offer). Leaving then reloads, so
+  // they are read again, as the link's import does.
+  const [changedHere, setChangedHere] = useState(false);
   function importPasted() {
     const r = importWatch(payloadFromPaste(pasted));
     setPasteLine(watchNotice(r));
-    // Kept when refused, so what was pasted can be looked at.
-    if (r.timed.length || r.unchanged) setPasted("");
-    if (r.timed.length) {
+    // Kept when refused (malformed, unrecognised), so it can be looked at.
+    if (!r.malformed && !r.unrecognised) setPasted("");
+    if (r.timed.length || r.endedNight) {
       setNights(loadNights());
-      setRetimedHere(true);
+      setChangedHere(true);
     }
   }
-  const close = () => (retimedHere ? window.location.reload() : onClose());
+  const close = () => (changedHere ? window.location.reload() : onClose());
   const r = useMemo(() => rollup(nights), [nights]);
   const last = nights.at(-1) ?? null;
 

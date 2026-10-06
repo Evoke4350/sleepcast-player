@@ -117,6 +117,14 @@ touches would read as awake ones and make the detector bolder.
 - Non-English stage names.
 - Timelines for nights reconciled from a killed tab (the live snapshot doesn't
   carry one).
+- Pauses. A timeline records episode starts, not pauses, so a watch onset
+  while the audio sat paused (the getting-up rule's pause, a lock-screen
+  pause) credits the paused episode. Recording pauses would mean every
+  player noting them; the case is rare, and the credit goes to the show the
+  listener was drifting to.
+- A link that lands while a night is on is held in memory until it ends; if
+  the tab is killed first it is lost, and the next morning's run (two days)
+  makes it up.
 
 ## 7. Testing
 
