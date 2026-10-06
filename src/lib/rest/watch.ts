@@ -15,9 +15,9 @@
 // onset.
 import type { RestNight } from "./types";
 import { attribution } from "./session";
-import { loadNights, median, onsetAfterEnd, saveNights } from "./ledger";
+import { appendNight, loadNights, median, onsetAfterEnd, saveNights } from "./ledger";
 import { endKilledNight } from "./reconcile";
-import { fmtOnsetMinutes } from "./sleepscore";
+import { fmtOnsetMinutes, underAMinute } from "./sleepscore";
 
 export interface SleepSample {
   start: number;
@@ -45,8 +45,10 @@ export const MAX_SAMPLES = 2000;
  *  Whole names only: a substring match read the German "REM-Schlaf" as
  *  sleep while missing "Kern", timing the night from its first REM stage.
  *  Anything else is unrecognised, rather than guessed at. */
-const STAGES = new Map<string, boolean>([
+const CODES = new Map<string, boolean>([
   ["0", false], ["1", true], ["2", false], ["3", true], ["4", true], ["5", true],
+]);
+const NAMES = new Map<string, boolean>([
   ["inbed", false], ["awake", false],
   ["asleep", true], ["unspecified", true], ["asleepunspecified", true],
   ["core", true], ["asleepcore", true], ["coresleep", true],
@@ -54,8 +56,13 @@ const STAGES = new Map<string, boolean>([
   ["rem", true], ["asleeprem", true], ["remsleep", true],
 ]);
 
-function stageAsleep(stage: string): boolean | null {
-  return STAGES.get(stage.toLowerCase().replace(/[^a-z0-9]/g, "")) ?? null;
+/** A stage as sleep or not; "code" for a would-be code that isn't one
+ *  (any digit: "-1", "(1)", "７" — the format, not a language); null for a
+ *  name this doesn't know. */
+function stageAsleep(stage: string): boolean | "code" | null {
+  const raw = stage.trim();
+  if (/\p{N}/u.test(raw)) return CODES.get(raw) ?? "code";
+  return NAMES.get(raw.toLowerCase().replace(/[^a-z]/g, "")) ?? null;
 }
 
 /** A date with a time of day, in ms, or null. A date alone parses as
@@ -123,10 +130,12 @@ export function parseWatchPayload(text: string): {
       continue;
     }
     const asleep = stageAsleep(stage);
+    if (asleep === "code") {
+      malformed++;
+      continue;
+    }
     if (asleep === null) {
-      // A code with no stage has no language: the format is off.
-      if (/^\d+$/.test(stage.trim())) malformed++;
-      else unrecognised++;
+      unrecognised++;
       continue;
     }
     samples.push({ start, end, asleep });
@@ -244,6 +253,9 @@ export interface WatchImport {
   noWindow?: boolean;
   /** A window line whose date didn't read: refused. */
   badWindow?: boolean;
+  /** Refused for its content (malformed, unrecognised, no or bad window
+   *  line), or not saved: nothing changed, worth keeping to look at. */
+  refused: boolean;
   samples: number;
   unrecognised: number;
   malformed: number;
@@ -272,10 +284,11 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
   const endedNight = endKilledNight(now);
   const { windowStart, badWindow, samples, unrecognised, malformed } = parseWatchPayload(text);
   const noWindow = samples.length > 0 && windowStart === null && !badWindow;
+  const refusedContent = noWindow || badWindow || unrecognised > 0 || malformed > 0;
   let timed: WatchTiming[] = [];
   let unchanged = 0;
   let unsaved = false;
-  if (samples.length && windowStart !== null && !badWindow && !unrecognised && !malformed) {
+  if (samples.length && windowStart !== null && !refusedContent) {
     const r = applyWatch(loadNights(), samples, windowStart);
     unchanged = r.unchanged;
     // Nothing re-timed, nothing to write (a full store would evict cached
@@ -292,6 +305,7 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
     ...(endedNight ? { endedNight } : {}),
     ...(noWindow ? { noWindow } : {}),
     ...(badWindow ? { badWindow } : {}),
+    refused: refusedContent || unsaved,
     samples: samples.length,
     unrecognised,
     malformed,
@@ -345,7 +359,7 @@ export function watchNotice(r: WatchImport): string {
   const guess = last.inferredAtMs === null ? "" : `; sleepcast guessed ${fmtOnsetMinutes(last.inferredAtMs)}`;
   const lead = r.timed.length === 1 ? "your watch" : `your watch timed ${r.timed.length} nights. the latest`;
   // "asleep under a minute in" doesn't read: the fast case gets its own words.
-  const when = Math.round(last.atMs / 60_000) === 0 ? "asleep within a minute" : `asleep ${fmtOnsetMinutes(last.atMs)} in`;
+  const when = underAMinute(last.atMs) ? "asleep within a minute" : `asleep ${fmtOnsetMinutes(last.atMs)} in`;
   return `${lead}: ${when}${guess}.`;
 }
 
@@ -367,4 +381,17 @@ export function watchAgreement(nights: readonly RestNight[]): {
     compared: gaps.length,
     medianOffMs: m === null ? null : Math.round(m / 1000) * 1000,
   };
+}
+
+/** Records a night that just ended. A night with the same start already
+ *  there was recorded by a watch import from the snapshot of a tab that
+ *  was only suspended (endKilledNight can't tell): this, the night as it
+ *  really ended, replaces it, keeping the watch's time if it had one. */
+export function recordNight(n: RestNight): boolean {
+  const nights = loadNights();
+  const i = nights.findIndex((x) => x.startedAt === n.startedAt);
+  if (i === -1) return appendNight(n);
+  const old = nights[i];
+  nights[i] = old.detector === "watch" && old.sleptAtMs !== null ? retimed(n, old.sleptAtMs) : n;
+  return saveNights(nights);
 }

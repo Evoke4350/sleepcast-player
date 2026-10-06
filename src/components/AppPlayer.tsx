@@ -15,7 +15,8 @@ import { isYouTubeLineup, isMixedLineup } from "../lib/youtube-night";
 import { RestView } from "./RestView";
 import { reconcileLive, settleLive } from "../lib/rest/reconcile";
 import { ReanchorView } from "./ReanchorView";
-import { shouldGreetGoodbye, markGoodbyeSeen, fmtDuration } from "../lib/rest/surface";
+import { shouldGreetGoodbye, markGoodbyeSeen } from "../lib/rest/surface";
+import { fmtOnsetMinutes } from "../lib/rest/sleepscore";
 import { loadNights, loadQuietUntil, saveQuietUntil, loadStepBackAsked, markStepBackAsked } from "../lib/rest/ledger";
 import { qualifiesForStepBack, isQuiet, quietUntilFrom } from "../lib/rest/stepback";
 
@@ -36,18 +37,29 @@ interface SessionState {
 /** A #watch= link's import, if the page loaded with one: the fragment
  *  cleared, a killed tab's night settled first, and the line saying what it
  *  did. Run once per page load (an initializer called twice gets the first
- *  call's line), as it writes to storage and history. */
+ *  call's line), as it writes to storage. */
 let watchLinkTaken: { line: string | null } | null = null;
 function takeWatchLink(): string | null {
   if (watchLinkTaken) return watchLinkTaken.line;
-  const payload = watchPayloadFromHash(window.location.hash);
-  let line: string | null = null;
-  if (payload !== null) {
-    clearHash();
-    line = watchNotice(importWatch(payload));
-  }
+  const payload = watchPayloadFromHash(takeHeldHash() ?? "");
+  const line = payload === null ? null : watchNotice(importWatch(payload));
   watchLinkTaken = { line };
   return line;
+}
+
+declare global {
+  interface Window {
+    /** A #watch= fragment, moved out of the address by PlayerLayout's head
+     *  script before analytics could read it. */
+    __sleepcastWatch?: string | null;
+  }
+}
+
+/** The #watch= fragment the head script took, once. */
+function takeHeldHash(): string | null {
+  const h = window.__sleepcastWatch ?? null;
+  window.__sleepcastWatch = null;
+  return h;
 }
 
 /** A link that landed in a tab already open, held here (not in the
@@ -67,10 +79,6 @@ function reloadWithPending(): void {
 /** The address without its fragment. */
 function hereWithout(): string {
   return window.location.pathname + window.location.search;
-}
-
-function clearHash(): void {
-  history.replaceState(null, "", hereWithout());
 }
 
 /** One quiet line above setup (the goodbye, the watch's result). */
@@ -127,14 +135,15 @@ export function AppPlayer() {
   // (a tab frozen mid-night) or lose what was being typed.
   const [watchWaiting, setWatchWaiting] = useState(false);
   useEffect(() => {
-    const onHash = () => {
-      if (!isWatchHash(window.location.hash)) return;
-      pendingWatchHash = window.location.hash;
-      clearHash();
+    // The head script has already moved it out of the address (analytics).
+    const onLink = () => {
+      const hash = takeHeldHash();
+      if (hash === null || !isWatchHash(hash)) return;
+      pendingWatchHash = hash;
       setWatchWaiting(true);
     };
-    window.addEventListener("hashchange", onHash);
-    return () => window.removeEventListener("hashchange", onHash);
+    window.addEventListener("sleepcast-watch", onLink);
+    return () => window.removeEventListener("sleepcast-watch", onLink);
   }, []);
 
   const [goodbye] = useState(() => (isQuiet(loadQuietUntil(), Date.now()) ? null : shouldGreetGoodbye(Date.now())));
@@ -450,7 +459,7 @@ export function AppPlayer() {
         {watchLine && <HomeLine mark="⌚">{watchLine}</HomeLine>}
         {goodbye && (
           <HomeLine mark="☾" markClass="player-moon">
-            you slept{goodbye.timeToSleepMs !== null ? ` — gone in ${fmtDuration(goodbye.timeToSleepMs)}` : ""}.
+            you slept{goodbye.timeToSleepMs !== null ? ` — gone in ${fmtOnsetMinutes(goodbye.timeToSleepMs)}` : ""}.
           </HomeLine>
         )}
         <SleepSetup onStart={handleStart} />

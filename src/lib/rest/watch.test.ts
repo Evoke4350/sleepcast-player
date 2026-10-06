@@ -8,6 +8,7 @@ import {
   watchPayloadFromHash,
   watchNotice,
   watchAgreement,
+  recordNight,
   payloadFromPaste,
   MATCH_WINDOW_MS,
   MAX_SAMPLES,
@@ -130,6 +131,11 @@ describe("parseWatchPayload", () => {
     lines.sort();
     const r = parseWatchPayload(["window~2026-10-04T08:00:00-07:00", ...lines].join("\n"));
     expect(r.windowStart).toBe(Date.parse(lines[5].split("~")[0]));
+  });
+
+  it("counts a would-be code that isn't one as malformed, not a language", () => {
+    const line = (code: string) => `2026-10-05T23:40:00-07:00~2026-10-06T00:10:00-07:00~${code}`;
+    expect(parseWatchPayload(["-1", "(1)", "1-", "６"].map(line).join("\n"))).toMatchObject({ samples: [], unrecognised: 0, malformed: 4 });
   });
 
   it("reads Health's numeric stage codes too", () => {
@@ -271,7 +277,7 @@ describe("importWatch", () => {
   it("re-times the stored night, and the headline counts a fast watch onset", () => {
     appendNight(night());
     const r = importWatch(`${OPENS_LINE}\n2026-10-05T23:04:00-07:00~2026-10-05T23:30:00-07:00~Core`);
-    expect(r).toEqual({ timed: [{ startedAt: START, atMs: 4 * MIN, inferredAtMs: 30 * MIN }], unchanged: 0, samples: 1, unrecognised: 0, malformed: 0 });
+    expect(r).toEqual({ timed: [{ startedAt: START, atMs: 4 * MIN, inferredAtMs: 30 * MIN }], unchanged: 0, samples: 1, unrecognised: 0, malformed: 0, refused: false });
     expect(loadNights()[0].detector).toBe("watch");
     // 4 min is under the detector's plausibility floor; a watch onset is measured.
     expect(rollup(loadNights()).bestTimeToSleepMs).toBe(4 * MIN);
@@ -356,7 +362,7 @@ describe("importWatch", () => {
 
   it("leaves storage alone when nothing parses", () => {
     appendNight(night());
-    expect(importWatch("garbage")).toEqual({ timed: [], unchanged: 0, samples: 0, unrecognised: 0, malformed: 1 });
+    expect(importWatch("garbage")).toEqual({ timed: [], unchanged: 0, samples: 0, unrecognised: 0, malformed: 1, refused: true });
     expect(loadNights()[0].detector).toBe("inference");
   });
 });
@@ -383,21 +389,21 @@ describe("payloadFromPaste", () => {
 describe("watchNotice", () => {
   const t = (atMs: number, inferredAtMs: number | null) => ({ startedAt: START, atMs, inferredAtMs });
   it("says what the import did", () => {
-    expect(watchNotice({ timed: [t(12 * MIN, 30 * MIN)], unchanged: 0, samples: 3, unrecognised: 0, malformed: 0 })).toBe(
+    expect(watchNotice({ timed: [t(12 * MIN, 30 * MIN)], unchanged: 0, samples: 3, unrecognised: 0, malformed: 0, refused: false })).toBe(
       "your watch: asleep 12 min in; sleepcast guessed 30 min.",
     );
-    expect(watchNotice({ timed: [t(5 * MIN, null), t(12 * MIN, null)], unchanged: 0, samples: 3, unrecognised: 0, malformed: 0 })).toBe(
+    expect(watchNotice({ timed: [t(5 * MIN, null), t(12 * MIN, null)], unchanged: 0, samples: 3, unrecognised: 0, malformed: 0, refused: false })).toBe(
       "your watch timed 2 nights. the latest: asleep 12 min in.",
     );
-    expect(watchNotice({ timed: [], unchanged: 0, samples: 3, unrecognised: 0, malformed: 0 })).toMatch(/didn't start inside/);
-    expect(watchNotice({ timed: [], unchanged: 0, samples: 0, unrecognised: 0, malformed: 0 })).toMatch(/sleep tracking/);
-    expect(watchNotice({ timed: [], unchanged: 0, samples: 0, unrecognised: 4, malformed: 0 })).toMatch(/english only/);
-    expect(watchNotice({ timed: [], unchanged: 0, samples: 0, unrecognised: 0, malformed: 3 })).toMatch(/start date~end date~value/);
-    expect(watchNotice({ timed: [], unchanged: 1, samples: 3, unrecognised: 0, malformed: 0 })).toMatch(/nothing new/);
-    expect(watchNotice({ timed: [], unchanged: 0, samples: 3, unrecognised: 0, malformed: 2 })).toMatch(
+    expect(watchNotice({ timed: [], unchanged: 0, samples: 3, unrecognised: 0, malformed: 0, refused: false })).toMatch(/didn't start inside/);
+    expect(watchNotice({ timed: [], unchanged: 0, samples: 0, unrecognised: 0, malformed: 0, refused: false })).toMatch(/sleep tracking/);
+    expect(watchNotice({ timed: [], unchanged: 0, samples: 0, unrecognised: 4, malformed: 0, refused: false })).toMatch(/english only/);
+    expect(watchNotice({ timed: [], unchanged: 0, samples: 0, unrecognised: 0, malformed: 3, refused: false })).toMatch(/start date~end date~value/);
+    expect(watchNotice({ timed: [], unchanged: 1, samples: 3, unrecognised: 0, malformed: 0, refused: false })).toMatch(/nothing new/);
+    expect(watchNotice({ timed: [], unchanged: 0, samples: 3, unrecognised: 0, malformed: 2, refused: false })).toMatch(
       /^2 lines of the watch data didn't read, so nothing was changed/,
     );
-    expect(watchNotice({ timed: [t(20_000, null)], unchanged: 0, samples: 3, unrecognised: 0, malformed: 0 })).toBe(
+    expect(watchNotice({ timed: [t(20_000, null)], unchanged: 0, samples: 3, unrecognised: 0, malformed: 0, refused: false })).toBe(
       "your watch: asleep within a minute.",
     );
   });
@@ -415,5 +421,23 @@ describe("watchAgreement", () => {
   });
   it("has nothing to compare without watch nights the detector also timed", () => {
     expect(watchAgreement([night()])).toEqual({ watchNights: 0, compared: 0, medianOffMs: null });
+  });
+});
+
+describe("recordNight", () => {
+  beforeEach(() => localStorage.clear());
+  it("appends a new night", () => {
+    recordNight(night());
+    expect(loadNights()).toHaveLength(1);
+  });
+  it("replaces a night a watch import recorded from a suspended tab, keeping the watch's time", () => {
+    // The import recorded the snapshot (detector none), then the watch timed it.
+    appendNight(night({ detector: "watch", sleptAtMs: 12 * MIN, timeToSleepMs: 12 * MIN, inferredAtMs: null }));
+    const timeline = [{ t: 0, feedId: "a", episodeId: "a1" }];
+    // The tab wakes and ends its night as it really was.
+    recordNight(night({ interactions: 7, timeline }));
+    const [n] = loadNights();
+    expect(loadNights()).toHaveLength(1);
+    expect(n).toMatchObject({ interactions: 7, detector: "watch", sleptAtMs: 12 * MIN, inferredAtMs: 30 * MIN, onsetFeedId: "a" });
   });
 });

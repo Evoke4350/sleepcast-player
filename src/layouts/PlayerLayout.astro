@@ -1,4 +1,5 @@
 ---
+import { createHash } from "node:crypto";
 import "../styles/globals.css";
 
 export interface Props {
@@ -6,6 +7,13 @@ export interface Props {
 }
 
 const { title = "sleepcast" } = Astro.props;
+
+// Moves a #watch= fragment (an Apple Watch link's sleep stages) out of the
+// address before analytics can read it; see the comment in the head below.
+const TAKE_WATCH_LINK = `(function(){function take(){if(location.hash.indexOf('#watch=')!==0)return;window.__sleepcastWatch=location.hash;history.replaceState(null,'',location.pathname+location.search);window.dispatchEvent(new Event('sleepcast-watch'))}take();addEventListener('popstate',take);addEventListener('hashchange',take)})();`;
+// The CSP (astro.config.mjs) blocks an inline script it has no hash for, and
+// Astro doesn't hash is:inline ones: allow exactly this one.
+Astro.csp?.insertScriptHash(`sha256-${createHash("sha256").update(TAKE_WATCH_LINK).digest("base64")}`);
 ---
 
 <!doctype html>
@@ -27,6 +35,12 @@ const { title = "sleepcast" } = Astro.props;
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="sleepcast" />
     <meta name="mobile-web-app-capable" content="yes" />
+    <!-- An Apple Watch link (#watch=..., rest/watch.ts) carries the night's
+         sleep stages. Move it out of the address before analytics below can
+         read the page's URL, on load and if one lands later: the island
+         reads it from here (AppPlayer's takeWatchLink), and it goes nowhere
+         else. -->
+    <script is:inline set:html={TAKE_WATCH_LINK}></script>
     <!-- Google Analytics (gtag.js) with Consent Mode v2. analytics_storage is
          denied by default; the consent banner grants it and the choice persists. -->
     <script is:inline>

@@ -1,14 +1,8 @@
 import type { RestNight } from "./types";
 import { loadNights } from "./ledger";
-import { fmtOnsetMinutes } from "./sleepscore";
 
 const GOODBYE_SEEN_KEY = "sleepcast2.rest.goodbye";
 
-/** Minutes, as fmtOnsetMinutes words them: a watch onset can be under a
- *  minute, and the headline must read the same as the watch's line. */
-export function fmtDuration(ms: number): string {
-  return fmtOnsetMinutes(ms);
-}
 
 export function lastNight(): RestNight | null {
   const n = loadNights();

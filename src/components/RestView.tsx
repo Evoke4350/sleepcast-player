@@ -2,7 +2,6 @@ import { useMemo, useState } from "react";
 import { loadNights, rollup, setSelfLabel, leanComparison, offerForLabel } from "../lib/rest/ledger";
 import { recordFalsePositive } from "../lib/rest/calibrate";
 import { scoreFeeds, medianTimeToSleep, meetsSuggestionGate, shuffleWeights, pluralNights, fmtOnsetMinutes, MIN_NIGHTS } from "../lib/rest/sleepscore";
-import { fmtDuration } from "../lib/rest/surface";
 import { getPlays, loadState } from "../lib/store";
 import { playsSince, playAtMoment } from "../lib/plays";
 import { importWatch, payloadFromPaste, watchAgreement, watchNotice } from "../lib/rest/watch";
@@ -24,7 +23,7 @@ export function RestView({ onClose }: { onClose: (changed?: boolean) => void }) 
     const r = importWatch(payloadFromPaste(pasted));
     setPasteLine(watchNotice(r));
     // Kept when refused or not saved, so it can be looked at or tried again.
-    if (!r.malformed && !r.unrecognised && !r.unsaved && !r.noWindow && !r.badWindow) setPasted("");
+    if (!r.refused) setPasted("");
     if (r.timed.length || r.endedNight) {
       setNights(loadNights());
       setChangedHere(true);
@@ -132,13 +131,13 @@ export function RestView({ onClose }: { onClose: (changed?: boolean) => void }) 
       </div>
       {r.bestTimeToSleepMs !== null && (
         <div>
-          <div className="text-2xl text-[#b0a898]">{fmtDuration(r.bestTimeToSleepMs)}</div>
+          <div className="text-2xl text-[#b0a898]">{fmtOnsetMinutes(r.bestTimeToSleepMs)}</div>
           <div className="mt-1 text-xs uppercase tracking-widest">fastest you left us</div>
         </div>
       )}
       {r.medianTimeToSleepMs !== null && (
         <div>
-          <div className="text-2xl text-[#b0a898]">{fmtDuration(r.medianTimeToSleepMs)}</div>
+          <div className="text-2xl text-[#b0a898]">{fmtOnsetMinutes(r.medianTimeToSleepMs)}</div>
           <div className="mt-1 text-xs uppercase tracking-widest">how long you usually take</div>
         </div>
       )}
@@ -199,10 +198,10 @@ export function RestView({ onClose }: { onClose: (changed?: boolean) => void }) 
       )}
       {/* Outside the scored section: timed nights stay comparable even when
           no feed has scored nights (slept nights with no feed attributed). */}
-      {/* The headline's measure split by lean, so formatted like it (fmtDuration). */}
+      {/* The headline's measure split by lean, so formatted like it (fmtOnsetMinutes). */}
       {compared && (
         <p className="text-[11px] leading-snug text-[#8a7a5c]">
-          {`How long you usually take: ${orDash(compared.leaned.medianMs, fmtDuration)} on nights the shuffle leaned (${pluralNights(compared.leaned.timedNights, "timed")}), ${orDash(compared.plain.medianMs, fmtDuration)} on plain-shuffle nights (${pluralNights(compared.plain.timedNights, "timed")}). A rough guide: the two differ in more than the lean (which shows, which weeks).`}
+          {`How long you usually take: ${orDash(compared.leaned.medianMs, fmtOnsetMinutes)} on nights the shuffle leaned (${pluralNights(compared.leaned.timedNights, "timed")}), ${orDash(compared.plain.medianMs, fmtOnsetMinutes)} on plain-shuffle nights (${pluralNights(compared.plain.timedNights, "timed")}). A rough guide: the two differ in more than the lean (which shows, which weeks).`}
         </p>
       )}
       <section className="space-y-2 border-t border-[#241f30] pt-6 text-xs">
