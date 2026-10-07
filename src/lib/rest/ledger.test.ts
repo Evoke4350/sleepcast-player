@@ -27,6 +27,16 @@ describe("ledger", () => {
     expect(n[0].startedAt).toBe(5);
   });
 
+  it("evicts the oldest by start, not the first recorded", () => {
+    for (let i = 10; i < 100; i++) appendNight(night({ startedAt: i }), Date.now());
+    // Recorded last, but the oldest: it is the one that goes.
+    appendNight(night({ startedAt: 1 }), Date.now());
+    const n = loadNights();
+    expect(n).toHaveLength(90);
+    expect(n.some((x) => x.startedAt === 1)).toBe(false);
+    expect(n.some((x) => x.startedAt === 10)).toBe(true);
+  });
+
   it("rollup: best is the minimum time-to-sleep, median is robust", () => {
     // Fixture values raised above MIN_PLAUSIBLE_ONSET_MS. The original used a
     // 2-minute onset, which the fixed detector cannot produce — onset is now

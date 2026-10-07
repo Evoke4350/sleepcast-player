@@ -11,7 +11,7 @@
 // as a night that wasn't slept through. That is honest, and it means the
 // offer never fires off the back of afternoon listening.
 
-import { isSlept } from "./ledger";
+import { isSlept, newestByStart } from "./ledger";
 import { median } from "./stats";
 import type { RestNight } from "./types";
 
@@ -41,8 +41,7 @@ export const QUIET_DAYS = 30;
  * wrong, not evidence of a good night.
  */
 export function qualifiesForStepBack(nights: RestNight[]): boolean {
-  // The newest by start, as rollup and lastOf go (recording order can differ).
-  const window = [...nights].sort((a, b) => a.startedAt - b.startedAt).slice(-STEPBACK_WINDOW);
+  const window = newestByStart(nights, STEPBACK_WINDOW);
   if (window.length < STEPBACK_MIN_NIGHTS) return false;
 
   const slept = window.filter(isSlept);

@@ -10,6 +10,12 @@ const MAX_NIGHTS = 90;
 /** The newest night, by its start (the ledger is in recording order, which
  *  an upsert in place or a clock stepped back can make differ), or null.
  *  The later-recorded of two that started together. */
+/** The newest `n` nights by start, oldest first: the one ordering rollup,
+ *  step-back and the cap all share (recording order can differ from it). */
+export function newestByStart(nights: readonly RestNight[], n: number): RestNight[] {
+  return [...nights].sort((a, b) => a.startedAt - b.startedAt).slice(-n);
+}
+
 export function lastOf(nights: readonly RestNight[]): RestNight | null {
   let newest: RestNight | null = null;
   for (const n of nights) if (!newest || n.startedAt >= newest.startedAt) newest = n;
@@ -30,7 +36,9 @@ export function loadNights(): RestNight[] {
  *  stored; null when it couldn't (quota, private mode: a lost stat is not
  *  worth throwing over, but a caller reporting a change needs to know). */
 export function saveNights(nights: RestNight[]): RestNight[] | null {
-  const kept = nights.slice(-MAX_NIGHTS);
+  // Over the cap, the oldest by start go, not the first recorded: a killed
+  // night recorded late sits last but may be older than what it displaces.
+  const kept = nights.length > MAX_NIGHTS ? newestByStart(nights, MAX_NIGHTS) : nights;
   try {
     return writeMakingRoom(KEY, JSON.stringify(kept)) ? kept : null;
   } catch {
@@ -174,7 +182,7 @@ export function rollup(nights: RestNight[]): RestRollup {
   // The nights themselves still count as slept — the sleep was real, only the
   // figure was wrong — so this filters the time statistics, not the ledger.
   const tts = believableOnsets(slept);
-  const last7 = [...nights].sort((a, b) => a.startedAt - b.startedAt).slice(-7);
+  const last7 = newestByStart(nights, 7);
   const avg7 = last7.length
     ? last7.reduce((s, n) => s + n.interactions, 0) / last7.length
     : 0;
