@@ -16,7 +16,7 @@
 // onset.
 import type { RestNight } from "./types";
 import { retimed } from "./attribution";
-import { loadNights, pruneTimelines, saveNights, withNight } from "./ledger";
+import { lastOf, loadNights, pruneTimelines, saveNights, withNight } from "./ledger";
 import { median } from "./stats";
 import { killedNightToRecord } from "./reconcile";
 import { WATCH_HASH } from "./watch-hash";
@@ -32,10 +32,11 @@ export interface SleepSample {
  *  that night's: past it, the sleep belongs to no night sleepcast played. */
 export const MATCH_WINDOW_MS = 4 * 60 * 60 * 1000;
 
-/** A payload has at most its last this-many lines read (a week of a busy
+/** A payload has at most its last this-many lines used (a week of a busy
  *  night's samples is a few hundred): the fragment is anyone's to write.
  *  The last, because the Shortcut sorts oldest first and the newest night
- *  is the one a morning import is for. */
+ *  is the one a morning import is for. Every line is still read, to refuse
+ *  a payload any line of which doesn't read. */
 export const MAX_SAMPLES = 2000;
 
 /** Health's sleep stages, by code (HKCategoryValueSleepAnalysis, for a
@@ -101,8 +102,10 @@ function parseLine(line: string): SleepSample | "malformed" | "unrecognised" {
 }
 
 /** A Shortcut's payload: where its window opens (null when the window line
- *  is missing or its date doesn't parse), its samples, how many lines named
- *  a stage this doesn't recognise, and how many were malformed (either date
+ *  is missing or its date doesn't parse; moved up when lines past
+ *  MAX_SAMPLES were dropped), the samples of the lines kept, and, over all
+ *  its lines, how many named a stage this doesn't recognise and how many
+ *  were malformed (either date
  *  without a time of day or unparseable, an end before the start, other
  *  than three fields, or a stage that isn't a name or code), which most
  *  likely means the Shortcut's format is off. Blank lines are neither. */
@@ -136,9 +139,16 @@ export function parseWatchPayload(text: string): {
       if (typeof p === "object" && p.asleep) windowStart = Math.max(windowStart, p.end + CONTIGUOUS_MS + 1);
     }
   }
-  const samples = kept.filter((p): p is SleepSample => typeof p === "object");
-  const malformed = kept.filter((p) => p === "malformed").length;
-  const unrecognised = kept.filter((p) => p === "unrecognised").length;
+  // Samples from the kept lines; the refusals from every line, dropped ones
+  // too: a dropped line that doesn't read is still a payload that doesn't.
+  const samples: SleepSample[] = [];
+  for (const p of kept) if (typeof p === "object") samples.push(p);
+  let malformed = 0;
+  let unrecognised = 0;
+  for (const p of parsed) {
+    if (p === "malformed") malformed++;
+    else if (p === "unrecognised") unrecognised++;
+  }
   return { windowStart, badWindow, samples, unrecognised, malformed };
 }
 
@@ -274,7 +284,7 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
     // took. An import that is refused, or not saved, changes nothing.
     const killed = killedNightToRecord(now);
     const nights = killed ? withNight(loadNights(), killed.night) : loadNights();
-    newestStartedAt = nights.reduce((m, n) => Math.max(m, n.startedAt), -Infinity);
+    newestStartedAt = lastOf(nights)?.startedAt;
     const r = applyWatch(nights, samples, windowStart);
     unchanged = r.unchanged;
     // Nothing to write, nothing written (a full store would evict cached

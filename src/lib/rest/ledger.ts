@@ -45,7 +45,7 @@ export const TIMELINE_KEEP_MS = 7 * 24 * 60 * 60 * 1000;
  *  from a killed tab's), and the tab may wake and record its night again,
  *  by ending it or by being reconciled. The night keeps the watch's time if
  *  it had one. */
-export function appendNight(n: RestNight, now = Date.now()): boolean {
+export function appendNight(n: RestNight, now: number): boolean {
   return saveNights(pruneTimelines(withNight(loadNights(), n), now)) !== null;
 }
 

@@ -20,7 +20,7 @@ describe("surface", () => {
   });
 
   it("greets goodbye once for a slept night, then not again", () => {
-    appendNight(night({ startedAt: 5000, sleptAtMs: 240000 }));
+    appendNight(night({ startedAt: 5000, sleptAtMs: 240000 }), Date.now());
     const g = shouldGreetGoodbye(9_999_999);
     expect(g?.startedAt).toBe(5000);
     markGoodbyeSeen(5000);
@@ -28,7 +28,7 @@ describe("surface", () => {
   });
 
   it("does not greet if the last night was not detected as slept", () => {
-    appendNight(night({ startedAt: 6000, sleptAtMs: null, timeToSleepMs: null }));
+    appendNight(night({ startedAt: 6000, sleptAtMs: null, timeToSleepMs: null }), Date.now());
     expect(shouldGreetGoodbye(9_999_999)).toBeNull();
   });
 });

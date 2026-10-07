@@ -190,7 +190,7 @@ describe("reconcileLive and a night already recorded", () => {
   beforeEach(() => localStorage.clear());
   it("replaces it, keeping the watch's time: a woken tab killed again", () => {
     // The morning import recorded the suspended tab's snapshot; the watch timed it.
-    appendNight({ startedAt: T0, timerMinutes: 45, endedVia: "faded", sleptAtMs: 12 * 60_000, timeToSleepMs: 12 * 60_000, interactions: 1, detector: "watch", inferredAtMs: null });
+    appendNight({ startedAt: T0, timerMinutes: 45, endedVia: "faded", sleptAtMs: 12 * 60_000, timeToSleepMs: 12 * 60_000, interactions: 1, detector: "watch", inferredAtMs: null }, Date.now());
     // The tab woke, wrote a newer snapshot, and was killed again.
     reconcileLive(snap({ savedAt: T0 + 30 * 60_000, remainingMs: 15 * 60_000, interactions: 4 }), T0 + 10 * 60 * 60_000);
     const nights = loadNights();

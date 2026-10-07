@@ -14,13 +14,13 @@ describe("ledger", () => {
   beforeEach(() => localStorage.clear());
 
   it("append then load round-trips", () => {
-    appendNight(night());
+    appendNight(night(), Date.now());
     expect(loadNights()).toHaveLength(1);
     expect(loadNights()[0].timeToSleepMs).toBe(300000);
   });
 
   it("keeps at most 90 nights, newest last", () => {
-    for (let i = 0; i < 95; i++) appendNight(night({ startedAt: i }));
+    for (let i = 0; i < 95; i++) appendNight(night({ startedAt: i }), Date.now());
     const n = loadNights();
     expect(n).toHaveLength(90);
     expect(n[n.length - 1].startedAt).toBe(94);
@@ -47,7 +47,7 @@ describe("ledger", () => {
   });
 
   it("setSelfLabel tags the matching night", () => {
-    appendNight(night({ startedAt: 42 }));
+    appendNight(night({ startedAt: 42 }), Date.now());
     const updated = setSelfLabel(42, "awake");
     expect(updated?.selfLabel).toBe("awake");
     expect(loadNights()[0].selfLabel).toBe("awake");
@@ -211,7 +211,7 @@ describe("onsetAfterEnd", () => {
 describe("setSelfLabel and watch nights", () => {
   beforeEach(() => localStorage.clear());
   it("won't label a watch-timed night", () => {
-    appendNight({ startedAt: 5, timerMinutes: 60, endedVia: "faded", sleptAtMs: 60_000, timeToSleepMs: 60_000, interactions: 0, detector: "watch" });
+    appendNight({ startedAt: 5, timerMinutes: 60, endedVia: "faded", sleptAtMs: 60_000, timeToSleepMs: 60_000, interactions: 0, detector: "watch" }, Date.now());
     expect(setSelfLabel(5, "awake")).toBeNull();
     expect(loadNights()[0]).not.toHaveProperty("selfLabel");
   });
@@ -220,7 +220,7 @@ describe("setSelfLabel and watch nights", () => {
 describe("setSelfLabel when storage is full", () => {
   beforeEach(() => localStorage.clear());
   it("returns null: the label didn't take", () => {
-    appendNight({ startedAt: 7, timerMinutes: 60, endedVia: "faded", sleptAtMs: 60_000, timeToSleepMs: 60_000, interactions: 0, detector: "inference" });
+    appendNight({ startedAt: 7, timerMinutes: 60, endedVia: "faded", sleptAtMs: 60_000, timeToSleepMs: 60_000, interactions: 0, detector: "inference" }, Date.now());
     const setItem = Storage.prototype.setItem;
     Storage.prototype.setItem = () => {
       throw new Error("QuotaExceededError");

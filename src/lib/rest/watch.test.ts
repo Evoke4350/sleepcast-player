@@ -278,7 +278,7 @@ describe("importWatch", () => {
   beforeEach(() => localStorage.clear());
 
   it("re-times the stored night, and the headline counts a fast watch onset", () => {
-    appendNight(night());
+    appendNight(night(), Date.now());
     const r = importWatch(`${OPENS_LINE}\n2026-10-05T23:04:00-07:00~2026-10-05T23:30:00-07:00~Core`);
     expect(r.nights).toHaveLength(1);
     expect(r).toMatchObject({ timed: [{ startedAt: START, atMs: 4 * MIN, inferredAtMs: 30 * MIN }], newestStartedAt: START, unchanged: 0, samples: 1, unrecognised: 0, malformed: 0, refused: false, ...FLAGS });
@@ -288,7 +288,7 @@ describe("importWatch", () => {
   });
 
   it("changes nothing when any line is malformed: a gap would split a stretch of sleep", () => {
-    appendNight(night());
+    appendNight(night(), Date.now());
     const lines = [
       OPENS_LINE,
       "2026-10-05T23:20:00-07:00~2026-10-05T23:00:00-07:00~Core", // end before start
@@ -299,7 +299,7 @@ describe("importWatch", () => {
   });
 
   it("changes nothing when any stage is unrecognised, as when only REM is in english", () => {
-    appendNight(night());
+    appendNight(night(), Date.now());
     const lines = ["2026-10-05T23:05:00-07:00~2026-10-05T23:50:00-07:00~Kern", "2026-10-06T00:20:00-07:00~2026-10-06T00:40:00-07:00~REM"];
     // With its window line: refused for the stage alone.
     const r = importWatch([OPENS_LINE, ...lines].join("\n"));
@@ -309,11 +309,17 @@ describe("importWatch", () => {
   });
 
   it("reads the newest lines when there are too many", () => {
-    appendNight(night());
+    appendNight(night(), Date.now());
     const old = Array.from({ length: MAX_SAMPLES }, () => "2026-10-01T23:05:00-07:00~2026-10-01T23:50:00-07:00~Core");
     const r = importWatch([OPENS_LINE, ...old, "2026-10-05T23:06:00-07:00~2026-10-05T23:50:00-07:00~Core"].join("\n"));
     expect(r.samples).toBe(MAX_SAMPLES);
     expect(r.timed.map((x) => x.atMs)).toEqual([6 * MIN]);
+  });
+
+  it("counts a dropped line that doesn't read: it still refuses", () => {
+    const kept = Array.from({ length: MAX_SAMPLES }, () => "2026-10-05T23:30:00-07:00~2026-10-05T23:40:00-07:00~Deep");
+    const r = parseWatchPayload([OPENS_LINE, "2026-10-05T22:00:00-07:00~2026-10-06T02:00:00-07:00~Schlaf", ...kept].join("\n"));
+    expect(r.unrecognised).toBe(1);
   });
 
   it("doesn't move the window past a dropped Awake or In Bed sample", () => {
@@ -335,7 +341,7 @@ describe("importWatch", () => {
   });
 
   it("says so, and claims nothing, when the re-timed nights can't be stored", () => {
-    appendNight(night());
+    appendNight(night(), Date.now());
     const setItem = Storage.prototype.setItem;
     Storage.prototype.setItem = () => {
       throw new Error("QuotaExceededError");
@@ -351,7 +357,7 @@ describe("importWatch", () => {
   });
 
   it("writes nothing when nothing is re-timed", () => {
-    appendNight(night());
+    appendNight(night(), Date.now());
     const line = `${OPENS_LINE}\n2026-10-05T23:04:00-07:00~2026-10-05T23:30:00-07:00~Core`;
     importWatch(line);
     const setItem = Storage.prototype.setItem;
@@ -369,7 +375,7 @@ describe("importWatch", () => {
   });
 
   it("refuses a window line whose date doesn't read, and says so", () => {
-    appendNight(night());
+    appendNight(night(), Date.now());
     const r = importWatch("window~Oct 4, 2026 at 8:00 AM\n2026-10-05T23:04:00-07:00~2026-10-05T23:30:00-07:00~Core");
     expect(r).toMatchObject({ timed: [], badWindow: true });
     expect(r.noWindow).toBe(false);
@@ -377,7 +383,7 @@ describe("importWatch", () => {
   });
 
   it("refuses a payload without its window line, and says the shortcut needs it", () => {
-    appendNight(night());
+    appendNight(night(), Date.now());
     const r = importWatch("2026-10-05T23:04:00-07:00~2026-10-05T23:30:00-07:00~Core");
     expect(r).toMatchObject({ timed: [], noWindow: true });
     expect(watchNotice(r)).toMatch(/window line/);
@@ -385,7 +391,7 @@ describe("importWatch", () => {
   });
 
   it("leaves storage alone when nothing parses", () => {
-    appendNight(night());
+    appendNight(night(), Date.now());
     expect(importWatch("garbage")).toEqual({ timed: [], unchanged: 0, samples: 0, unrecognised: 0, malformed: 1, refused: true, ...FLAGS });
     expect(loadNights()[0].detector).toBe("inference");
   });
@@ -453,15 +459,15 @@ describe("watchAgreement", () => {
 describe("appendNight, the same night twice", () => {
   beforeEach(() => localStorage.clear());
   it("appends a new night", () => {
-    appendNight(night());
+    appendNight(night(), Date.now());
     expect(loadNights()).toHaveLength(1);
   });
   it("replaces a night a watch import recorded from a suspended tab, keeping the watch's time", () => {
     // The import recorded the snapshot (detector none), then the watch timed it.
-    appendNight(night({ detector: "watch", sleptAtMs: 12 * MIN, timeToSleepMs: 12 * MIN, inferredAtMs: null }));
+    appendNight(night({ detector: "watch", sleptAtMs: 12 * MIN, timeToSleepMs: 12 * MIN, inferredAtMs: null }), Date.now());
     const timeline = [{ t: 0, feedId: "a", episodeId: "a1" }];
     // The tab wakes and ends its night as it really was.
-    appendNight(night({ interactions: 7, timeline }));
+    appendNight(night({ interactions: 7, timeline }), Date.now());
     const [n] = loadNights();
     expect(loadNights()).toHaveLength(1);
     expect(n).toMatchObject({ interactions: 7, detector: "watch", sleptAtMs: 12 * MIN, inferredAtMs: 30 * MIN, onsetFeedId: "a" });
