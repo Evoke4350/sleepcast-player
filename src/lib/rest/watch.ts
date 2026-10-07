@@ -270,7 +270,9 @@ export function payloadFromPaste(text: string): string {
  *  its next stage change would pass for falling asleep. */
 export function importWatch(text: string, now = Date.now()): WatchImport {
   const { windowStart, badWindow, samples, unrecognised, malformed } = parseWatchPayload(text);
-  const noWindow = samples.length > 0 && windowStart === null && !badWindow;
+  // No window line, samples or not: a Shortcut built before it was added
+  // (or not this Shortcut's text at all) is told to use the updated steps.
+  const noWindow = windowStart === null && !badWindow;
   const refusedContent = noWindow || badWindow || unrecognised > 0 || malformed > 0;
   let timed: WatchTiming[] = [];
   let unchanged = 0;
@@ -378,7 +380,11 @@ export function watchNotice(r: WatchImport): string {
     return `${lines} of the watch data didn't read, so nothing was changed: in the shortcut, check the text is start date~end date~value, with both dates iso 8601 and the time included.`;
   }
   if (r.unrecognised) return "your watch's sleep stages came in a language sleepcast can't read yet (english only), so nothing was changed.";
-  if (!r.samples) return "nothing from your watch to read: is sleep tracking on?";
+  if (!r.samples) {
+    // Most likely the watch hadn't handed the night to the phone yet.
+    const recorded = r.nights ? "last night is recorded without the watch's time; " : "";
+    return `nothing from your watch yet: ${recorded}run it again later (and check sleep tracking is on).`;
+  }
   if (!r.timed.length) {
     return r.unchanged ? "nothing new: your watch had already timed these nights." : "your watch's sleep didn't start inside a sleepcast night.";
   }

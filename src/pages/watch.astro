@@ -76,7 +76,7 @@ import PlayerLayout from "../layouts/PlayerLayout.astro";
       <p>
         in shortcuts, automation, new automation, <em>time of day</em>, pick a time an hour or so after you usually get
         up, daily, then run <em>sleepcast watch</em> immediately. not on waking: the watch can take a while to hand the
-        night's stages to your iphone, and too early it finds nothing yet. running it again later is always safe.
+        night's stages to your iphone, and too early it finds nothing yet. running it again later is safe: a night it has timed stays timed.
       </p>
 
       <h2 class="mt-8 text-base text-[#d9c3a0]">the paste version (home-screen app)</h2>
@@ -93,6 +93,7 @@ import PlayerLayout from "../layouts/PlayerLayout.astro";
         <li>what was playing at that moment gets the credit in <em>what puts you under</em>, for nights in the last week.</li>
         <li>sleepcast keeps its own guess beside the watch's, and <em>your rest</em> shows how far apart they typically are.</li>
         <li>running it twice over the same nights changes nothing further.</li>
+        <li>it closes any sleepcast night left open in another tab (the morning means the night is over), so run it after the night, not during one.</li>
       </ul>
     </section>
   </main>

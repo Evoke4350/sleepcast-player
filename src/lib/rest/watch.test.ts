@@ -392,7 +392,7 @@ describe("importWatch", () => {
 
   it("leaves storage alone when nothing parses", () => {
     appendNight(night(), Date.now());
-    expect(importWatch("garbage")).toEqual({ timed: [], unchanged: 0, samples: 0, unrecognised: 0, malformed: 1, refused: true, ...FLAGS });
+    expect(importWatch("garbage")).toEqual({ timed: [], unchanged: 0, samples: 0, unrecognised: 0, malformed: 1, refused: true, ...FLAGS, noWindow: true });
     expect(loadNights()[0].detector).toBe("inference");
   });
 });
@@ -541,7 +541,7 @@ describe("an import with nothing to read yet", () => {
     localStorage.setItem("sleepcast2.live", JSON.stringify(live));
     const r = importWatch(OPENS_LINE, START + 10 * 60 * MIN);
     expect(r).toMatchObject({ samples: 0, refused: false });
-    expect(watchNotice(r)).toMatch(/sleep tracking/);
+    expect(watchNotice(r)).toMatch(/^nothing from your watch yet: last night is recorded without the watch's time; run it again later/);
     expect(localStorage.getItem("sleepcast2.live")).toBeNull();
     expect(loadNights()).toHaveLength(1);
   });
@@ -556,5 +556,14 @@ describe("nightName across a DST change", () => {
     expect(name(t(2026, 10, 1, 5, 30))).toContain("for saturday night");
     // Sunday 06:30 local is sunday's.
     expect(name(t(2026, 10, 1, 6, 30))).toContain("for sunday night");
+  });
+});
+
+describe("a Shortcut from before the window line, with nothing to send", () => {
+  beforeEach(() => localStorage.clear());
+  it("is refused, and told to update", () => {
+    const r = importWatch("");
+    expect(r).toMatchObject({ noWindow: true, refused: true });
+    expect(watchNotice(r)).toMatch(/window line/);
   });
 });

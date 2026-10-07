@@ -20,7 +20,9 @@ else. No account, no endpoint, no native build.
 
 Payload: a first line `window~<start>` (where the Shortcut's window opens: it
 reads samples ending after "now minus 2 days", so a sample under way when
-the window opens is there from its own start; without it the import is
+the window opens is there from its own start; a window line with no
+samples yet (the watch hadn't synced) still goes ahead, recording a killed
+tab's night, and says to run it again later; without the line the import is
 refused, with a notice pointing at the updated steps), then one sample per
 line, `start~end~stage`, ISO 8601 dates with time, the
 stage as Health names it (Core, Deep, REM, Asleep, Awake, In Bed, matched as
@@ -118,9 +120,9 @@ touches would read as awake ones and make the detector bolder.
 - A link landing in a tab already open (only the fragment changes) is held
   and offered on the home screen ("your watch's night came in: read it"),
   read by a reload when tapped: never a reload by itself, which could end a
-  night still on or lose what was being typed. The held link is handed across that
-  reload through session storage (read and cleared by the head script), never
-  back through the address.
+  night still on or lose what was being typed. The held link is handed
+  across that reload through session storage (read and cleared by the head
+  script), never back through the address.
 - The rest view: how many nights the watch timed and the median gap between
   sleepcast's guess and the watch; a link to /watch; the paste box.
 - /watch: the Shortcut, step by step, a daily automation at a set morning time
@@ -160,4 +162,7 @@ storage (including a fast onset under the detector's floor), the fragment and
 paste readers, the notice, the agreement summary and the same night recorded
 twice. session.test.ts and ledger.test.ts cover the recorded timeline,
 `endedAt` and pruning; reconcile.test.ts the killed night recorded first, a
-snapshot kept when storage is full, and a woken tab's night recorded again.
+snapshot kept when storage is full, and a woken tab's night recorded again;
+watch-link-script.test.ts the head script (the fragment taken out of the
+address, the held link handed across a reload, the redirect from other
+pages), run against a stand-in location and history.
