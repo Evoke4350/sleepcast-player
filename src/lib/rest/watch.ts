@@ -105,10 +105,10 @@ function parseLine(line: string): SleepSample | "malformed" | "unrecognised" {
  *  is missing or its date doesn't parse; moved up when lines past
  *  MAX_SAMPLES were dropped), the samples of the lines kept, and, over all
  *  its lines, how many named a stage this doesn't recognise and how many
- *  were malformed (either date
- *  without a time of day or unparseable, an end before the start, other
- *  than three fields, or a stage that isn't a name or code), which most
- *  likely means the Shortcut's format is off. Blank lines are neither. */
+ *  were malformed (either date without a time of day or unparseable, an
+ *  end before the start, other than three fields, or a stage that isn't a
+ *  name or code), which most likely means the Shortcut's format is off.
+ *  Blank lines are neither. */
 export function parseWatchPayload(text: string): {
   windowStart: number | null;
   badWindow: boolean;
@@ -277,7 +277,9 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
   let unsaved = false;
   let newestStartedAt: number | undefined;
   let saved: RestNight[] | undefined;
-  if (samples.length && windowStart !== null && !refusedContent) {
+  // A window line and nothing refused: the import goes ahead, even with no
+  // samples (the watch hadn't synced yet), as the night it closes is over.
+  if (windowStart !== null && !refusedContent) {
     // The night a killed tab left unrecorded is the one the import is for,
     // by link or by paste alike: added here and written with the re-timed
     // nights in one save, then its snapshot cleared (commit) only once that
@@ -356,7 +358,10 @@ function decodeLeniently(text: string): string {
 /** The weekday a night belongs to, in English like the rest of the copy:
  *  one started in the small hours (before 6am) is the evening before's. */
 function nightName(startedAt: number): string {
-  return new Date(startedAt - 6 * 60 * 60 * 1000).toLocaleDateString("en", { weekday: "long" }).toLowerCase();
+  const d = new Date(startedAt);
+  // By the local hour, not 6 h of absolute time, which a DST change skews.
+  if (d.getHours() < 6) d.setDate(d.getDate() - 1);
+  return d.toLocaleDateString("en", { weekday: "long" }).toLowerCase();
 }
 
 /** What an import did, in a line for the listener. */

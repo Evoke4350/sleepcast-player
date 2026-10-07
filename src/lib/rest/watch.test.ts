@@ -533,3 +533,28 @@ describe("importWatch with a killed tab's night, and full storage", () => {
     expect(loadNights()[0]).toMatchObject({ detector: "watch", timeToSleepMs: 4 * MIN });
   });
 });
+
+describe("an import with nothing to read yet", () => {
+  beforeEach(() => localStorage.clear());
+  it("still records a killed tab's night: the night is over", () => {
+    const live = { savedAt: START + 10 * MIN, remainingMs: 0, totalSeconds: 0, position: 0, current: { id: "e1", title: "", url: "", feedId: "f", date: "" }, playedIds: [], pool: [], skipIntroByFeedId: {}, feedTitles: {}, artworkByFeedId: {}, nightStartedAt: START, modeKind: "all-night" };
+    localStorage.setItem("sleepcast2.live", JSON.stringify(live));
+    const r = importWatch(OPENS_LINE, START + 10 * 60 * MIN);
+    expect(r).toMatchObject({ samples: 0, refused: false });
+    expect(watchNotice(r)).toMatch(/sleep tracking/);
+    expect(localStorage.getItem("sleepcast2.live")).toBeNull();
+    expect(loadNights()).toHaveLength(1);
+  });
+});
+
+describe("nightName across a DST change", () => {
+  it("goes by the local hour", () => {
+    const t = (y: number, m: number, d: number, h: number, min = 0) => new Date(y, m, d, h, min).getTime();
+    const name = (startedAt: number) =>
+      watchNotice({ ...FLAGS, timed: [{ startedAt, atMs: 12 * MIN, inferredAtMs: null }], newestStartedAt: startedAt + 1, unchanged: 0, samples: 1, unrecognised: 0, malformed: 0, refused: false });
+    // Sunday 05:30 local is saturday night, whatever the clocks did that night.
+    expect(name(t(2026, 10, 1, 5, 30))).toContain("for saturday night");
+    // Sunday 06:30 local is sunday's.
+    expect(name(t(2026, 10, 1, 6, 30))).toContain("for sunday night");
+  });
+});

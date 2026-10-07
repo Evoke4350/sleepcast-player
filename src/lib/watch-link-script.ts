@@ -6,9 +6,8 @@
 // (AppPlayer's reloadWithPending) arrives through session storage instead,
 // read and cleared here. On any other page (/watch, /privacy) the link is
 // sent on to / (out of this page's address first), where it is read. A
-// second link before the island reads the first
-// replaces it: harmless, as each run reads two days. Server-side only
-// (PlayerLayout).
+// second link before the island reads the first replaces it: harmless, as
+// each run reads two days. Server-side only (PlayerLayout).
 import { createHash } from "node:crypto";
 import { WATCH_HASH, WATCH_PENDING_KEY } from "./rest/watch-hash";
 

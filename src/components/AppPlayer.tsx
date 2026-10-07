@@ -130,8 +130,7 @@ export function AppPlayer() {
   // changes. It is held (heldLink: not in the address, where a reload
   // mid-night would import it and end the night; lost if the page goes
   // first, which the next morning's two-day run makes up) and offered on
-  // the home screen,
-  // read by a reload when the listener taps it: everything here (the resume
+  // the home screen, read by a reload when the listener taps it: everything here (the resume
   // card, setup's label offer, the goodbye) was worked out from the ledger
   // before the import, and a reload by itself could end a night still on
   // (a tab frozen mid-night) or lose what was being typed.
