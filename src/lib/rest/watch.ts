@@ -233,12 +233,16 @@ export function applyWatch(
 
 export interface WatchImport {
   timed: WatchTiming[];
-  /** The newest night in the ledger's start, to tell whether the latest
-   *  re-timed night is last night or an older one. */
+  /** The latest re-timed night isn't the newest night (that had no sleep
+   *  the watch saw): the notice names it. */
   latestIsOlder?: boolean;
-  /** A killed tab's night was recorded, but the watch didn't time it (its
-   *  sleep hadn't synced yet): the notice says to run it again later. */
+  /** A killed tab's night inside the window was recorded, and is stored
+   *  without a watch time (its sleep hadn't synced yet): the notice says to
+   *  run it again later, which can time it. */
   recordedUntimed?: boolean;
+  /** How many of the samples were sleep: none yet means the watch hadn't
+   *  handed the night over, whatever In Bed or Awake samples came. */
+  slept: number;
   unchanged: number;
   /** The nights couldn't be stored (storage full): nothing changed. */
   unsaved: boolean;
@@ -247,7 +251,8 @@ export interface WatchImport {
   nights?: RestNight[];
   /** No window line (a Shortcut built before it was added): refused. */
   noWindow: boolean;
-  /** A window line whose date didn't read: refused. */
+  /** A window line whose date didn't read, or that opens in the future:
+   *  refused. */
   badWindow: boolean;
   /** Refused for its content (malformed, unrecognised, no or bad window
    *  line), or not saved: either way nothing changed (a killed tab's night
@@ -309,7 +314,11 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
         killed?.commit();
         timed = r.timed;
         saved = stored;
-        recordedUntimed = killed !== null && !r.timed.some((t) => t.startedAt === killed.night.startedAt);
+        // Untimed as stored (a night merged into one the watch had timed
+        // keeps that time), and inside the window, where a later run can
+        // still time it.
+        const k = killed && stored.find((n) => n.startedAt === killed.night.startedAt);
+        recordedUntimed = !!k && k.detector !== "watch" && k.startedAt >= windowStart;
       } else unsaved = true;
     }
   }
@@ -324,6 +333,7 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
     ...(recordedUntimed ? { recordedUntimed } : {}),
     refused: refusedContent || unsaved,
     samples: samples.length,
+    slept: samples.filter((s) => s.asleep).length,
     unrecognised,
     malformed,
   };
@@ -400,7 +410,7 @@ export function watchNotice(r: WatchImport): string {
   // A killed tab's night recorded without its time (most likely the watch
   // hadn't handed it to the phone yet): said whatever else the line says.
   const again = r.recordedUntimed ? " last night is recorded without the watch's time: run it again later." : "";
-  if (!r.samples) {
+  if (!r.slept && !r.timed.length && !r.unchanged) {
     return r.recordedUntimed
       ? `nothing from your watch yet.${again}`
       : "nothing from your watch yet: run it again later (and check sleep tracking is on).";

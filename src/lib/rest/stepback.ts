@@ -41,7 +41,8 @@ export const QUIET_DAYS = 30;
  * wrong, not evidence of a good night.
  */
 export function qualifiesForStepBack(nights: RestNight[]): boolean {
-  const window = nights.slice(-STEPBACK_WINDOW);
+  // The newest by start, as rollup and lastOf go (recording order can differ).
+  const window = [...nights].sort((a, b) => a.startedAt - b.startedAt).slice(-STEPBACK_WINDOW);
   if (window.length < STEPBACK_MIN_NIGHTS) return false;
 
   const slept = window.filter(isSlept);

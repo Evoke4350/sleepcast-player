@@ -19,7 +19,7 @@ import type { RestNight } from "./types";
 
 const MIN = 60_000;
 /** An import's flags, all clear. */
-const FLAGS = { unsaved: false, noWindow: false, badWindow: false };
+const FLAGS = { unsaved: false, noWindow: false, badWindow: false, slept: 1 };
 const START = Date.parse("2026-10-05T23:00:00-07:00");
 
 function night(over: Partial<RestNight> = {}): RestNight {
@@ -392,7 +392,7 @@ describe("importWatch", () => {
 
   it("leaves storage alone when nothing parses", () => {
     appendNight(night(), Date.now());
-    expect(importWatch("garbage")).toEqual({ timed: [], unchanged: 0, samples: 0, unrecognised: 0, malformed: 1, refused: true, ...FLAGS, noWindow: true });
+    expect(importWatch("garbage")).toEqual({ timed: [], unchanged: 0, samples: 0, unrecognised: 0, malformed: 1, refused: true, ...FLAGS, noWindow: true, slept: 0 });
     expect(loadNights()[0].detector).toBe("inference");
   });
 });
@@ -428,9 +428,9 @@ describe("watchNotice", () => {
       "your watch timed 2 nights. the latest: asleep 12 min in.",
     );
     expect(watchNotice({ ...FLAGS, timed: [], unchanged: 0, samples: 3, unrecognised: 0, malformed: 0, refused: false })).toMatch(/didn't start inside/);
-    expect(watchNotice({ ...FLAGS, timed: [], unchanged: 0, samples: 0, unrecognised: 0, malformed: 0, refused: false })).toMatch(/sleep tracking/);
-    expect(watchNotice({ ...FLAGS, timed: [], unchanged: 0, samples: 0, unrecognised: 4, malformed: 0, refused: false })).toMatch(/english only/);
-    expect(watchNotice({ ...FLAGS, timed: [], unchanged: 0, samples: 0, unrecognised: 0, malformed: 3, refused: false })).toMatch(/start date~end date~value/);
+    expect(watchNotice({ ...FLAGS, timed: [], unchanged: 0, samples: 0, unrecognised: 0, malformed: 0, refused: false, slept: 0 })).toMatch(/sleep tracking/);
+    expect(watchNotice({ ...FLAGS, timed: [], unchanged: 0, samples: 0, unrecognised: 4, malformed: 0, refused: false, slept: 0 })).toMatch(/english only/);
+    expect(watchNotice({ ...FLAGS, timed: [], unchanged: 0, samples: 0, unrecognised: 0, malformed: 3, refused: false, slept: 0 })).toMatch(/start date~end date~value/);
     expect(watchNotice({ ...FLAGS, timed: [], unchanged: 1, samples: 3, unrecognised: 0, malformed: 0, refused: false })).toMatch(/nothing new/);
     expect(watchNotice({ ...FLAGS, timed: [], unchanged: 0, samples: 3, unrecognised: 0, malformed: 2, refused: false })).toMatch(
       /^2 lines of the watch data didn't read, so nothing was changed/,
@@ -602,5 +602,33 @@ describe("a future window line, even in a truncated payload", () => {
     const r = parseWatchPayload([OPENS_LINE, ...future].join("\n"), now);
     expect(r.badWindow).toBe(false);
     expect(parseWatchPayload("window~2026-10-08T07:00:00-07:00", now).badWindow).toBe(true);
+  });
+});
+
+describe("the notice before the watch has handed the night over", () => {
+  beforeEach(() => localStorage.clear());
+  it("treats only In Bed or Awake samples as nothing yet", () => {
+    appendNight(night(), Date.now());
+    const r = importWatch(`${OPENS_LINE}\n2026-10-05T22:55:00-07:00~2026-10-05T23:10:00-07:00~In Bed`, START + 10 * 60 * MIN);
+    expect(r).toMatchObject({ samples: 1, slept: 0 });
+    expect(watchNotice(r)).toMatch(/^nothing from your watch yet/);
+  });
+});
+
+describe("recordedUntimed", () => {
+  beforeEach(() => localStorage.clear());
+  const snap = (startedAt: number) => ({ savedAt: startedAt + 10 * MIN, remainingMs: 0, totalSeconds: 0, position: 0, current: { id: "e1", title: "", url: "", feedId: "f", date: "" }, playedIds: [], pool: [], skipIntroByFeedId: {}, feedTitles: {}, artworkByFeedId: {}, nightStartedAt: startedAt, modeKind: "all-night" });
+  it("isn't said for a killed night merged into one the watch already timed", () => {
+    appendNight(night({ detector: "watch", sleptAtMs: 4 * MIN, timeToSleepMs: 4 * MIN, inferredAtMs: null }), Date.now());
+    localStorage.setItem("sleepcast2.live", JSON.stringify(snap(START)));
+    const r = importWatch(`${OPENS_LINE}\n2026-10-05T23:04:00-07:00~2026-10-05T23:30:00-07:00~Core`, START + 10 * 60 * MIN);
+    expect(r.recordedUntimed).toBeUndefined();
+    expect(watchNotice(r)).not.toMatch(/run it again/);
+  });
+  it("isn't said for a killed night from before the window, which a later run can't time", () => {
+    localStorage.setItem("sleepcast2.live", JSON.stringify(snap(START - 3 * 24 * 60 * MIN)));
+    const r = importWatch(`${OPENS_LINE}\n2026-10-05T23:04:00-07:00~2026-10-05T23:30:00-07:00~Core`, START + 10 * 60 * MIN);
+    expect(r.nights).toHaveLength(1);
+    expect(r.recordedUntimed).toBeUndefined();
   });
 });

@@ -43,9 +43,12 @@ export function recordNightEnd(e: NightEnd): void {
       return;
     }
   }
+  // The night first: if it can't be stored (storage full), its snapshot is
+  // kept and nothing else written, so it isn't lost from both the ledger and
+  // the resume offer (as reconcileLive does for a killed tab's).
+  if (e.rest && !appendNight(e.rest.finish(e.reason, e.now), e.now)) return;
   clearLive();
   // "faded" is the natural end — stamp it so setup can offer a smaller re-arm.
   if (e.reason === "faded") recordSessionEnd(e.timerMinutes, e.modeKind);
   saveLastNight({ ...e.lastNight, endedVia: e.reason, endedAt: e.now });
-  if (e.rest) appendNight(e.rest.finish(e.reason, e.now), e.now);
 }

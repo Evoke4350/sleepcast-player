@@ -134,7 +134,9 @@ export function AppPlayer() {
   const watchLineRef = useRef(watchLine);
   watchLineRef.current = watchLine;
   // The morning's line is about the night before: gone once another starts.
-  // (A held link too, below: by then it is from before the newest night.)
+  // A held link too, below, if it was held before that night began (by then
+  // it predates the newest night). One that lands during a night is kept for
+  // when it ends: it is that night's morning run, frozen tab or not.
   useEffect(() => {
     if (session) {
       setWatchLine(null);
