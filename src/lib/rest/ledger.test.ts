@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { loadNights, appendNight, rollup, setSelfLabel, leanComparison, pruneTimelines, offerForLabel, MIN_PLAUSIBLE_ONSET_MS, PRE_FIX_BEFORE_MS, TIMELINE_KEEP_MS } from "./ledger";
+import { loadNights, appendNight, rollup, setSelfLabel, leanComparison, pruneTimelines, offerForLabel, lastOf, MIN_PLAUSIBLE_ONSET_MS, PRE_FIX_BEFORE_MS, TIMELINE_KEEP_MS } from "./ledger";
 import { DEFAULT_PARAMS, LAMBDA_MAX, quietTicksToDecide, TICK_MS } from "./detector";
 import type { RestNight } from "./types";
 import { onsetAfterEnd } from "./attribution";
@@ -230,5 +230,13 @@ describe("setSelfLabel when storage is full", () => {
     } finally {
       Storage.prototype.setItem = setItem;
     }
+  });
+});
+
+describe("lastOf", () => {
+  const n = (startedAt: number): RestNight => ({ startedAt, timerMinutes: 60, endedVia: "faded", sleptAtMs: null, timeToSleepMs: null, interactions: 0, detector: "none" });
+  it("is the newest by start, whatever the recording order", () => {
+    expect(lastOf([n(3), n(1), n(2)])?.startedAt).toBe(3);
+    expect(lastOf([])).toBeNull();
   });
 });

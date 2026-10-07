@@ -16,8 +16,13 @@ export function nextInSpread(pool: Episode[], playedIds: string[], blocked: read
 }
 
 // Night hours wrap midnight: 21:00–05:59 local.
+/** The local hour the small hours end: before it, a time belongs to the
+ *  night that began the evening before (here, and naming a night in
+ *  watch.ts). */
+export const NIGHT_ENDS_HOUR = 6;
+
 function inNightHours(localHour: number): boolean {
-  return localHour >= 21 || localHour < 6;
+  return localHour >= 21 || localHour < NIGHT_ENDS_HOUR;
 }
 
 export interface ReanchorInput {

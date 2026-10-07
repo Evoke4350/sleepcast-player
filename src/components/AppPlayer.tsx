@@ -123,8 +123,12 @@ export function AppPlayer() {
   const watchLineRef = useRef(watchLine);
   watchLineRef.current = watchLine;
   // The morning's line is about the night before: gone once another starts.
+  // (A held link too, below: by then it is from before the newest night.)
   useEffect(() => {
-    if (session) setWatchLine(null);
+    if (session) {
+      setWatchLine(null);
+      setHeldLink(null);
+    }
   }, [session]);
   // The link can also land in a tab already open, where only the fragment
   // changes. It is held (heldLink: not in the address, where a reload

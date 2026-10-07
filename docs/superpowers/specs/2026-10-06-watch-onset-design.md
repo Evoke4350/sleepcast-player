@@ -22,7 +22,9 @@ Payload: a first line `window~<start>` (where the Shortcut's window opens: it
 reads samples ending after "now minus 2 days", so a sample under way when
 the window opens is there from its own start; a window line with no
 samples yet (the watch hadn't synced) still goes ahead, recording a killed
-tab's night, and says to run it again later; without the line the import is
+tab's night, and says to run it again later; a window line that opens in
+the future (an adjust-date step left adding) is a bad one; without the line
+the import is
 refused, with a notice pointing at the updated steps), then one sample per
 line, `start~end~stage`, ISO 8601 dates with time, the
 stage as Health names it (Core, Deep, REM, Asleep, Awake, In Bed, matched as

@@ -20,6 +20,7 @@ import { lastOf, loadNights, pruneTimelines, saveNights, withNight } from "./led
 import { median } from "./stats";
 import { killedNightToRecord } from "./reconcile";
 import { WATCH_HASH } from "./watch-hash";
+import { NIGHT_ENDS_HOUR } from "./reanchor";
 import { fmtOnsetMinutes, underAMinute } from "./sleepscore";
 
 export interface SleepSample {
@@ -269,7 +270,13 @@ export function payloadFromPaste(text: string): string {
  *  malformed line: a sample missing from inside a stretch splits it, and
  *  its next stage change would pass for falling asleep. */
 export function importWatch(text: string, now = Date.now()): WatchImport {
-  const { windowStart, badWindow, samples, unrecognised, malformed } = parseWatchPayload(text);
+  const parsed = parseWatchPayload(text);
+  const { samples, unrecognised, malformed } = parsed;
+  // A window that opens in the future reads but is wrong (the Shortcut's
+  // adjust-date step adding where it should subtract): a bad window too.
+  const future = parsed.windowStart !== null && parsed.windowStart > now;
+  const windowStart = future ? null : parsed.windowStart;
+  const badWindow = parsed.badWindow || future;
   // No window line, samples or not: a Shortcut built before it was added
   // (or not this Shortcut's text at all) is told to use the updated steps.
   const noWindow = windowStart === null && !badWindow;
@@ -362,17 +369,19 @@ function decodeLeniently(text: string): string {
 function nightName(startedAt: number): string {
   const d = new Date(startedAt);
   // By the local hour, not 6 h of absolute time, which a DST change skews.
-  if (d.getHours() < 6) d.setDate(d.getDate() - 1);
+  if (d.getHours() < NIGHT_ENDS_HOUR) d.setDate(d.getDate() - 1);
   return d.toLocaleDateString("en", { weekday: "long" }).toLowerCase();
 }
 
 /** What an import did, in a line for the listener. */
 export function watchNotice(r: WatchImport): string {
   if (r.badWindow) {
-    return "the watch data's window line didn't read, so nothing was changed: in the shortcut, set the adjusted date to iso 8601 with the time included.";
+    return "the watch data's window line didn't read, or opens in the future, so nothing was changed: in the shortcut, the adjusted date should subtract 2 days, in iso 8601 with the time included.";
   }
-  if (r.noWindow && !r.malformed && !r.unrecognised) {
-    return "the watch shortcut needs its window line, so nothing was changed: see the updated steps at sleepcast.pro/watch.";
+  // Before the other format checks: a missing (or misplaced) window line is
+  // the structural problem, and a misplaced one also reads as a bad line.
+  if (r.noWindow) {
+    return "the watch shortcut needs its window line first, so nothing was changed: see the updated steps at sleepcast.pro/watch.";
   }
   if (r.unsaved) return "nothing could be saved: this browser's storage for sleepcast is full.";
   if (r.malformed) {
@@ -380,13 +389,14 @@ export function watchNotice(r: WatchImport): string {
     return `${lines} of the watch data didn't read, so nothing was changed: in the shortcut, check the text is start date~end date~value, with both dates iso 8601 and the time included.`;
   }
   if (r.unrecognised) return "your watch's sleep stages came in a language sleepcast can't read yet (english only), so nothing was changed.";
-  if (!r.samples) {
-    // Most likely the watch hadn't handed the night to the phone yet.
-    const recorded = r.nights ? "last night is recorded without the watch's time; " : "";
-    return `nothing from your watch yet: ${recorded}run it again later (and check sleep tracking is on).`;
-  }
+  // Most likely the watch hadn't handed the night to the phone yet.
+  const recorded = r.nights ? "last night is recorded without the watch's time; " : "";
+  if (!r.samples) return `nothing from your watch yet: ${recorded}run it again later (and check sleep tracking is on).`;
   if (!r.timed.length) {
-    return r.unchanged ? "nothing new: your watch had already timed these nights." : "your watch's sleep didn't start inside a sleepcast night.";
+    if (r.unchanged) return "nothing new: your watch had already timed these nights.";
+    return recorded
+      ? `no sleep from your watch inside a sleepcast night yet: ${recorded}run it again later.`
+      : "your watch's sleep didn't start inside a sleepcast night.";
   }
   const last = r.timed[r.timed.length - 1];
   const guess = last.inferredAtMs === null ? "" : `; sleepcast guessed ${fmtOnsetMinutes(last.inferredAtMs)}`;

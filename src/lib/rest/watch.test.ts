@@ -567,3 +567,25 @@ describe("a Shortcut from before the window line, with nothing to send", () => {
     expect(watchNotice(r)).toMatch(/window line/);
   });
 });
+
+describe("a window line dated in the future", () => {
+  beforeEach(() => localStorage.clear());
+  it("is a bad window (an adjust-date step adding, not subtracting), refused", () => {
+    appendNight(night(), Date.now());
+    const r = importWatch(`window~2026-10-08T07:00:00-07:00\n2026-10-05T23:04:00-07:00~2026-10-05T23:30:00-07:00~Core`, START + 10 * 60 * MIN);
+    expect(r).toMatchObject({ badWindow: true, refused: true, timed: [] });
+    expect(watchNotice(r)).toMatch(/subtract 2 days/);
+  });
+});
+
+describe("watchNotice, nothing timed yet but a killed night recorded", () => {
+  it("says the night is recorded and to run it again", () => {
+    const r = { ...FLAGS, timed: [], unchanged: 0, samples: 2, unrecognised: 0, malformed: 0, refused: false, nights: [night()] };
+    expect(watchNotice(r)).toBe(
+      "no sleep from your watch inside a sleepcast night yet: last night is recorded without the watch's time; run it again later.",
+    );
+  });
+  it("puts a missing window line first, ahead of the lines it makes malformed", () => {
+    expect(watchNotice({ ...FLAGS, noWindow: true, timed: [], unchanged: 0, samples: 3, unrecognised: 0, malformed: 1, refused: true })).toMatch(/window line first/);
+  });
+});

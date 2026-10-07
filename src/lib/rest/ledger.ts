@@ -7,9 +7,13 @@ import { DEFAULT_PARAMS, LAMBDA_MAX, TICK_MS, quietTicksToDecide } from "./detec
 const KEY = "sleepcast2.rest";
 const MAX_NIGHTS = 90;
 
-/** The most recently recorded night, or null. */
+/** The newest night, by its start (the ledger is in recording order, which
+ *  an upsert in place or a clock stepped back can make differ), or null.
+ *  The later-recorded of two that started together. */
 export function lastOf(nights: readonly RestNight[]): RestNight | null {
-  return nights.at(-1) ?? null;
+  let newest: RestNight | null = null;
+  for (const n of nights) if (!newest || n.startedAt >= newest.startedAt) newest = n;
+  return newest;
 }
 
 export function loadNights(): RestNight[] {
