@@ -103,14 +103,14 @@ function parseLine(line: string): SleepSample | "malformed" | "unrecognised" {
 }
 
 /** A Shortcut's payload: where its window opens (null when the window line
- *  is missing or its date doesn't parse; moved up when lines past
+ *  is missing, its date doesn't parse or is after `now`; moved up when lines past
  *  MAX_SAMPLES were dropped), the samples of the lines kept, and, over all
  *  its lines, how many named a stage this doesn't recognise and how many
  *  were malformed (either date without a time of day or unparseable, an
  *  end before the start, other than three fields, or a stage that isn't a
  *  name or code), which most likely means the Shortcut's format is off.
  *  Blank lines are neither. */
-export function parseWatchPayload(text: string): {
+export function parseWatchPayload(text: string, now = Infinity): {
   windowStart: number | null;
   badWindow: boolean;
   samples: SleepSample[];
@@ -122,7 +122,10 @@ export function parseWatchPayload(text: string): {
   let badWindow = false;
   if (lines[0]?.toLowerCase().startsWith(WINDOW_LINE)) {
     windowStart = parseTime(lines.shift()!.slice(WINDOW_LINE.length));
-    // There, but its date doesn't read: the format, not a missing line.
+    // There, but its date doesn't read, or opens in the future (the
+    // Shortcut's adjust-date step adding where it should subtract): the
+    // window line is wrong, not missing.
+    if (windowStart !== null && windowStart > now) windowStart = null;
     badWindow = windowStart === null;
   }
   const parsed = lines.map(parseLine);
@@ -232,7 +235,10 @@ export interface WatchImport {
   timed: WatchTiming[];
   /** The newest night in the ledger's start, to tell whether the latest
    *  re-timed night is last night or an older one. */
-  newestStartedAt?: number;
+  latestIsOlder?: boolean;
+  /** A killed tab's night was recorded, but the watch didn't time it (its
+   *  sleep hadn't synced yet): the notice says to run it again later. */
+  recordedUntimed?: boolean;
   unchanged: number;
   /** The nights couldn't be stored (storage full): nothing changed. */
   unsaved: boolean;
@@ -270,13 +276,7 @@ export function payloadFromPaste(text: string): string {
  *  malformed line: a sample missing from inside a stretch splits it, and
  *  its next stage change would pass for falling asleep. */
 export function importWatch(text: string, now = Date.now()): WatchImport {
-  const parsed = parseWatchPayload(text);
-  const { samples, unrecognised, malformed } = parsed;
-  // A window that opens in the future reads but is wrong (the Shortcut's
-  // adjust-date step adding where it should subtract): a bad window too.
-  const future = parsed.windowStart !== null && parsed.windowStart > now;
-  const windowStart = future ? null : parsed.windowStart;
-  const badWindow = parsed.badWindow || future;
+  const { windowStart, badWindow, samples, unrecognised, malformed } = parseWatchPayload(text, now);
   // No window line, samples or not: a Shortcut built before it was added
   // (or not this Shortcut's text at all) is told to use the updated steps.
   const noWindow = windowStart === null && !badWindow;
@@ -284,7 +284,8 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
   let timed: WatchTiming[] = [];
   let unchanged = 0;
   let unsaved = false;
-  let newestStartedAt: number | undefined;
+  let latestIsOlder = false;
+  let recordedUntimed = false;
   let saved: RestNight[] | undefined;
   // A window line and nothing refused: the import goes ahead, even with no
   // samples (the watch hadn't synced yet), as the night it closes is over.
@@ -295,8 +296,10 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
     // took. An import that is refused, or not saved, changes nothing.
     const killed = killedNightToRecord(now);
     const nights = killed ? withNight(loadNights(), killed.night) : loadNights();
-    newestStartedAt = lastOf(nights)?.startedAt;
+    const newest = lastOf(nights)?.startedAt;
     const r = applyWatch(nights, samples, windowStart);
+    const latest = r.timed.at(-1);
+    latestIsOlder = latest !== undefined && newest !== undefined && latest.startedAt < newest;
     unchanged = r.unchanged;
     // Nothing to write, nothing written (a full store would evict cached
     // feeds to make room for no change).
@@ -306,6 +309,7 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
         killed?.commit();
         timed = r.timed;
         saved = stored;
+        recordedUntimed = killed !== null && !r.timed.some((t) => t.startedAt === killed.night.startedAt);
       } else unsaved = true;
     }
   }
@@ -316,7 +320,8 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
     ...(saved ? { nights: saved } : {}),
     noWindow,
     badWindow,
-    ...(timed.length && newestStartedAt !== undefined ? { newestStartedAt } : {}),
+    ...(timed.length && latestIsOlder ? { latestIsOlder } : {}),
+    ...(recordedUntimed ? { recordedUntimed } : {}),
     refused: refusedContent || unsaved,
     samples: samples.length,
     unrecognised,
@@ -364,13 +369,16 @@ function decodeLeniently(text: string): string {
   });
 }
 
-/** The weekday a night belongs to, in English like the rest of the copy:
- *  one started in the small hours (before 6am) is the evening before's. */
+/** When a session was, in English like the rest of the copy: "monday
+ *  night" (one started in the small hours, before NIGHT_ENDS_HOUR, is the
+ *  evening before's), or "monday morning" / "afternoon" for a daytime one. */
 function nightName(startedAt: number): string {
   const d = new Date(startedAt);
   // By the local hour, not 6 h of absolute time, which a DST change skews.
-  if (d.getHours() < NIGHT_ENDS_HOUR) d.setDate(d.getDate() - 1);
-  return d.toLocaleDateString("en", { weekday: "long" }).toLowerCase();
+  const h = d.getHours();
+  if (h < NIGHT_ENDS_HOUR) d.setDate(d.getDate() - 1);
+  const part = h >= NIGHT_ENDS_HOUR && h < 12 ? "morning" : h >= 12 && h < 18 ? "afternoon" : "night";
+  return `${d.toLocaleDateString("en", { weekday: "long" }).toLowerCase()} ${part}`;
 }
 
 /** What an import did, in a line for the listener. */
@@ -389,27 +397,27 @@ export function watchNotice(r: WatchImport): string {
     return `${lines} of the watch data didn't read, so nothing was changed: in the shortcut, check the text is start date~end date~value, with both dates iso 8601 and the time included.`;
   }
   if (r.unrecognised) return "your watch's sleep stages came in a language sleepcast can't read yet (english only), so nothing was changed.";
-  // Most likely the watch hadn't handed the night to the phone yet.
-  const recorded = r.nights ? "last night is recorded without the watch's time; " : "";
-  if (!r.samples) return `nothing from your watch yet: ${recorded}run it again later (and check sleep tracking is on).`;
+  // A killed tab's night recorded without its time (most likely the watch
+  // hadn't handed it to the phone yet): said whatever else the line says.
+  const again = r.recordedUntimed ? " last night is recorded without the watch's time: run it again later." : "";
+  if (!r.samples) {
+    return r.recordedUntimed
+      ? `nothing from your watch yet.${again}`
+      : "nothing from your watch yet: run it again later (and check sleep tracking is on).";
+  }
   if (!r.timed.length) {
-    if (r.unchanged) return "nothing new: your watch had already timed these nights.";
-    return recorded
-      ? `no sleep from your watch inside a sleepcast night yet: ${recorded}run it again later.`
-      : "your watch's sleep didn't start inside a sleepcast night.";
+    if (r.unchanged) return `nothing new: your watch had already timed these nights.${again}`;
+    return r.recordedUntimed ? `no sleep from your watch inside a sleepcast night yet.${again}` : "your watch's sleep didn't start inside a sleepcast night.";
   }
   const last = r.timed[r.timed.length - 1];
   const guess = last.inferredAtMs === null ? "" : `; sleepcast guessed ${fmtOnsetMinutes(last.inferredAtMs)}`;
   // Not last night's (it had no sleep the watch saw): say which night, or it
   // reads as last night's beside the goodbye.
-  const older =
-    r.newestStartedAt !== undefined && last.startedAt < r.newestStartedAt
-      ? ` for ${nightName(last.startedAt)} night`
-      : "";
+  const older = r.latestIsOlder ? ` for ${nightName(last.startedAt)}` : "";
   const lead = r.timed.length === 1 ? `your watch${older}` : `your watch timed ${r.timed.length} nights. the latest${older}`;
   // "asleep under a minute in" doesn't read: the fast case gets its own words.
   const when = underAMinute(last.atMs) ? "asleep within a minute" : `asleep ${fmtOnsetMinutes(last.atMs)} in`;
-  return `${lead}: ${when}${guess}.`;
+  return `${lead}: ${when}${guess}.${again}`;
 }
 
 /** How the detector's guesses compare with the watch: nights the watch

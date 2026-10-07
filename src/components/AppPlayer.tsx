@@ -62,17 +62,28 @@ function takeHeldHash(): string | null {
   return h;
 }
 
-/** Reloads the page, handing on a held link if there is one, so it is read
- *  as on any page load: through session storage, which the head script
- *  reads, never back through the address. */
-function reloadWithPending(held: string | null): void {
-  if (held !== null) {
-    try {
-      sessionStorage.setItem(WATCH_PENDING_KEY, held);
-    } catch {
-      /* private mode: the next morning's run makes it up */
-    }
+/** Hands a held link on to the next page load, through session storage
+ *  (the head script reads it), never back through the address. Whether it
+ *  could (blocked storage can't). */
+function handOn(held: string): boolean {
+  try {
+    sessionStorage.setItem(WATCH_PENDING_KEY, held);
+    return true;
+  } catch {
+    return false;
   }
+}
+
+/** Reads a held link: hands it on and reloads, so it is read as on any page
+ *  load. If it can't be handed on, stays (a reload would lose it unread). */
+function readHeldLink(held: string): void {
+  if (handOn(held)) window.location.reload();
+}
+
+/** Reloads to read what a paste changed, handing on a held link if there
+ *  is one (and reloading regardless: the page must show the change). */
+function reloadAfterPaste(held: string | null): void {
+  if (held !== null) handOn(held);
   window.location.reload();
 }
 
@@ -409,7 +420,7 @@ export function AppPlayer() {
     );
   }
 
-  if (view === "rest") return <RestView onClose={(changed) => (changed ? reloadWithPending(heldLink) : setView("player"))} />;
+  if (view === "rest") return <RestView onClose={(changed) => (changed ? reloadAfterPaste(heldLink) : setView("player"))} />;
   return (
     <main className="flex-1 px-4 py-8 text-[#b59a76]">
       <div className="mx-auto max-w-xl">
@@ -459,7 +470,7 @@ export function AppPlayer() {
         )}
         {heldLink !== null && (
           <HomeLine mark="⌚︎">
-            <button onClick={() => reloadWithPending(heldLink)} className="underline decoration-[#3a3325] underline-offset-4 hover:text-[#b59a76]">
+            <button onClick={() => readHeldLink(heldLink)} className="underline decoration-[#3a3325] underline-offset-4 hover:text-[#b59a76]">
               your watch's night came in: read it
             </button>
           </HomeLine>

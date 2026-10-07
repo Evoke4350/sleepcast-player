@@ -174,7 +174,7 @@ export function rollup(nights: RestNight[]): RestRollup {
   // The nights themselves still count as slept — the sleep was real, only the
   // figure was wrong — so this filters the time statistics, not the ledger.
   const tts = believableOnsets(slept);
-  const last7 = nights.slice(-7);
+  const last7 = [...nights].sort((a, b) => a.startedAt - b.startedAt).slice(-7);
   const avg7 = last7.length
     ? last7.reduce((s, n) => s + n.interactions, 0) / last7.length
     : 0;

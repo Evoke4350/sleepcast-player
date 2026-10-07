@@ -281,7 +281,7 @@ describe("importWatch", () => {
     appendNight(night(), Date.now());
     const r = importWatch(`${OPENS_LINE}\n2026-10-05T23:04:00-07:00~2026-10-05T23:30:00-07:00~Core`);
     expect(r.nights).toHaveLength(1);
-    expect(r).toMatchObject({ timed: [{ startedAt: START, atMs: 4 * MIN, inferredAtMs: 30 * MIN }], newestStartedAt: START, unchanged: 0, samples: 1, unrecognised: 0, malformed: 0, refused: false, ...FLAGS });
+    expect(r).toMatchObject({ timed: [{ startedAt: START, atMs: 4 * MIN, inferredAtMs: 30 * MIN }], unchanged: 0, samples: 1, unrecognised: 0, malformed: 0, refused: false, ...FLAGS });
     expect(loadNights()[0].detector).toBe("watch");
     // 4 min is under the detector's plausibility floor; a watch onset is measured.
     expect(rollup(loadNights()).bestTimeToSleepMs).toBe(4 * MIN);
@@ -490,7 +490,7 @@ describe("watchNotice, for a night other than last night", () => {
     watchNotice({
       ...FLAGS,
       timed: [{ startedAt, atMs: 12 * MIN, inferredAtMs: null }],
-      newestStartedAt: startedAt + 24 * 60 * MIN,
+      latestIsOlder: true,
       unchanged: 0, samples: 3, unrecognised: 0, malformed: 0, refused: false,
     });
   it("names the night, in english", () => {
@@ -541,7 +541,7 @@ describe("an import with nothing to read yet", () => {
     localStorage.setItem("sleepcast2.live", JSON.stringify(live));
     const r = importWatch(OPENS_LINE, START + 10 * 60 * MIN);
     expect(r).toMatchObject({ samples: 0, refused: false });
-    expect(watchNotice(r)).toMatch(/^nothing from your watch yet: last night is recorded without the watch's time; run it again later/);
+    expect(watchNotice(r)).toBe("nothing from your watch yet. last night is recorded without the watch's time: run it again later.");
     expect(localStorage.getItem("sleepcast2.live")).toBeNull();
     expect(loadNights()).toHaveLength(1);
   });
@@ -551,11 +551,11 @@ describe("nightName across a DST change", () => {
   it("goes by the local hour", () => {
     const t = (y: number, m: number, d: number, h: number, min = 0) => new Date(y, m, d, h, min).getTime();
     const name = (startedAt: number) =>
-      watchNotice({ ...FLAGS, timed: [{ startedAt, atMs: 12 * MIN, inferredAtMs: null }], newestStartedAt: startedAt + 1, unchanged: 0, samples: 1, unrecognised: 0, malformed: 0, refused: false });
+      watchNotice({ ...FLAGS, timed: [{ startedAt, atMs: 12 * MIN, inferredAtMs: null }], latestIsOlder: true, unchanged: 0, samples: 1, unrecognised: 0, malformed: 0, refused: false });
     // Sunday 05:30 local is saturday night, whatever the clocks did that night.
     expect(name(t(2026, 10, 1, 5, 30))).toContain("for saturday night");
-    // Sunday 06:30 local is sunday's.
-    expect(name(t(2026, 10, 1, 6, 30))).toContain("for sunday night");
+    // Sunday 06:30 local is a morning session, sunday's.
+    expect(name(t(2026, 10, 1, 6, 30))).toContain("for sunday morning");
   });
 });
 
@@ -580,12 +580,27 @@ describe("a window line dated in the future", () => {
 
 describe("watchNotice, nothing timed yet but a killed night recorded", () => {
   it("says the night is recorded and to run it again", () => {
-    const r = { ...FLAGS, timed: [], unchanged: 0, samples: 2, unrecognised: 0, malformed: 0, refused: false, nights: [night()] };
+    const r = { ...FLAGS, timed: [], unchanged: 0, samples: 2, unrecognised: 0, malformed: 0, refused: false, recordedUntimed: true };
     expect(watchNotice(r)).toBe(
-      "no sleep from your watch inside a sleepcast night yet: last night is recorded without the watch's time; run it again later.",
+      "no sleep from your watch inside a sleepcast night yet. last night is recorded without the watch's time: run it again later.",
     );
+    // Also beside "nothing new", the daily case, and beside a timed older night.
+    expect(watchNotice({ ...r, unchanged: 1 })).toMatch(/^nothing new: .* last night is recorded without the watch's time: run it again later\.$/);
+    expect(
+      watchNotice({ ...r, timed: [{ startedAt: new Date(2026, 9, 5, 23).getTime(), atMs: 12 * MIN, inferredAtMs: null }], latestIsOlder: true }),
+    ).toBe("your watch for monday night: asleep 12 min in. last night is recorded without the watch's time: run it again later.");
   });
   it("puts a missing window line first, ahead of the lines it makes malformed", () => {
     expect(watchNotice({ ...FLAGS, noWindow: true, timed: [], unchanged: 0, samples: 3, unrecognised: 0, malformed: 1, refused: true })).toMatch(/window line first/);
+  });
+});
+
+describe("a future window line, even in a truncated payload", () => {
+  it("blames the window line only when it is the window line that's in the future", () => {
+    const now = Date.parse("2026-10-06T09:00:00-07:00");
+    const future = Array.from({ length: MAX_SAMPLES + 1 }, () => "2026-10-07T01:00:00-07:00~2026-10-07T01:30:00-07:00~Core");
+    const r = parseWatchPayload([OPENS_LINE, ...future].join("\n"), now);
+    expect(r.badWindow).toBe(false);
+    expect(parseWatchPayload("window~2026-10-08T07:00:00-07:00", now).badWindow).toBe(true);
   });
 });
