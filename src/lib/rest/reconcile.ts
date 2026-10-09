@@ -30,9 +30,13 @@ export function reconcileLive(l: LiveSession, now: number): boolean {
 }
 
 /** A killed tab's night as the ledger records it, and `commit`, to run once
- *  it is stored: the last-night record (for a re-anchor) and clearing the
- *  snapshot. */
-export function killedNight(l: LiveSession, now: number): { night: RestNight; commit: () => void } {
+ *  it is stored: the last-night record (for a re-anchor, which continues a
+ *  "faded" one; `lastEndedVia`) and clearing the snapshot. */
+export function killedNight(
+  l: LiveSession,
+  now: number,
+  lastEndedVia: "faded" | "ended" = "faded",
+): { night: RestNight; commit: () => void } {
   const elapsedMs = Math.max(0, l.totalSeconds * 1000 - Math.max(0, l.remainingMs));
   const timerMinutes = nightTimerMinutes(l);
   // As if it faded on schedule. A timerless night (one-episode, all-night)
@@ -64,7 +68,7 @@ export function killedNight(l: LiveSession, now: number): { night: RestNight; co
       feedTitles: l.feedTitles,
       artworkByFeedId: l.artworkByFeedId,
       skipIntroByFeedId: l.skipIntroByFeedId,
-      endedVia: "faded",
+      endedVia: lastEndedVia,
       endedAt,
       wasVaried: l.wasVaried ?? false, // steers which lineup a re-anchor continues
     });
@@ -92,7 +96,9 @@ export function settleLive(l: LiveSession | null, now: number): LiveSession | nu
 export function killedNightToRecord(now: number): { night: RestNight; commit: () => void } | null {
   const l = loadLive();
   if (!l || isFresh(l, now)) return null;
-  return killedNight(l, now);
+  // Its last night "ended", not "faded": the listener is up and closed it
+  // (the import), so no re-anchor offers to continue it.
+  return killedNight(l, now, "ended");
 }
 
 /** Whether a snapshot may still be live in another tab. Saved in the future

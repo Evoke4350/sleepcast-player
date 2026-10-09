@@ -12,13 +12,17 @@ const MAX_NIGHTS = 90;
  *  order, which an upsert in place or a clock stepped back can make differ;
  *  two that started together keep their recording order). */
 export function newestByStart(nights: readonly RestNight[], n: number): RestNight[] {
+  if (n <= 0) return []; // (slice(-0) would be every night)
   return [...nights].sort((a, b) => a.startedAt - b.startedAt).slice(-n);
 }
 
 /** The newest night by start (the later-recorded of two that started
  *  together), or null. */
 export function lastOf(nights: readonly RestNight[]): RestNight | null {
-  return newestByStart(nights, 1)[0] ?? null;
+  // One pass (a render's worth of calls): the same order as newestByStart.
+  let newest: RestNight | null = null;
+  for (const n of nights) if (!newest || n.startedAt >= newest.startedAt) newest = n;
+  return newest;
 }
 
 export function loadNights(): RestNight[] {

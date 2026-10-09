@@ -158,7 +158,8 @@ describe("killedNightToRecord (a watch import)", () => {
     expect(loadLive()).not.toBeNull();
     k.commit();
     expect(loadLive()).toBeNull();
-    expect(loadLastNight()).not.toBeNull();
+    // Ended, not faded: no re-anchor offers to continue a night the import closed.
+    expect(loadLastNight()?.endedVia).toBe("ended");
   });
 
   it("offers none that may still be playing in another tab", () => {

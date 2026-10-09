@@ -56,7 +56,10 @@ press start. Only nights that began after the window opened are matched: for
 an earlier one the window may have cut its sleep off (whether it began before
 the night's start is unknown, and a stage change after a brief wake would pass
 for its onset), so it keeps what it has. A night after the window opened has
-every sample that began within it, so its first-ever night is timed too.
+every sample under way at or after its start (the Shortcut filters by end
+date, so samples that began before the window and run into it are there
+too, which is what the began-before-start guard needs), so its first-ever
+night is timed too.
 
 ## 4. Re-timing
 
@@ -116,7 +119,8 @@ touches would read as awake ones and make the detector bolder.
   recorded into the ledger first, so the morning import can time it: a watch
   import means the night is over, so even a snapshot that could still be
   revived (a timerless night's) is recorded, unless it was saved in the last
-  30 s (it may be playing in another tab). The line also says when lines
+  30 s (it may be playing in another tab). Its last-night record says
+  "ended", not "faded", so no 3am re-anchor offers to continue it. The line also says when lines
   couldn't be read, when nothing was new, and when the re-timed nights
   couldn't be stored.
 - A link landing in a tab already open (only the fragment changes) is held

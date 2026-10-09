@@ -271,7 +271,9 @@ export function payloadFromPaste(text: string): string {
   const i = text.indexOf(WATCH_HASH);
   // An encoded link has no whitespace: it ends at the first (anything after
   // it, a shared message's own words, isn't the payload).
-  if (i >= 0) return watchPayloadFromHash(text.slice(i).split(/\s/)[0]) ?? "";
+  // Punctuation a message put after it (a full stop, a closing quote) isn't
+  // either.
+  if (i >= 0) return watchPayloadFromHash(text.slice(i).split(/\s/)[0].replace(/[.,;:!?"'\u2019\u201d)\]]+$/u, "")) ?? "";
   return (/%[0-9a-f]{2}/i.test(text) ? decodeLeniently(text) : text).trim();
 }
 

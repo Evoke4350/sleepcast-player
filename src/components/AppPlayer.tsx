@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, type ReactNode } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import type { Episode } from "../lib/engine";
 import { formatTime } from "../lib/engine";
 import { loadLive, clearLive, clearLastNight, loadLastNight, type LiveSession, type LastNight, type ResumeDescriptor, resumeFrom, nightTimerMinutes, loadState, isRevivable, resumeMode, loadBlocked } from "../lib/store";
@@ -129,19 +129,9 @@ export function AppPlayer() {
   // the `live` state below then finds no snapshot). The fragment is cleared
   // at once: a reload, or the link shared, mustn't import it again.
   const [watchLine, setWatchLine] = useState(takeWatchLink);
-  // For the re-anchor check (registered once): only while the line shows,
-  // i.e. until another night starts.
-  const watchLineRef = useRef(watchLine);
-  watchLineRef.current = watchLine;
   // The morning's line is about the night before: gone once another starts.
-  // A held link too, below, if it was held before that night began (by then
-  // it predates the newest night). One that lands during a night is kept for
-  // when it ends: it is that night's morning run, frozen tab or not.
   useEffect(() => {
-    if (session) {
-      setWatchLine(null);
-      setHeldLink(null);
-    }
+    if (session) setWatchLine(null);
   }, [session]);
   // The link can also land in a tab already open, where only the fragment
   // changes. It is held (heldLink: not in the address, where a reload
@@ -217,10 +207,9 @@ export function AppPlayer() {
       // KEY_LIVE, so normally only one of the two is present — this guards the
       // edge where an older faded night lingers under a still-live one.)
       const live = loadLive();
-      // Nor on a page load that read a watch link: the night it closed is
-      // over (the import just said so), and the re-anchor would cover the
-      // line saying what the watch found.
-      if (isRevivable(live, Date.now()) || watchLineRef.current !== null) {
+      // (A night a watch import closed has its last night "ended", which no
+      // re-anchor continues: killedNightToRecord.)
+      if (isRevivable(live, Date.now())) {
         setReanchor(null);
         return;
       }
@@ -285,6 +274,9 @@ export function AppPlayer() {
     modeOverride?: PlayMode
   ) {
     setResume(null); // a fresh night, not a revival
+    // A held link predates this new night (one that lands during a night is
+    // kept for when it ends; resuming a night keeps one too).
+    setHeldLink(null);
     recordStoredNight(true);
     applyNightSettings(modeOverride ?? loadState().settings.mode);
     setSession({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artworkByFeedId, leadEpisode, wasVaried, leadPosition });

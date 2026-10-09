@@ -636,6 +636,7 @@ describe("recordedUntimed", () => {
 describe("round-27 edges", () => {
   it("cuts a pasted link at the first whitespace, so a message's own words aren't read", () => {
     expect(payloadFromPaste("open https://sleepcast.pro/#watch=a~b~Core%0Ac~d~REM in safari")).toBe("a~b~Core\nc~d~REM");
+    expect(payloadFromPaste("here it is: \"https://sleepcast.pro/#watch=a~b~Core%0Ac~d~REM\".")).toBe("a~b~Core\nc~d~REM");
   });
   it("reads a window line with spaces around its ~", () => {
     expect(parseWatchPayload("Window ~ 2026-10-04T08:00:00-07:00\n").windowStart).toBe(Date.parse("2026-10-04T08:00:00-07:00"));
