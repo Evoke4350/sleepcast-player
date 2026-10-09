@@ -292,3 +292,17 @@ describe("labels and merges with a night recorded twice", () => {
     expect(merged).toMatchObject({ detector: "watch", sleptAtMs: 300_000, inferredAtMs: 600_000, onsetFeedId: "a", timeline });
   });
 });
+
+describe("loadNights and copies of a night", () => {
+  beforeEach(() => localStorage.clear());
+  const n = (over: Partial<RestNight> = {}): RestNight => ({ startedAt: 21, timerMinutes: 60, endedVia: "faded", sleptAtMs: null, timeToSleepMs: null, interactions: 0, detector: "none", ...over });
+  it("reads them as one, so every reader counts the night once", () => {
+    localStorage.setItem("sleepcast2.rest", JSON.stringify([n(), n({ startedAt: 22 }), n({ interactions: 2 })]));
+    expect(loadNights().map((x) => [x.startedAt, x.interactions])).toEqual([[21, 2], [22, 0]]);
+  });
+  it("of two watch-timed copies, keeps the later's time", () => {
+    const w = (at: number) => n({ detector: "watch", sleptAtMs: at, timeToSleepMs: at, inferredAtMs: null });
+    localStorage.setItem("sleepcast2.rest", JSON.stringify([w(20 * 60_000), w(12 * 60_000)]));
+    expect(loadNights()[0].sleptAtMs).toBe(12 * 60_000);
+  });
+});

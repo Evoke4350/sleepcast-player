@@ -16,7 +16,7 @@
 // onset.
 import type { RestNight } from "./types";
 import { retimed } from "./attribution";
-import { collapsed, lastOf, loadNights, pruneTimelines, saveNights, withNight } from "./ledger";
+import { lastOf, loadNights, pruneTimelines, saveNights, withNight } from "./ledger";
 import { median } from "./stats";
 import { killedNightToRecord } from "./reconcile";
 import { WATCH_HASH } from "./watch-hash";
@@ -324,16 +324,11 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
     // nights in one save, then its snapshot cleared (commit) only once that
     // took. An import that is refused, or not saved, changes nothing.
     const killed = killedNightToRecord(now);
-    // Copies of a night (an older ledger's) collapse first, so none is
-    // timed or counted twice; the killed night joins as any recording does.
-    const raw = loadNights();
-    const loaded = collapsed(raw);
-    const loadedCount = raw.length;
-    const nights = killed ? withNight(loaded, killed.night) : loaded;
+    // (loadNights reads an older ledger's copies of a night as one.)
+    const nights = killed ? withNight(loadNights(), killed.night) : loadNights();
     const newest = lastOf(nights)?.startedAt;
     const r = applyWatch(nights, samples, windowStart);
-    // Something to write: a re-timed night, a killed one, or copies collapsed.
-    const worthWriting = r.timed.length > 0 || killed !== null || nights.length !== loadedCount;
+    const worthWriting = r.timed.length > 0 || killed !== null;
     const latest = r.timed.at(-1);
     unchanged = r.unchanged;
     // Nothing to write, nothing written (a full store would evict cached

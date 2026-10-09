@@ -29,7 +29,9 @@ export function loadNights(): RestNight[] {
   try {
     const raw = localStorage.getItem(KEY);
     const arr = raw ? (JSON.parse(raw) as RestNight[]) : [];
-    return Array.isArray(arr) ? arr : [];
+    // A ledger from before could hold a night twice: read as one, so every
+    // reader (counts, scores, the step-back, the watch import) agrees.
+    return Array.isArray(arr) ? collapsed(arr) : [];
   } catch {
     return [];
   }
@@ -68,17 +70,18 @@ export function appendNight(n: RestNight, now = Date.now()): boolean {
   return saveNights(pruneTimelines(withNight(loadNights(), n), now)) !== null;
 }
 
-/** `nights` with `n` added, or replacing the night with its start (see
+/** `nights` with `n` added, or merged into the night with its start (see
  *  appendNight), for a caller that saves them itself. */
 export function withNight(nights: readonly RestNight[], n: RestNight): RestNight[] {
-  // Every copy with its start (a ledger from before this could hold the
-  // same night twice) collapses into one, where the first was.
-  const same = nights.filter((x) => x.startedAt === n.startedAt);
-  if (!same.length) return [...nights, n];
-  const watched = same.find((x) => x.detector === "watch" && x.sleptAtMs !== null);
-  const merged = watched ? keepWatch(n, watched) : n;
-  const i = nights.indexOf(same[0]);
-  return [...nights.slice(0, i), merged, ...nights.slice(i + 1).filter((x) => x.startedAt !== n.startedAt)];
+  return collapsed([...nights, n]);
+}
+
+/** A night recorded again (`n`, the later) merged with what was there: the
+ *  later wins, keeping the watch's time from the earlier unless the later
+ *  has a watch time of its own. */
+function merge(earlier: RestNight, n: RestNight): RestNight {
+  if (n.detector === "watch" || earlier.detector !== "watch" || earlier.sleptAtMs === null) return n;
+  return keepWatch(n, earlier);
 }
 
 /** `n`, recorded again, keeping the watch's time from `watched`: re-timed
@@ -93,10 +96,18 @@ function keepWatch(n: RestNight, watched: RestNight): RestNight {
 }
 
 /** The nights with every night recorded more than once collapsed into one
- *  (as withNight does for one), in order: a ledger from before could hold
- *  copies, which would be counted, and timed, twice. */
+ *  (merge), where its first copy was, in one pass. */
 export function collapsed(nights: readonly RestNight[]): RestNight[] {
-  return nights.reduce<RestNight[]>((acc, n) => withNight(acc, n), []);
+  const out: RestNight[] = [];
+  const at = new Map<number, number>();
+  for (const n of nights) {
+    const i = at.get(n.startedAt);
+    if (i === undefined) {
+      at.set(n.startedAt, out.length);
+      out.push(n);
+    } else out[i] = merge(out[i], n);
+  }
+  return out;
 }
 
 /** Drops the timeline of any night that began more than TIMELINE_KEEP_MS
