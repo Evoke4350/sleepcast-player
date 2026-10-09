@@ -120,7 +120,9 @@ export function resumeTarget(card: LiveSession, now: number): { revive: LiveSess
   const stored = loadLive();
   // The same night: the same snapshot, or one with the card's start, or
   // (both written before the night's start was known) the card's lineup.
-  const lineup = (l: LiveSession) => l.pool.map((e) => e.id).join("\n");
+  // (As a set: a snapshot puts its current episode first, so the order
+  // moves as the night plays.)
+  const lineup = (l: LiveSession) => l.pool.map((e) => e.id).sort().join("\n");
   const sameNight = (l: LiveSession) =>
     l.savedAt === card.savedAt ||
     (l.nightStartedAt !== undefined
