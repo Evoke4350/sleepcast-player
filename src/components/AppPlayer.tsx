@@ -82,12 +82,6 @@ function readHeldLink(held: string): void {
   if (handOn(held)) window.location.reload();
 }
 
-/** Reloads to read what a paste changed. A held link isn't handed on: it
- *  is older than the paste, and imported after it would undo the paste's
- *  times (the later import wins). */
-function reloadAfterPaste(): void {
-  window.location.reload();
-}
 
 /** One quiet line above setup (the goodbye, the watch's result). */
 function HomeLine({ mark, markClass = "", children }: { mark: string; markClass?: string; children: ReactNode }) {
@@ -444,7 +438,9 @@ export function AppPlayer() {
     );
   }
 
-  if (view === "rest") return <RestView onClose={(changed) => (changed ? reloadAfterPaste() : setView("player"))} />;
+  // A paste's reload doesn't hand a held link on: it is older than the
+  // paste, and imported after it would undo the paste's times.
+  if (view === "rest") return <RestView onClose={(changed) => (changed ? window.location.reload() : setView("player"))} />;
   return (
     <main className="flex-1 px-4 py-8 text-[#b59a76]">
       <div className="mx-auto max-w-xl">

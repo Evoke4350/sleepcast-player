@@ -4,5 +4,5 @@
 export const WATCH_HASH = "#watch=";
 
 /** Session storage key a held link is handed on through, across a reload
- *  (AppPlayer's readHeldLink and reloadAfterPaste; the head script reads and clears it). */
+ *  (AppPlayer's readHeldLink; the head script reads and clears it). */
 export const WATCH_PENDING_KEY = "sleepcast2.watch-pending";
