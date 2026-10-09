@@ -38,8 +38,9 @@ import PlayerLayout from "../layouts/PlayerLayout.astro";
       </p>
       <p>
         if you use the apple watch shortcut, it hands your sleep stages to sleepcast in the part of the link after the
-        <code>#</code>, which browsers never send to a server. sleepcast takes them out of the address as the page opens
-        and keeps them in the same local storage; it sends them nowhere. safari may still list the opened link in its
+        <code>#</code>, which browsers never send to a server. sleepcast takes them out of the address as the page opens,
+        works out when you fell asleep, and keeps only that, in the same local storage; the stages themselves aren't kept,
+        and nothing is sent anywhere. safari may still list the opened link in its
         history (and sync that history to your other devices): clear it there if you'd rather it didn't.
       </p>
 

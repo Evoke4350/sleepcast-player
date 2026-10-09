@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { reconcileLive, settleLive, killedNightToRecord, SNAPSHOT_FRESH_MS } from "./reconcile";
+import { reconcileLive, settleLive, killedNightToRecord, resumeTarget, SNAPSHOT_FRESH_MS } from "./reconcile";
 import { appendNight, loadNights } from "./ledger";
 import { loadLive, saveLive, loadLastNight, type LiveSession } from "../store";
 
@@ -197,5 +197,27 @@ describe("reconcileLive and a night already recorded", () => {
     const nights = loadNights();
     expect(nights).toHaveLength(1);
     expect(nights[0]).toMatchObject({ detector: "watch", sleptAtMs: 12 * 60_000, interactions: 4 });
+  });
+});
+
+describe("resumeTarget (a resume card tapped)", () => {
+  beforeEach(() => localStorage.clear());
+  it("is the card's snapshot while it is the one stored", () => {
+    saveLive(snap());
+    expect(resumeTarget(snap(), T0 + 21 * 60_000)).toMatchObject({ savedAt: snap().savedAt });
+  });
+  it("is the newer snapshot of the same night once nothing is writing it", () => {
+    saveLive(snap({ savedAt: T0 + 22 * 60_000 }));
+    const t = resumeTarget(snap(), T0 + 22 * 60_000 + SNAPSHOT_FRESH_MS);
+    expect(t).toMatchObject({ savedAt: T0 + 22 * 60_000 });
+  });
+  it("says 'elsewhere' while another tab is writing that night", () => {
+    saveLive(snap({ savedAt: T0 + 22 * 60_000 }));
+    expect(resumeTarget(snap(), T0 + 22 * 60_000 + 1000)).toBe("elsewhere");
+  });
+  it("is nothing once the night is gone, or the stored one is another night's", () => {
+    expect(resumeTarget(snap(), T0 + 21 * 60_000)).toBeNull();
+    saveLive(snap({ savedAt: T0 + 22 * 60_000, nightStartedAt: T0 + 60_000 }));
+    expect(resumeTarget(snap(), T0 + 23 * 60_000)).toBeNull();
   });
 });

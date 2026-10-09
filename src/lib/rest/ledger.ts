@@ -25,6 +25,15 @@ export function lastOf(nights: readonly RestNight[]): RestNight | null {
   return newest;
 }
 
+/** Whether a stored entry has the shape the readers rely on: a start, the
+ *  onset fields (a number or null), and a touch count. */
+function isNight(x: unknown): x is RestNight {
+  if (!x || typeof x !== "object") return false;
+  const n = x as Record<string, unknown>;
+  const numOrNull = (v: unknown) => v === null || typeof v === "number";
+  return typeof n.startedAt === "number" && numOrNull(n.sleptAtMs) && numOrNull(n.timeToSleepMs) && typeof n.interactions === "number";
+}
+
 export function loadNights(): RestNight[] {
   let arr: unknown;
   try {
@@ -38,7 +47,7 @@ export function loadNights(): RestNight[] {
   // reader (counts, scores, the step-back, the watch import) agrees. An
   // entry that isn't a night is passed over, not allowed to blank the rest
   // (which the next save would then overwrite).
-  return collapsed(arr.filter((n): n is RestNight => !!n && typeof n === "object" && typeof (n as RestNight).startedAt === "number"));
+  return collapsed(arr.filter(isNight));
 }
 
 /** Stores the nights, the newest MAX_NIGHTS of them, and returns what it

@@ -89,9 +89,9 @@ only what played since) can't say what was playing, so it counts as none.
 
 The same night can be recorded twice: a watch import records a killed tab's
 snapshot, and can't tell a suspended tab's from it; the tab may wake and
-record its night again (by ending it, or by being reconciled). The one merge
-path, `withNight` (which `appendNight` and the import's killed night use, and
-which `loadNights` applies to any older copies), replaces a night with the
+record its night again (by ending it, or by being reconciled). One merge rule,
+`merge` (applied by `withNight`, which `appendNight` and the import's killed
+night use, and by `loadNights` to any older copies), replaces a night with the
 same start, keeping the watch's time (re-attributed from the real night's timeline) if it had one. The
 ledger reads any older copies of a night as one (`collapsed`, in
 `loadNights`), so every reader agrees; of two watch-timed copies, the later

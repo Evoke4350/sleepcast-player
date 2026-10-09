@@ -15,7 +15,7 @@ import { Night } from "./Night";
 import { isYouTubeLineup, isMixedLineup } from "../lib/youtube-night";
 import { RestView } from "./RestView";
 import { WatchLine } from "./WatchLine";
-import { reconcileLive, settleLive } from "../lib/rest/reconcile";
+import { reconcileLive, resumeTarget, settleLive } from "../lib/rest/reconcile";
 import { ReanchorView } from "./ReanchorView";
 import { shouldGreetGoodbye, markGoodbyeSeen } from "../lib/rest/surface";
 import { fmtOnsetMinutes } from "../lib/rest/sleepscore";
@@ -192,6 +192,8 @@ export function AppPlayer() {
   // time is left and it is recent; otherwise the tab was killed and the night
   // is over, so record it (rest/reconcile.ts) rather than dropping it.
   const [live, setLive] = useState<LiveSession | null>(() => settleLive(loadLive(), Date.now()));
+  // Why a resume tap did nothing, when it couldn't (resumeTarget).
+  const [resumeNote, setResumeNote] = useState<string | null>(null);
 
   const [reanchor, setReanchor] = useState<{ lastNight: LastNight; next: Episode } | null>(null);
 
@@ -287,23 +289,28 @@ export function AppPlayer() {
   // reload needs before audio can start again.
   function handleResume() {
     if (!live) return;
-    // The card's snapshot may be stale: another tab may have finished (and
-    // recorded) that night since. Revive only the snapshot still stored;
-    // else settle what is there now.
-    if (loadLive()?.savedAt !== live.savedAt) {
+    // The card may be stale (resumeTarget): revive what is stored now.
+    const target = resumeTarget(live, Date.now());
+    if (target === "elsewhere") {
+      setLive(null);
+      setResumeNote("that night is playing in another tab.");
+      return;
+    }
+    if (target === null) {
       setLive(settleLive(loadLive(), Date.now()));
       return;
     }
+    setResumeNote(null);
     setWatchLine(null);
-    applyNightSettings(resumeMode(live)); // (the lean comes with the snapshot)
-    setResume(resumeFrom(live));
+    applyNightSettings(resumeMode(target)); // (the lean comes with the snapshot)
+    setResume(resumeFrom(target));
     setSession({
-      pool: live.pool,
-      timerMinutes: nightTimerMinutes(live),
-      wasVaried: live.wasVaried,
-      skipIntroByFeedId: live.skipIntroByFeedId,
-      feedTitles: live.feedTitles,
-      artworkByFeedId: live.artworkByFeedId,
+      pool: target.pool,
+      timerMinutes: nightTimerMinutes(target),
+      wasVaried: target.wasVaried,
+      skipIntroByFeedId: target.skipIntroByFeedId,
+      feedTitles: target.feedTitles,
+      artworkByFeedId: target.artworkByFeedId,
     });
     setLive(null);
   }
@@ -478,6 +485,7 @@ export function AppPlayer() {
             </button>
           </HomeLine>
         )}
+        {resumeNote && <HomeLine mark="☾">{resumeNote}</HomeLine>}
         {watchLine && (
           <HomeLine mark="⌚︎">
             <WatchLine text={watchLine} />

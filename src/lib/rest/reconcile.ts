@@ -109,3 +109,20 @@ function isFresh(l: LiveSession, now: number): boolean {
   const age = now - l.savedAt;
   return age >= 0 && age < SNAPSHOT_FRESH_MS;
 }
+
+/** What tapping "keep going" on a resume card (showing `card`) should
+ *  revive, read from storage now, as another tab may have moved on:
+ *  - the stored snapshot, when it is the card's night (the card's own, or a
+ *    newer snapshot of it that is no longer being written);
+ *  - "elsewhere", when that night is being written right now (another tab
+ *    is playing it): reviving it here would play it twice;
+ *  - null, when the night is gone (finished and recorded elsewhere) or the
+ *    stored snapshot is another night's: the card is stale. */
+export function resumeTarget(card: LiveSession, now: number): LiveSession | "elsewhere" | null {
+  const stored = loadLive();
+  if (!stored) return null;
+  if (stored.savedAt === card.savedAt) return stored;
+  const sameNight = stored.nightStartedAt !== undefined && stored.nightStartedAt === card.nightStartedAt;
+  if (!sameNight) return null;
+  return isFresh(stored, now) ? "elsewhere" : stored;
+}

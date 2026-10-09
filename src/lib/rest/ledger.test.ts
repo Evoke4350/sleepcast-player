@@ -266,7 +266,7 @@ describe("saveNights over the cap", () => {
   });
 });
 
-describe("withNight and a night already there twice", () => {
+describe("a night stored twice, then recorded again", () => {
   beforeEach(() => localStorage.clear());
   it("collapses every copy into one, keeping the watch's time", () => {
     const base: RestNight = { startedAt: 9, timerMinutes: 60, endedVia: "faded", sleptAtMs: null, timeToSleepMs: null, interactions: 0, detector: "none" };
@@ -284,7 +284,7 @@ describe("withNight and a night already there twice", () => {
 describe("labels and merges with a night recorded twice", () => {
   beforeEach(() => localStorage.clear());
   const n = (over: Partial<RestNight> = {}): RestNight => ({ startedAt: 11, timerMinutes: 60, endedVia: "faded", sleptAtMs: 600_000, timeToSleepMs: 600_000, interactions: 0, detector: "inference", ...over });
-  it("setSelfLabel labels every copy, so the one offered is labelled", () => {
+  it("setSelfLabel labels the night that was offered, a ledger's copies being read as one", () => {
     localStorage.setItem("sleepcast2.rest", JSON.stringify([n(), n({ interactions: 3 })]));
     expect(setSelfLabel(11, "slept")?.interactions).toBe(3);
     expect(loadNights().every((x) => x.selfLabel === "slept")).toBe(true);
@@ -317,5 +317,14 @@ describe("loadNights and a bad entry", () => {
     const n: RestNight = { startedAt: 30, timerMinutes: 60, endedVia: "faded", sleptAtMs: null, timeToSleepMs: null, interactions: 0, detector: "none" };
     localStorage.setItem("sleepcast2.rest", JSON.stringify([n, null, 7, { startedAt: "x" }, { ...n, startedAt: 31 }]));
     expect(loadNights().map((x) => x.startedAt)).toEqual([30, 31]);
+  });
+});
+
+describe("loadNights and a half-formed entry", () => {
+  beforeEach(() => localStorage.clear());
+  it("passes over one missing the fields readers rely on", () => {
+    const n: RestNight = { startedAt: 40, timerMinutes: 60, endedVia: "faded", sleptAtMs: null, timeToSleepMs: null, interactions: 0, detector: "none" };
+    localStorage.setItem("sleepcast2.rest", JSON.stringify([n, { startedAt: 41 }, { ...n, startedAt: 42, sleptAtMs: "x" }]));
+    expect(loadNights().map((x) => x.startedAt)).toEqual([40]);
   });
 });
