@@ -7,6 +7,7 @@ import {
   watchPayloadFromHash,
   watchNotice,
   watchAgreement,
+  isRefused,
   payloadFromPaste,
   MATCH_WINDOW_MS,
   MAX_SAMPLES,
@@ -281,7 +282,7 @@ describe("importWatch", () => {
     appendNight(night(), Date.now());
     const r = importWatch(`${OPENS_LINE}\n2026-10-05T23:04:00-07:00~2026-10-05T23:30:00-07:00~Core`);
     expect(r.nights).toHaveLength(1);
-    expect(r).toMatchObject({ timed: [{ startedAt: START, atMs: 4 * MIN, inferredAtMs: 30 * MIN }], unchanged: 0, unrecognised: 0, malformed: 0, refused: false, ...FLAGS });
+    expect(r).toMatchObject({ timed: [{ startedAt: START, atMs: 4 * MIN, inferredAtMs: 30 * MIN }], unchanged: 0, unrecognised: 0, malformed: 0, ...FLAGS });
     expect(loadNights()[0].detector).toBe("watch");
     // 4 min is under the detector's plausibility floor; a watch onset is measured.
     expect(rollup(loadNights()).bestTimeToSleepMs).toBe(4 * MIN);
@@ -392,7 +393,7 @@ describe("importWatch", () => {
 
   it("leaves storage alone when nothing parses", () => {
     appendNight(night(), Date.now());
-    expect(importWatch("garbage")).toEqual({ timed: [], unchanged: 0, unrecognised: 0, malformed: 1, refused: true, ...FLAGS, noWindow: true, slept: 0 });
+    expect(importWatch("garbage")).toEqual({ timed: [], unchanged: 0, unrecognised: 0, malformed: 1, ...FLAGS, noWindow: true, slept: 0 });
     expect(loadNights()[0].detector).toBe("inference");
   });
 });
@@ -421,21 +422,21 @@ describe("payloadFromPaste", () => {
 describe("watchNotice", () => {
   const t = (atMs: number, inferredAtMs: number | null) => ({ startedAt: START, atMs, inferredAtMs });
   it("says what the import did", () => {
-    expect(watchNotice({ ...FLAGS, timed: [t(12 * MIN, 30 * MIN)], unchanged: 0, unrecognised: 0, malformed: 0, refused: false })).toBe(
+    expect(watchNotice({ ...FLAGS, timed: [t(12 * MIN, 30 * MIN)], unchanged: 0, unrecognised: 0, malformed: 0 })).toBe(
       "your watch: asleep 12 min in; sleepcast guessed 30 min.",
     );
-    expect(watchNotice({ ...FLAGS, timed: [t(5 * MIN, null), t(12 * MIN, null)], unchanged: 0, unrecognised: 0, malformed: 0, refused: false })).toBe(
+    expect(watchNotice({ ...FLAGS, timed: [t(5 * MIN, null), t(12 * MIN, null)], unchanged: 0, unrecognised: 0, malformed: 0 })).toBe(
       "your watch timed 2 nights. the latest: asleep 12 min in.",
     );
-    expect(watchNotice({ ...FLAGS, timed: [], unchanged: 0, unrecognised: 0, malformed: 0, refused: false })).toMatch(/didn't start inside/);
-    expect(watchNotice({ ...FLAGS, timed: [], unchanged: 0, unrecognised: 0, malformed: 0, refused: false, slept: 0 })).toMatch(/sleep tracking/);
-    expect(watchNotice({ ...FLAGS, timed: [], unchanged: 0, unrecognised: 4, malformed: 0, refused: false, slept: 0 })).toMatch(/english only/);
-    expect(watchNotice({ ...FLAGS, timed: [], unchanged: 0, unrecognised: 0, malformed: 3, refused: false, slept: 0 })).toMatch(/start date~end date~value/);
-    expect(watchNotice({ ...FLAGS, timed: [], unchanged: 1, unrecognised: 0, malformed: 0, refused: false })).toMatch(/nothing new/);
-    expect(watchNotice({ ...FLAGS, timed: [], unchanged: 0, unrecognised: 0, malformed: 2, refused: false })).toMatch(
+    expect(watchNotice({ ...FLAGS, timed: [], unchanged: 0, unrecognised: 0, malformed: 0 })).toMatch(/didn't start inside/);
+    expect(watchNotice({ ...FLAGS, timed: [], unchanged: 0, unrecognised: 0, malformed: 0, slept: 0 })).toMatch(/sleep tracking/);
+    expect(watchNotice({ ...FLAGS, timed: [], unchanged: 0, unrecognised: 4, malformed: 0, slept: 0 })).toMatch(/english only/);
+    expect(watchNotice({ ...FLAGS, timed: [], unchanged: 0, unrecognised: 0, malformed: 3, slept: 0 })).toMatch(/start date~end date~value/);
+    expect(watchNotice({ ...FLAGS, timed: [], unchanged: 1, unrecognised: 0, malformed: 0 })).toMatch(/nothing new/);
+    expect(watchNotice({ ...FLAGS, timed: [], unchanged: 0, unrecognised: 0, malformed: 2 })).toMatch(
       /^2 lines of the watch data didn't read, so nothing was changed/,
     );
-    expect(watchNotice({ ...FLAGS, timed: [t(20_000, null)], unchanged: 0, unrecognised: 0, malformed: 0, refused: false })).toBe(
+    expect(watchNotice({ ...FLAGS, timed: [t(20_000, null)], unchanged: 0, unrecognised: 0, malformed: 0 })).toBe(
       "your watch: asleep within a minute.",
     );
   });
@@ -479,7 +480,7 @@ describe("importWatch and a killed tab's snapshot", () => {
   it("leaves it alone when the import is refused: nothing changed, as the notice says", () => {
     localStorage.setItem("sleepcast2.live", JSON.stringify({ savedAt: 1, remainingMs: 0, totalSeconds: 0, position: 0, current: { id: "e1", title: "", url: "", feedId: "f", date: "" }, playedIds: [], pool: [], skipIntroByFeedId: {}, feedTitles: {}, artworkByFeedId: {}, modeKind: "all-night" }));
     const r = importWatch("not the shortcut's text at all");
-    expect(r.refused).toBe(true);
+    expect(isRefused(r)).toBe(true);
     expect(localStorage.getItem("sleepcast2.live")).not.toBeNull();
     expect(loadNights()).toHaveLength(0);
   });
@@ -491,7 +492,7 @@ describe("watchNotice, for a night other than last night", () => {
       ...FLAGS,
       timed: [{ startedAt, atMs: 12 * MIN, inferredAtMs: null }],
       latestIsOlder: true,
-      unchanged: 0, unrecognised: 0, malformed: 0, refused: false,
+      unchanged: 0, unrecognised: 0, malformed: 0,
     });
   it("names the night, in english", () => {
     expect(older(new Date(2026, 9, 2, 23, 0).getTime())).toBe("your watch for friday night: asleep 12 min in.");
@@ -517,7 +518,7 @@ describe("importWatch with a killed tab's night, and full storage", () => {
     } finally {
       Storage.prototype.setItem = setItem;
     }
-    expect(r).toMatchObject({ unsaved: true, refused: true });
+    expect(r).toMatchObject({ unsaved: true });
     expect(r).not.toHaveProperty("nights");
     expect(localStorage.getItem("sleepcast2.live")).not.toBeNull();
     expect(loadNights()).toHaveLength(0);
@@ -540,7 +541,7 @@ describe("an import with nothing to read yet", () => {
     const live = { savedAt: START + 10 * MIN, remainingMs: 0, totalSeconds: 0, position: 0, current: { id: "e1", title: "", url: "", feedId: "f", date: "" }, playedIds: [], pool: [], skipIntroByFeedId: {}, feedTitles: {}, artworkByFeedId: {}, nightStartedAt: START, modeKind: "all-night" };
     localStorage.setItem("sleepcast2.live", JSON.stringify(live));
     const r = importWatch(OPENS_LINE, START + 10 * 60 * MIN);
-    expect(r).toMatchObject({ refused: false });
+    expect(isRefused(r)).toBe(false);
     expect(watchNotice(r)).toMatch(/^nothing from your watch yet\. \w+ \w+ is recorded without the watch's time: run it again later\.$/);
     expect(localStorage.getItem("sleepcast2.live")).toBeNull();
     expect(loadNights()).toHaveLength(1);
@@ -551,7 +552,7 @@ describe("nightName across a DST change", () => {
   it("goes by the local hour", () => {
     const t = (y: number, m: number, d: number, h: number, min = 0) => new Date(y, m, d, h, min).getTime();
     const name = (startedAt: number) =>
-      watchNotice({ ...FLAGS, timed: [{ startedAt, atMs: 12 * MIN, inferredAtMs: null }], latestIsOlder: true, unchanged: 0, unrecognised: 0, malformed: 0, refused: false });
+      watchNotice({ ...FLAGS, timed: [{ startedAt, atMs: 12 * MIN, inferredAtMs: null }], latestIsOlder: true, unchanged: 0, unrecognised: 0, malformed: 0 });
     // Sunday 05:30 local is the early hours of sunday, whatever the clocks did.
     expect(name(t(2026, 10, 1, 5, 30))).toContain("for the early hours of sunday");
     // Sunday 06:30 local is a morning session, sunday's.
@@ -563,7 +564,7 @@ describe("a Shortcut from before the window line, with nothing to send", () => {
   beforeEach(() => localStorage.clear());
   it("is refused, and told to update", () => {
     const r = importWatch("");
-    expect(r).toMatchObject({ noWindow: true, refused: true });
+    expect(r).toMatchObject({ noWindow: true });
     expect(watchNotice(r)).toMatch(/window line/);
   });
 });
@@ -573,14 +574,14 @@ describe("a window line dated in the future", () => {
   it("is a bad window (an adjust-date step adding, not subtracting), refused", () => {
     appendNight(night(), Date.now());
     const r = importWatch(`window~2026-10-08T07:00:00-07:00\n2026-10-05T23:04:00-07:00~2026-10-05T23:30:00-07:00~Core`, START + 10 * 60 * MIN);
-    expect(r).toMatchObject({ badWindow: true, refused: true, timed: [] });
+    expect(r).toMatchObject({ badWindow: true, timed: [] });
     expect(watchNotice(r)).toMatch(/subtract 2 days/);
   });
 });
 
 describe("watchNotice, nothing timed yet but a killed night recorded", () => {
   it("says the night is recorded and to run it again", () => {
-    const r = { ...FLAGS, timed: [], unchanged: 0, unrecognised: 0, malformed: 0, refused: false, recordedUntimed: new Date(2026, 9, 5, 23).getTime() };
+    const r = { ...FLAGS, timed: [], unchanged: 0, unrecognised: 0, malformed: 0, recordedUntimed: new Date(2026, 9, 5, 23).getTime() };
     expect(watchNotice(r)).toBe(
       "no sleep from your watch inside a sleepcast night yet. monday night is recorded without the watch's time: run it again later.",
     );
@@ -591,7 +592,7 @@ describe("watchNotice, nothing timed yet but a killed night recorded", () => {
     ).toBe("your watch for monday night: asleep 12 min in. monday night is recorded without the watch's time: run it again later.");
   });
   it("puts a missing window line first, ahead of the lines it makes malformed", () => {
-    expect(watchNotice({ ...FLAGS, noWindow: true, timed: [], unchanged: 0, unrecognised: 0, malformed: 1, refused: true })).toMatch(/window line first/);
+    expect(watchNotice({ ...FLAGS, noWindow: true, timed: [], unchanged: 0, unrecognised: 0, malformed: 1 })).toMatch(/window line first/);
   });
 });
 
@@ -669,5 +670,17 @@ describe("a killed night the cap drops", () => {
     importWatch(OPENS_LINE, START + 10 * 60 * MIN);
     expect(localStorage.getItem("sleepcast2.live")).toBeNull();
     expect(loadNights()).toHaveLength(90);
+  });
+});
+
+describe("the window's own edge", () => {
+  it("leaves a night started within a minute of the window opening as it was", () => {
+    // Sleep the Shortcut left out (ended just before the window) could have
+    // joined the first kept sample: the night may have begun asleep.
+    const r = applyWatch([night()], [asleepAt(30_000)], START - 10_000);
+    expect(r.timed).toEqual([]);
+  });
+  it("reads a lowercase t", () => {
+    expect(parseWatchPayload("window~2026-10-05t08:00:00Z").windowStart).toBe(Date.parse("2026-10-05T08:00:00Z"));
   });
 });

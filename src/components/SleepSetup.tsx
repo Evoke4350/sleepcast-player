@@ -22,7 +22,8 @@ import { diverseByMeta, formatTime } from "../lib/engine";
 import { parseFeedFor, youtubeFeedUrl } from "../lib/youtube";
 import { beacon } from "../lib/beacon";
 import type { Episode } from "../lib/engine";
-import { lastOf, loadNights, offerForLabel, setSelfLabel } from "../lib/rest/ledger";
+import { loadNights, offerForLabel, setSelfLabel } from "../lib/rest/ledger";
+import { lastNight } from "../lib/rest/surface";
 import { recordFalsePositive } from "../lib/rest/calibrate";
 import { rankedFeeds, evidenceFor } from "../lib/rest/sleepscore";
 import type { RestNight } from "../lib/rest/types";
@@ -93,7 +94,7 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
   const [feedError, setFeedError] = useState("");
   const [lastEpisode] = useState(() => loadLastEpisode());
   const [greetNight, setGreetNight] = useState<RestNight | null>(() => {
-    const last = lastOf(loadNights());
+    const last = lastNight();
     return last && offerForLabel(last) ? last : null;
   });
 

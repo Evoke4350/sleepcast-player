@@ -4,7 +4,7 @@ import { recordFalsePositive } from "../lib/rest/calibrate";
 import { scoreFeeds, medianTimeToSleep, meetsSuggestionGate, shuffleWeights, pluralNights, fmtOnsetMinutes, MIN_NIGHTS } from "../lib/rest/sleepscore";
 import { getPlays, loadState } from "../lib/store";
 import { playsSince, playAtMoment } from "../lib/plays";
-import { importWatch, payloadFromPaste, watchAgreement, watchNotice } from "../lib/rest/watch";
+import { importWatch, isRefused, payloadFromPaste, watchAgreement, watchNotice } from "../lib/rest/watch";
 import { WatchLine } from "./WatchLine";
 
 /** `onClose(changed)`: changed when a paste altered what the home screen
@@ -24,7 +24,7 @@ export function RestView({ onClose }: { onClose: (changed?: boolean) => void }) 
     const r = importWatch(payloadFromPaste(pasted));
     setPasteLine(watchNotice(r));
     // Kept when refused or not saved, so it can be looked at or tried again.
-    if (!r.refused) setPasted("");
+    if (!isRefused(r)) setPasted("");
     if (r.nights) {
       setNights(r.nights);
       setChangedHere(true);

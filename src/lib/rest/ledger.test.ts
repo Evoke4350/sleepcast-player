@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { loadNights, appendNight, rollup, setSelfLabel, leanComparison, pruneTimelines, offerForLabel, lastOf, newestByStart, MIN_PLAUSIBLE_ONSET_MS, PRE_FIX_BEFORE_MS, TIMELINE_KEEP_MS } from "./ledger";
+import { loadNights, appendNight, rollup, setSelfLabel, leanComparison, pruneTimelines, offerForLabel, lastOf, newestByStart, withNight, MIN_PLAUSIBLE_ONSET_MS, PRE_FIX_BEFORE_MS, TIMELINE_KEEP_MS } from "./ledger";
 import { DEFAULT_PARAMS, LAMBDA_MAX, quietTicksToDecide, TICK_MS } from "./detector";
 import type { RestNight } from "./types";
 import { onsetAfterEnd } from "./attribution";
@@ -263,5 +263,16 @@ describe("saveNights over the cap", () => {
     expect(starts).toHaveLength(90);
     expect(starts).not.toContain(50);
     expect(starts).toContain(100);
+  });
+});
+
+describe("withNight and a night already there twice", () => {
+  it("collapses every copy into one, keeping the watch's time", () => {
+    const base: RestNight = { startedAt: 9, timerMinutes: 60, endedVia: "faded", sleptAtMs: null, timeToSleepMs: null, interactions: 0, detector: "none" };
+    const watched = { ...base, detector: "watch" as const, sleptAtMs: 60_000, timeToSleepMs: 60_000, inferredAtMs: null };
+    const other: RestNight = { ...base, startedAt: 10 };
+    const out = withNight([base, other, watched], { ...base, interactions: 5 });
+    expect(out.map((x) => x.startedAt)).toEqual([9, 10]);
+    expect(out[0]).toMatchObject({ detector: "watch", sleptAtMs: 60_000, interactions: 5 });
   });
 });

@@ -72,8 +72,10 @@ function stageAsleep(stage: string): boolean | "code" | null {
 function parseTime(text: string | undefined): number | null {
   // A time of day as ISO 8601 writes it ("T23:15"): a weekday name has a
   // "T" too, and parses as midnight.
-  if (!text || !/T\d{2}:\d{2}/.test(text)) return null;
-  const t = Date.parse(text.trim());
+  // ISO 8601 allows a lowercase "t" too: normalised, for any parser.
+  const iso = text?.trim().replace(/t(?=\d{2}:\d{2})/, "T");
+  if (!iso || !/T\d{2}:\d{2}/.test(iso)) return null;
+  const t = Date.parse(iso);
   return Number.isFinite(t) ? t : null;
 }
 
@@ -217,7 +219,10 @@ export function applyWatch(
   const timed: WatchTiming[] = [];
   let unchanged = 0;
   const out = nights.map((n) => {
-    if (n.startedAt < windowStart) return n;
+    // Within CONTIGUOUS_MS of the window opening counts as before it: a
+    // sample the Shortcut left out (ended just before the window) could have
+    // joined the first one kept, as for lines dropped past MAX_SAMPLES.
+    if (n.startedAt < windowStart + CONTIGUOUS_MS) return n;
     const at = watchOnset(n.startedAt, stretches, next.get(n.startedAt));
     if (at === null) return n;
     if (n.detector === "watch" && n.sleptAtMs === at) {
@@ -229,6 +234,18 @@ export function applyWatch(
     return r;
   });
   return { nights: out, timed: timed.sort((a, b) => a.startedAt - b.startedAt), unchanged };
+}
+
+/** Every reason a payload is refused for its content, in one place. */
+function refusedFor(r: Pick<WatchImport, "noWindow" | "badWindow" | "unrecognised" | "malformed">): boolean {
+  return r.noWindow || r.badWindow || r.unrecognised > 0 || r.malformed > 0;
+}
+
+/** Whether an import changed nothing: refused for its content, or not
+ *  saved (a killed tab's night included), so a paste is worth keeping to
+ *  look at. */
+export function isRefused(r: WatchImport): boolean {
+  return refusedFor(r) || r.unsaved;
 }
 
 export interface WatchImport {
@@ -254,10 +271,6 @@ export interface WatchImport {
   /** A window line whose date didn't read, or that opens in the future:
    *  refused. */
   badWindow: boolean;
-  /** Refused for its content (malformed, unrecognised, no or bad window
-   *  line), or not saved: either way nothing changed (a killed tab's night
-   *  included), and it is worth keeping to look at. */
-  refused: boolean;
   unrecognised: number;
   malformed: number;
 }
@@ -289,9 +302,7 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
   // No window line, samples or not: a Shortcut built before it was added
   // (or not this Shortcut's text at all) is told to use the updated steps.
   const noWindow = windowStart === null && !badWindow;
-  // Every reason the payload is refused, in one place (`refused` below adds
-  // a failed save): a new one goes here, or a paste would be cleared.
-  const refusedContent = noWindow || badWindow || unrecognised > 0 || malformed > 0;
+  const refusedContent = refusedFor({ noWindow, badWindow, unrecognised, malformed });
   let timed: WatchTiming[] = [];
   let unchanged = 0;
   let unsaved = false;
@@ -339,7 +350,6 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
     badWindow,
     ...(latestIsOlder ? { latestIsOlder } : {}),
     ...(recordedUntimed !== undefined ? { recordedUntimed } : {}),
-    refused: refusedContent || unsaved,
     slept: samples.filter((s) => s.asleep).length,
     unrecognised,
     malformed,

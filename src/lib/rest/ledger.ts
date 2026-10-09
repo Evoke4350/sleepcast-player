@@ -71,14 +71,14 @@ export function appendNight(n: RestNight, now = Date.now()): boolean {
 /** `nights` with `n` added, or replacing the night with its start (see
  *  appendNight), for a caller that saves them itself. */
 export function withNight(nights: readonly RestNight[], n: RestNight): RestNight[] {
-  const out = [...nights];
-  const i = out.findIndex((x) => x.startedAt === n.startedAt);
-  if (i === -1) out.push(n);
-  else {
-    const old = out[i];
-    out[i] = old.detector === "watch" && old.sleptAtMs !== null ? retimed(n, old.sleptAtMs) : n;
-  }
-  return out;
+  // Every copy with its start (a ledger from before this could hold the
+  // same night twice) collapses into one, where the first was.
+  const same = nights.filter((x) => x.startedAt === n.startedAt);
+  if (!same.length) return [...nights, n];
+  const watched = same.find((x) => x.detector === "watch" && x.sleptAtMs !== null);
+  const merged = watched ? retimed(n, watched.sleptAtMs as number) : n;
+  const i = nights.indexOf(same[0]);
+  return [...nights.slice(0, i), merged, ...nights.slice(i + 1).filter((x) => x.startedAt !== n.startedAt)];
 }
 
 /** Drops the timeline of any night that began more than TIMELINE_KEEP_MS

@@ -15,8 +15,9 @@ An iOS Shortcut, built once by the listener (steps on /watch), reads the last
 two days of the watch's own Sleep Analysis samples from Health (filtered by
 source, so another sleep app's coarser samples can't blur them) and opens
 `https://sleepcast.pro/#watch=<samples>`. The fragment is never sent to a
-server, so the samples go from Health to the browser's storage and nowhere
-else. No account, no endpoint, no native build.
+server, and sleepcast sends the samples nowhere: they go from Health to the
+browser's storage. (Safari may keep the opened link in its history, which the
+privacy page and /watch say.) No account, no endpoint, no native build.
 
 Payload: a first line `window~<start>` (where the Shortcut's window opens: it
 reads samples ending after "now minus 2 days", so a sample under way when
@@ -113,9 +114,9 @@ touches would read as awake ones and make the detector bolder.
   lines (and the resume offer) are read again.
 - A head script (PlayerLayout, hash-allowed in the CSP) moves the fragment
   out of the address before analytics can read the page's URL, on load and
-  if a link lands later; the island reads it from there. So the sleep stages
-  never sit in an address anything else reads, and a reload or a shared link
-  can't import them again.
+  if a link lands later; the island reads it from there. So nothing on the
+  page reads the sleep stages from the address, and a reload or a shared
+  link can't import them again.
 - Opening the link imports and shows one line on the home screen: "your
   watch: asleep 12 min in; sleepcast guessed 20 min." A killed tab's night is
   recorded into the ledger first, so the morning import can time it: a watch
