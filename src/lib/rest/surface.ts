@@ -2,8 +2,8 @@ import type { RestNight } from "./types";
 import { lastOf, loadNights } from "./ledger";
 import { fmtOnsetMinutes } from "./sleepscore";
 
-// Kept for the host app (sleepcast-app imports these from here): the player
-// itself uses lastOf and fmtOnsetMinutes directly.
+// Also imported by the host app (sleepcast-app), so they stay exported; the
+// goodbye below uses lastNight too.
 /** The newest night (lastOf over the ledger). */
 export function lastNight(): RestNight | null {
   return lastOf(loadNights());

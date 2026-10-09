@@ -72,7 +72,7 @@ morning re-reads the night before).
 
 Attribution (onset feed and episode, `onsetAfterMs`, `sleptThrough`) is redone
 from the night's `timeline` with the same function `RestSession.finish` uses
-(`attribution`, session.ts). To make that possible, nights now record:
+(`attribution`, rest/attribution.ts). To make that possible, nights now record:
 
 - `timeline`: the night's episode starts, kept `TIMELINE_KEEP_MS` (7 days) and
   pruned as nights are appended, so 90 nights of episode ids don't crowd

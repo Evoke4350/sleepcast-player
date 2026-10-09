@@ -129,31 +129,30 @@ export function parseWatchPayload(text: string, now = Infinity): {
     if (windowStart !== null && windowStart > now) windowStart = null;
     badWindow = windowStart === null;
   }
-  const parsed = lines.map(parseLine);
-  const kept = parsed.slice(-MAX_SAMPLES);
-  // Lines dropped off the front: the window now opens where what's kept
-  // begins (the Shortcut sorts oldest first), not where the window line
-  // said, or a night whose first stages were dropped would look whole;
-  // and strictly past any dropped sleep a kept sample could have joined
-  // onto (only sleep joins: a dropped Awake or In Bed sample doesn't).
-  if (kept.length < parsed.length && windowStart !== null) {
-    // (A first kept line that doesn't parse is malformed, refused anyway.)
-    const first = kept[0];
-    if (typeof first === "object") windowStart = Math.max(windowStart, first.start);
-    for (const p of parsed.slice(0, parsed.length - kept.length)) {
-      if (typeof p === "object" && p.asleep) windowStart = Math.max(windowStart, p.end + CONTIGUOUS_MS + 1);
-    }
-  }
-  // Samples from the kept lines; the refusals from every line, dropped ones
-  // too: a dropped line that doesn't read is still a payload that doesn't.
+  // One pass. Refusals count over every line, dropped ones too (a dropped
+  // line that doesn't read is still a payload that doesn't); samples come
+  // from the newest MAX_SAMPLES. With lines dropped off the front, the
+  // window opens where what's kept begins (the Shortcut sorts oldest
+  // first), not where the window line said, or a night whose first stages
+  // were dropped would look whole; and strictly past any dropped sleep a
+  // kept sample could have joined onto (only sleep joins: a dropped Awake
+  // or In Bed sample doesn't). A first kept line that doesn't parse is
+  // malformed, refused anyway.
+  const firstKept = Math.max(0, lines.length - MAX_SAMPLES);
   const samples: SleepSample[] = [];
-  for (const p of kept) if (typeof p === "object") samples.push(p);
   let malformed = 0;
   let unrecognised = 0;
-  for (const p of parsed) {
+  lines.forEach((line, i) => {
+    const p = parseLine(line);
     if (p === "malformed") malformed++;
     else if (p === "unrecognised") unrecognised++;
-  }
+    else if (i >= firstKept) {
+      samples.push(p);
+      if (i === firstKept && firstKept > 0 && windowStart !== null) windowStart = Math.max(windowStart, p.start);
+    } else if (p.asleep && windowStart !== null) {
+      windowStart = Math.max(windowStart, p.end + CONTIGUOUS_MS + 1);
+    }
+  });
   return { windowStart, badWindow, samples, unrecognised, malformed };
 }
 
@@ -237,10 +236,11 @@ export interface WatchImport {
   /** The latest re-timed night isn't the newest night (that had no sleep
    *  the watch saw): the notice names it. */
   latestIsOlder?: boolean;
-  /** A killed tab's night inside the window was recorded, and is stored
+  /** The start of a killed tab's night inside the window that was recorded
+   *  and is stored
    *  without a watch time (its sleep hadn't synced yet): the notice says to
    *  run it again later, which can time it. */
-  recordedUntimed?: boolean;
+  recordedUntimed?: number;
   /** How many of the samples were sleep: none yet means the watch hadn't
    *  handed the night over, whatever In Bed or Awake samples came. */
   slept: number;
@@ -271,9 +271,9 @@ export function payloadFromPaste(text: string): string {
   const i = text.indexOf(WATCH_HASH);
   // An encoded link has no whitespace: it ends at the first (anything after
   // it, a shared message's own words, isn't the payload).
-  // Punctuation a message put after it (a full stop, a closing quote) isn't
-  // either.
-  if (i >= 0) return watchPayloadFromHash(text.slice(i).split(/\s/)[0].replace(/[.,;:!?"'\u2019\u201d)\]]+$/u, "")) ?? "";
+  // Punctuation a message put after it (a full stop, a closing quote, an
+  // autolink's > or markdown's **) isn't either.
+  if (i >= 0) return watchPayloadFromHash(text.slice(i).split(/\s/)[0].replace(/[.,;:!?"'\u2019\u201d)\]>*_]+$/u, "")) ?? "";
   return (/%[0-9a-f]{2}/i.test(text) ? decodeLeniently(text) : text).trim();
 }
 
@@ -294,7 +294,7 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
   let unchanged = 0;
   let unsaved = false;
   let latestIsOlder = false;
-  let recordedUntimed = false;
+  let recordedUntimed: number | undefined;
   let saved: RestNight[] | undefined;
   // A window line and nothing refused: the import goes ahead, even with no
   // samples (the watch hadn't synced yet), as the night it closes is over.
@@ -322,7 +322,7 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
         // keeps that time), and inside the window, where a later run can
         // still time it.
         const k = killed && stored.find((n) => n.startedAt === killed.night.startedAt);
-        recordedUntimed = !!k && k.detector !== "watch" && k.startedAt >= windowStart;
+        if (k && k.detector !== "watch" && k.startedAt >= windowStart) recordedUntimed = k.startedAt;
       } else unsaved = true;
     }
   }
@@ -334,7 +334,7 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
     noWindow,
     badWindow,
     ...(timed.length && latestIsOlder ? { latestIsOlder } : {}),
-    ...(recordedUntimed ? { recordedUntimed } : {}),
+    ...(recordedUntimed !== undefined ? { recordedUntimed } : {}),
     refused: refusedContent || unsaved,
     slept: samples.filter((s) => s.asleep).length,
     unrecognised,
@@ -412,15 +412,17 @@ export function watchNotice(r: WatchImport): string {
   if (r.unrecognised) return "your watch's sleep stages came in a language sleepcast can't read yet (english only), so nothing was changed.";
   // A killed tab's night recorded without its time (most likely the watch
   // hadn't handed it to the phone yet): said whatever else the line says.
-  const again = r.recordedUntimed ? " last night is recorded without the watch's time: run it again later." : "";
+  // Named, as an older timed night is: it may not be last night.
+  const again =
+    r.recordedUntimed !== undefined ? ` ${nightName(r.recordedUntimed)} is recorded without the watch's time: run it again later.` : "";
   if (!r.slept && !r.timed.length && !r.unchanged) {
-    return r.recordedUntimed
+    return r.recordedUntimed !== undefined
       ? `nothing from your watch yet.${again}`
       : "nothing from your watch yet: run it again later (and check sleep tracking is on).";
   }
   if (!r.timed.length) {
     if (r.unchanged) return `nothing new: your watch had already timed these nights.${again}`;
-    return r.recordedUntimed ? `no sleep from your watch inside a sleepcast night yet.${again}` : "your watch's sleep didn't start inside a sleepcast night.";
+    return r.recordedUntimed !== undefined ? `no sleep from your watch inside a sleepcast night yet.${again}` : "your watch's sleep didn't start inside a sleepcast night.";
   }
   const last = r.timed[r.timed.length - 1];
   const guess = last.inferredAtMs === null ? "" : `; sleepcast guessed ${fmtOnsetMinutes(last.inferredAtMs)}`;
