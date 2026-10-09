@@ -237,9 +237,8 @@ export interface WatchImport {
    *  the watch saw): the notice names it. */
   latestIsOlder?: boolean;
   /** The start of a killed tab's night inside the window that was recorded
-   *  and is stored
-   *  without a watch time (its sleep hadn't synced yet): the notice says to
-   *  run it again later, which can time it. */
+   *  and is stored without a watch time (its sleep hadn't synced yet): the
+   *  notice says to run it again later, which can time it. */
   recordedUntimed?: number;
   /** How many of the samples were sleep: none yet means the watch hadn't
    *  handed the night over, whatever In Bed or Awake samples came. */
@@ -290,6 +289,8 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
   // No window line, samples or not: a Shortcut built before it was added
   // (or not this Shortcut's text at all) is told to use the updated steps.
   const noWindow = windowStart === null && !badWindow;
+  // Every reason the payload is refused, in one place (`refused` below adds
+  // a failed save): a new one goes here, or a paste would be cleared.
   const refusedContent = noWindow || badWindow || unrecognised > 0 || malformed > 0;
   let timed: WatchTiming[] = [];
   let unchanged = 0;
@@ -315,7 +316,9 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
     if (r.timed.length || killed) {
       const stored = saveNights(pruneTimelines(r.nights, now));
       if (stored) {
-        killed?.commit();
+        // Only if the killed night was kept (not dropped by the cap):
+        // otherwise its snapshot is all that's left of it.
+        if (killed && stored.some((n) => n.startedAt === killed.night.startedAt)) killed.commit();
         timed = r.timed;
         saved = stored;
         latestIsOlder = latest !== undefined && newest !== undefined && latest.startedAt < newest;
@@ -397,6 +400,10 @@ function nightName(startedAt: number): string {
   return `${day} ${h < 12 ? "morning" : h < 18 ? "afternoon" : "night"}`;
 }
 
+/** Where the Shortcut's steps are, as a notice names it (WatchLine makes
+ *  it a link). */
+export const WATCH_STEPS = "sleepcast.pro/watch";
+
 /** What an import did, in a line for the listener. */
 export function watchNotice(r: WatchImport): string {
   if (r.badWindow) {
@@ -405,7 +412,7 @@ export function watchNotice(r: WatchImport): string {
   // Before the other format checks: a missing (or misplaced) window line is
   // the structural problem, and a misplaced one also reads as a bad line.
   if (r.noWindow) {
-    return "the watch shortcut needs its window line first, so nothing was changed: see the updated steps at sleepcast.pro/watch.";
+    return `the watch shortcut needs its window line first, so nothing was changed: see the updated steps at ${WATCH_STEPS}.`;
   }
   if (r.unsaved) return "nothing could be saved: this browser's storage for sleepcast is full.";
   if (r.malformed) {

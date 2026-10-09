@@ -5,6 +5,7 @@ import { scoreFeeds, medianTimeToSleep, meetsSuggestionGate, shuffleWeights, plu
 import { getPlays, loadState } from "../lib/store";
 import { playsSince, playAtMoment } from "../lib/plays";
 import { importWatch, payloadFromPaste, watchAgreement, watchNotice } from "../lib/rest/watch";
+import { WatchLine } from "./WatchLine";
 
 /** `onClose(changed)`: changed when a paste altered what the home screen
  *  works its lines out from, which the caller reloads to read again. */
@@ -242,7 +243,11 @@ export function RestView({ onClose }: { onClose: (changed?: boolean) => void }) 
             read it
           </button>
         </details>
-        {pasteLine && <p className="text-[#b0a898]">{pasteLine}</p>}
+        {pasteLine && (
+          <p className="text-[#b0a898]">
+            <WatchLine text={pasteLine} />
+          </p>
+        )}
       </section>
       <p className="text-xs text-[#4a4540]">
         counted only on this device. no account, nothing sent anywhere. we're

@@ -14,6 +14,7 @@ import { YouTubeNight } from "./YouTubeNight";
 import { Night } from "./Night";
 import { isYouTubeLineup, isMixedLineup } from "../lib/youtube-night";
 import { RestView } from "./RestView";
+import { WatchLine } from "./WatchLine";
 import { reconcileLive, settleLive } from "../lib/rest/reconcile";
 import { ReanchorView } from "./ReanchorView";
 import { shouldGreetGoodbye, markGoodbyeSeen } from "../lib/rest/surface";
@@ -469,7 +470,11 @@ export function AppPlayer() {
             </button>
           </HomeLine>
         )}
-        {watchLine && <HomeLine mark="⌚︎">{watchLine}</HomeLine>}
+        {watchLine && (
+          <HomeLine mark="⌚︎">
+            <WatchLine text={watchLine} />
+          </HomeLine>
+        )}
         {goodbye && (
           <HomeLine mark="☾" markClass="player-moon">
             you slept{goodbye.timeToSleepMs !== null ? ` — gone in ${fmtOnsetMinutes(goodbye.timeToSleepMs)}` : ""}.
