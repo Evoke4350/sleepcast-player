@@ -63,7 +63,7 @@ export function loadNights(): RestNight[] {
 /** Stores the nights, the newest MAX_NIGHTS of them, and returns what it
  *  stored; null when it couldn't (quota, private mode: a lost stat is not
  *  worth throwing over, but a caller reporting a change needs to know). */
-export function saveNights(nights: RestNight[]): RestNight[] | null {
+function saveNights(nights: RestNight[]): RestNight[] | null {
   // Over the cap, the oldest by start go, not the first recorded: a killed
   // night recorded late sits last but may be older than what it displaces.
   const kept = nights.length > MAX_NIGHTS ? newestByStart(nights, MAX_NIGHTS) : nights;
@@ -165,7 +165,7 @@ export function setSelfLabel(startedAt: number, label: "slept" | "awake"): RestN
   nights[i] = { ...nights[i], selfLabel: label };
   // A label that didn't store (storage full) didn't take: callers count and
   // act on it only when it did.
-  return saveNights(nights) ? nights[i] : null;
+  return storeNights(nights, Date.now()) ? nights[i] : null;
 }
 
 /** Whether to ask if the listener really slept on a night: it claims an

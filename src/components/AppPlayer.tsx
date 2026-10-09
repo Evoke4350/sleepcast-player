@@ -82,7 +82,6 @@ function readHeldLink(held: string): void {
   if (handOn(held)) window.location.reload();
 }
 
-
 /** One quiet line above setup (the goodbye, the watch's result). */
 function HomeLine({ mark, markClass = "", children }: { mark: string; markClass?: string; children: ReactNode }) {
   return (
