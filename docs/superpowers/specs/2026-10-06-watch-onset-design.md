@@ -137,7 +137,9 @@ touches would read as awake ones and make the detector bolder.
   read by a reload when tapped: never a reload by itself, which could end a
   night still on or lose what was being typed. The held link is handed
   across that reload through session storage (read and cleared by the head
-  script), never back through the address.
+  script), never back through the address. A paste reloads without it: the held
+  link is older, and imported after the paste would undo its times. The
+  line and the offer also show above a 3am re-anchor.
 - The rest view: how many nights the watch timed and the median gap between
   sleepcast's guess and the watch; a link to /watch; the paste box.
 - /watch: the Shortcut, step by step, a daily automation at a set morning time

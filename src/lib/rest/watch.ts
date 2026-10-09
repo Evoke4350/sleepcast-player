@@ -16,7 +16,7 @@
 // onset.
 import type { RestNight } from "./types";
 import { retimed } from "./attribution";
-import { lastOf, loadNights, pruneTimelines, saveNights, withNight } from "./ledger";
+import { lastOf, loadNights, storeNights, withNight } from "./ledger";
 import { median } from "./stats";
 import { killedNightToRecord } from "./reconcile";
 import { WATCH_HASH } from "./watch-hash";
@@ -334,7 +334,7 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
     // Nothing to write, nothing written (a full store would evict cached
     // feeds to make room for no change).
     if (worthWriting) {
-      const stored = saveNights(pruneTimelines(r.nights, now));
+      const stored = storeNights(r.nights, now);
       if (stored) {
         // Recorded, so its snapshot goes (one older than every night the cap
         // keeps isn't kept, as with appendNight: the ledger holds the newest).

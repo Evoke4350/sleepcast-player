@@ -221,3 +221,12 @@ describe("resumeTarget (a resume card tapped)", () => {
     expect(resumeTarget(snap(), T0 + 23 * 60_000)).toMatchObject({ card: { nightStartedAt: T0 + 60_000 } });
   });
 });
+
+describe("resumeTarget for snapshots written before the night's start was known", () => {
+  beforeEach(() => localStorage.clear());
+  it("matches the card's night by its lineup", () => {
+    const card = snap({ nightStartedAt: undefined });
+    saveLive(snap({ nightStartedAt: undefined, savedAt: T0 + 22 * 60_000 }));
+    expect(resumeTarget(card, T0 + 23 * 60_000)).toMatchObject({ revive: { savedAt: T0 + 22 * 60_000 } });
+  });
+});

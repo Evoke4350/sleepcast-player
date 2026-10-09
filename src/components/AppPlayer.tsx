@@ -82,10 +82,10 @@ function readHeldLink(held: string): void {
   if (handOn(held)) window.location.reload();
 }
 
-/** Reloads to read what a paste changed, handing on a held link if there
- *  is one (and reloading regardless: the page must show the change). */
-function reloadAfterPaste(held: string | null): void {
-  if (held !== null) handOn(held);
+/** Reloads to read what a paste changed. A held link isn't handed on: it
+ *  is older than the paste, and imported after it would undo the paste's
+ *  times (the later import wins). */
+function reloadAfterPaste(): void {
   window.location.reload();
 }
 
@@ -414,17 +414,37 @@ export function AppPlayer() {
     );
   }
 
+  // The watch's line and a held link's offer, on whichever screen shows.
+  const watchNote =
+    heldLink !== null || watchLine ? (
+      <>
+        {heldLink !== null && (
+          <HomeLine mark="⌚︎">
+            <button onClick={() => readHeldLink(heldLink)} className="underline decoration-[#3a3325] underline-offset-4 hover:text-[#b59a76]">
+              your watch's night came in: read it
+            </button>
+          </HomeLine>
+        )}
+        {watchLine && (
+          <HomeLine mark="⌚︎">
+            <WatchLine text={watchLine} />
+          </HomeLine>
+        )}
+      </>
+    ) : null;
+
   if (reanchor) {
     return (
       <ReanchorView
         next={reanchor.next}
         onKeepDrifting={handleKeepDrifting}
         onDismiss={handleReanchorDismiss}
+        note={watchNote}
       />
     );
   }
 
-  if (view === "rest") return <RestView onClose={(changed) => (changed ? reloadAfterPaste(heldLink) : setView("player"))} />;
+  if (view === "rest") return <RestView onClose={(changed) => (changed ? reloadAfterPaste() : setView("player"))} />;
   return (
     <main className="flex-1 px-4 py-8 text-[#b59a76]">
       <div className="mx-auto max-w-xl">
@@ -472,18 +492,7 @@ export function AppPlayer() {
             </div>
           </div>
         )}
-        {heldLink !== null && (
-          <HomeLine mark="⌚︎">
-            <button onClick={() => readHeldLink(heldLink)} className="underline decoration-[#3a3325] underline-offset-4 hover:text-[#b59a76]">
-              your watch's night came in: read it
-            </button>
-          </HomeLine>
-        )}
-        {watchLine && (
-          <HomeLine mark="⌚︎">
-            <WatchLine text={watchLine} />
-          </HomeLine>
-        )}
+        {watchNote}
         {goodbye && (
           <HomeLine mark="☾" markClass="player-moon">
             you slept{goodbye.timeToSleepMs !== null ? ` — gone in ${fmtOnsetMinutes(goodbye.timeToSleepMs)}` : ""}.

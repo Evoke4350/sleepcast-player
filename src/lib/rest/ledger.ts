@@ -90,7 +90,13 @@ export const TIMELINE_KEEP_MS = 7 * 24 * 60 * 60 * 1000;
  *  again, by ending it or by being reconciled. The night keeps the watch's
  *  time if it had one. */
 export function appendNight(n: RestNight, now = Date.now()): boolean {
-  return saveNights(pruneTimelines(withNight(loadNights(), n), now)) !== null;
+  return storeNights(withNight(loadNights(), n), now) !== null;
+}
+
+/** Stores a night set the way every night write does: timelines pruned
+ *  against `now`, then saved (capped). The stored nights, or null. */
+export function storeNights(nights: RestNight[], now: number): RestNight[] | null {
+  return saveNights(pruneTimelines(nights, now));
 }
 
 /** `nights` with `n` added, or merged into the night with its start (see
