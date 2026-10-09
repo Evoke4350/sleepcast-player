@@ -250,3 +250,17 @@ describe("lastOf", () => {
     expect(lastOf([])).toBeNull();
   });
 });
+
+describe("saveNights over the cap", () => {
+  beforeEach(() => localStorage.clear());
+  it("drops the earliest-started, not the first recorded", () => {
+    const n = (startedAt: number): RestNight => ({ startedAt, timerMinutes: 60, endedVia: "faded", sleptAtMs: null, timeToSleepMs: null, interactions: 0, detector: "none" });
+    // 90 nights from 100 on, then one recorded late that started at 50.
+    for (let i = 0; i < 90; i++) appendNight(n(100 + i), 0);
+    appendNight(n(50), 0);
+    const starts = loadNights().map((x) => x.startedAt);
+    expect(starts).toHaveLength(90);
+    expect(starts).not.toContain(50);
+    expect(starts).toContain(100);
+  });
+});

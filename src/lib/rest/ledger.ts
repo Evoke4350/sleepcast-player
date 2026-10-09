@@ -7,19 +7,18 @@ import { DEFAULT_PARAMS, LAMBDA_MAX, TICK_MS, quietTicksToDecide } from "./detec
 const KEY = "sleepcast2.rest";
 const MAX_NIGHTS = 90;
 
-/** The newest night, by its start (the ledger is in recording order, which
- *  an upsert in place or a clock stepped back can make differ), or null.
- *  The later-recorded of two that started together. */
 /** The newest `n` nights by start, oldest first: the one ordering rollup,
- *  step-back and the cap all share (recording order can differ from it). */
+ *  step-back, the cap and lastOf all share (the ledger is in recording
+ *  order, which an upsert in place or a clock stepped back can make differ;
+ *  two that started together keep their recording order). */
 export function newestByStart(nights: readonly RestNight[], n: number): RestNight[] {
   return [...nights].sort((a, b) => a.startedAt - b.startedAt).slice(-n);
 }
 
+/** The newest night by start (the later-recorded of two that started
+ *  together), or null. */
 export function lastOf(nights: readonly RestNight[]): RestNight | null {
-  let newest: RestNight | null = null;
-  for (const n of nights) if (!newest || n.startedAt >= newest.startedAt) newest = n;
-  return newest;
+  return newestByStart(nights, 1)[0] ?? null;
 }
 
 export function loadNights(): RestNight[] {
@@ -51,13 +50,14 @@ export function saveNights(nights: RestNight[]): RestNight[] | null {
  *  episode ids don't crowd local storage. */
 export const TIMELINE_KEEP_MS = 7 * 24 * 60 * 60 * 1000;
 
-/** Records a night; whether it was stored. A night with the same start
+/** Records a night; whether it was stored. `now` (for pruning timelines)
+ *  is passed by every caller here; it defaults for the host app's. A night with the same start
  *  already there is the same night recorded twice, and this one replaces
  *  it: a watch import records a suspended tab's snapshot (it can't tell one
  *  from a killed tab's), and the tab may wake and record its night again,
  *  by ending it or by being reconciled. The night keeps the watch's time if
  *  it had one. */
-export function appendNight(n: RestNight, now: number): boolean {
+export function appendNight(n: RestNight, now = Date.now()): boolean {
   return saveNights(pruneTimelines(withNight(loadNights(), n), now)) !== null;
 }
 

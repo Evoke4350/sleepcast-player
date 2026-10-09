@@ -96,3 +96,19 @@ describe("the head script that moves a watch link out of the address", () => {
     expect(window.__sleepcastWatch).toBeNull();
   });
 });
+
+describe("a handed-on link off the home page", () => {
+  beforeEach(() => {
+    window.__sleepcastWatch = null;
+    sessionStorage.clear();
+  });
+  afterEach(() => {
+    for (const [type, fn] of added.splice(0)) window.removeEventListener(type, fn);
+  });
+  it("waits in storage for / (only the island there reads it)", () => {
+    sessionStorage.setItem(WATCH_PENDING_KEY, "#watch=held");
+    run(page("/privacy"));
+    expect(window.__sleepcastWatch).toBeNull();
+    expect(sessionStorage.getItem(WATCH_PENDING_KEY)).toBe("#watch=held");
+  });
+});

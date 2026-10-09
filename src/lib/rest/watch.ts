@@ -77,8 +77,9 @@ function parseTime(text: string | undefined): number | null {
   return Number.isFinite(t) ? t : null;
 }
 
-/** The payload's first line: where the Shortcut's window opens. */
-const WINDOW_LINE = "window~";
+/** The payload's first line: where the Shortcut's window opens ("window~",
+ *  any case, spaces around the "~" allowed). */
+const WINDOW_LINE = /^window\s*~\s*/i;
 
 /** One sample line, read: a sample, or why it isn't one. A bad end matters
  *  as much as a bad start: zero-length samples never join into a stretch,
@@ -120,8 +121,8 @@ export function parseWatchPayload(text: string, now = Infinity): {
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   let windowStart: number | null = null;
   let badWindow = false;
-  if (lines[0]?.toLowerCase().startsWith(WINDOW_LINE)) {
-    windowStart = parseTime(lines.shift()!.slice(WINDOW_LINE.length));
+  if (WINDOW_LINE.test(lines[0] ?? "")) {
+    windowStart = parseTime(lines.shift()!.replace(WINDOW_LINE, ""));
     // There, but its date doesn't read, or opens in the future (the
     // Shortcut's adjust-date step adding where it should subtract): the
     // window line is wrong, not missing.
@@ -258,7 +259,6 @@ export interface WatchImport {
    *  line), or not saved: either way nothing changed (a killed tab's night
    *  included), and it is worth keeping to look at. */
   refused: boolean;
-  samples: number;
   unrecognised: number;
   malformed: number;
 }
@@ -269,7 +269,9 @@ export interface WatchImport {
  *  have no "%"), so any escape means it is still encoded. */
 export function payloadFromPaste(text: string): string {
   const i = text.indexOf(WATCH_HASH);
-  if (i >= 0) return watchPayloadFromHash(text.slice(i).trim()) ?? "";
+  // An encoded link has no whitespace: it ends at the first (anything after
+  // it, a shared message's own words, isn't the payload).
+  if (i >= 0) return watchPayloadFromHash(text.slice(i).split(/\s/)[0]) ?? "";
   return (/%[0-9a-f]{2}/i.test(text) ? decodeLeniently(text) : text).trim();
 }
 
@@ -332,7 +334,6 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
     ...(timed.length && latestIsOlder ? { latestIsOlder } : {}),
     ...(recordedUntimed ? { recordedUntimed } : {}),
     refused: refusedContent || unsaved,
-    samples: samples.length,
     slept: samples.filter((s) => s.asleep).length,
     unrecognised,
     malformed,
