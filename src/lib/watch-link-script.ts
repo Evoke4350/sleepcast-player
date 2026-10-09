@@ -4,8 +4,8 @@
 // from window.__sleepcastWatch (AppPlayer's takeWatchLink), told by a
 // "sleepcast-watch" event. A held link handed on across a reload
 // (AppPlayer's readHeldLink and reloadAfterPaste) arrives through session storage instead,
-// read and cleared here (only on /, where the island reads it: elsewhere it
-// waits). On any other page (/watch, /privacy) the link is
+// read and cleared here (only on /, the page the player island is on:
+// elsewhere it waits). On any other page (/watch, /privacy) the link is
 // sent on to / (out of this page's address first), where it is read. A
 // second link before the island reads the first replaces it: harmless, as
 // each run reads two days. Server-side only (PlayerLayout).

@@ -88,7 +88,9 @@ The same night can be recorded twice: a watch import records a killed tab's
 snapshot, and can't tell a suspended tab's from it; the tab may wake and
 record its night again (by ending it, or by being reconciled). The ledger's
 one writer, `appendNight`, replaces a night with the same start, keeping the
-watch's time (re-attributed from the real night's timeline) if it had one.
+watch's time (re-attributed from the real night's timeline) if it had one. A
+night older than every one the 90-night cap keeps is recorded like any other
+(and its snapshot cleared), and not kept: the ledger holds the newest.
 
 A night with no timeline (older, or reconciled from a killed tab) still gets
 the watch's time, but any attribution it had, which was for a different onset,

@@ -316,9 +316,9 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
     if (r.timed.length || killed) {
       const stored = saveNights(pruneTimelines(r.nights, now));
       if (stored) {
-        // Only if the killed night was kept (not dropped by the cap):
-        // otherwise its snapshot is all that's left of it.
-        if (killed && stored.some((n) => n.startedAt === killed.night.startedAt)) killed.commit();
+        // Recorded, so its snapshot goes (one older than every night the cap
+        // keeps isn't kept, as with appendNight: the ledger holds the newest).
+        killed?.commit();
         timed = r.timed;
         saved = stored;
         latestIsOlder = latest !== undefined && newest !== undefined && latest.startedAt < newest;

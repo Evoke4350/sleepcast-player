@@ -54,8 +54,9 @@ export function saveNights(nights: RestNight[]): RestNight[] | null {
  *  episode ids don't crowd local storage. */
 export const TIMELINE_KEEP_MS = 7 * 24 * 60 * 60 * 1000;
 
-/** Records a night; whether it was stored (and kept: not dropped by the
- *  cap). `now` (for pruning timelines) is passed by every caller here, and
+/** Records a night; whether the save took. A night older than every one
+ *  the cap keeps is, like any night past the cap, not kept: recorded all the
+ *  same (its snapshot then goes), as the ledger only ever holds the newest. `now` (for pruning timelines) is passed by every caller here, and
  *  defaults for the host app's calls, which leave it out. A night with the
  *  same start already there is the same night recorded twice, and this one
  *  replaces it: a watch import records a suspended tab's snapshot (it can't
@@ -63,9 +64,7 @@ export const TIMELINE_KEEP_MS = 7 * 24 * 60 * 60 * 1000;
  *  again, by ending it or by being reconciled. The night keeps the watch's
  *  time if it had one. */
 export function appendNight(n: RestNight, now = Date.now()): boolean {
-  const stored = saveNights(pruneTimelines(withNight(loadNights(), n), now));
-  // Stored means kept: a night older than every one the cap keeps wasn't.
-  return stored !== null && stored.some((x) => x.startedAt === n.startedAt);
+  return saveNights(pruneTimelines(withNight(loadNights(), n), now)) !== null;
 }
 
 /** `nights` with `n` added, or replacing the night with its start (see

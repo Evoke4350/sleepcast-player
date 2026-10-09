@@ -39,7 +39,8 @@ interface SessionState {
 /** A #watch= link's import, if the page loaded with one (the head script
  *  took it out of the address), and the line saying what it did. Run once
  *  per page load (an initializer called twice gets the first call's line),
- *  as it writes to storage. */
+ *  as it writes to storage: the module lives as long as the page, and the
+ *  site has no client-side routing, so a page load is a mount. */
 let watchLinkLine: string | null | undefined; // undefined: not yet run
 function takeWatchLink(): string | null {
   if (watchLinkLine !== undefined) return watchLinkLine;
@@ -98,7 +99,7 @@ function HomeLine({ mark, markClass = "", children }: { mark: string; markClass?
   );
 }
 
-// The /app player: the setup screen until a night begins, then the immersive
+// The player (the page at /): the setup screen until a night begins, then the immersive
 // player. A night in progress is snapshotted to localStorage (store.saveLive),
 // so a full reload — including iOS reclaiming the backgrounded tab — can offer
 // to resume it rather than waking you to silence.

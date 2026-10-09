@@ -661,13 +661,13 @@ describe("watchAgreement's median", () => {
 
 describe("a killed night the cap drops", () => {
   beforeEach(() => localStorage.clear());
-  it("keeps its snapshot: it isn't stored, so it isn't committed", () => {
+  it("is recorded and its snapshot goes, like any night past the cap (none retried for ever)", () => {
     for (let i = 0; i < 90; i++) appendNight(night({ startedAt: START - (89 - i) * 24 * 60 * MIN + 60 * MIN, timeline: undefined }), START);
     // A stale snapshot older than every kept night.
     const live = { savedAt: START - 200 * 24 * 60 * MIN, remainingMs: 0, totalSeconds: 0, position: 0, current: { id: "e1", title: "", url: "", feedId: "f", date: "" }, playedIds: [], pool: [], skipIntroByFeedId: {}, feedTitles: {}, artworkByFeedId: {}, nightStartedAt: START - 200 * 24 * 60 * MIN, modeKind: "all-night" };
     localStorage.setItem("sleepcast2.live", JSON.stringify(live));
     importWatch(OPENS_LINE, START + 10 * 60 * MIN);
-    expect(localStorage.getItem("sleepcast2.live")).not.toBeNull();
+    expect(localStorage.getItem("sleepcast2.live")).toBeNull();
     expect(loadNights()).toHaveLength(90);
   });
 });
