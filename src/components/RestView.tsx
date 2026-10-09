@@ -78,9 +78,11 @@ export function RestView({ onClose }: { onClose: (changed?: boolean) => void }) 
   // play ledger can't tell, so it only answers for the detector's onset.
   const driftedDuring = useMemo(() => {
     if (!last || last.sleptAtMs === null) return null;
-    if (last.onsetEpisodeId !== undefined) return lastPlays.find((p) => p.id === last.onsetEpisodeId) ?? null;
-    // No attribution: a watch night's means nothing was playing; an older
-    // detector night (from before nights kept one) falls back on the plays.
+    const credited = last.onsetEpisodeId !== undefined ? lastPlays.find((p) => p.id === last.onsetEpisodeId) : undefined;
+    if (credited) return credited;
+    // Not among the plays (one only counts after HEARD_SEC), or no
+    // attribution: a watch night's onset may be when nothing was playing,
+    // so none; a detector night falls back on the plays, as it always did.
     return last.detector === "watch" ? null : playAtMoment(lastPlays, last.startedAt + last.sleptAtMs);
   }, [lastPlays, last]);
 

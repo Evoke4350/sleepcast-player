@@ -271,9 +271,10 @@ export function payloadFromPaste(text: string): string {
   const i = text.indexOf(WATCH_HASH);
   // An encoded link has no whitespace: it ends at the first (anything after
   // it, a shared message's own words, isn't the payload).
-  // Punctuation a message put after it (a full stop, a closing quote, an
-  // autolink's > or markdown's **) isn't either.
-  if (i >= 0) return watchPayloadFromHash(text.slice(i).split(/\s/)[0].replace(/[.,;:!?"'\u2019\u201d)\]>*_]+$/u, "")) ?? "";
+  // Punctuation or symbols a message put after it (a full stop, an
+  // ellipsis, a closing quote, an autolink's >, markdown's **) aren't either:
+  // an encoded payload ends in a stage's letter or digit.
+  if (i >= 0) return watchPayloadFromHash(text.slice(i).split(/\s/)[0].replace(/[\p{P}\p{S}]+$/u, "")) ?? "";
   return (/%[0-9a-f]{2}/i.test(text) ? decodeLeniently(text) : text).trim();
 }
 
@@ -308,7 +309,6 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
     const newest = lastOf(nights)?.startedAt;
     const r = applyWatch(nights, samples, windowStart);
     const latest = r.timed.at(-1);
-    latestIsOlder = latest !== undefined && newest !== undefined && latest.startedAt < newest;
     unchanged = r.unchanged;
     // Nothing to write, nothing written (a full store would evict cached
     // feeds to make room for no change).
@@ -318,6 +318,7 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
         killed?.commit();
         timed = r.timed;
         saved = stored;
+        latestIsOlder = latest !== undefined && newest !== undefined && latest.startedAt < newest;
         // Untimed as stored (a night merged into one the watch had timed
         // keeps that time), and inside the window, where a later run can
         // still time it.
@@ -333,7 +334,7 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
     ...(saved ? { nights: saved } : {}),
     noWindow,
     badWindow,
-    ...(timed.length && latestIsOlder ? { latestIsOlder } : {}),
+    ...(latestIsOlder ? { latestIsOlder } : {}),
     ...(recordedUntimed !== undefined ? { recordedUntimed } : {}),
     refused: refusedContent || unsaved,
     slept: samples.filter((s) => s.asleep).length,
@@ -383,15 +384,17 @@ function decodeLeniently(text: string): string {
 }
 
 /** When a session was, in English like the rest of the copy: "monday
- *  night" (one started in the small hours, before NIGHT_ENDS_HOUR, is the
- *  evening before's), or "monday morning" / "afternoon" for a daytime one. */
+ *  night", "monday morning" / "afternoon", or "the early hours of tuesday"
+ *  for one started before NIGHT_ENDS_HOUR. */
 function nightName(startedAt: number): string {
   const d = new Date(startedAt);
+  const day = d.toLocaleDateString("en", { weekday: "long" }).toLowerCase();
   // By the local hour, not 6 h of absolute time, which a DST change skews.
+  // The small hours get their own name: a session started then (a 3am
+  // re-anchor) is a night of its own, beside the evening's.
   const h = d.getHours();
-  if (h < NIGHT_ENDS_HOUR) d.setDate(d.getDate() - 1);
-  const part = h >= NIGHT_ENDS_HOUR && h < 12 ? "morning" : h >= 12 && h < 18 ? "afternoon" : "night";
-  return `${d.toLocaleDateString("en", { weekday: "long" }).toLowerCase()} ${part}`;
+  if (h < NIGHT_ENDS_HOUR) return `the early hours of ${day}`;
+  return `${day} ${h < 12 ? "morning" : h < 18 ? "afternoon" : "night"}`;
 }
 
 /** What an import did, in a line for the listener. */
@@ -415,15 +418,13 @@ export function watchNotice(r: WatchImport): string {
   // Named, as an older timed night is: it may not be last night.
   const again =
     r.recordedUntimed !== undefined ? ` ${nightName(r.recordedUntimed)} is recorded without the watch's time: run it again later.` : "";
-  if (!r.slept && !r.timed.length && !r.unchanged) {
-    return r.recordedUntimed !== undefined
-      ? `nothing from your watch yet.${again}`
+  if (!r.timed.length && !r.unchanged) {
+    if (again) return `${r.slept ? "no sleep from your watch inside a sleepcast night yet." : "nothing from your watch yet."}${again}`;
+    return r.slept
+      ? "your watch's sleep didn't start inside a sleepcast night."
       : "nothing from your watch yet: run it again later (and check sleep tracking is on).";
   }
-  if (!r.timed.length) {
-    if (r.unchanged) return `nothing new: your watch had already timed these nights.${again}`;
-    return r.recordedUntimed !== undefined ? `no sleep from your watch inside a sleepcast night yet.${again}` : "your watch's sleep didn't start inside a sleepcast night.";
-  }
+  if (!r.timed.length) return `nothing new: your watch had already timed these nights.${again}`;
   const last = r.timed[r.timed.length - 1];
   const guess = last.inferredAtMs === null ? "" : `; sleepcast guessed ${fmtOnsetMinutes(last.inferredAtMs)}`;
   // Not last night's (it had no sleep the watch saw): say which night, or it
@@ -437,7 +438,7 @@ export function watchNotice(r: WatchImport): string {
 
 /** How the detector's guesses compare with the watch: nights the watch
  *  timed, how many of those the detector had also timed, and the median gap
- *  between the two (rounded to the second), or null with none to compare. */
+ *  between the two, or null with none to compare. */
 export function watchAgreement(nights: readonly RestNight[]): {
   watchNights: number;
   compared: number;
@@ -451,6 +452,6 @@ export function watchAgreement(nights: readonly RestNight[]): {
   return {
     watchNights: watched.length,
     compared: gaps.length,
-    medianOffMs: m === null ? null : Math.round(m / 1000) * 1000,
+    medianOffMs: m === null ? null : Math.round(m),
   };
 }

@@ -496,9 +496,9 @@ describe("watchNotice, for a night other than last night", () => {
   it("names the night, in english", () => {
     expect(older(new Date(2026, 9, 2, 23, 0).getTime())).toBe("your watch for friday night: asleep 12 min in.");
   });
-  it("names a night started in the small hours by the evening before", () => {
-    // Sunday 00:30 is saturday night.
-    expect(older(new Date(2026, 9, 4, 0, 30).getTime())).toBe("your watch for saturday night: asleep 12 min in.");
+  it("names a night started in the small hours as their own, not the evening's", () => {
+    // Sunday 00:30: a night of its own, beside saturday night's.
+    expect(older(new Date(2026, 9, 4, 0, 30).getTime())).toBe("your watch for the early hours of sunday: asleep 12 min in.");
   });
 });
 
@@ -552,8 +552,8 @@ describe("nightName across a DST change", () => {
     const t = (y: number, m: number, d: number, h: number, min = 0) => new Date(y, m, d, h, min).getTime();
     const name = (startedAt: number) =>
       watchNotice({ ...FLAGS, timed: [{ startedAt, atMs: 12 * MIN, inferredAtMs: null }], latestIsOlder: true, unchanged: 0, unrecognised: 0, malformed: 0, refused: false });
-    // Sunday 05:30 local is saturday night, whatever the clocks did that night.
-    expect(name(t(2026, 10, 1, 5, 30))).toContain("for saturday night");
+    // Sunday 05:30 local is the early hours of sunday, whatever the clocks did.
+    expect(name(t(2026, 10, 1, 5, 30))).toContain("for the early hours of sunday");
     // Sunday 06:30 local is a morning session, sunday's.
     expect(name(t(2026, 10, 1, 6, 30))).toContain("for sunday morning");
   });
@@ -642,5 +642,19 @@ describe("payloadFromPaste and the window line, loosely written", () => {
   });
   it("reads a window line with spaces around its ~", () => {
     expect(parseWatchPayload("Window ~ 2026-10-04T08:00:00-07:00\n").windowStart).toBe(Date.parse("2026-10-04T08:00:00-07:00"));
+  });
+});
+
+describe("payloadFromPaste and an ellipsis", () => {
+  it("drops trailing punctuation of any kind", () => {
+    expect(payloadFromPaste("https://sleepcast.pro/#watch=a~b~Core%0Ac~d~REM…")).toBe("a~b~Core\nc~d~REM");
+    expect(payloadFromPaste("«https://sleepcast.pro/#watch=a~b~Core»")).toBe("a~b~Core");
+  });
+});
+
+describe("watchAgreement's median", () => {
+  it("isn't rounded to the second (under a minute stays under a minute)", () => {
+    const a = watchAgreement([night({ detector: "watch", sleptAtMs: 10 * MIN, inferredAtMs: 10 * MIN + 29_600 })]);
+    expect(a.medianOffMs).toBe(29_600);
   });
 });
