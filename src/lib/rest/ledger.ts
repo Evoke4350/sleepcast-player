@@ -81,28 +81,22 @@ export function withNight(nights: readonly RestNight[], n: RestNight): RestNight
   return [...nights.slice(0, i), merged, ...nights.slice(i + 1).filter((x) => x.startedAt !== n.startedAt)];
 }
 
-/** `n`, recorded again, keeping the watch's time from `watched`: and, where
- *  `n` has none of its own (a killed snapshot's night has no timeline or
- *  onset), the watched copy's timeline, attribution and detector guess. */
+/** `n`, recorded again, keeping the watch's time from `watched`: re-timed
+ *  as the watch import re-times (retimed), from `n`'s timeline or, where it
+ *  has none (a killed snapshot's night), the watched copy's, so its credit
+ *  is re-checked against `n`'s end; and the detector's guess from the
+ *  watched copy where `n` has none. */
 function keepWatch(n: RestNight, watched: RestNight): RestNight {
-  const at = watched.sleptAtMs as number;
-  if (n.timeline) {
-    const r = retimed(n, at);
-    return r.inferredAtMs === null && watched.inferredAtMs != null ? { ...r, inferredAtMs: watched.inferredAtMs } : r;
-  }
-  const { selfLabel: _l, ...rest } = n;
-  return {
-    ...rest,
-    sleptAtMs: at,
-    timeToSleepMs: at,
-    detector: "watch",
-    inferredAtMs: n.sleptAtMs ?? watched.inferredAtMs ?? null,
-    ...(watched.timeline ? { timeline: watched.timeline } : {}),
-    ...(watched.onsetFeedId !== undefined ? { onsetFeedId: watched.onsetFeedId } : {}),
-    ...(watched.onsetEpisodeId !== undefined ? { onsetEpisodeId: watched.onsetEpisodeId } : {}),
-    ...(watched.onsetAfterMs !== undefined ? { onsetAfterMs: watched.onsetAfterMs } : {}),
-    ...(watched.sleptThrough !== undefined ? { sleptThrough: watched.sleptThrough } : {}),
-  };
+  const withTimeline = n.timeline || !watched.timeline ? n : { ...n, timeline: watched.timeline };
+  const r = retimed(withTimeline, watched.sleptAtMs as number);
+  return r.inferredAtMs === null && watched.inferredAtMs != null ? { ...r, inferredAtMs: watched.inferredAtMs } : r;
+}
+
+/** The nights with every night recorded more than once collapsed into one
+ *  (as withNight does for one), in order: a ledger from before could hold
+ *  copies, which would be counted, and timed, twice. */
+export function collapsed(nights: readonly RestNight[]): RestNight[] {
+  return nights.reduce<RestNight[]>((acc, n) => withNight(acc, n), []);
 }
 
 /** Drops the timeline of any night that began more than TIMELINE_KEEP_MS

@@ -16,7 +16,7 @@
 // onset.
 import type { RestNight } from "./types";
 import { retimed } from "./attribution";
-import { lastOf, loadNights, pruneTimelines, saveNights, withNight } from "./ledger";
+import { collapsed, lastOf, loadNights, pruneTimelines, saveNights, withNight } from "./ledger";
 import { median } from "./stats";
 import { killedNightToRecord } from "./reconcile";
 import { WATCH_HASH } from "./watch-hash";
@@ -324,14 +324,21 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
     // nights in one save, then its snapshot cleared (commit) only once that
     // took. An import that is refused, or not saved, changes nothing.
     const killed = killedNightToRecord(now);
-    const nights = killed ? withNight(loadNights(), killed.night) : loadNights();
+    // Copies of a night (an older ledger's) collapse first, so none is
+    // timed or counted twice; the killed night joins as any recording does.
+    const raw = loadNights();
+    const loaded = collapsed(raw);
+    const loadedCount = raw.length;
+    const nights = killed ? withNight(loaded, killed.night) : loaded;
     const newest = lastOf(nights)?.startedAt;
     const r = applyWatch(nights, samples, windowStart);
+    // Something to write: a re-timed night, a killed one, or copies collapsed.
+    const worthWriting = r.timed.length > 0 || killed !== null || nights.length !== loadedCount;
     const latest = r.timed.at(-1);
     unchanged = r.unchanged;
     // Nothing to write, nothing written (a full store would evict cached
     // feeds to make room for no change).
-    if (r.timed.length || killed) {
+    if (worthWriting) {
       const stored = saveNights(pruneTimelines(r.nights, now));
       if (stored) {
         // Recorded, so its snapshot goes (one older than every night the cap
@@ -344,7 +351,10 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
         // keeps that time), and inside the window, where a later run can
         // still time it.
         const k = killed && stored.find((n) => n.startedAt === killed.night.startedAt);
-        if (k && k.detector !== "watch" && k.startedAt >= timeableFrom(windowStart)) recordedUntimed = k.startedAt;
+        // ...and only if the watch hasn't handed over any sleep past its start
+        // yet: if it has and still didn't time it, a later run won't either.
+        const synced = k && samples.some((s) => s.asleep && s.end > k.startedAt);
+        if (k && !synced && k.detector !== "watch" && k.startedAt >= timeableFrom(windowStart)) recordedUntimed = k.startedAt;
       } else unsaved = true;
     }
   }

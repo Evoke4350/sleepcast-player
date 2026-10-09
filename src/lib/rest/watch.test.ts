@@ -688,3 +688,26 @@ describe("the window's own edge", () => {
     expect(parseWatchPayload("window~2026-10-05t08:00:00Z").windowStart).toBe(Date.parse("2026-10-05T08:00:00Z"));
   });
 });
+
+describe("an older ledger with a night recorded twice", () => {
+  beforeEach(() => localStorage.clear());
+  it("is timed and counted once: the import collapses the copies", () => {
+    localStorage.setItem("sleepcast2.rest", JSON.stringify([night(), night({ interactions: 4 })]));
+    const r = importWatch(`${OPENS_LINE}\n2026-10-05T23:04:00-07:00~2026-10-05T23:30:00-07:00~Core`, START + 10 * 60 * MIN);
+    expect(r.timed).toHaveLength(1);
+    expect(loadNights()).toHaveLength(1);
+    expect(watchAgreement(loadNights()).watchNights).toBe(1);
+  });
+});
+
+describe("recordedUntimed when the watch's sleep has synced", () => {
+  beforeEach(() => localStorage.clear());
+  it("isn't said when the watch had sleep past the night's start but didn't time it (a later run won't)", () => {
+    const live = { savedAt: START + 10 * MIN, remainingMs: 0, totalSeconds: 0, position: 0, current: { id: "e1", title: "", url: "", feedId: "f", date: "" }, playedIds: [], pool: [], skipIntroByFeedId: {}, feedTitles: {}, artworkByFeedId: {}, nightStartedAt: START, modeKind: "all-night" };
+    localStorage.setItem("sleepcast2.live", JSON.stringify(live));
+    // Asleep from before the start, through it: never this night's onset.
+    const r = importWatch(`${OPENS_LINE}\n2026-10-05T22:50:00-07:00~2026-10-06T02:00:00-07:00~Core`, START + 10 * 60 * MIN);
+    expect(r.nights).toHaveLength(1);
+    expect(r.recordedUntimed).toBeUndefined();
+  });
+});
