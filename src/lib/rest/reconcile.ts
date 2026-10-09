@@ -118,9 +118,8 @@ function isFresh(l: LiveSession, now: number): boolean {
  *  playing one night at once is out of scope (spec §6). */
 export function resumeTarget(card: LiveSession, now: number): { revive: LiveSession } | { card: LiveSession | null } {
   const stored = loadLive();
-  const sameNight =
-    stored !== null &&
-    (stored.savedAt === card.savedAt || (stored.nightStartedAt !== undefined && stored.nightStartedAt === card.nightStartedAt));
-  if (stored && sameNight && isRevivable(stored, now)) return { revive: stored };
+  const sameNight = (l: LiveSession) =>
+    l.savedAt === card.savedAt || (l.nightStartedAt !== undefined && l.nightStartedAt === card.nightStartedAt);
+  if (stored && sameNight(stored) && isRevivable(stored, now)) return { revive: stored };
   return { card: settleLive(stored, now) };
 }

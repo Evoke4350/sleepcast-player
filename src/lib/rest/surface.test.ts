@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { shouldGreetGoodbye, markGoodbyeSeen } from "./surface";
+import { shouldGreetGoodbye, markGoodbyeSeen, fmtDuration } from "./surface";
 import { fmtOnsetMinutes } from "./sleepscore";
-import { fmtDuration } from "./surface";
 import { appendNight } from "./ledger";
 import type { RestNight } from "./types";
 
