@@ -224,7 +224,7 @@ export function applyWatch(
 ): { nights: RestNight[]; timed: WatchTiming[]; unchanged: number } {
   const stretches = sleepStretches(samples);
   const from = timeableFrom(windowStart);
-  const starts = [...new Set(nights.map((n) => n.startedAt))].sort((a, b) => a - b);
+  const starts = nights.map((n) => n.startedAt).sort((a, b) => a - b); // unique (loadNights)
   const next = new Map(starts.map((s, i) => [s, starts[i + 1] ?? Infinity]));
   const timed: WatchTiming[] = [];
   let unchanged = 0;

@@ -287,6 +287,13 @@ export function AppPlayer() {
   // reload needs before audio can start again.
   function handleResume() {
     if (!live) return;
+    // The card's snapshot may be stale: another tab may have finished (and
+    // recorded) that night since. Revive only the snapshot still stored;
+    // else settle what is there now.
+    if (loadLive()?.savedAt !== live.savedAt) {
+      setLive(settleLive(loadLive(), Date.now()));
+      return;
+    }
     setWatchLine(null);
     applyNightSettings(resumeMode(live)); // (the lean comes with the snapshot)
     setResume(resumeFrom(live));

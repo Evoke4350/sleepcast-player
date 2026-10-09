@@ -267,11 +267,15 @@ describe("saveNights over the cap", () => {
 });
 
 describe("withNight and a night already there twice", () => {
+  beforeEach(() => localStorage.clear());
   it("collapses every copy into one, keeping the watch's time", () => {
     const base: RestNight = { startedAt: 9, timerMinutes: 60, endedVia: "faded", sleptAtMs: null, timeToSleepMs: null, interactions: 0, detector: "none" };
     const watched = { ...base, detector: "watch" as const, sleptAtMs: 60_000, timeToSleepMs: 60_000, inferredAtMs: null };
     const other: RestNight = { ...base, startedAt: 10 };
-    const out = withNight([base, other, watched], { ...base, interactions: 5 });
+    // Stored with copies (an older ledger); read as one, then recorded again.
+    localStorage.setItem("sleepcast2.rest", JSON.stringify([base, other, watched]));
+    appendNight({ ...base, interactions: 5 }, Date.now());
+    const out = loadNights();
     expect(out.map((x) => x.startedAt)).toEqual([9, 10]);
     expect(out[0]).toMatchObject({ detector: "watch", sleptAtMs: 60_000, interactions: 5 });
   });
@@ -304,5 +308,14 @@ describe("loadNights and copies of a night", () => {
     const w = (at: number) => n({ detector: "watch", sleptAtMs: at, timeToSleepMs: at, inferredAtMs: null });
     localStorage.setItem("sleepcast2.rest", JSON.stringify([w(20 * 60_000), w(12 * 60_000)]));
     expect(loadNights()[0].sleptAtMs).toBe(12 * 60_000);
+  });
+});
+
+describe("loadNights and a bad entry", () => {
+  beforeEach(() => localStorage.clear());
+  it("passes over it, keeping the rest (the next save mustn't erase them)", () => {
+    const n: RestNight = { startedAt: 30, timerMinutes: 60, endedVia: "faded", sleptAtMs: null, timeToSleepMs: null, interactions: 0, detector: "none" };
+    localStorage.setItem("sleepcast2.rest", JSON.stringify([n, null, 7, { startedAt: "x" }, { ...n, startedAt: 31 }]));
+    expect(loadNights().map((x) => x.startedAt)).toEqual([30, 31]);
   });
 });

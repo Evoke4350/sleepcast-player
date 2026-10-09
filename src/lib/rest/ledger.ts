@@ -26,15 +26,19 @@ export function lastOf(nights: readonly RestNight[]): RestNight | null {
 }
 
 export function loadNights(): RestNight[] {
+  let arr: unknown;
   try {
     const raw = localStorage.getItem(KEY);
-    const arr = raw ? (JSON.parse(raw) as RestNight[]) : [];
-    // A ledger from before could hold a night twice: read as one, so every
-    // reader (counts, scores, the step-back, the watch import) agrees.
-    return Array.isArray(arr) ? collapsed(arr) : [];
+    arr = raw ? JSON.parse(raw) : [];
   } catch {
     return [];
   }
+  if (!Array.isArray(arr)) return [];
+  // A ledger from before could hold a night twice: read as one, so every
+  // reader (counts, scores, the step-back, the watch import) agrees. An
+  // entry that isn't a night is passed over, not allowed to blank the rest
+  // (which the next save would then overwrite).
+  return collapsed(arr.filter((n): n is RestNight => !!n && typeof n === "object" && typeof (n as RestNight).startedAt === "number"));
 }
 
 /** Stores the nights, the newest MAX_NIGHTS of them, and returns what it
@@ -73,7 +77,11 @@ export function appendNight(n: RestNight, now = Date.now()): boolean {
 /** `nights` with `n` added, or merged into the night with its start (see
  *  appendNight), for a caller that saves them itself. */
 export function withNight(nights: readonly RestNight[], n: RestNight): RestNight[] {
-  return collapsed([...nights, n]);
+  const i = nights.findIndex((x) => x.startedAt === n.startedAt);
+  if (i === -1) return [...nights, n];
+  const out = [...nights];
+  out[i] = merge(out[i], n);
+  return out;
 }
 
 /** A night recorded again (`n`, the later) merged with what was there: the
@@ -97,7 +105,7 @@ function keepWatch(n: RestNight, watched: RestNight): RestNight {
 
 /** The nights with every night recorded more than once collapsed into one
  *  (merge), where its first copy was, in one pass. */
-export function collapsed(nights: readonly RestNight[]): RestNight[] {
+function collapsed(nights: readonly RestNight[]): RestNight[] {
   const out: RestNight[] = [];
   const at = new Map<number, number>();
   for (const n of nights) {
@@ -126,14 +134,13 @@ export function pruneTimelines(nights: RestNight[], now: number): RestNight[] {
  *  it, nor tighten the detector for a call it didn't make). */
 export function setSelfLabel(startedAt: number, label: "slept" | "awake"): RestNight | null {
   const nights = loadNights();
-  const at = nights.map((n, i) => (n.startedAt === startedAt ? i : -1)).filter((i) => i >= 0);
-  if (!at.length || at.some((i) => nights[i].detector === "watch")) return null;
-  // Every copy (a ledger from before could hold a night twice): the one
-  // offered (lastOf's) is labelled whichever it was.
-  for (const i of at) nights[i] = { ...nights[i], selfLabel: label };
+  // (loadNights reads any copies of a night as one.)
+  const i = nights.findIndex((n) => n.startedAt === startedAt);
+  if (i === -1 || nights[i].detector === "watch") return null;
+  nights[i] = { ...nights[i], selfLabel: label };
   // A label that didn't store (storage full) didn't take: callers count and
   // act on it only when it did.
-  return saveNights(nights) ? nights[at[at.length - 1]] : null;
+  return saveNights(nights) ? nights[i] : null;
 }
 
 /** Whether to ask if the listener really slept on a night: it claims an
