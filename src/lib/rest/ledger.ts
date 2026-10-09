@@ -56,7 +56,8 @@ export const TIMELINE_KEEP_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** Records a night; whether the save took. A night older than every one
  *  the cap keeps is, like any night past the cap, not kept: recorded all the
- *  same (its snapshot then goes), as the ledger only ever holds the newest. `now` (for pruning timelines) is passed by every caller here, and
+ *  same (its snapshot then goes), as the ledger only ever holds the newest.
+ *  `now` (for pruning timelines) is passed by every caller here, and
  *  defaults for the host app's calls, which leave it out. A night with the
  *  same start already there is the same night recorded twice, and this one
  *  replaces it: a watch import records a suspended tab's snapshot (it can't

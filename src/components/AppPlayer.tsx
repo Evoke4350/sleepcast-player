@@ -130,11 +130,9 @@ export function AppPlayer() {
   // Shortcut most needs to time, so the import records it (killedNightToRecord;
   // the `live` state below then finds no snapshot). The fragment is cleared
   // at once: a reload, or the link shared, mustn't import it again.
+  // The morning's line is about the night before: gone once a night starts
+  // or is resumed (handleStart, handleResume).
   const [watchLine, setWatchLine] = useState(takeWatchLink);
-  // The morning's line is about the night before: gone once another starts.
-  useEffect(() => {
-    if (session) setWatchLine(null);
-  }, [session]);
   // The link can also land in a tab already open, where only the fragment
   // changes. It is held (heldLink: not in the address, where a reload
   // mid-night would import it and end the night; lost if the page goes
@@ -279,6 +277,7 @@ export function AppPlayer() {
     // A held link predates this new night (one that lands during a night is
     // kept for when it ends; resuming a night keeps one too).
     setHeldLink(null);
+    setWatchLine(null);
     recordStoredNight(true);
     applyNightSettings(modeOverride ?? loadState().settings.mode);
     setSession({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artworkByFeedId, leadEpisode, wasVaried, leadPosition });
@@ -288,6 +287,7 @@ export function AppPlayer() {
   // reload needs before audio can start again.
   function handleResume() {
     if (!live) return;
+    setWatchLine(null);
     applyNightSettings(resumeMode(live)); // (the lean comes with the snapshot)
     setResume(resumeFrom(live));
     setSession({

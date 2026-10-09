@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { shouldGreetGoodbye, markGoodbyeSeen } from "./surface";
 import { fmtOnsetMinutes } from "./sleepscore";
+import { fmtDuration } from "./surface";
 import { appendNight } from "./ledger";
 import type { RestNight } from "./types";
 
@@ -11,6 +12,11 @@ const night = (over: Partial<RestNight> = {}): RestNight => ({
 
 describe("surface", () => {
   beforeEach(() => localStorage.clear());
+
+  it("fmtDuration (kept for the host app) words minutes as fmtOnsetMinutes does", () => {
+    expect(fmtDuration(300_000)).toBe("5 min");
+    expect(fmtDuration(20_000)).toBe("under a minute");
+  });
 
   it("fmtOnsetMinutes renders minutes", () => {
     expect(fmtOnsetMinutes(300000)).toBe("5 min");

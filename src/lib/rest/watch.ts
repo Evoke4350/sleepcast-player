@@ -451,10 +451,11 @@ export function watchAgreement(nights: readonly RestNight[]): {
   compared: number;
   medianOffMs: number | null;
 } {
-  const watched = nights.filter((n) => n.detector === "watch" && n.sleptAtMs !== null);
+  type Timed = RestNight & { sleptAtMs: number };
+  const watched = nights.filter((n): n is Timed => n.detector === "watch" && n.sleptAtMs !== null);
   const gaps = watched
-    .filter((n) => n.inferredAtMs !== undefined && n.inferredAtMs !== null)
-    .map((n) => Math.abs((n.inferredAtMs as number) - (n.sleptAtMs as number)));
+    .filter((n): n is Timed & { inferredAtMs: number } => typeof n.inferredAtMs === "number")
+    .map((n) => Math.abs(n.inferredAtMs - n.sleptAtMs));
   const m = median(gaps);
   return {
     watchNights: watched.length,
