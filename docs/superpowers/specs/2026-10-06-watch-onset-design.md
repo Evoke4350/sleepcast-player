@@ -53,10 +53,12 @@ the start of the first stretch that begins at or after the night's start,
 within `MATCH_WINDOW_MS` (4 h) and before the next night's start (a 3am
 re-anchor is its own night). A stretch that began before the night's start
 doesn't count, nor does a stage change within it: the listener was awake to
-press start. Only nights that began after the window opened are matched: for
+press start. Only nights that began more than a minute (CONTIGUOUS_MS) after
+the window opened are matched (`timeableFrom`, which recordedUntimed uses
+too, so the notice never asks for a run that can't time a night): for
 an earlier one the window may have cut its sleep off (whether it began before
 the night's start is unknown, and a stage change after a brief wake would pass
-for its onset), so it keeps what it has. A night after the window opened has
+for its onset), so it keeps what it has. A later night has
 every sample under way at or after its start (the Shortcut filters by end
 date, so samples that began before the window and run into it are there
 too, which is what the began-before-start guard needs), so its first-ever

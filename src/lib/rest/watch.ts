@@ -136,10 +136,10 @@ export function parseWatchPayload(text: string, now = Infinity): {
   // from the newest MAX_SAMPLES. With lines dropped off the front, the
   // window opens where what's kept begins (the Shortcut sorts oldest
   // first), not where the window line said, or a night whose first stages
-  // were dropped would look whole; and strictly past any dropped sleep a
-  // kept sample could have joined onto (only sleep joins: a dropped Awake
-  // or In Bed sample doesn't). A first kept line that doesn't parse is
-  // malformed, refused anyway.
+  // were dropped would look whole; and no earlier than the end of any dropped
+  // sleep (only sleep joins: a dropped Awake or In Bed sample doesn't), the
+  // margin a kept sample could join across being timeableFrom's. A first
+  // kept line that doesn't parse is malformed, refused anyway.
   const firstKept = Math.max(0, lines.length - MAX_SAMPLES);
   const samples: SleepSample[] = [];
   let malformed = 0;
@@ -152,7 +152,7 @@ export function parseWatchPayload(text: string, now = Infinity): {
       samples.push(p);
       if (i === firstKept && firstKept > 0 && windowStart !== null) windowStart = Math.max(windowStart, p.start);
     } else if (p.asleep && windowStart !== null) {
-      windowStart = Math.max(windowStart, p.end + CONTIGUOUS_MS + 1);
+      windowStart = Math.max(windowStart, p.end);
     }
   });
   return { windowStart, badWindow, samples, unrecognised, malformed };
@@ -198,31 +198,38 @@ export interface WatchTiming {
   inferredAtMs: number | null;
 }
 
+/** The earliest start a night can have and still be timed by a payload
+ *  whose window opens at `windowStart`: strictly more than CONTIGUOUS_MS
+ *  after it, as a sample left out just before the window (by the
+ *  Shortcut's filter, or dropped past MAX_SAMPLES) could have joined the
+ *  first one kept (stretches join at <= CONTIGUOUS_MS). */
+export function timeableFrom(windowStart: number): number {
+  return windowStart + CONTIGUOUS_MS + 1;
+}
+
 /** Every night the samples time, re-timed; the rest as they were, in the
  *  same order. `timed` lists the nights whose time this changed;
  *  `unchanged` counts those the watch had already timed the same (the
  *  Shortcut reads two days, so each morning re-reads the night before).
- *  Only nights that began after the window opened: for an earlier one the
+ *  Only nights from timeableFrom(windowStart): for an earlier one the
  *  window may have cut its sleep off (whether it began before the night's
  *  start is unknown, and a stage change after a brief wake would pass for
- *  its onset), so it keeps what it has. A night after the window opened has
- *  every sample under way at or after its start (the Shortcut filters by
- *  end date), its first-ever one included. */
+ *  its onset), so it keeps what it has. A later night has every sample
+ *  under way at or after its start (the Shortcut filters by end date), its
+ *  first-ever one included. */
 export function applyWatch(
   nights: readonly RestNight[],
   samples: readonly SleepSample[],
   windowStart: number,
 ): { nights: RestNight[]; timed: WatchTiming[]; unchanged: number } {
   const stretches = sleepStretches(samples);
+  const from = timeableFrom(windowStart);
   const starts = [...new Set(nights.map((n) => n.startedAt))].sort((a, b) => a - b);
   const next = new Map(starts.map((s, i) => [s, starts[i + 1] ?? Infinity]));
   const timed: WatchTiming[] = [];
   let unchanged = 0;
   const out = nights.map((n) => {
-    // Within CONTIGUOUS_MS of the window opening counts as before it: a
-    // sample the Shortcut left out (ended just before the window) could have
-    // joined the first one kept, as for lines dropped past MAX_SAMPLES.
-    if (n.startedAt < windowStart + CONTIGUOUS_MS) return n;
+    if (n.startedAt < from) return n;
     const at = watchOnset(n.startedAt, stretches, next.get(n.startedAt));
     if (at === null) return n;
     if (n.detector === "watch" && n.sleptAtMs === at) {
@@ -337,7 +344,7 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
         // keeps that time), and inside the window, where a later run can
         // still time it.
         const k = killed && stored.find((n) => n.startedAt === killed.night.startedAt);
-        if (k && k.detector !== "watch" && k.startedAt >= windowStart) recordedUntimed = k.startedAt;
+        if (k && k.detector !== "watch" && k.startedAt >= timeableFrom(windowStart)) recordedUntimed = k.startedAt;
       } else unsaved = true;
     }
   }

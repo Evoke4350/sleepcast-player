@@ -276,3 +276,19 @@ describe("withNight and a night already there twice", () => {
     expect(out[0]).toMatchObject({ detector: "watch", sleptAtMs: 60_000, interactions: 5 });
   });
 });
+
+describe("labels and merges with a night recorded twice", () => {
+  beforeEach(() => localStorage.clear());
+  const n = (over: Partial<RestNight> = {}): RestNight => ({ startedAt: 11, timerMinutes: 60, endedVia: "faded", sleptAtMs: 600_000, timeToSleepMs: 600_000, interactions: 0, detector: "inference", ...over });
+  it("setSelfLabel labels every copy, so the one offered is labelled", () => {
+    localStorage.setItem("sleepcast2.rest", JSON.stringify([n(), n({ interactions: 3 })]));
+    expect(setSelfLabel(11, "slept")?.interactions).toBe(3);
+    expect(loadNights().every((x) => x.selfLabel === "slept")).toBe(true);
+  });
+  it("withNight keeps the watched copy's guess, timeline and credit when the new copy has none", () => {
+    const timeline = [{ t: 0, feedId: "a", episodeId: "a1" }];
+    const watched = n({ detector: "watch", sleptAtMs: 300_000, timeToSleepMs: 300_000, inferredAtMs: 600_000, timeline, onsetFeedId: "a", onsetEpisodeId: "a1", onsetAfterMs: 300_000 });
+    const [merged] = withNight([watched], n({ detector: "none", sleptAtMs: null, timeToSleepMs: null }));
+    expect(merged).toMatchObject({ detector: "watch", sleptAtMs: 300_000, inferredAtMs: 600_000, onsetFeedId: "a", timeline });
+  });
+});

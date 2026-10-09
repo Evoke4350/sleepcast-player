@@ -76,9 +76,33 @@ export function withNight(nights: readonly RestNight[], n: RestNight): RestNight
   const same = nights.filter((x) => x.startedAt === n.startedAt);
   if (!same.length) return [...nights, n];
   const watched = same.find((x) => x.detector === "watch" && x.sleptAtMs !== null);
-  const merged = watched ? retimed(n, watched.sleptAtMs as number) : n;
+  const merged = watched ? keepWatch(n, watched) : n;
   const i = nights.indexOf(same[0]);
   return [...nights.slice(0, i), merged, ...nights.slice(i + 1).filter((x) => x.startedAt !== n.startedAt)];
+}
+
+/** `n`, recorded again, keeping the watch's time from `watched`: and, where
+ *  `n` has none of its own (a killed snapshot's night has no timeline or
+ *  onset), the watched copy's timeline, attribution and detector guess. */
+function keepWatch(n: RestNight, watched: RestNight): RestNight {
+  const at = watched.sleptAtMs as number;
+  if (n.timeline) {
+    const r = retimed(n, at);
+    return r.inferredAtMs === null && watched.inferredAtMs != null ? { ...r, inferredAtMs: watched.inferredAtMs } : r;
+  }
+  const { selfLabel: _l, ...rest } = n;
+  return {
+    ...rest,
+    sleptAtMs: at,
+    timeToSleepMs: at,
+    detector: "watch",
+    inferredAtMs: n.sleptAtMs ?? watched.inferredAtMs ?? null,
+    ...(watched.timeline ? { timeline: watched.timeline } : {}),
+    ...(watched.onsetFeedId !== undefined ? { onsetFeedId: watched.onsetFeedId } : {}),
+    ...(watched.onsetEpisodeId !== undefined ? { onsetEpisodeId: watched.onsetEpisodeId } : {}),
+    ...(watched.onsetAfterMs !== undefined ? { onsetAfterMs: watched.onsetAfterMs } : {}),
+    ...(watched.sleptThrough !== undefined ? { sleptThrough: watched.sleptThrough } : {}),
+  };
 }
 
 /** Drops the timeline of any night that began more than TIMELINE_KEEP_MS
@@ -97,12 +121,14 @@ export function pruneTimelines(nights: RestNight[], now: number): RestNight[] {
  *  it, nor tighten the detector for a call it didn't make). */
 export function setSelfLabel(startedAt: number, label: "slept" | "awake"): RestNight | null {
   const nights = loadNights();
-  const i = nights.findIndex((n) => n.startedAt === startedAt);
-  if (i === -1 || nights[i].detector === "watch") return null;
-  nights[i] = { ...nights[i], selfLabel: label };
+  const at = nights.map((n, i) => (n.startedAt === startedAt ? i : -1)).filter((i) => i >= 0);
+  if (!at.length || at.some((i) => nights[i].detector === "watch")) return null;
+  // Every copy (a ledger from before could hold a night twice): the one
+  // offered (lastOf's) is labelled whichever it was.
+  for (const i of at) nights[i] = { ...nights[i], selfLabel: label };
   // A label that didn't store (storage full) didn't take: callers count and
   // act on it only when it did.
-  return saveNights(nights) ? nights[i] : null;
+  return saveNights(nights) ? nights[at[at.length - 1]] : null;
 }
 
 /** Whether to ask if the listener really slept on a night: it claims an
