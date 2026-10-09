@@ -164,6 +164,10 @@ touches would read as awake ones and make the detector bolder.
   last episode. The session doesn't know the timer's extensions, so its
   scheduled end can't be told; reconciled nights (killed tabs) use last seen
   alive instead.
+- Two tabs playing the same night at once (a resume card tapped in one
+  while another plays it): a multi-tab race, as elsewhere in the app. A
+  resume tap revives only a still-revivable snapshot of the card's night
+  (`resumeTarget`); a stale card is replaced by what storage holds now.
 - A link held in an open tab (see §5) lives in memory until it is read; if
   the page goes first (the tab killed, a link followed) it is lost, and the
   next morning's run (two days) makes it up.

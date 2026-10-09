@@ -192,8 +192,6 @@ export function AppPlayer() {
   // time is left and it is recent; otherwise the tab was killed and the night
   // is over, so record it (rest/reconcile.ts) rather than dropping it.
   const [live, setLive] = useState<LiveSession | null>(() => settleLive(loadLive(), Date.now()));
-  // Why a resume tap did nothing, when it couldn't (resumeTarget).
-  const [resumeNote, setResumeNote] = useState<string | null>(null);
 
   const [reanchor, setReanchor] = useState<{ lastNight: LastNight; next: Episode } | null>(null);
 
@@ -289,18 +287,14 @@ export function AppPlayer() {
   // reload needs before audio can start again.
   function handleResume() {
     if (!live) return;
-    // The card may be stale (resumeTarget): revive what is stored now.
-    const target = resumeTarget(live, Date.now());
-    if (target === "elsewhere") {
-      setLive(null);
-      setResumeNote("that night is playing in another tab.");
+    // The card may be stale (resumeTarget): revive what is stored now, or
+    // show what storage holds now.
+    const t = resumeTarget(live, Date.now());
+    if (!("revive" in t)) {
+      setLive(t.card);
       return;
     }
-    if (target === null) {
-      setLive(settleLive(loadLive(), Date.now()));
-      return;
-    }
-    setResumeNote(null);
+    const target = t.revive;
     setWatchLine(null);
     applyNightSettings(resumeMode(target)); // (the lean comes with the snapshot)
     setResume(resumeFrom(target));
@@ -485,7 +479,6 @@ export function AppPlayer() {
             </button>
           </HomeLine>
         )}
-        {resumeNote && <HomeLine mark="☾">{resumeNote}</HomeLine>}
         {watchLine && (
           <HomeLine mark="⌚︎">
             <WatchLine text={watchLine} />

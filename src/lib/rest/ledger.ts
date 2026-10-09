@@ -26,12 +26,22 @@ export function lastOf(nights: readonly RestNight[]): RestNight | null {
 }
 
 /** Whether a stored entry has the shape the readers rely on: a start, the
- *  onset fields (a number or null), and a touch count. */
+ *  onset fields (a number or null), a touch count, and its lists (timeline,
+ *  sleptThrough, skipped) as lists when there. */
 function isNight(x: unknown): x is RestNight {
   if (!x || typeof x !== "object") return false;
   const n = x as Record<string, unknown>;
   const numOrNull = (v: unknown) => v === null || typeof v === "number";
-  return typeof n.startedAt === "number" && numOrNull(n.sleptAtMs) && numOrNull(n.timeToSleepMs) && typeof n.interactions === "number";
+  const arrayOrAbsent = (v: unknown) => v === undefined || Array.isArray(v);
+  return (
+    typeof n.startedAt === "number" &&
+    numOrNull(n.sleptAtMs) &&
+    numOrNull(n.timeToSleepMs) &&
+    typeof n.interactions === "number" &&
+    arrayOrAbsent(n.timeline) &&
+    arrayOrAbsent(n.sleptThrough) &&
+    arrayOrAbsent(n.skipped)
+  );
 }
 
 export function loadNights(): RestNight[] {

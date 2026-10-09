@@ -202,22 +202,22 @@ describe("reconcileLive and a night already recorded", () => {
 
 describe("resumeTarget (a resume card tapped)", () => {
   beforeEach(() => localStorage.clear());
-  it("is the card's snapshot while it is the one stored", () => {
+  it("revives the card's snapshot while it is the one stored", () => {
     saveLive(snap());
-    expect(resumeTarget(snap(), T0 + 21 * 60_000)).toMatchObject({ savedAt: snap().savedAt });
+    expect(resumeTarget(snap(), T0 + 21 * 60_000)).toMatchObject({ revive: { savedAt: snap().savedAt } });
   });
-  it("is the newer snapshot of the same night once nothing is writing it", () => {
+  it("revives a newer snapshot of the same night", () => {
     saveLive(snap({ savedAt: T0 + 22 * 60_000 }));
-    const t = resumeTarget(snap(), T0 + 22 * 60_000 + SNAPSHOT_FRESH_MS);
-    expect(t).toMatchObject({ savedAt: T0 + 22 * 60_000 });
+    expect(resumeTarget(snap(), T0 + 23 * 60_000)).toMatchObject({ revive: { savedAt: T0 + 22 * 60_000 } });
   });
-  it("says 'elsewhere' while another tab is writing that night", () => {
-    saveLive(snap({ savedAt: T0 + 22 * 60_000 }));
-    expect(resumeTarget(snap(), T0 + 22 * 60_000 + 1000)).toBe("elsewhere");
+  it("doesn't revive one that can no longer be revived (its timer ran out): it is settled", () => {
+    saveLive(snap({ savedAt: T0 + 44 * 60_000, remainingMs: 40_000 }));
+    expect(resumeTarget(snap(), T0 + 8 * 60 * 60_000)).toEqual({ card: null });
+    expect(loadNights()).toHaveLength(1);
   });
-  it("is nothing once the night is gone, or the stored one is another night's", () => {
-    expect(resumeTarget(snap(), T0 + 21 * 60_000)).toBeNull();
+  it("shows no card once the night is gone, another night's card when it's stored", () => {
+    expect(resumeTarget(snap(), T0 + 21 * 60_000)).toEqual({ card: null });
     saveLive(snap({ savedAt: T0 + 22 * 60_000, nightStartedAt: T0 + 60_000 }));
-    expect(resumeTarget(snap(), T0 + 23 * 60_000)).toBeNull();
+    expect(resumeTarget(snap(), T0 + 23 * 60_000)).toMatchObject({ card: { nightStartedAt: T0 + 60_000 } });
   });
 });

@@ -328,3 +328,12 @@ describe("loadNights and a half-formed entry", () => {
     expect(loadNights().map((x) => x.startedAt)).toEqual([40]);
   });
 });
+
+describe("loadNights and an entry with a list that isn't one", () => {
+  beforeEach(() => localStorage.clear());
+  it("passes over it", () => {
+    const n: RestNight = { startedAt: 50, timerMinutes: 60, endedVia: "faded", sleptAtMs: null, timeToSleepMs: null, interactions: 0, detector: "none" };
+    localStorage.setItem("sleepcast2.rest", JSON.stringify([n, { ...n, startedAt: 51, timeline: "x" }]));
+    expect(loadNights().map((x) => x.startedAt)).toEqual([50]);
+  });
+});

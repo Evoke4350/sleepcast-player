@@ -110,19 +110,17 @@ function isFresh(l: LiveSession, now: number): boolean {
   return age >= 0 && age < SNAPSHOT_FRESH_MS;
 }
 
-/** What tapping "keep going" on a resume card (showing `card`) should
- *  revive, read from storage now, as another tab may have moved on:
- *  - the stored snapshot, when it is the card's night (the card's own, or a
- *    newer snapshot of it that is no longer being written);
- *  - "elsewhere", when that night is being written right now (another tab
- *    is playing it): reviving it here would play it twice;
- *  - null, when the night is gone (finished and recorded elsewhere) or the
- *    stored snapshot is another night's: the card is stale. */
-export function resumeTarget(card: LiveSession, now: number): LiveSession | "elsewhere" | null {
+/** What tapping "keep going" on a resume card (showing `card`) should do,
+ *  read from storage once, now (another tab may have moved on): revive the
+ *  stored snapshot when it is still revivable and the card's night (its
+ *  own, or a newer snapshot of it); otherwise show what settleLive makes of
+ *  storage now (another card, or none), as the card is stale. Two tabs
+ *  playing one night at once is out of scope (spec §6). */
+export function resumeTarget(card: LiveSession, now: number): { revive: LiveSession } | { card: LiveSession | null } {
   const stored = loadLive();
-  if (!stored) return null;
-  if (stored.savedAt === card.savedAt) return stored;
-  const sameNight = stored.nightStartedAt !== undefined && stored.nightStartedAt === card.nightStartedAt;
-  if (!sameNight) return null;
-  return isFresh(stored, now) ? "elsewhere" : stored;
+  const sameNight =
+    stored !== null &&
+    (stored.savedAt === card.savedAt || (stored.nightStartedAt !== undefined && stored.nightStartedAt === card.nightStartedAt));
+  if (stored && sameNight && isRevivable(stored, now)) return { revive: stored };
+  return { card: settleLive(stored, now) };
 }
