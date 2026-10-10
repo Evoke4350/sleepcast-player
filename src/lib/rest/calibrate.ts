@@ -6,20 +6,22 @@ import { loadNights, loadParams, saveParams } from "./ledger";
  *  tick, where "awake ticks" ≈ time-to-sleep / tick. Falls back to defaults
  *  with too little history. Clamped to a sane range. */
 export function paramsFromHistory(nights: RestNight[]): DetectorParams {
-  // A night marked "awake" has no real time-to-sleep to learn from. Nor
-  // does a watch-timed one, for this estimate: its touches are counted over
-  // the whole night, not only before the watch's onset (the detector's
-  // onset follows the last touch, the watch's needn't), so after-onset
-  // touches would read as awake ones and make the detector bolder.
-  const usable = nights.filter(
-    (n) => n.timeToSleepMs && n.timeToSleepMs > 0 && n.selfLabel !== "awake" && n.detector !== "watch",
-  );
+  // A night marked "awake" has no real time-to-sleep to learn from. A
+  // watch-timed one counts by the detector's own onset (inferredAtMs), as it
+  // did before the watch re-timed it: its touches are counted over the whole
+  // night, and the detector's onset follows the last touch, while the
+  // watch's needn't (after-onset touches would read as awake ones and make
+  // the detector bolder).
+  const usable = nights.flatMap((n) => {
+    const t = n.detector === "watch" ? n.inferredAtMs : n.timeToSleepMs;
+    return t && t > 0 && n.selfLabel !== "awake" ? [{ t, interactions: n.interactions }] : [];
+  });
   if (usable.length < 3) return DEFAULT_PARAMS;
   let interactions = 0;
   let awakeTicks = 0;
   for (const n of usable) {
     interactions += n.interactions;
-    awakeTicks += Math.max(1, Math.round((n.timeToSleepMs as number) / TICK_MS));
+    awakeTicks += Math.max(1, Math.round(n.t / TICK_MS));
   }
   const rate = interactions / awakeTicks;
   // Never below the default. A quiet listener (0 interactions) estimated at

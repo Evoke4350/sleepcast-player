@@ -123,10 +123,12 @@ tab still showing the offer from before the import can't label it.
 
 A watch onset is measured, so the detector's plausibility floor
 (`MIN_PLAUSIBLE_ONSET_MS`) doesn't apply to it: three minutes is a real night.
-Calibration (`paramsFromHistory`) leaves watch nights out: their touches are
-counted over the whole night, not only before the watch's onset (the
-detector's onset follows the last touch; the watch's needn't), so after-onset
-touches would read as awake ones and make the detector bolder.
+Calibration (`paramsFromHistory`) counts a watch night by the detector's own
+onset (`inferredAtMs`), as it did before the watch re-timed it: its touches are
+counted over the whole night, and the detector's onset follows the last touch
+while the watch's needn't, so the watch's onset would read after-onset touches
+as awake ones and make the detector bolder. A watch night with no detector
+onset isn't counted, so the detector keeps learning as the watch takes over.
 
 ## 5. Surfaces
 

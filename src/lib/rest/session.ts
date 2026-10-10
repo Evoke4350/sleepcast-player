@@ -114,7 +114,8 @@ export class RestSession {
     const timeline = [...this.timeline].sort((a, b) => a.t - b.t);
     return {
       startedAt: this.startedAt,
-      endedAt: now,
+      // Never before the start (a clock set back mid-night), as killedNight.
+      endedAt: Math.max(this.startedAt, now),
       timerMinutes: this.timerMinutes,
       endedVia,
       sleptAtMs: atMs,

@@ -255,16 +255,15 @@ export function applyWatch(
   const out = nights.map((n) => {
     if (n.startedAt < from) return n;
     // Before the next night's start, and not long after this one ended.
-    // (An end before the start, from a clock set back mid-night, counts as
-    // the start.)
-    const end = n.endedAt === undefined ? Infinity : Math.max(n.startedAt, n.endedAt) + AFTER_END_MS;
+    const end = n.endedAt === undefined ? Infinity : n.endedAt + AFTER_END_MS;
     const until = Math.min(next.get(n.startedAt) ?? Infinity, end);
     const at = watchOnset(n.startedAt, stretches, until);
-    if (at === null) return n;
-    // Asleep at its start: no watch time, and the night keeps what it has
-    // (said, unless the watch timed it before: a timed night stays timed).
-    if (at === "asleep") {
-      if (n.detector !== "watch") atStart.push(n.startedAt);
+    // Not timed by this run: the night keeps what it has. One the watch
+    // timed before stays timed, unchanged; one it had the listener asleep
+    // at the start of is said.
+    if (at === null || at === "asleep") {
+      if (n.detector === "watch") unchanged++;
+      else if (at === "asleep") atStart.push(n.startedAt);
       return n;
     }
     if (n.detector === "watch" && n.sleptAtMs === at) {
@@ -521,10 +520,11 @@ const UNTIMED_WHY = {
  *  older one's, among them): nightName, with the start's time added where
  *  two would share a name (a restart the same evening). */
 function nightNamer(starts: readonly number[]): (startedAt: number) => string {
+  const names = new Map([...new Set(starts)].map((s) => [s, nightName(s)]));
   const counts = new Map<string, number>();
-  for (const s of new Set(starts)) counts.set(nightName(s), (counts.get(nightName(s)) ?? 0) + 1);
+  for (const name of names.values()) counts.set(name, (counts.get(name) ?? 0) + 1);
   return (s) => {
-    const name = nightName(s);
+    const name = names.get(s) ?? nightName(s);
     if ((counts.get(name) ?? 0) < 2) return name;
     const time = new Date(s).toLocaleTimeString("en", { hour: "numeric", minute: "2-digit" });
     return `${name} (from ${time.toLowerCase().replace(/\s/g, "")})`;
@@ -552,7 +552,7 @@ export function watchNotice(r: WatchImport): string {
   // Each night stored without the watch's time, named with why, whatever
   // else the line says (it may be last night).
   const last = r.timed.at(-1);
-  const name = nightNamer([...(r.untimed ?? []).map((u) => u.startedAt), ...(last ? [last.startedAt] : [])]);
+  const name = nightNamer([...(r.untimed ?? []), ...r.timed].map((x) => x.startedAt));
   const notes = (r.untimed ?? []).map(({ startedAt, why }) => ` ${name(startedAt)} ${UNTIMED_WHY[why]}.`).join("");
   if (!last) {
     if (r.unchanged) return `nothing new from your watch since it last ran.${notes}`;

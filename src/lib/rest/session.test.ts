@@ -265,6 +265,9 @@ describe("RestSession shuffle record", () => {
 describe("what a night keeps for a later onset", () => {
   beforeEach(() => localStorage.clear());
 
+  it("never ends before it started (a clock set back mid-night)", () => {
+    expect(new RestSession(1000, 60).finish("ended", 500).endedAt).toBe(1000);
+  });
   it("records when it ended and its episode starts, in time order", () => {
     const s = new RestSession(1000, 60);
     s.noteEpisode("b", "b1", 1000 + 600_000);

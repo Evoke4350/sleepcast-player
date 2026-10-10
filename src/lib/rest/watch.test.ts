@@ -193,7 +193,7 @@ describe("watchOnset", () => {
   it("keeps a time it gave before (a timed night stays timed), unsaid", () => {
     const timed = night({ detector: "watch", sleptAtMs: 10 * MIN, timeToSleepMs: 10 * MIN, inferredAtMs: 20 * MIN });
     const r = applyWatch([timed], [asleepAt(-5 * MIN, 60 * MIN)], START - 60 * MIN);
-    expect([r.asleepAtStart, r.nights]).toEqual([[], [timed]]);
+    expect([r.asleepAtStart, r.nights, r.unchanged]).toEqual([[], [timed], 1]);
   });
   it("doesn't time a night by sleep long after it ended", () => {
     const stopped = night({ endedAt: START + 3 * MIN, endedVia: "ended" });
@@ -209,9 +209,18 @@ describe("watchOnset", () => {
     const apart = watchNotice({ ...base, timed: [{ startedAt: START, atMs: 12 * MIN, inferredAtMs: null }], untimed: [{ startedAt: START - 24 * 60 * MIN, why: "asleep" }] });
     expect(apart).not.toMatch(/\(from/);
   });
-  it("counts an end before the start (a clock set back) as the start", () => {
-    const n = night({ endedAt: START - 60 * MIN });
-    expect(applyWatch([n], [asleepAt(10 * MIN)], START - 60 * MIN).timed).toHaveLength(1);
+  it("names an untimed night apart from any timed night sharing its name", () => {
+    const notice = watchNotice({
+      timed: [{ startedAt: START, atMs: 12 * MIN, inferredAtMs: null }, { startedAt: START + 24 * 60 * MIN, atMs: 9 * MIN, inferredAtMs: null }],
+      untimed: [{ startedAt: START + 40 * MIN, why: "asleep" }],
+      unchanged: 0, unsaved: false, noWindow: false, badWindow: false, slept: 2, unrecognised: 0, malformed: 0,
+    });
+    expect(notice).toMatch(/\(from \d+:\d{2}[ap]m\) has no watch time/);
+  });
+  it("counts a night the watch timed before, and this run doesn't, as unchanged", () => {
+    const timed = night({ detector: "watch", sleptAtMs: 10 * MIN, timeToSleepMs: 10 * MIN, inferredAtMs: 20 * MIN });
+    expect(applyWatch([timed], [asleepAt(-5 * MIN, 60 * MIN)], START - 60 * MIN).unchanged).toBe(1);
+    expect(applyWatch([timed], [], START - 60 * MIN).unchanged).toBe(1);
   });
   it("tells two nights with one name apart by their start", () => {
     const later = START + 30 * MIN;
