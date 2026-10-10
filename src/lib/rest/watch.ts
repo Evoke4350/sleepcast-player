@@ -52,13 +52,25 @@ export const MAX_PAYLOAD_CHARS = 1_000_000;
 /** WATCH_HASH as a link encoded whole writes it ("%23watch%3D"): the escapes'
  *  hex in either case, the rest as written (no other case can decode to
  *  WATCH_HASH), regex characters escaped. From WATCH_HASH, so the key lives
- *  in one place. Global, to try each match in turn. */
+ *  in one place. */
 const ENCODED_HASH = new RegExp(
   encodeURIComponent(WATCH_HASH)
     .replace(/[.*+?^${}()|[\]\\]/g, (c) => `\\${c}`)
     .replace(/%([0-9A-F])([0-9A-F])/g, (_, a: string, b: string) => `%[${a}${a.toLowerCase()}][${b}${b.toLowerCase()}]`),
-  "g",
 );
+
+/** Where a link in a paste starts: WATCH_HASH as written, or encoded whole. */
+const LINK_START = new RegExp(`${WATCH_HASH.replace(/[.*+?^${}()|[\]\\]/g, (c) => `\\${c}`)}|${ENCODED_HASH.source}`, "g");
+
+/** How many links in one paste are tried, each read to its end. */
+const MAX_LINKS_TRIED = 8;
+
+/** Whether a payload opens with its window line, as parseWatchPayload reads
+ *  it: blank lines skipped, then WINDOW_LINE. */
+function opensWithWindow(payload: string): boolean {
+  const first = /^\s*([^\r\n]*)/.exec(payload)?.[1] ?? "";
+  return WINDOW_LINE.test(first.trim());
+}
 
 /** The most of a paste looked through for a link at all: room for any
  *  message around a link of MAX_PAYLOAD_CHARS. */
@@ -508,34 +520,39 @@ export function payloadFromPaste(pasted: string): string {
   // long): passed on as it is, to be refused. Past here, nothing is decoded
   // without its own length checked first (MAX_PAYLOAD_CHARS).
   if (tooLongToRead(text.length, PASTE_MAX_CHARS)) return text;
-  const i = text.indexOf(WATCH_HASH);
-  if (i >= 0) return linkPayload(text.slice(i + WATCH_HASH.length));
-  // A link percent-encoded whole: that token decoded by itself (its size
-  // checked first, at twice the payload's, as encoding it again grows it),
-  // the words around it left as they were, and read as any link is, from
-  // its #watch= on. A wrapped one isn't joined up: its later lines refuse it.
-  // Each match in turn, until one decodes to a link: an earlier token that
-  // only looks like one (a quoted, broken attempt) doesn't hide it.
-  const re = new RegExp(ENCODED_HASH);
-  for (let m = re.exec(text); m; m = re.exec(text)) {
-    const j = m.index;
-    // Back to the whitespace before it (no further than the bound), and on
-    // to the one after.
-    let start = j;
-    while (start > 0 && j - start <= 2 * MAX_PAYLOAD_CHARS && !/\s/.test(text[start - 1])) start--;
-    const ws = /\s/g;
-    ws.lastIndex = j;
-    const end = ws.exec(text)?.index ?? text.length;
-    const link = decodeWithin(text.slice(start, end), 2 * MAX_PAYLOAD_CHARS);
-    // A link: its #watch= followed by a payload, which opens with its
-    // window line (a Shortcut built before it was added isn't pasted encoded
-    // whole, a home-screen paste being its lines).
-    const k = link.indexOf(WATCH_HASH);
-    const after = k >= 0 ? link.slice(k + WATCH_HASH.length) : "";
-    if (/^window/i.test(after)) return linkPayload(after + text.slice(end));
+  // Each link in it, plain or percent-encoded whole, in the order they
+  // come, until one reads as a payload that opens with its window line (as
+  // the parser reads it): a mention of #watch= before the link, or a quoted
+  // broken attempt, doesn't hide it. A few at most (MAX_LINKS_TRIED), as
+  // each is read to its end. Failing that, the first plain one, read as it
+  // is (a Shortcut built before the window line is told so).
+  const re = new RegExp(LINK_START);
+  let firstPlain: string | null = null;
+  for (let m = re.exec(text), tried = 0; m && tried < MAX_LINKS_TRIED; m = re.exec(text), tried++) {
+    let payload: string | null = null;
+    let end = m.index + m[0].length;
+    if (m[0] === WATCH_HASH) {
+      payload = linkPayload(text.slice(end));
+      firstPlain ??= payload;
+    } else {
+      // Encoded whole: that token decoded by itself (its size checked
+      // first, at twice the payload's, as encoding it again grows it), the
+      // words around it left as they were. A wrapped one isn't joined up:
+      // its later lines refuse it. Back to the whitespace before it (no
+      // further than the bound), and on to the one after.
+      let start = m.index;
+      while (start > 0 && m.index - start <= 2 * MAX_PAYLOAD_CHARS && !/\s/.test(text[start - 1])) start--;
+      const ws = /\s/g;
+      ws.lastIndex = m.index;
+      end = ws.exec(text)?.index ?? text.length;
+      const link = decodeWithin(text.slice(start, end), 2 * MAX_PAYLOAD_CHARS);
+      const k = link.indexOf(WATCH_HASH);
+      if (k >= 0) payload = linkPayload(link.slice(k + WATCH_HASH.length) + text.slice(end));
+    }
+    if (payload !== null && opensWithWindow(payload)) return payload;
     re.lastIndex = Math.max(re.lastIndex, end);
   }
-
+  if (firstPlain !== null) return firstPlain;
   return decodeWithin(text).trim();
 }
 

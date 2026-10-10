@@ -967,13 +967,21 @@ describe("data already read, or from days ago", () => {
     const enc = encodeURIComponent("window~2026-10-04T09:00:00+01:00\n2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core");
     expect(payloadFromPaste(enc + " ".repeat(MAX_PAYLOAD_CHARS))).toBe("window~2026-10-04T09:00:00+01:00\n2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core");
   });
-  it("tries each encoded #watch= in a paste until one is a link", () => {
+  it("tries each link in a paste, plain or encoded, until one opens with its window line", () => {
     const s = "2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core";
-    const link = encodeURIComponent("https://sleepcast.pro/#watch=" + encodeURIComponent(`window~2026-10-04T09:00:00+01:00\n${s}`));
-    for (const before of ["re: %23Watch%3D thread", "about %23watch%3Dfoo"]) {
-      expect(parseWatchPayload(payloadFromPaste(`${before}\n${link}`)).samples).toHaveLength(1);
+    const payload = `window~2026-10-04T09:00:00+01:00\n${s}`;
+    const encoded = encodeURIComponent("https://sleepcast.pro/#watch=" + encodeURIComponent(payload));
+    const plain = `https://sleepcast.pro/#watch=${encodeURIComponent(payload)}`;
+    for (const before of ["about %23watch%3Dfoo", "re: #watch= thread"]) {
+      for (const link of [encoded, plain]) expect(parseWatchPayload(payloadFromPaste(`${before}\n${link}`)).samples).toHaveLength(1);
     }
   });
+  it("reads a link encoded whole whose payload opens with a blank line", () => {
+    const payload = "\nwindow~2026-10-04T09:00:00+01:00\n2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core";
+    const encoded = encodeURIComponent("https://sleepcast.pro/#watch=" + encodeURIComponent(payload));
+    expect(parseWatchPayload(payloadFromPaste(encoded)).samples).toHaveLength(1);
+  });
+
   it("counts no final line break as a line", () => {
     const lines = "x\n".repeat(MAX_LINES);
     expect(parseWatchPayload(lines).tooLong).toBe(false);
