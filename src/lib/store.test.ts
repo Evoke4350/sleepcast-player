@@ -797,5 +797,6 @@ describe("loadLive and a snapshot missing its lists", () => {
   it("reads none, so nothing downstream throws on it", () => {
     localStorage.setItem("sleepcast2.live", JSON.stringify({ current: { id: "e" }, remainingMs: 0, savedAt: 0 }));
     expect(loadLive()).toBeNull();
+    expect(localStorage.getItem("sleepcast2.live")).toBeNull();
   });
 });

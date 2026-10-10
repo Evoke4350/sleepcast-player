@@ -100,11 +100,8 @@ export function storeNights(nights: RestNight[], now: number): RestNight[] | nul
 /** `nights` with `n` added, or merged into the night with its start (see
  *  appendNight), for a caller that saves them itself. */
 export function withNight(nights: readonly RestNight[], n: RestNight): RestNight[] {
-  const i = nights.findIndex((x) => x.startedAt === n.startedAt);
-  if (i === -1) return [...nights, n];
-  const out = [...nights];
-  out[i] = merge(out[i], n);
-  return out;
+  // The rule loadNights reads copies by, so the two agree.
+  return collapsed([...nights, n]);
 }
 
 /** A night recorded again (`n`, the later) merged with what was there: the

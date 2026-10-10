@@ -327,7 +327,7 @@ export function resumeFrom(l: LiveSession): ResumeDescriptor {
   const fields = Object.fromEntries(
     Object.entries(l).filter(([k]) => k !== "current" && !sessionField.has(k)),
   ) as ResumeFields;
-  return { ...fields, episode: l.current, playedIds: l.playedIds ?? [] };
+  return { ...fields, episode: l.current, playedIds: l.playedIds };
 }
 
 /** The night's own timer length: the snapshot's, else estimated from its
@@ -340,7 +340,7 @@ const LIVE_POOL_CAP = 80;
 
 /** A snapshot's played episodes, the current one included. */
 export function withCurrentPlayed(l: Pick<LiveSession, "playedIds" | "current">): string[] {
-  const ids = l.playedIds ?? []; // an older snapshot may lack it
+  const ids = l.playedIds;
   return ids.includes(l.current.id) ? ids : [...ids, l.current.id];
 }
 
@@ -378,8 +378,12 @@ export function loadLive(): LiveSession | null {
     if (!raw) return null;
     const s = JSON.parse(raw) as LiveSession;
     // Its lists too: a watch link records a stale snapshot on load (killedNight),
-    // and one without them would throw there, before the page drew.
-    if (!s || !s.current || typeof s.remainingMs !== "number" || !Array.isArray(s.pool) || !Array.isArray(s.playedIds)) return null;
+    // and one without them would throw there, before the page drew. One that
+    // can't be read is cleared, or it would sit in storage for good.
+    if (!s || !s.current || typeof s.remainingMs !== "number" || !Array.isArray(s.pool) || !Array.isArray(s.playedIds)) {
+      localStorage.removeItem(KEY_LIVE);
+      return null;
+    }
     return s;
   } catch {
     return null;
