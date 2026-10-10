@@ -4,7 +4,7 @@ import { recordFalsePositive } from "../lib/rest/calibrate";
 import { scoreFeeds, medianTimeToSleep, meetsSuggestionGate, shuffleWeights, pluralNights, fmtOnsetMinutes, MIN_NIGHTS } from "../lib/rest/sleepscore";
 import { getPlays, loadState } from "../lib/store";
 import { playsSince, playAtMoment } from "../lib/plays";
-import { importWatch, isRefused, payloadFromPaste, watchAgreement, watchNotice } from "../lib/rest/watch";
+import { importWatch, pasteWorthKeeping, payloadFromPaste, watchAgreement, watchNotice } from "../lib/rest/watch";
 import { QUIET_LINK } from "./quiet-link";
 import { WatchLine } from "./WatchLine";
 
@@ -24,9 +24,8 @@ export function RestView({ onClose }: { onClose: (changed?: boolean) => void }) 
   function importPasted() {
     const r = importWatch(payloadFromPaste(pasted));
     setPasteLine(watchNotice(r));
-    // Kept when refused or not saved, so it can be looked at or tried again;
-    // not when it was read before or is days old, which no retry can change.
-    if (!isRefused(r) || r.repeat || r.stale) setPasted("");
+    // Kept when it can be looked at or tried again (pasteWorthKeeping).
+    if (!pasteWorthKeeping(r)) setPasted("");
     if (r.nights) {
       setNights(r.nights);
       setChangedHere(true);

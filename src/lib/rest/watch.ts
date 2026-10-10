@@ -41,6 +41,10 @@ export const MATCH_WINDOW_MS = 4 * 60 * 60 * 1000;
  *  a payload any line of which doesn't read. */
 export const MAX_SAMPLES = 2000;
 
+/** The most lines a payload may have at all: two days of samples come to a
+ *  few hundred; many times MAX_SAMPLES is no Shortcut's. */
+export const MAX_LINES = 10 * MAX_SAMPLES;
+
 /** Health's sleep stages, by code (HKCategoryValueSleepAnalysis, for a
  *  Shortcut that hands the value over as a number: in bed 0, asleep
  *  (unspecified) 1, awake 2, core 3, deep 4, REM 5) and by English name,
@@ -135,7 +139,12 @@ export function parseWatchPayload(text: string, now = Infinity): {
   unrecognised: number;
   malformed: number;
 } {
-  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const all = text.split(/\r?\n/);
+  // Past MAX_LINES (anyone can write a link), not read line by line: the
+  // excess refuses it as lines that don't read, before the page's first
+  // paint spends long on it.
+  if (all.length > MAX_LINES) return { windowStart: null, windowLine: null, badWindow: false, samples: [], unrecognised: 0, malformed: all.length - MAX_LINES };
+  const lines = all.map((l) => l.trim()).filter(Boolean);
   let windowStart: number | null = null;
   let windowLine: string | null = null;
   let badWindow = false;
@@ -375,6 +384,15 @@ export function applyWatch(
 /** Every reason a payload is refused for its content, in one place. */
 function refusedFor(r: Pick<WatchImport, "noWindow" | "badWindow" | "repeat" | "stale" | "unrecognised" | "malformed">): boolean {
   return r.noWindow || r.badWindow || r.repeat || r.stale || r.unrecognised > 0 || r.malformed > 0;
+}
+
+/** Whether a refused paste is worth keeping in the box: for the reason its
+ *  notice gives (in the notice's order), one the listener can fix or retry;
+ *  not data read before or days old, which no retry changes. */
+export function pasteWorthKeeping(r: WatchImport): boolean {
+  if (!isRefused(r)) return false;
+  if (r.badWindow || r.noWindow) return true;
+  return !r.repeat && !r.stale;
 }
 
 /** Whether an import changed nothing: refused for its content, or not
@@ -683,14 +701,10 @@ export function watchNotice(r: WatchImport): string {
     // One opening, then the notes. "Yet" only beside a night a later run
     // can still time; with no night to name, a run after one is the hint.
     const yet = r.untimed?.some((u) => u.why === "later");
-    const lead = !r.slept
-      ? !notes
-        ? "nothing from your watch yet: run it after a sleepcast night (and check sleep tracking is on)."
-        : `nothing from your watch${yet ? " yet" : ""} (check sleep tracking is on).`
-      : yet
-        ? "no sleep from your watch inside a sleepcast night yet."
-        : "your watch's sleep didn't start inside a sleepcast night.";
-    return `${lead}${notes}`;
+    if (!r.slept && !notes) return "nothing from your watch yet: run it after a sleepcast night (and check sleep tracking is on).";
+    if (!r.slept) return `nothing from your watch${yet ? " yet" : ""} (check sleep tracking is on).${notes}`;
+    if (yet) return `no sleep from your watch inside a sleepcast night yet.${notes}`;
+    return `your watch's sleep didn't start inside a sleepcast night.${notes}`;
   }
   const guess = last.inferredAtMs === null ? "" : `; sleepcast guessed ${fmtOnsetMinutes(last.inferredAtMs)}`;
   // Not last night's (it had no sleep the watch saw): say which night, or it

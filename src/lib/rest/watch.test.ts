@@ -4,6 +4,8 @@ import {
   watchOnset,
   AFTER_END_MS,
   applyWatch,
+  pasteWorthKeeping,
+  MAX_LINES,
   shortcutWindowOpens,
   importWatch,
   watchPayloadFromHash,
@@ -900,6 +902,16 @@ describe("data already read, or from days ago", () => {
     expect(watchNotice({ ...base, untimed: [{ startedAt: START, why: "later" }] })).toMatch(/inside a sleepcast night yet\. /);
     expect(watchNotice({ ...base, slept: 0, untimed: [{ startedAt: START, why: "recorded" }] })).toMatch(/^nothing from your watch \(check sleep tracking is on\)\. /);
     expect(watchNotice({ ...base, slept: 0, untimed: [{ startedAt: START, why: "later" }] })).toMatch(/^nothing from your watch yet \(check/);
+  });
+  it("keeps a paste to fix, not one read before or days old", () => {
+    const base = { timed: [], unchanged: 0, unsaved: false, noWindow: false, badWindow: false, repeat: false, stale: false, slept: 1, unrecognised: 0, malformed: 0 };
+    expect(pasteWorthKeeping({ ...base, badWindow: true, stale: true })).toBe(true);
+    expect(pasteWorthKeeping({ ...base, repeat: true })).toBe(false);
+    expect(pasteWorthKeeping({ ...base, malformed: 1 })).toBe(true);
+    expect(pasteWorthKeeping(base)).toBe(false);
+  });
+  it("refuses a payload past MAX_LINES without reading it line by line", () => {
+    expect(parseWatchPayload("x\n".repeat(MAX_LINES + 5)).malformed).toBe(6);
   });
   it("names a missing window line ahead of the data's age", () => {
     const r = importWatch("2026-10-05T23:04:00-07:00~2026-10-05T23:30:00-07:00~Core", START + 7 * 24 * 60 * MIN);

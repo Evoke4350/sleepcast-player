@@ -207,6 +207,13 @@ onset isn't counted, so the detector keeps learning as the watch takes over.
   the page goes first (the tab killed, a link followed) it is lost, and the
   next morning's run (two days) makes it up.
 
+- An older run read after a newer one (a held link tapped after a newer run
+  was read in another tab, an old clipboard pasted): its line is unread and
+  its samples recent, so it is read, and may time a night from less synced
+  data. Refusing by window order breaks fresh runs (one set to read further
+  back, a payload past MAX_SAMPLES, a clock set wrong), as an earlier design
+  found; it is a multi-tab race, and the next morning's run corrects it.
+
 ## 7. Testing
 
 watch.test.ts: parsing (names, codes, malformed and localised lines), matching
