@@ -178,7 +178,8 @@ const CONTIGUOUS_MS = 60_000;
  *  where one begins within CONTIGUOUS_MS of the stretch's end so far. A
  *  stage change within a stretch is not falling asleep. */
 export function sleepStretches(samples: readonly SleepSample[]): { start: number; end: number }[] {
-  const asleep = samples.filter((s) => s.asleep).sort((a, b) => a.start - b.start);
+  // (A zero-length sample is no sleep: no time asleep to begin or run on.)
+  const asleep = samples.filter((s) => s.asleep && s.end > s.start).sort((a, b) => a.start - b.start);
   const out: { start: number; end: number }[] = [];
   for (const s of asleep) {
     const cur = out.at(-1);
@@ -209,9 +210,10 @@ export function watchOnset(
   stretches: readonly { start: number; end: number }[],
   until = Infinity,
 ): number | "asleep" | "pending" | null {
-  // The first stretch to end past the start, or begin at it (a zero-length
-  // one): none yet, under way at it, or the first to begin in it.
-  const first = stretches.find((s) => s.end > startedAt || s.start >= startedAt);
+  // The first stretch to reach the start (one running right up to the press
+  // was under way at it): none yet, under way at it, or the first to begin
+  // in it.
+  const first = stretches.find((s) => s.end >= startedAt);
   if (!first) return "pending";
   if (first.start < startedAt) return "asleep";
   return first.start < Math.min(startedAt + MATCH_WINDOW_MS, until) ? first.start - startedAt : null;
@@ -221,6 +223,11 @@ export function watchOnset(
  *  off in the quiet after the fade. Later sleep began without sleepcast
  *  (a night stopped after three minutes isn't timed by sleep hours on). */
 export const AFTER_END_MS = 30 * 60_000;
+
+/** How far on a run said to "run it again later" is taken to be: the night
+ *  must still be in reach of a run that much later (each run's window opens
+ *  that much later too). */
+export const RUN_AGAIN_MS = 6 * 60 * 60_000;
 
 export interface WatchTiming {
   startedAt: number;
@@ -360,7 +367,7 @@ export function payloadFromPaste(text: string): string {
       const end = j + text.slice(j).search(/\s|$/);
       return payloadFromPaste(text.slice(0, start) + decodeLeniently(text.slice(start, end)) + text.slice(end));
     }
-    return (hasEscape(text) ? decodeLeniently(text) : text).trim();
+    return decodeLeniently(text).trim();
   }
   const after = text.slice(i + WATCH_HASH.length);
   // Encoded whole (every ":" escaped, as url-encode leaves it): the link is
@@ -374,7 +381,7 @@ export function payloadFromPaste(text: string): string {
   // Otherwise (the url-encode step missed) the rest of the paste, decoded
   // as the link would be.
   const tail = unpunctuated(after);
-  return (hasEscape(tail) ? decodeLeniently(tail) : tail).trim();
+  return decodeLeniently(tail).trim();
 }
 
 /** Less any punctuation or symbol a message put after a link (a full
@@ -439,8 +446,11 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
     // Pending (its sleep not handed over yet, a later run can time it): said
     // of the newest night, so the listener runs it again (the killed tab's,
     // below).
+    // ...and only when a run a few hours on could still time it: each run's
+    // window opens later, so a night near this one's edge can't be.
+    const later = (s: number) => r.pending.includes(s) && s >= timeableFrom(windowStart + RUN_AGAIN_MS);
     const kStart = killed?.night.startedAt;
-    if (newest !== undefined && newest !== kStart && r.pending.includes(newest)) untimed.push({ startedAt: newest, why: "later" });
+    if (newest !== undefined && newest !== kStart && later(newest)) untimed.push({ startedAt: newest, why: "later" });
     // The killed tab's night, stored untimed and not by the watch (one merged
     // into a night the watch had timed keeps that time), is said either way,
     // as the resume offer it had is gone, with its one reason: asleep at its
@@ -448,7 +458,7 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
     // didn't time it, or it began at the window's edge: no run will).
     const kept = saved?.find((n) => n.startedAt === kStart);
     if (kept && kept.detector !== "watch" && !r.asleepAtStart.includes(kept.startedAt)) {
-      untimed.push({ startedAt: kept.startedAt, why: r.pending.includes(kept.startedAt) ? "later" : "recorded" });
+      untimed.push({ startedAt: kept.startedAt, why: later(kept.startedAt) ? "later" : "recorded" });
     }
   }
   return {

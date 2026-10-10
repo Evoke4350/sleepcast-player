@@ -162,8 +162,9 @@ describe("watchOnset", () => {
     expect(watchOnset(START, sleepStretches([asleepAt(MATCH_WINDOW_MS)]))).toBeNull();
     expect(watchOnset(START, sleepStretches([asleepAt(90 * MIN)]), START + 60 * MIN)).toBeNull();
   });
-  it("counts a zero-length stretch at the very start as an onset, not pending", () => {
-    expect(watchOnset(START, [{ start: START, end: START }])).toBe(0);
+  it("takes no zero-length sample for sleep, and sleep running right up to the press as under way at it", () => {
+    expect(sleepStretches([{ start: START, end: START, asleep: true }])).toEqual([]);
+    expect(watchOnset(START, sleepStretches([asleepAt(-120 * MIN, 120 * MIN), asleepAt(90_000)]))).toBe("asleep");
   });
   it("is pending with no sleep handed over past the start yet, whatever Awake came", () => {
     expect(watchOnset(START, sleepStretches([awakeAt(5 * 60 * MIN)]))).toBe("pending");
@@ -801,6 +802,16 @@ describe("the newest night, before the watch has handed it over", () => {
     const r = importWatch(`${OPENS_LINE}\n2026-10-05T23:10:00-07:00~2026-10-05T23:40:00-07:00~Core`, START + 34 * 60 * MIN);
     expect(r.untimed).toEqual([{ startedAt: START + 24 * 60 * MIN, why: "later" }]);
     expect(watchNotice(r)).toMatch(/^nothing new from your watch since it last ran\. \w+ \w+ is recorded without the watch's time: run it again later\.$/);
+  });
+});
+
+describe("run it again later, only within reach", () => {
+  beforeEach(() => localStorage.clear());
+  it("isn't said of a night at the window's edge, which no later run can time", () => {
+    const edge = Date.parse("2026-10-05T11:00:00-07:00") + 60 * MIN;
+    appendNight(night({ startedAt: edge }), Date.now());
+    const r = importWatch(OPENS_LINE, edge + 10 * 60 * MIN);
+    expect(r.untimed).toBeUndefined();
   });
 });
 

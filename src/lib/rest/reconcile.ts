@@ -81,9 +81,14 @@ export function killedNight(
  *  ends: one that can't be read (unparseable, or not the shape the player
  *  writes) is cleared, or it would sit in storage for good. */
 export function settleStoredLive(now: number): LiveSession | null {
+  return settleLive(loadLiveOrClear(), now);
+}
+
+/** The stored snapshot, or null, clearing one that can't be read. */
+function loadLiveOrClear(): LiveSession | null {
   const l = loadLive();
   if (!l) clearLive();
-  return settleLive(l, now);
+  return l;
 }
 
 /** On page load: return the snapshot if it should be offered for revival;
@@ -126,12 +131,8 @@ function isFresh(l: LiveSession, now: number): boolean {
  *  storage now (another card, or none), as the card is stale. Two tabs
  *  playing one night at once is out of scope (spec §6). */
 export function resumeTarget(card: LiveSession, now: number): { revive: LiveSession } | { card: LiveSession | null } {
-  const stored = loadLive();
-  // None to revive: one that can't be read is cleared, as settleStoredLive does.
-  if (!stored) {
-    clearLive();
-    return { card: null };
-  }
+  const stored = loadLiveOrClear();
+  if (!stored) return { card: null };
   // The same night: the same snapshot, or one with the card's start (every
   // writer records it, once the night plays).
   const sameNight = (l: LiveSession) =>

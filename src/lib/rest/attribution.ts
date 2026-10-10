@@ -46,10 +46,12 @@ export function onsetAfterEnd(n: RestNight, atMs: number): boolean {
  *  (applyWatch never re-times a night to the onset it already has). A
  *  "slept" or "awake" label was on the detector's claim, which the watch
  *  replaces. */
-export function retimed(n: RestNight, atMs: number): RestNight {
-  // The detector's guess, kept to compare (and calibrate from), unless the
-  // listener said it was wrong ("awake"): then there is none.
-  const inferredAtMs = n.detector === "watch" ? (n.inferredAtMs ?? null) : n.selfLabel === "awake" ? null : n.sleptAtMs;
+export function retimed(n: RestNight, atMs: number, earlierGuess: number | null = null): RestNight {
+  // The detector's guess, kept to compare (and calibrate from), or an
+  // earlier copy's where this has none (a merge), unless the listener said
+  // it was wrong ("awake"): then there is none.
+  const own = n.detector === "watch" ? (n.inferredAtMs ?? null) : n.sleptAtMs;
+  const inferredAtMs = n.selfLabel === "awake" ? null : (own ?? earlierGuess);
   const { selfLabel: _l, onsetFeedId: _f, onsetEpisodeId: _e, onsetAfterMs: _a, sleptThrough: _s, ...base } = n;
   const covering = n.timeline?.some((e) => e.t <= atMs) ? n.timeline : undefined;
   return {
