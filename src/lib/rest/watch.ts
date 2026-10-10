@@ -34,21 +34,29 @@ export interface SleepSample {
  *  that night's: past it, the sleep belongs to no night sleepcast played. */
 export const MATCH_WINDOW_MS = 4 * 60 * 60 * 1000;
 
-/** A payload has at most its last this-many lines used (a week of a busy
- *  night's samples is a few hundred): the fragment is anyone's to write.
+/** A payload has at most its last this-many lines used (two days of
+ *  samples come to a few hundred): the fragment is anyone's to write.
  *  The last, because the Shortcut sorts oldest first and the newest night
  *  is the one a morning import is for. Every line is still read, to refuse
  *  a payload any line of which doesn't read. */
 export const MAX_SAMPLES = 2000;
 
-/** The most lines a payload may have at all: two days of samples come to a
- *  few hundred; many times MAX_SAMPLES is no Shortcut's. */
+/** The most characters a payload (or a pasted link) may have, checked on
+ *  the text as it arrives, before it is decoded or split. Far past any run,
+ *  encoded or not (url-encoded, a run is half as long again as plain: a
+ *  limit near a real payload would refuse it one way and not the other); a
+ *  bound on the work a crafted link can make, not on a real payload. */
+export const MAX_PAYLOAD_CHARS = 1_000_000;
+
+/** The most lines a payload may have, for one under MAX_PAYLOAD_CHARS of
+ *  very short lines, which would still be many to read one by one. */
 export const MAX_LINES = 10 * MAX_SAMPLES;
 
-/** The most characters a payload (or a pasted link) may have, checked
- *  before it is decoded or split: MAX_SAMPLES url-encoded lines (about 75
- *  characters each) with room to spare. */
-export const MAX_PAYLOAD_CHARS = MAX_SAMPLES * 200;
+/** Whether a #watch= fragment is too long to read (and to hand on across a
+ *  reload): the one measure for the link, wherever it is asked. */
+export function watchLinkTooLong(hash: string): boolean {
+  return hash.length - WATCH_HASH.length > MAX_PAYLOAD_CHARS;
+}
 
 /** Health's sleep stages, by code (HKCategoryValueSleepAnalysis, for a
  *  Shortcut that hands the value over as a number: in bed 0, asleep
@@ -335,7 +343,9 @@ export function timeableFrom(windowStart: number): number {
  *  start is unknown, and a stage change after a brief wake would pass for
  *  its onset), so it keeps what it has. A later night has every sample
  *  under way at or after its start (the Shortcut filters by end date), its
- *  first-ever one included. */
+ *  first-ever one included. Nor nights older than TIMELINE_KEEP_MS (data
+ *  that reads further back, a Shortcut set to more days, would re-time one
+ *  without what was playing): a timed one counts as unchanged. */
 export function applyWatch(
   nights: readonly RestNight[],
   samples: readonly SleepSample[],
@@ -343,10 +353,7 @@ export function applyWatch(
   now: number,
 ): { nights: RestNight[]; timed: WatchTiming[]; unchanged: number; asleepAtStart: number[]; pending: number[] } {
   const stretches = sleepStretches(samples);
-  // And none older than a timeline is kept: data that reads further back
-  // (a Shortcut set to more days) would re-time a night without what was
-  // playing, losing its credit.
-  const from = Math.max(timeableFrom(windowStart), now - TIMELINE_KEEP_MS);
+  const from = timeableFrom(windowStart);
   // Where a run RUN_AGAIN_MS on would open its window (each run reads the
   // Shortcut's two days back from when it runs, whenever its data is read).
   const reach = timeableFrom(shortcutWindowOpens(now + RUN_AGAIN_MS));
@@ -358,6 +365,12 @@ export function applyWatch(
   const pending: number[] = [];
   const out = nights.map((n) => {
     if (n.startedAt < from) return n;
+    // Older than a timeline is kept: not re-timed (it would lose what was
+    // playing); one the watch timed keeps that time, unchanged.
+    if (n.startedAt < now - TIMELINE_KEEP_MS) {
+      if (n.detector === "watch") unchanged++;
+      return n;
+    }
     // Before the next night's start, and not long after this one ended.
     // (An end before the start, from a clock set back, counts as the start:
     // finish clamps it, but a ledger may hold one written before it did.)
@@ -474,7 +487,9 @@ export function payloadFromPaste(text: string): string {
     // it stay as they were, and read as any link is.
     const j = text.search(/%23watch%3D/i);
     if (j >= 0) {
-      const start = Math.max(...[" ", "\n", "\t", "\r"].map((c) => text.lastIndexOf(c, j))) + 1;
+      // Back to the whitespace before it, by the same rule as its end.
+      let start = j;
+      while (start > 0 && !/\s/.test(text[start - 1])) start--;
       const end = j + text.slice(j).search(/\s|$/);
       return payloadFromPaste(text.slice(0, start) + decodeLeniently(text.slice(start, end)) + text.slice(end));
     }
@@ -486,7 +501,7 @@ export function payloadFromPaste(text: string): string {
   // after it. Unless the next word goes on with the payload (a "~" or an
   // escape in it: the link wrapped), or the link was encoded only in part:
   // then the rest is read with it.
-  const [first, next = ""] = after.trim().split(/\s+/);
+  const [, first = "", next = ""] = after.match(/^\s*(\S*)(?:\s+(\S+))?/) ?? [];
   const token = unpunctuated(first);
   if (hasEscape(token) && !token.includes(":") && !(next.includes("~") || hasEscape(next))) return decodeLeniently(token).trim();
   // Otherwise (the url-encode step missed) the rest of the paste, decoded
@@ -500,12 +515,17 @@ export function payloadFromPaste(text: string): string {
  *  "~" or ")", which a payload's last line may end with. */
 function unpunctuated(s: string): string {
   // From the end, a character at a time (a regex anchored at the end would
-  // retry from every start in a long run of punctuation).
+  // retry from every start in a long run of punctuation), a surrogate pair
+  // as one.
   const t = s.trim();
-  const chars = [...t];
-  let end = chars.length;
-  while (end > 0 && chars[end - 1] !== "~" && chars[end - 1] !== ")" && /[\p{P}\p{S}]/u.test(chars[end - 1])) end--;
-  return end === chars.length ? t : chars.slice(0, end).join("");
+  let end = t.length;
+  while (end > 0) {
+    const pair = end >= 2 && /[\uDC00-\uDFFF]/.test(t[end - 1]) && /[\uD800-\uDBFF]/.test(t[end - 2]);
+    const ch = t.slice(end - (pair ? 2 : 1), end);
+    if (ch === "~" || ch === ")" || !/^[\p{P}\p{S}]$/u.test(ch)) break;
+    end -= ch.length;
+  }
+  return t.slice(0, end);
 }
 
 /** Reads a payload into the rest ledger. A payload without its window
@@ -618,7 +638,7 @@ export function watchPayloadFromHash(hash: string): string | null {
   if (!hash.startsWith(WATCH_HASH)) return null;
   const raw = hash.slice(WATCH_HASH.length);
   // (Too long to read: passed on as it is, for parseWatchPayload to refuse.)
-  return raw.length > MAX_PAYLOAD_CHARS ? raw : decodeLeniently(raw);
+  return watchLinkTooLong(hash) ? raw : decodeLeniently(raw);
 }
 
 function decodeLeniently(text: string): string {
@@ -675,6 +695,9 @@ function nightName(startedAt: number): string {
  *  it a link). */
 export const WATCH_STEPS = "sleepcast.pro/watch";
 
+/** The notice for data too long to read, for a held link too (AppPlayer). */
+export const TOO_LONG_NOTICE = `this watch data is far longer than the shortcut's, so nothing was changed: see the steps at ${WATCH_STEPS}.`;
+
 /** What the notice says of a night stored without the watch's time. */
 const UNTIMED_WHY = {
   later: "is recorded without the watch's time: run it again later",
@@ -701,7 +724,7 @@ function nightNamer(starts: readonly number[]): (startedAt: number) => string {
 export function watchNotice(r: WatchImport): string {
   switch (refusal(r)) {
     case "tooLong":
-      return `this watch data is far longer than the shortcut's, so nothing was changed: see the steps at ${WATCH_STEPS}.`;
+      return TOO_LONG_NOTICE;
     case "badWindow":
       return "the watch data's window line didn't read, or opens in the future, so nothing was changed: in the shortcut, the adjusted date should subtract 2 days, in iso 8601 with the time included, and a link's text should be url-encoded before it's opened.";
     case "noWindow":

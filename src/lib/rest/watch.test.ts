@@ -21,7 +21,7 @@ import {
   type SleepSample,
 } from "./watch";
 import { STALE_AFTER_MS } from "./watch-hash";
-import { appendNight, loadNights, rollup } from "./ledger";
+import { appendNight, loadNights, rollup, TIMELINE_KEEP_MS } from "./ledger";
 import { retimed } from "./attribution";
 import type { RestNight } from "./types";
 
@@ -930,6 +930,15 @@ describe("data already read, or from days ago", () => {
     expect(watchPayloadFromHash(`#watch=${big}`)).toBe(big);
     expect(payloadFromPaste(big)).toBe(big);
     expect(parseWatchPayload(big).tooLong).toBe(true);
+  });
+  it("counts a night past the timeline keep that the watch timed as unchanged, and re-times none", () => {
+    const old = night({ detector: "watch", sleptAtMs: 10 * MIN, timeToSleepMs: 10 * MIN, inferredAtMs: null });
+    const r = applyWatch([old], [asleepAt(30 * MIN)], START - 60 * MIN, START + TIMELINE_KEEP_MS + 1);
+    expect([r.timed, r.unchanged]).toEqual([[], 1]);
+  });
+  it("finds a percent-encoded link's start across any whitespace, as its end", () => {
+    const link = "https://sleepcast.pro/#watch=" + encodeURIComponent("window~2026-10-04T09:00:00+01:00\n2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core");
+    expect(payloadFromPaste(`see%20this\u00a0${encodeURIComponent(link)}`)).toBe("window~2026-10-04T09:00:00+01:00\n2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core");
   });
   it("decodes a long run of bad escapes in linear time", () => {
     const t0 = performance.now();
