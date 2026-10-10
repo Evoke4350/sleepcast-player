@@ -406,7 +406,10 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
     const r = applyWatch(nights, samples, windowStart);
     const worthWriting = r.timed.length > 0 || killed !== null;
     // Said whether or not anything is written: nothing about them changes.
-    for (const startedAt of r.asleepAtStart) untimed.push({ startedAt, why: "asleep" });
+    // Only of the newest night (the one this run is for): the Shortcut reads
+    // two days, and the next morning's run would say it of the same night
+    // again.
+    for (const startedAt of r.asleepAtStart) if (startedAt === newest) untimed.push({ startedAt, why: "asleep" });
     const latest = r.timed.at(-1);
     unchanged = r.unchanged;
     // Nothing to write, nothing written (a full store would evict cached
@@ -427,12 +430,17 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
         const k = killed && stored.find((n) => n.startedAt === killed.night.startedAt);
         // ...and only if the watch hasn't handed over any sleep past its start
         // yet: if it has and still didn't time it, a later run won't either.
-        if (k && k.detector !== "watch" && !r.asleepAtStart.includes(k.startedAt)) {
-          const synced = samples.some((s) => s.asleep && s.end > k.startedAt);
-          // Recorded without a time that a later run could give it: said
-          // too, as the resume offer it had is gone.
-          const later = !synced && k.startedAt >= timeableFrom(windowStart);
-          untimed.push({ startedAt: k.startedAt, why: later ? "later" : "recorded" });
+        if (k && k.detector !== "watch" && !untimed.some((u) => u.startedAt === k.startedAt)) {
+          // The night this import closes: asleep at its start is its reason,
+          // newest or not.
+          if (r.asleepAtStart.includes(k.startedAt)) untimed.push({ startedAt: k.startedAt, why: "asleep" });
+          else {
+            const synced = samples.some((s) => s.asleep && s.end > k.startedAt);
+            // Recorded without a time that a later run could give it: said
+            // too, as the resume offer it had is gone.
+            const later = !synced && k.startedAt >= timeableFrom(windowStart);
+            untimed.push({ startedAt: k.startedAt, why: later ? "later" : "recorded" });
+          }
         }
       } else unsaved = true;
     }

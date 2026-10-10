@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   BUILTIN_FEEDS,
+  clearUnreadableLive,
   loadState,
   saveState,
   addCustomFeed,
@@ -794,9 +795,22 @@ describe("the last episode (the exact one again)", () => {
 
 describe("loadLive and a snapshot missing its lists", () => {
   beforeEach(() => localStorage.clear());
-  it("reads none, so nothing downstream throws on it", () => {
+  it("reads none, so nothing downstream throws on it, and is cleared once, not by a read", () => {
     localStorage.setItem("sleepcast2.live", JSON.stringify({ current: { id: "e" }, remainingMs: 0, savedAt: 0 }));
     expect(loadLive()).toBeNull();
+    expect(localStorage.getItem("sleepcast2.live")).not.toBeNull();
+    clearUnreadableLive();
+    expect(localStorage.getItem("sleepcast2.live")).toBeNull();
+  });
+  it("reads none without a start it can do sums with, and clears one that won't parse", () => {
+    const ok = { savedAt: 1, remainingMs: 0, totalSeconds: 0, position: 0, current: { id: "e" }, pool: [], playedIds: [] };
+    expect(loadLive()).toBeNull();
+    localStorage.setItem("sleepcast2.live", JSON.stringify(ok));
+    expect(loadLive()).not.toBeNull();
+    localStorage.setItem("sleepcast2.live", JSON.stringify({ ...ok, savedAt: undefined }));
+    expect(loadLive()).toBeNull();
+    localStorage.setItem("sleepcast2.live", "{not json");
+    clearUnreadableLive();
     expect(localStorage.getItem("sleepcast2.live")).toBeNull();
   });
 });

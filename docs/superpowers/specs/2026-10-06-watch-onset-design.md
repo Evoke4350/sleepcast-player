@@ -68,7 +68,9 @@ they fell asleep, and a stretch after a later wake, hours in, would pass for
 it. The night keeps what it has (the detector's guess, a label, or a time the
 watch gave it before: a timed night stays timed): the watch can be wrong there
 too, scoring lying still or reading as sleep, and the night's own touches may
-say otherwise. The notice names it, unless the watch had timed it. Only nights that began more than a minute (CONTIGUOUS_MS) after
+say otherwise. The notice names it when it is the newest night (or the killed
+tab's night the import records), unless the watch had timed it: the next
+morning's run reads it again, and would say it again. Only nights that began more than a minute (CONTIGUOUS_MS) after
 the window opened are matched (`timeableFrom`, which the notice's "run it again later" uses
 too, so the notice never asks for a run that can't time a night): for
 an earlier one the window may have cut its sleep off (whether it began before

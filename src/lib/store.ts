@@ -327,7 +327,7 @@ export function resumeFrom(l: LiveSession): ResumeDescriptor {
   const fields = Object.fromEntries(
     Object.entries(l).filter(([k]) => k !== "current" && !sessionField.has(k)),
   ) as ResumeFields;
-  return { ...fields, episode: l.current, playedIds: l.playedIds };
+  return { ...fields, episode: l.current };
 }
 
 /** The night's own timer length: the snapshot's, else estimated from its
@@ -340,8 +340,7 @@ const LIVE_POOL_CAP = 80;
 
 /** A snapshot's played episodes, the current one included. */
 export function withCurrentPlayed(l: Pick<LiveSession, "playedIds" | "current">): string[] {
-  const ids = l.playedIds;
-  return ids.includes(l.current.id) ? ids : [...ids, l.current.id];
+  return l.playedIds.includes(l.current.id) ? l.playedIds : [...l.playedIds, l.current.id];
 }
 
 /** The periodic counter after the snapshot taken at an episode's start
@@ -372,19 +371,45 @@ export function saveLive(s: LiveSession): boolean {
   }
 }
 
+/** Whether a stored snapshot has the shape its readers rely on: the
+ *  numbers reconcile does arithmetic on, the playing episode, and its lists.
+ *  A watch link records a stale snapshot on load (killedNight): one without
+ *  them would throw there, before the page drew, or record a night with no
+ *  start. */
+function isLiveSession(x: unknown): x is LiveSession {
+  if (!x || typeof x !== "object") return false;
+  const s = x as Record<string, unknown>;
+  const num = (v: unknown) => typeof v === "number" && Number.isFinite(v);
+  const current = s.current as Record<string, unknown> | null | undefined;
+  return (
+    num(s.savedAt) &&
+    num(s.remainingMs) &&
+    num(s.totalSeconds) &&
+    num(s.position) &&
+    !!current && typeof current === "object" && typeof current.id === "string" &&
+    Array.isArray(s.pool) &&
+    Array.isArray(s.playedIds) &&
+    (s.nightStartedAt === undefined || num(s.nightStartedAt))
+  );
+}
+
+/** Clears a stored snapshot that can't be read (unparseable, or the wrong
+ *  shape), which would otherwise sit in storage for good: once, as the
+ *  page settles its snapshot on load, so loadLive itself only reads. */
+export function clearUnreadableLive(): void {
+  try {
+    if (localStorage.getItem(KEY_LIVE) !== null && loadLive() === null) localStorage.removeItem(KEY_LIVE);
+  } catch {
+    /* nothing to do */
+  }
+}
+
 export function loadLive(): LiveSession | null {
   try {
     const raw = localStorage.getItem(KEY_LIVE);
     if (!raw) return null;
-    const s = JSON.parse(raw) as LiveSession;
-    // Its lists too: a watch link records a stale snapshot on load (killedNight),
-    // and one without them would throw there, before the page drew. One that
-    // can't be read is cleared, or it would sit in storage for good.
-    if (!s || !s.current || typeof s.remainingMs !== "number" || !Array.isArray(s.pool) || !Array.isArray(s.playedIds)) {
-      localStorage.removeItem(KEY_LIVE);
-      return null;
-    }
-    return s;
+    const s: unknown = JSON.parse(raw);
+    return isLiveSession(s) ? s : null;
   } catch {
     return null;
   }

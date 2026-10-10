@@ -7,7 +7,7 @@
 // The detector never saw the night finish, so there is no onset to report:
 // the ledger gets a detector:"none" night, which keeps the night count honest
 // without claiming a time-to-sleep.
-import { clearLive, isRevivable, loadLive, nightTimerMinutes, saveLastNight, withCurrentPlayed, type LiveSession } from "../store";
+import { clearLive, clearUnreadableLive, isRevivable, loadLive, nightTimerMinutes, saveLastNight, withCurrentPlayed, type LiveSession } from "../store";
 import { appendNight } from "./ledger";
 import type { RestNight } from "./types";
 import { validLean } from "./sleepscore";
@@ -81,7 +81,10 @@ export function killedNight(
  *  otherwise reconcile it (unless it may still be live in another tab) and
  *  return null. */
 export function settleLive(l: LiveSession | null, now: number): LiveSession | null {
-  if (!l) return null;
+  if (!l) {
+    clearUnreadableLive();
+    return null;
+  }
   if (isRevivable(l, now)) return l;
   if (!isFresh(l, now)) reconcileLive(l, now);
   return null;

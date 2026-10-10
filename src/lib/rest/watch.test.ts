@@ -786,6 +786,20 @@ describe("a killed night to run again for, when the watch's sleep has synced", (
   });
 });
 
+describe("a night asleep at its start, read again the next morning", () => {
+  beforeEach(() => localStorage.clear());
+  it("isn't said again once a newer night has come", () => {
+    appendNight(night(), Date.now());
+    appendNight(night({ startedAt: START + 24 * 60 * MIN }), Date.now());
+    const r = importWatch(
+      `${OPENS_LINE}\n2026-10-05T22:50:00-07:00~2026-10-06T02:00:00-07:00~Core\n2026-10-06T23:10:00-07:00~2026-10-06T23:40:00-07:00~Core`,
+      START + 34 * 60 * MIN,
+    );
+    expect(r.timed.map((t) => t.startedAt)).toEqual([START + 24 * 60 * MIN]);
+    expect(r.untimed).toBeUndefined();
+  });
+});
+
 describe("a killed night recorded without a time a later run could give", () => {
   beforeEach(() => localStorage.clear());
   it("is still said, with why it has no time", () => {
