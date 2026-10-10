@@ -898,6 +898,8 @@ describe("data already read, or from days ago", () => {
     const base = { ...FLAGS, repeat: false, stale: false, timed: [], unchanged: 0, unrecognised: 0, malformed: 0 };
     expect(watchNotice({ ...base, untimed: [{ startedAt: START, why: "recorded" }] })).toMatch(/^your watch's sleep didn't start inside a sleepcast night\. /);
     expect(watchNotice({ ...base, untimed: [{ startedAt: START, why: "later" }] })).toMatch(/inside a sleepcast night yet\. /);
+    expect(watchNotice({ ...base, slept: 0, untimed: [{ startedAt: START, why: "recorded" }] })).toMatch(/^nothing from your watch \(check sleep tracking is on\)\. /);
+    expect(watchNotice({ ...base, slept: 0, untimed: [{ startedAt: START, why: "later" }] })).toMatch(/^nothing from your watch yet \(check/);
   });
   it("names a missing window line ahead of the data's age", () => {
     const r = importWatch("2026-10-05T23:04:00-07:00~2026-10-05T23:30:00-07:00~Core", START + 7 * 24 * 60 * MIN);

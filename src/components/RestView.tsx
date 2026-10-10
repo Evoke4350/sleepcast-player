@@ -24,8 +24,9 @@ export function RestView({ onClose }: { onClose: (changed?: boolean) => void }) 
   function importPasted() {
     const r = importWatch(payloadFromPaste(pasted));
     setPasteLine(watchNotice(r));
-    // Kept when refused or not saved, so it can be looked at or tried again.
-    if (!isRefused(r)) setPasted("");
+    // Kept when refused or not saved, so it can be looked at or tried again;
+    // not when it was read before or is days old, which no retry can change.
+    if (!isRefused(r) || r.repeat || r.stale) setPasted("");
     if (r.nights) {
       setNights(r.nights);
       setChangedHere(true);

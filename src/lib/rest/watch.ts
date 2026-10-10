@@ -680,13 +680,17 @@ export function watchNotice(r: WatchImport): string {
     }
     // (With no sleep at all handed over, the hint below says more.)
     if (r.unchanged && r.slept) return `no night newly timed: the nights your watch timed before keep their times.${notes}`;
-    // ("Yet" only beside a night a later run can still time.)
+    // One opening, then the notes. "Yet" only beside a night a later run
+    // can still time; with no night to name, a run after one is the hint.
     const yet = r.untimed?.some((u) => u.why === "later");
-    if (notes && !r.slept) return `nothing from your watch yet (check sleep tracking is on).${notes}`;
-    if (notes) return `${yet ? "no sleep from your watch inside a sleepcast night yet." : "your watch's sleep didn't start inside a sleepcast night."}${notes}`;
-    return r.slept
-      ? "your watch's sleep didn't start inside a sleepcast night."
-      : "nothing from your watch yet: run it after a sleepcast night (and check sleep tracking is on).";
+    const lead = !r.slept
+      ? !notes
+        ? "nothing from your watch yet: run it after a sleepcast night (and check sleep tracking is on)."
+        : `nothing from your watch${yet ? " yet" : ""} (check sleep tracking is on).`
+      : yet
+        ? "no sleep from your watch inside a sleepcast night yet."
+        : "your watch's sleep didn't start inside a sleepcast night.";
+    return `${lead}${notes}`;
   }
   const guess = last.inferredAtMs === null ? "" : `; sleepcast guessed ${fmtOnsetMinutes(last.inferredAtMs)}`;
   // Not last night's (it had no sleep the watch saw): say which night, or it
