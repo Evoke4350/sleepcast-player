@@ -801,6 +801,15 @@ describe("the newest night, before the watch has handed it over", () => {
   });
 });
 
+describe("no night in the window and no sleep", () => {
+  beforeEach(() => localStorage.clear());
+  it("doesn't ask for a run that can't time a night", () => {
+    appendNight(night({ startedAt: START - 4 * 24 * 60 * MIN }), Date.now());
+    const r = importWatch(OPENS_LINE, START + 10 * 60 * MIN);
+    expect(watchNotice(r)).toBe("nothing from your watch yet: check sleep tracking is on.");
+  });
+});
+
 describe("a night asleep at its start, read again the next morning", () => {
   beforeEach(() => localStorage.clear());
   it("is said on each run that finds it, newest night or not", () => {

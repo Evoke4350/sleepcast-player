@@ -207,11 +207,12 @@ export function watchOnset(
   stretches: readonly { start: number; end: number }[],
   until = Infinity,
 ): number | "asleep" | "pending" | null {
-  if (stretches.some((s) => s.start < startedAt && s.end > startedAt)) return "asleep";
-  if (!stretches.some((s) => s.end > startedAt)) return "pending";
-  const limit = Math.min(startedAt + MATCH_WINDOW_MS, until);
-  const first = stretches.find((s) => s.start >= startedAt);
-  return first && first.start < limit ? first.start - startedAt : null;
+  // The first stretch to end past the start (they're in time order and
+  // don't overlap): none yet, under way at it, or the first to begin in it.
+  const first = stretches.find((s) => s.end > startedAt);
+  if (!first) return "pending";
+  if (first.start < startedAt) return "asleep";
+  return first.start < Math.min(startedAt + MATCH_WINDOW_MS, until) ? first.start - startedAt : null;
 }
 
 /** How long after a night ended sleep can still be its onset: drifting
@@ -412,17 +413,7 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
     const nights = killed ? withNight(loadNights(), killed.night) : loadNights();
     const newest = lastOf(nights)?.startedAt;
     const r = applyWatch(nights, samples, windowStart);
-    // A night whose sleep the watch hasn't handed over yet, that a later run
-    // can still time (pending): said, so the listener runs it again. The
-    // newest, or the killed tab's (below).
-    if (newest !== undefined && newest !== killed?.night.startedAt && r.pending.includes(newest)) {
-      untimed.push({ startedAt: newest, why: "later" });
-    }
     const worthWriting = r.timed.length > 0 || killed !== null;
-    // Said whether or not anything is written (nothing about them changes),
-    // on every run that finds it: at most two mornings, the Shortcut reading
-    // two days, and true each time.
-    for (const startedAt of r.asleepAtStart) untimed.push({ startedAt, why: "asleep" });
     const latest = r.timed.at(-1);
     unchanged = r.unchanged;
     // Nothing to write, nothing written (a full store would evict cached
@@ -436,17 +427,27 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
         timed = r.timed;
         saved = stored;
         latestIsOlder = latest !== undefined && newest !== undefined && latest.startedAt < newest;
-        // The killed tab's night, if stored untimed and not by the watch (a
-        // night merged into one the watch had timed keeps that time; one
-        // asleep at its start is said as that, above), is said either way,
-        // as the resume offer it had is gone: "later" if pending (a later run
-        // can time it), else "recorded" (its sleep came and still didn't
-        // time it, or it began at the window's edge: no run will).
-        const k = killed && stored.find((n) => n.startedAt === killed.night.startedAt);
-        if (k && k.detector !== "watch" && !untimed.some((u) => u.startedAt === k.startedAt)) {
-          untimed.push({ startedAt: k.startedAt, why: r.pending.includes(k.startedAt) ? "later" : "recorded" });
-        }
       } else unsaved = true;
+    }
+    // The nights the notice names without a watch time, one reason each, in
+    // one place. Asleep at the start: said on every run that finds it (at
+    // most two mornings, the Shortcut reading two days; true each time),
+    // written or not, as nothing about it changes.
+    for (const startedAt of r.asleepAtStart) untimed.push({ startedAt, why: "asleep" });
+    // Pending (its sleep not handed over yet, a later run can time it): said
+    // of the newest night and the killed tab's as stored, so the listener
+    // runs it again.
+    const kStart = killed?.night.startedAt;
+    const kept = saved?.find((n) => n.startedAt === kStart);
+    for (const startedAt of r.pending) {
+      if (startedAt === newest || (startedAt === kStart && kept)) untimed.push({ startedAt, why: "later" });
+    }
+    // The killed tab's night, stored untimed and not by the watch (one merged
+    // into a night the watch had timed keeps that time), is said either way,
+    // as the resume offer it had is gone: else "recorded" (its sleep came and
+    // still didn't time it, or it began at the window's edge: no run will).
+    if (kept && kept.detector !== "watch" && !untimed.some((u) => u.startedAt === kStart)) {
+      untimed.push({ startedAt: kept.startedAt, why: "recorded" });
     }
   }
   return {
@@ -578,7 +579,7 @@ export function watchNotice(r: WatchImport): string {
     if (notes) return `${r.slept ? "no sleep from your watch inside a sleepcast night yet." : "nothing from your watch yet (check sleep tracking is on)."}${notes}`;
     return r.slept
       ? "your watch's sleep didn't start inside a sleepcast night."
-      : "nothing from your watch yet: run it again later (and check sleep tracking is on).";
+      : "nothing from your watch yet: check sleep tracking is on.";
   }
   const guess = last.inferredAtMs === null ? "" : `; sleepcast guessed ${fmtOnsetMinutes(last.inferredAtMs)}`;
   // Not last night's (it had no sleep the watch saw): say which night, or it
