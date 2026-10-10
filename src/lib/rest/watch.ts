@@ -559,10 +559,13 @@ export function watchNotice(r: WatchImport): string {
   const name = nightNamer([...(r.untimed ?? []), ...r.timed].map((x) => x.startedAt));
   const notes = (r.untimed ?? []).map(({ startedAt, why }) => ` ${name(startedAt)} ${UNTIMED_WHY[why]}.`).join("");
   if (!last) {
+    // Nights the watch had someone asleep at the start of: why, said, first
+    // (it is news), then that the rest is as it was.
+    if (r.untimed?.some((u) => u.why === "asleep")) {
+      return `${notes.trim()}${r.unchanged ? " nothing else new from your watch since it last ran." : ""}`;
+    }
     // (With no sleep at all handed over, the hint below says more.)
     if (r.unchanged && r.slept) return `nothing new from your watch since it last ran.${notes}`;
-    // Nights the watch had someone asleep at the start of: why, said.
-    if (r.untimed?.some((u) => u.why === "asleep")) return notes.trim();
     if (notes) return `${r.slept ? "no sleep from your watch inside a sleepcast night yet." : "nothing from your watch yet (check sleep tracking is on)."}${notes}`;
     return r.slept
       ? "your watch's sleep didn't start inside a sleepcast night."

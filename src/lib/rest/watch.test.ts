@@ -184,7 +184,7 @@ describe("watchOnset", () => {
     const base = { timed: [], unchanged: 0, unsaved: false, noWindow: false, badWindow: false, slept: 2, untimed: [asleep], unrecognised: 0, malformed: 0 };
     expect(watchNotice(base)).toMatch(/^\w+ \w+ has no watch time: your watch had you asleep before sleepcast started\.$/);
     // ...beside a night already timed, or an older one timed,
-    expect(watchNotice({ ...base, unchanged: 1 })).toMatch(/^nothing new from your watch since it last ran\. \w+ \w+ has no watch time: .*started\.$/);
+    expect(watchNotice({ ...base, unchanged: 1 })).toMatch(/^\w+ \w+ has no watch time: .*started\. nothing else new from your watch since it last ran\.$/);
     expect(watchNotice({ ...base, timed: [{ startedAt: START - 24 * 60 * MIN, atMs: 10 * MIN, inferredAtMs: null }], latestIsOlder: true })).toMatch(/asleep before sleepcast started\.$/);
     // ...and each night with its own reason, a killed tab's among them.
     const two = watchNotice({ ...base, untimed: [{ startedAt: START - 24 * 60 * MIN, why: "recorded" }, asleep] });

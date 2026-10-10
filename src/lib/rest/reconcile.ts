@@ -77,9 +77,6 @@ export function killedNight(
   return { night, commit };
 }
 
-/** On page load: return the snapshot if it should be offered for revival;
- *  otherwise reconcile it (unless it may still be live in another tab) and
- *  return null. */
 /** settleLive for the snapshot in storage, as the player loads or a night
  *  ends: one that can't be read (unparseable, or not the shape the player
  *  writes) is cleared, or it would sit in storage for good. */
@@ -89,6 +86,9 @@ export function settleStoredLive(now: number): LiveSession | null {
   return settleLive(l, now);
 }
 
+/** On page load: return the snapshot if it should be offered for revival;
+ *  otherwise reconcile it (unless it may still be live in another tab) and
+ *  return null. */
 export function settleLive(l: LiveSession | null, now: number): LiveSession | null {
   if (!l) return null;
   if (isRevivable(l, now)) return l;
@@ -127,10 +127,11 @@ function isFresh(l: LiveSession, now: number): boolean {
  *  playing one night at once is out of scope (spec §6). */
 export function resumeTarget(card: LiveSession, now: number): { revive: LiveSession } | { card: LiveSession | null } {
   const stored = loadLive();
+  if (!stored) return { card: settleStoredLive(now) };
   // The same night: the same snapshot, or one with the card's start (every
   // writer records it, once the night plays).
   const sameNight = (l: LiveSession) =>
     l.savedAt === card.savedAt || (l.nightStartedAt !== undefined && l.nightStartedAt === card.nightStartedAt);
-  if (stored && sameNight(stored) && isRevivable(stored, now)) return { revive: stored };
+  if (sameNight(stored) && isRevivable(stored, now)) return { revive: stored };
   return { card: settleLive(stored, now) };
 }
