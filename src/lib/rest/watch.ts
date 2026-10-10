@@ -267,7 +267,7 @@ function loadRead(now: number): ReadRun[] {
     if (!Array.isArray(v)) return [];
     return v.filter(
       (x): x is ReadRun =>
-        !!x && typeof x === "object" && typeof x.line === "string" && typeof x.at === "number" && now - x.at <= STALE_AFTER_MS,
+        !!x && typeof x === "object" && typeof x.line === "string" && typeof x.at === "number" && Math.abs(now - x.at) <= STALE_AFTER_MS,
     );
   } catch {
     return [];
@@ -479,9 +479,19 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
   // No window line, samples or not: a Shortcut built before it was added
   // (or not this Shortcut's text at all) is told to use the updated steps.
   const noWindow = windowStart === null && !badWindow;
-  const read = loadRead(now);
+  // One pass for what the samples say as a whole: how many are sleep, and
+  // how recent the newest is.
+  let slept = 0;
+  let newestEnd = -Infinity;
+  for (const s of samples) {
+    if (isSleep(s)) slept++;
+    newestEnd = Math.max(newestEnd, s.end);
+  }
+  const stale = samples.length > 0 && newestEnd < now - STALE_AFTER_MS;
+  // The runs already read, only when nothing else refuses it.
+  const unreadable = noWindow || badWindow || unrecognised > 0 || malformed > 0;
+  const read = unreadable || stale ? [] : loadRead(now);
   const repeat = windowLine !== null && read.some((r) => r.line === windowLine);
-  const stale = samples.length > 0 && Math.max(...samples.map((s) => s.end)) < now - STALE_AFTER_MS;
   const refusedContent = refusedFor({ noWindow, badWindow, repeat, stale, unrecognised, malformed });
   let timed: WatchTiming[] = [];
   let unchanged = 0;
@@ -551,7 +561,7 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
     stale,
     ...(latestIsOlder ? { latestIsOlder } : {}),
     ...(untimed.length && !unsaved ? { untimed: untimed.sort((a, b) => a.startedAt - b.startedAt) } : {}),
-    slept: samples.filter(isSleep).length,
+    slept,
     unrecognised,
     malformed,
   };
@@ -642,13 +652,13 @@ export function watchNotice(r: WatchImport): string {
   if (r.badWindow) {
     return "the watch data's window line didn't read, or opens in the future, so nothing was changed: in the shortcut, the adjusted date should subtract 2 days, in iso 8601 with the time included, and a link's text should be url-encoded before it's opened.";
   }
-  if (r.repeat) return "this watch data was read before, so nothing was changed: run the shortcut again for fresh data.";
-  if (r.stale) return "this watch data is from days ago, so nothing was changed: run the shortcut again for fresh data.";
   // Before the other format checks: a missing (or misplaced) window line is
   // the structural problem, and a misplaced one also reads as a bad line.
   if (r.noWindow) {
     return `the watch shortcut needs its window line first, so nothing was changed: see the updated steps at ${WATCH_STEPS}.`;
   }
+  if (r.repeat) return "this watch data was read before, so nothing was changed: run the shortcut again for fresh data.";
+  if (r.stale) return "this watch data is from days ago, so nothing was changed: run the shortcut again for fresh data.";
   if (r.unsaved) return "nothing could be saved: this browser's storage for sleepcast is full.";
   if (r.malformed) {
     const lines = r.malformed === 1 ? "a line" : `${r.malformed} lines`;
