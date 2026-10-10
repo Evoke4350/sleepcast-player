@@ -378,16 +378,15 @@ export function saveLive(s: LiveSession): boolean {
  *  reconcile, a watch link recording a stale one on load) rely on all of it:
  *  one without would throw, before the page drew, or record a night with no
  *  start. Anything else is corrupt. */
-function isLiveSession(x: unknown): x is LiveSession {
-  if (!x || typeof x !== "object") return false;
-  const s = x as Record<string, unknown>;
+function isLiveSession(s: unknown): s is LiveSession {
+  if (!obj(s)) return false;
   return (
     num(s.savedAt) &&
     num(s.remainingMs) &&
     num(s.totalSeconds) &&
     num(s.position) &&
     obj(s.current) &&
-    typeof (s.current as Record<string, unknown>).id === "string" &&
+    typeof s.current.id === "string" &&
     Array.isArray(s.pool) &&
     Array.isArray(s.playedIds) &&
     obj(s.skipIntroByFeedId) &&
@@ -395,7 +394,7 @@ function isLiveSession(x: unknown): x is LiveSession {
     obj(s.artworkByFeedId) &&
     optNum(s.nightStartedAt) &&
     optNum(s.timerMinutes) &&
-    (s.pool as unknown[]).every((e) => !!e && typeof e === "object" && typeof (e as Record<string, unknown>).id === "string") &&
+    (s.pool as unknown[]).every((e) => obj(e) && typeof e.id === "string") &&
     (s.playedIds as unknown[]).every((id) => typeof id === "string") &&
     optNum(s.interactions) &&
     optNum(s.touches) &&

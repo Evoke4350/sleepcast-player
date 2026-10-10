@@ -31,15 +31,11 @@ export function lastOf(nights: readonly RestNight[]): RestNight | null {
  *  end when there, the onset fields (a number or null, inferredAtMs too when
  *  there), the detector, a touch count, and its lists (timeline, entry by
  *  entry, sleptThrough, skipped) as lists when there. */
-function isNight(x: unknown): x is RestNight {
-  if (!x || typeof x !== "object") return false;
-  const n = x as Record<string, unknown>;
+function isNight(n: unknown): n is RestNight {
+  if (!obj(n)) return false;
   // Each timeline entry as attribution reads it (a corrupt one would throw
   // there, in loadNights' own merge or a watch import on load).
-  const entry = (e: unknown) => {
-    const r = e as Record<string, unknown> | null;
-    return obj(r) && num(r.t) && typeof r.feedId === "string" && typeof r.episodeId === "string";
-  };
+  const entry = (e: unknown) => obj(e) && num(e.t) && typeof e.feedId === "string" && typeof e.episodeId === "string";
   return (
     num(n.startedAt) &&
     optNum(n.endedAt) &&

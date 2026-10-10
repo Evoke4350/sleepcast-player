@@ -959,6 +959,10 @@ describe("data already read, or from days ago", () => {
       "window~2026-10-04T09:00:00+01:00\n2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core",
     );
   });
+  it("stops looking back for an encoded link's start at the bound, and refuses it as too long", () => {
+    const pasted = `${"a".repeat(2 * MAX_PAYLOAD_CHARS + 10)}%23watch%3Dwindow`;
+    expect(parseWatchPayload(payloadFromPaste(pasted)).tooLong).toBe(true);
+  });
   it("counts no final line break as a line", () => {
     const lines = "x\n".repeat(MAX_LINES);
     expect(parseWatchPayload(lines).tooLong).toBe(false);

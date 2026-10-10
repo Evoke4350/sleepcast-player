@@ -18,6 +18,7 @@ import type { RestNight } from "./types";
 import { retimed } from "./attribution";
 import { lastOf, loadNights, storeNights, withNight, TIMELINE_KEEP_MS } from "./ledger";
 import { writeMakingRoom } from "../store";
+import { num, obj } from "../guards";
 import { median } from "./stats";
 import { killedNightToRecord } from "./reconcile";
 import { STALE_AFTER_MS, WATCH_HASH } from "./watch-hash";
@@ -298,8 +299,7 @@ function loadRead(now: number): ReadRun[] {
     const v: unknown = JSON.parse(localStorage.getItem(READ_KEY) ?? "[]");
     if (!Array.isArray(v)) return [];
     return v.filter(
-      (x): x is ReadRun =>
-        !!x && typeof x === "object" && typeof x.line === "string" && typeof x.at === "number" && Math.abs(now - x.at) <= STALE_AFTER_MS,
+      (x): x is ReadRun => obj(x) && typeof x.line === "string" && num(x.at) && Math.abs(now - x.at) <= STALE_AFTER_MS,
     );
   } catch {
     return [];
@@ -503,13 +503,11 @@ export function payloadFromPaste(text: string): string {
     const ws = /\s/g;
     ws.lastIndex = j;
     const end = ws.exec(text)?.index ?? text.length;
-    if (end - start > 2 * MAX_PAYLOAD_CHARS) return text.slice(start, end);
-    const link = decodeLeniently(text.slice(start, end));
+    const link = decodeWithin(text.slice(start, end), 2 * MAX_PAYLOAD_CHARS);
     const k = link.indexOf(WATCH_HASH);
     if (k >= 0) return linkPayload(link.slice(k + WATCH_HASH.length) + text.slice(end));
   }
-  if (text.length > MAX_PAYLOAD_CHARS) return text;
-  return decodeLeniently(text).trim();
+  return decodeWithin(text).trim();
 }
 
 /** The payload of a pasted link, from what follows its WATCH_HASH. Measured
@@ -524,12 +522,11 @@ function linkPayload(after: string): string {
   const token = unpunctuated(first);
   // (Each measured as it is read: the token alone, or all the rest.)
   if (hasEscape(token) && !token.includes(":") && !(next.includes("~") || hasEscape(next))) {
-    return token.length > MAX_PAYLOAD_CHARS ? token : decodeLeniently(token).trim();
+    return decodeWithin(token).trim();
   }
-  if (after.length > MAX_PAYLOAD_CHARS) return after;
   // Otherwise (the url-encode step missed) the rest of the paste, decoded
   // as the link would be.
-  return decodeLeniently(unpunctuated(after)).trim();
+  return decodeWithin(unpunctuated(after)).trim();
 }
 
 /** Less any punctuation or symbol a message put after a link (a full
@@ -660,7 +657,15 @@ export function watchPayloadFromHash(hash: string): string | null {
   if (!hash.startsWith(WATCH_HASH)) return null;
   const raw = hash.slice(WATCH_HASH.length);
   // (Too long to read: passed on as it is, for parseWatchPayload to refuse.)
-  return watchLinkTooLong(hash) ? raw : decodeLeniently(raw);
+  return decodeWithin(raw);
+}
+
+/** decodeLeniently, for text within `limit` (MAX_PAYLOAD_CHARS unless
+ *  said): past it, the text as it is, for parseWatchPayload to refuse as too
+ *  long. Every decode of what arrives goes through here, so none can run on
+ *  unbounded input. */
+function decodeWithin(text: string, limit = MAX_PAYLOAD_CHARS): string {
+  return text.length > limit ? text : decodeLeniently(text);
 }
 
 function decodeLeniently(text: string): string {
