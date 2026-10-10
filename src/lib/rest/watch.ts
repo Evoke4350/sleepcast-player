@@ -48,8 +48,9 @@ export const MAX_SAMPLES = 2000;
  *  bound on the work a crafted link can make, not on a real payload. */
 export const MAX_PAYLOAD_CHARS = 1_000_000;
 
-/** The most lines a payload may have, for one under MAX_PAYLOAD_CHARS of
- *  very short lines, which would still be many to read one by one. */
+/** The most lines a payload may have (blank ones included, a final line
+ *  break not), for one under MAX_PAYLOAD_CHARS of very short lines, which
+ *  would still be many to read one by one. */
 export const MAX_LINES = 10 * MAX_SAMPLES;
 
 /** Whether a #watch= fragment is too long to read (and to hand on across a
@@ -121,7 +122,7 @@ const WINDOW_LINE = /^window\s*~\s*/i;
  *  signs): a localised name is a language matter (the "english only"
  *  notice), not a format one. */
 function parseLine(line: string): SleepSample | "malformed" | "unrecognised" {
-  const fields = line.split("~");
+  const fields = line.split("~", 4); // (four is already too many)
   if (fields.length !== 3) return "malformed";
   const [startText, endText, rawStage] = fields;
   const stage = rawStage.trim();
@@ -158,9 +159,11 @@ export function parseWatchPayload(text: string, now = Infinity): {
   // line by line, before the page's first paint spends long on it.
   const tooLong = { tooLong: true, windowStart: null, windowLine: null, badWindow: false, samples: [], unrecognised: 0, malformed: 0 };
   if (text.length > MAX_PAYLOAD_CHARS) return tooLong;
-  // Lines counted before they are split out, so many short ones cost nothing.
-  for (let n = 0, at = text.indexOf("\n"); at >= 0; at = text.indexOf("\n", at + 1)) if (++n >= MAX_LINES) return tooLong;
-  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  // Split no further than one past MAX_LINES (a final line break isn't a
+  // line), so many short lines cost little.
+  const raw = text.replace(/\r?\n$/, "").split(/\r?\n/, MAX_LINES + 1);
+  if (raw.length > MAX_LINES) return tooLong;
+  const lines = raw.map((l) => l.trim()).filter(Boolean);
   let windowStart: number | null = null;
   let windowLine: string | null = null;
   let badWindow = false;
@@ -477,26 +480,31 @@ function hasEscape(s: string): boolean {
  *  comes with it (a message's words, a quote marker) refuses the import,
  *  which changes nothing, rather than being guessed away. */
 export function payloadFromPaste(text: string): string {
-  // (Too long to read: passed on as it is, for parseWatchPayload to refuse.)
-  if (text.length > MAX_PAYLOAD_CHARS) return text;
+  // (Far too long to look through: passed on as it is, to be refused.)
+  if (text.length > 2 * MAX_PAYLOAD_CHARS) return text;
   const i = text.indexOf(WATCH_HASH);
-  if (i < 0) {
-    // A link percent-encoded whole: decoded by itself, so the words around
-    // it stay as they were, and read as any link is. Matched as WATCH_HASH
-    // is ("watch" as written; the escapes' hex either case), so its decoding
-    // holds WATCH_HASH and this recurses once at most.
-    const j = text.search(/%23watch%3[dD]/);
-    if (j >= 0) {
-      // Back to the whitespace before it, by the same rule as its end.
-      let start = j;
-      while (start > 0 && !/\s/.test(text[start - 1])) start--;
-      let end = j;
-      while (end < text.length && !/\s/.test(text[end])) end++;
-      return payloadFromPaste(text.slice(0, start) + decodeLeniently(text.slice(start, end)) + text.slice(end));
-    }
-    return decodeLeniently(text).trim();
+  if (i >= 0) return linkPayload(text.slice(i + WATCH_HASH.length));
+  // A link percent-encoded whole: that token decoded by itself, so the
+  // words around it stay as they were, and read as any link is.
+  const j = text.search(/%23watch%3[dD]/);
+  if (j >= 0) {
+    // Back to the whitespace before it, and on to the one after.
+    let start = j;
+    while (start > 0 && !/\s/.test(text[start - 1])) start--;
+    let end = j;
+    while (end < text.length && !/\s/.test(text[end])) end++;
+    const link = decodeLeniently(text.slice(start, end));
+    const k = link.indexOf(WATCH_HASH);
+    if (k >= 0) return linkPayload(link.slice(k + WATCH_HASH.length) + text.slice(end));
   }
-  const after = text.slice(i + WATCH_HASH.length);
+  if (text.length > MAX_PAYLOAD_CHARS) return text;
+  return decodeLeniently(text).trim();
+}
+
+/** The payload of a pasted link, from what follows its WATCH_HASH. Measured
+ *  as an opened link's is (watchLinkTooLong): from there on. */
+function linkPayload(after: string): string {
+  if (after.length > MAX_PAYLOAD_CHARS) return after;
   // Encoded whole (every ":" escaped, as url-encode leaves it): the link is
   // one token, ending at the first whitespace, less what a message put
   // after it. Unless the next word goes on with the payload (a "~" or an
@@ -507,8 +515,7 @@ export function payloadFromPaste(text: string): string {
   if (hasEscape(token) && !token.includes(":") && !(next.includes("~") || hasEscape(next))) return decodeLeniently(token).trim();
   // Otherwise (the url-encode step missed) the rest of the paste, decoded
   // as the link would be.
-  const tail = unpunctuated(after);
-  return decodeLeniently(tail).trim();
+  return decodeLeniently(unpunctuated(after)).trim();
 }
 
 /** Less any punctuation or symbol a message put after a link (a full

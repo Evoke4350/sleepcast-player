@@ -4,6 +4,7 @@ import {
   watchOnset,
   AFTER_END_MS,
   applyWatch,
+  watchLinkTooLong,
   MAX_PAYLOAD_CHARS,
   pasteWorthKeeping,
   MAX_LINES,
@@ -935,6 +936,16 @@ describe("data already read, or from days ago", () => {
     const old = night({ detector: "watch", sleptAtMs: 10 * MIN, timeToSleepMs: 10 * MIN, inferredAtMs: null });
     const r = applyWatch([old], [asleepAt(30 * MIN)], START - 60 * MIN, START + TIMELINE_KEEP_MS + 1);
     expect([r.timed, r.unchanged]).toEqual([[], 0]);
+  });
+  it("measures a pasted link from its #watch=, as an opened one", () => {
+    const payload = "a".repeat(MAX_PAYLOAD_CHARS - 10);
+    expect(watchLinkTooLong(`#watch=${payload}`)).toBe(false);
+    expect(payloadFromPaste(`see https://sleepcast.pro/#watch=${payload}`)).toBe(payload);
+  });
+  it("counts no final line break as a line", () => {
+    const lines = "x\n".repeat(MAX_LINES);
+    expect(parseWatchPayload(lines).tooLong).toBe(false);
+    expect(parseWatchPayload(`${lines}x`).tooLong).toBe(true);
   });
   it("reads a paste of many encoded-looking tokens in one pass, not one call each", () => {
     expect(() => payloadFromPaste("%23Watch%3D ".repeat(80_000))).not.toThrow();

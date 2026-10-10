@@ -435,7 +435,7 @@ export function AppPlayer() {
               }}
               className={QUIET_LINK}
             >
-              your watch's night came in: read it
+              your watch's night came in: read it{live ? " (it ends the night left open)" : ""}
             </button>
           </HomeLine>
         )}

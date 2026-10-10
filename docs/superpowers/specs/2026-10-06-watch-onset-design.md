@@ -167,7 +167,8 @@ onset isn't counted, so the detector keeps learning as the watch takes over.
   run can time; a night the watch had the listener asleep at the start of),
   whatever else the line says.
 - A link landing in a tab already open (only the fragment changes) is held
-  and offered on the home screen ("your watch's night came in: read it"),
+  and offered on the home screen ("your watch's night came in: read it", with
+  "it ends the night left open" beside a resume card, as reading it records that night),
   read by a reload when tapped: never a reload by itself, which could end a
   night still on or lose what was being typed. The held link is handed
   across that reload through session storage (read and cleared by the head
