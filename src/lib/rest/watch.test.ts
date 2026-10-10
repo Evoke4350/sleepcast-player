@@ -1002,7 +1002,14 @@ describe("data already read, or from days ago", () => {
   it("reads a paste of many encoded-looking tokens in one pass, not one call each", () => {
     // Bounded work for crafted input, whatever its shape: timed, as the cap
     // alone would let a per-token cost before or after the loop pass.
-    for (const crafted of ["%23watch%3D ".repeat(80_000), "#watch= ".repeat(400_000), "%23watch%3D".repeat(300_000)]) {
+    const badBytes = "%e2%82".repeat(166_000);
+    for (const crafted of [
+      "%23watch%3D ".repeat(80_000),
+      "#watch= ".repeat(400_000),
+      "%23watch%3D".repeat(300_000),
+      "#watch=x ".repeat(8) + badBytes,
+      "%23watch%3Dx~ ".repeat(8) + badBytes,
+    ]) {
       const t0 = performance.now();
       expect(() => payloadFromPaste(crafted)).not.toThrow();
       expect(performance.now() - t0).toBeLessThan(2000);

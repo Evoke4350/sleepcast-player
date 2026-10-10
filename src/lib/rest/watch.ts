@@ -63,7 +63,7 @@ const LINK_START = new RegExp(
   "g",
 );
 
-/** How many links in one paste are tried, each read in full. */
+/** How many links in one paste are tried, each read up to the next. */
 const MAX_LINKS_TRIED = 8;
 
 /** Whether a payload opens with its window line, as parseWatchPayload reads
@@ -524,32 +524,33 @@ export function payloadFromPaste(pasted: string): string {
   // Each link in it, plain or percent-encoded whole, in the order they
   // come, until one reads (as it would be read: one rule) as a payload that
   // opens with its window line, as the parser reads it: a mention of
-  // #watch= before the link, or a quoted broken attempt, doesn't hide it. A
-  // few at most (MAX_LINKS_TRIED), each read bounded by MAX_PAYLOAD_CHARS.
-  // Failing that, the first plain one (a Shortcut built before the window
-  // line is told so).
+  // #watch= before the link, or a quoted broken attempt, doesn't hide it.
+  // Each read ends where the next link starts, so the reads don't overlap
+  // and the work stays linear in the paste, however many links it holds.
+  // A few at most (MAX_LINKS_TRIED). Failing that, the first plain one (a
+  // Shortcut built before the window line is told so).
   const re = new RegExp(LINK_START);
-  let firstPlain: number | null = null;
-  for (let m = re.exec(text), tried = 0; m && tried < MAX_LINKS_TRIED; m = re.exec(text), tried++) {
-    const at = m.index + m[0].length;
+  const found: RegExpExecArray[] = [];
+  for (let m = re.exec(text); m && found.length <= MAX_LINKS_TRIED; m = re.exec(text)) found.push(m);
+  let firstPlain: string | null = null;
+  for (let n = 0; n < Math.min(found.length, MAX_LINKS_TRIED); n++) {
+    const m = found[n];
+    const own = text.slice(m.index + m[0].length, found[n + 1]?.index ?? text.length);
+    let payload: string;
     if (m[0] === WATCH_HASH) {
-      firstPlain ??= at;
-      const payload = linkPayload(text.slice(at));
-      if (opensWithWindow(payload)) return payload;
+      payload = linkPayload(own);
+      firstPlain ??= payload;
     } else {
       // Encoded whole: decoded once from here (its #watch= on) to the
       // whitespace after it, its size checked first, at twice the
       // payload's, as encoding it again grows it; the words after it left
       // as they were. A wrapped one isn't joined up: its later lines refuse it.
-      const ws = /\s/g;
-      ws.lastIndex = at;
-      const end = ws.exec(text)?.index ?? text.length;
-      const payload = linkPayload(decodeWithin(text.slice(at, end), 2 * MAX_PAYLOAD_CHARS) + text.slice(end));
-      if (opensWithWindow(payload)) return payload;
-      re.lastIndex = Math.max(re.lastIndex, end);
+      const end = own.search(/\s|$/);
+      payload = linkPayload(decodeWithin(own.slice(0, end), 2 * MAX_PAYLOAD_CHARS) + own.slice(end));
     }
+    if (opensWithWindow(payload)) return payload;
   }
-  if (firstPlain !== null) return linkPayload(text.slice(firstPlain));
+  if (firstPlain !== null) return firstPlain;
   return decodeWithin(text).trim();
 }
 
