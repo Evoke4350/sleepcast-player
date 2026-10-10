@@ -488,9 +488,9 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
     newestEnd = Math.max(newestEnd, s.end);
   }
   const stale = samples.length > 0 && newestEnd < now - STALE_AFTER_MS;
-  // The runs already read, only when nothing else refuses it.
-  const unreadable = noWindow || badWindow || unrecognised > 0 || malformed > 0;
-  const read = unreadable || stale ? [] : loadRead(now);
+  // The runs already read (whatever else refuses it: the notice's order
+  // says which reason comes first).
+  const read = loadRead(now);
   const repeat = windowLine !== null && read.some((r) => r.line === windowLine);
   const refusedContent = refusedFor({ noWindow, badWindow, repeat, stale, unrecognised, malformed });
   let timed: WatchTiming[] = [];

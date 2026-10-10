@@ -882,6 +882,11 @@ describe("data already read, or from days ago", () => {
       Object.defineProperty(window, "localStorage", get);
     }
   });
+  it("says read before ahead of a damaged line, for data already read", () => {
+    appendNight(night(), Date.now());
+    importWatch(payload, START + 10 * 60 * MIN);
+    expect(watchNotice(importWatch(`${payload}\n2026-10-07T01:00`, START + 10 * 60 * MIN))).toMatch(/read before/);
+  });
   it("names a missing window line ahead of the data's age", () => {
     const r = importWatch("2026-10-05T23:04:00-07:00~2026-10-05T23:30:00-07:00~Core", START + 7 * 24 * 60 * MIN);
     expect(watchNotice(r)).toMatch(/window line first/);
