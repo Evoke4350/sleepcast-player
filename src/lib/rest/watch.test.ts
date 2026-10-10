@@ -807,10 +807,17 @@ describe("the newest night, before the watch has handed it over", () => {
 
 describe("run it again later, only within reach", () => {
   beforeEach(() => localStorage.clear());
+  it("measures reach from when it's read, not from the payload's window (a held link read late)", () => {
+    const opens = Date.parse("2026-10-05T11:00:00-07:00");
+    appendNight(night({ startedAt: opens + 12 * 60 * MIN }), Date.now());
+    // Read 12 h after the run: a run 6 h on opens its window past the night.
+    expect(importWatch(OPENS_LINE, opens + (48 + 12 + 1) * 60 * MIN).untimed).toBeUndefined();
+    expect(importWatch(OPENS_LINE, opens + 49 * 60 * MIN).untimed).toEqual([{ startedAt: opens + 12 * 60 * MIN, why: "later" }]);
+  });
   it("isn't said of a night at the window's edge, which no later run can time", () => {
     const edge = Date.parse("2026-10-05T11:00:00-07:00") + 60 * MIN;
     appendNight(night({ startedAt: edge }), Date.now());
-    const r = importWatch(OPENS_LINE, edge + 10 * 60 * MIN);
+    const r = importWatch(OPENS_LINE, edge - 60 * MIN + 48 * 60 * MIN);
     expect(r.untimed).toBeUndefined();
   });
 });

@@ -152,8 +152,9 @@ onset isn't counted, so the detector keeps learning as the watch takes over.
   couldn't be read, when nothing was new, and when the re-timed nights
   couldn't be stored. Each night stored without the watch's time is named
   with its one reason (the newest night, or a killed tab's, whose sleep the
-  watch hasn't handed over yet, and that a run `RUN_AGAIN_MS` (6 h) on could
-  still reach: run it again later; a killed tab's night no
+  watch hasn't handed over yet, and that a run `RUN_AGAIN_MS` (6 h) after this
+  one (its window two days back from then) could still reach: run it again
+  later; a killed tab's night no
   run can time; a night the watch had the listener asleep at the start of),
   whatever else the line says.
 - A link landing in a tab already open (only the fragment changes) is held

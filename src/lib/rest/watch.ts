@@ -202,7 +202,8 @@ export function sleepStretches(samples: readonly SleepSample[]): { start: number
  *  may say otherwise), so the night keeps what it has. "pending" when no
  *  sleep has been handed over past the night's start yet (Awake or In Bed
  *  samples there don't count: the watch may have synced the morning's wake
- *  before the night's sleep), which a later run can still time.
+ *  before the night's sleep); whether a later run can still reach the night
+ *  is the caller's to say (applyWatch's `pending`).
  *  `stretches` as sleepStretches gives them: in time order, not
  *  overlapping (it reads the first one past the start). */
 export function watchOnset(
@@ -229,6 +230,9 @@ export const AFTER_END_MS = 30 * 60_000;
  *  that much later too). */
 export const RUN_AGAIN_MS = 6 * 60 * 60_000;
 
+/** How far back the Shortcut reads from when it runs (its adjust-date step). */
+export const SHORTCUT_WINDOW_MS = 2 * 24 * 60 * 60_000;
+
 export interface WatchTiming {
   startedAt: number;
   atMs: number;
@@ -251,7 +255,9 @@ export function timeableFrom(windowStart: number): number {
  *  re-reads the night before), or not timed by this run at all (a timed
  *  night stays timed). `asleepAtStart` lists the others the watch had the
  *  listener asleep at the start of, which keep what they have; `pending`
- *  the others watchOnset found "pending", which a later run can still time.
+ *  the others watchOnset found "pending" that a run RUN_AGAIN_MS after `now`
+ *  (the run's time; by default the window's two days on) can still reach:
+ *  a later run can time those.
  *  Only nights from timeableFrom(windowStart): for an earlier one the
  *  window may have cut its sleep off (whether it began before the night's
  *  start is unknown, and a stage change after a brief wake would pass for
@@ -262,9 +268,13 @@ export function applyWatch(
   nights: readonly RestNight[],
   samples: readonly SleepSample[],
   windowStart: number,
+  now = windowStart + SHORTCUT_WINDOW_MS,
 ): { nights: RestNight[]; timed: WatchTiming[]; unchanged: number; asleepAtStart: number[]; pending: number[] } {
   const stretches = sleepStretches(samples);
   const from = timeableFrom(windowStart);
+  // Where a run RUN_AGAIN_MS on would open its window (each run reads the
+  // Shortcut's two days back from when it runs, whenever its data is read).
+  const reach = timeableFrom(now + RUN_AGAIN_MS - SHORTCUT_WINDOW_MS);
   const starts = nights.map((n) => n.startedAt).sort((a, b) => a - b); // unique (loadNights)
   const next = new Map(starts.map((s, i) => [s, starts[i + 1] ?? Infinity]));
   const timed: WatchTiming[] = [];
@@ -285,7 +295,7 @@ export function applyWatch(
     if (typeof at !== "number" || (n.detector === "watch" && n.sleptAtMs === at)) {
       if (n.detector === "watch") unchanged++;
       else if (at === "asleep") atStart.push(n.startedAt);
-      else if (at === "pending") pending.push(n.startedAt);
+      else if (at === "pending" && n.startedAt >= reach) pending.push(n.startedAt);
       return n;
     }
     const r = retimed(n, at);
@@ -320,7 +330,7 @@ export interface WatchImport {
   latestIsOlder?: boolean;
   /** Nights stored without a watch time the notice names, one reason each,
    *  oldest first: "later", the newest night or a killed tab's recorded,
-   *  that watchOnset found "pending" (a later run can time it); "recorded", a killed tab's night
+   *  in applyWatch's `pending` (a later run can time it); "recorded", a killed tab's night
    *  no later run can time (its sleep synced past its start, or it began at
    *  the window's edge), said as its resume offer is gone; "asleep", a
    *  night the watch had the listener asleep at the start of, which keeps
@@ -421,7 +431,7 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
     // (loadNights reads an older ledger's copies of a night as one.)
     const nights = killed ? withNight(loadNights(), killed.night) : loadNights();
     const newest = lastOf(nights)?.startedAt;
-    const r = applyWatch(nights, samples, windowStart);
+    const r = applyWatch(nights, samples, windowStart, now);
     const worthWriting = r.timed.length > 0 || killed !== null;
     const latest = r.timed.at(-1);
     unchanged = r.unchanged;
@@ -446,11 +456,8 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
     // Pending (its sleep not handed over yet, a later run can time it): said
     // of the newest night, so the listener runs it again (the killed tab's,
     // below).
-    // ...and only when a run a few hours on could still time it: each run's
-    // window opens later, so a night near this one's edge can't be.
-    const later = (s: number) => r.pending.includes(s) && s >= timeableFrom(windowStart + RUN_AGAIN_MS);
     const kStart = killed?.night.startedAt;
-    if (newest !== undefined && newest !== kStart && later(newest)) untimed.push({ startedAt: newest, why: "later" });
+    if (newest !== undefined && newest !== kStart && r.pending.includes(newest)) untimed.push({ startedAt: newest, why: "later" });
     // The killed tab's night, stored untimed and not by the watch (one merged
     // into a night the watch had timed keeps that time), is said either way,
     // as the resume offer it had is gone, with its one reason: asleep at its
@@ -458,7 +465,7 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
     // didn't time it, or it began at the window's edge: no run will).
     const kept = saved?.find((n) => n.startedAt === kStart);
     if (kept && kept.detector !== "watch" && !r.asleepAtStart.includes(kept.startedAt)) {
-      untimed.push({ startedAt: kept.startedAt, why: later(kept.startedAt) ? "later" : "recorded" });
+      untimed.push({ startedAt: kept.startedAt, why: r.pending.includes(kept.startedAt) ? "later" : "recorded" });
     }
   }
   return {
@@ -470,7 +477,8 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
     badWindow,
     ...(latestIsOlder ? { latestIsOlder } : {}),
     ...(untimed.length && !unsaved ? { untimed: untimed.sort((a, b) => a.startedAt - b.startedAt) } : {}),
-    slept: samples.filter((s) => s.asleep).length,
+    // (As sleepStretches counts sleep: a zero-length sample is none.)
+    slept: samples.filter((s) => s.asleep && s.end > s.start).length,
     unrecognised,
     malformed,
   };

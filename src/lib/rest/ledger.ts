@@ -122,17 +122,12 @@ export function withNight(nights: readonly RestNight[], n: RestNight): RestNight
  *  has a watch time of its own. */
 function merge(earlier: RestNight, n: RestNight): RestNight {
   if (n.detector === "watch" || earlier.detector !== "watch" || earlier.sleptAtMs === null) return n;
-  return keepWatch(n, earlier);
-}
-
-/** `n`, recorded again, keeping the watch's time from `watched`: re-timed
- *  as the watch import re-times (retimed), from `n`'s timeline or, where it
- *  has none (a killed snapshot's night), the watched copy's, so its credit
- *  is re-checked against `n`'s end; and the detector's guess from the
- *  watched copy where `n` has none. */
-function keepWatch(n: RestNight, watched: RestNight): RestNight {
-  const withTimeline = n.timeline || !watched.timeline ? n : { ...n, timeline: watched.timeline };
-  return retimed(withTimeline, watched.sleptAtMs as number, watched.inferredAtMs ?? null);
+  // Re-timed as the watch import re-times, from n's timeline or, where it has
+  // none (a killed snapshot's night), the earlier copy's, so its credit is
+  // re-checked against n's end; retimed takes the earlier copy's guess
+  // where n has none.
+  const withTimeline = n.timeline || !earlier.timeline ? n : { ...n, timeline: earlier.timeline };
+  return retimed(withTimeline, earlier.sleptAtMs, earlier.inferredAtMs ?? null);
 }
 
 /** The nights with every night recorded more than once collapsed into one
