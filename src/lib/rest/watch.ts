@@ -250,27 +250,41 @@ export function shortcutWindowOpens(runAt: number): number {
   return d.getTime();
 }
 
-/** The window lines of the runs already read, newest last (a run's line
- *  is its own: the time it ran, two days back). A payload whose line is
- *  among them is data already read: a link reopened from Safari's history,
- *  a clipboard pasted again. Refused, as it would close tonight's night and
- *  re-time nights to that run's samples; any fresh run, however far back
- *  it reads, has a line of its own. */
+/** The window lines of the runs already read, with when each was (a
+ *  run's line is its own: the time it ran, two days back). A payload whose
+ *  line is among them is data already read: a link reopened from Safari's
+ *  history, a clipboard pasted again. Refused, as it would close tonight's
+ *  night and re-time nights to that run's samples; any fresh run, however
+ *  far back it reads, has a line of its own. Kept as long as the stale
+ *  check would let the data through (STALE_AFTER_MS), so the two leave no
+ *  gap between them. */
 const READ_KEY = "sleepcast2.watch-read";
-const READ_KEEP = 14;
+type ReadRun = { line: string; at: number };
 
-function loadRead(): string[] {
+function loadRead(now: number): ReadRun[] {
   try {
     const v: unknown = JSON.parse(localStorage.getItem(READ_KEY) ?? "[]");
-    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+    if (!Array.isArray(v)) return [];
+    return v.filter(
+      (x): x is ReadRun =>
+        !!x && typeof x === "object" && typeof x.line === "string" && typeof x.at === "number" && now - x.at <= STALE_AFTER_MS,
+    );
   } catch {
     return [];
   }
 }
 
-function saveRead(line: string): void {
-  // Made room for, as the ledger is: a store full of cached feeds is usual.
-  writeMakingRoom(READ_KEY, JSON.stringify([...loadRead().filter((l) => l !== line), line].slice(-READ_KEEP)));
+/** Remembers a run as read. Made room for, as the ledger is (a store full
+ *  of cached feeds is usual): a few bytes that keep a reopened link from
+ *  closing tonight's night are worth one cached feed, fetched again when
+ *  needed. Best effort: blocked storage, or no room to make, leaves the
+ *  stale check to bound it. */
+function saveRead(read: readonly ReadRun[], line: string, now: number): void {
+  try {
+    writeMakingRoom(READ_KEY, JSON.stringify([...read, { line, at: now }]));
+  } catch {
+    /* blocked storage: nothing to keep it in */
+  }
 }
 
 /** How old a payload's newest sample can be and still be read: the
@@ -465,7 +479,8 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
   // No window line, samples or not: a Shortcut built before it was added
   // (or not this Shortcut's text at all) is told to use the updated steps.
   const noWindow = windowStart === null && !badWindow;
-  const repeat = windowLine !== null && loadRead().includes(windowLine);
+  const read = loadRead(now);
+  const repeat = windowLine !== null && read.some((r) => r.line === windowLine);
   const stale = samples.length > 0 && Math.max(...samples.map((s) => s.end)) < now - STALE_AFTER_MS;
   const refusedContent = refusedFor({ noWindow, badWindow, repeat, stale, unrecognised, malformed });
   let timed: WatchTiming[] = [];
@@ -502,9 +517,9 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
         latestIsOlder = latest !== undefined && newest !== undefined && latest.startedAt < newest;
       } else unsaved = true;
     }
-    // Read: a payload no newer is refused from now on (one not saved isn't
-    // read, and may come again).
-    if (!unsaved && windowLine !== null) saveRead(windowLine);
+    // Read: the same line is refused from now on (one not saved isn't read,
+    // and may come again).
+    if (!unsaved && windowLine !== null) saveRead(read, windowLine, now);
     // The nights the notice names without a watch time, one reason each, in
     // one place. Asleep at the start: said on every run that finds it (at
     // most two mornings, the Shortcut reading two days; true each time),

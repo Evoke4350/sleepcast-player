@@ -859,6 +859,29 @@ describe("data already read, or from days ago", () => {
     expect(r).toMatchObject({ stale: true, timed: [] });
     expect(watchNotice(r)).toMatch(/from days ago/);
   });
+  it("isn't remembered from an import whose nights couldn't be saved", () => {
+    appendNight(night(), Date.now());
+    const setItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (this: Storage, k: string, v: string) {
+      if (k === "sleepcast2.rest") throw new Error("QuotaExceededError");
+      return setItem.call(this, k, v);
+    };
+    try {
+      expect(importWatch(payload, START + 10 * 60 * MIN).unsaved).toBe(true);
+    } finally {
+      Storage.prototype.setItem = setItem;
+    }
+    expect(importWatch(payload, START + 10 * 60 * MIN)).toMatchObject({ repeat: false, timed: [{ startedAt: START }] });
+  });
+  it("doesn't throw with storage blocked", () => {
+    const get = Object.getOwnPropertyDescriptor(window, "localStorage")!;
+    Object.defineProperty(window, "localStorage", { configurable: true, get: () => { throw new Error("SecurityError"); } });
+    try {
+      expect(() => importWatch(payload, START + 10 * 60 * MIN)).not.toThrow();
+    } finally {
+      Object.defineProperty(window, "localStorage", get);
+    }
+  });
   it("isn't remembered from an import that was refused", () => {
     appendNight(night(), Date.now());
     importWatch(`${OPENS_LINE}\nnot a line`, START + 10 * 60 * MIN);

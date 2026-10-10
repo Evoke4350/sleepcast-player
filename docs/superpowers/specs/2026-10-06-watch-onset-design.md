@@ -24,8 +24,8 @@ reads samples ending after "now minus 2 days", so a sample under way when
 the window opens is there from its own start; a window line with no
 samples yet (the watch hadn't synced) still goes ahead, recording a killed
 tab's night, and says to run it again later; a window line that opens in
-the future (an adjust-date step left adding) is a bad one; a window line already read (the last 14
-are kept) is a link reopened from history or a clipboard pasted again, refused,
+the future (an adjust-date step left adding) is a bad one; a window line already read (kept as long
+as the stale check would let its data through) is a link reopened from history or a clipboard pasted again, refused,
 as it would close tonight's night and re-time nights to that run's samples (any
 fresh run has a line of its own); a payload whose newest sample is older than
 `STALE_AFTER_MS` (the Shortcut's two days and the three it may be read late)
