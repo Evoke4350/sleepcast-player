@@ -241,19 +241,22 @@ export function applyWatch(
   nights: readonly RestNight[],
   samples: readonly SleepSample[],
   windowStart: number,
-): { nights: RestNight[]; timed: WatchTiming[]; unchanged: number; asleepAtStart: number } {
+): { nights: RestNight[]; timed: WatchTiming[]; unchanged: number; asleepAtStart: number | null } {
   const stretches = sleepStretches(samples);
   const from = timeableFrom(windowStart);
   const starts = nights.map((n) => n.startedAt).sort((a, b) => a - b); // unique (loadNights)
   const next = new Map(starts.map((s, i) => [s, starts[i + 1] ?? Infinity]));
   const timed: WatchTiming[] = [];
   let unchanged = 0;
-  let atStart = 0;
+  let atStart: number | null = null;
   const out = nights.map((n) => {
     if (n.startedAt < from) return n;
-    if (asleepAtStart(n.startedAt, stretches)) atStart++;
     const at = watchOnset(n.startedAt, stretches, next.get(n.startedAt));
-    if (at === null) return n;
+    if (at === null) {
+      // Said only for a night with no watch time already (one with, keeps it).
+      if (n.detector !== "watch" && asleepAtStart(n.startedAt, stretches)) atStart = Math.max(atStart ?? -Infinity, n.startedAt);
+      return n;
+    }
     if (n.detector === "watch" && n.sleptAtMs === at) {
       unchanged++;
       return n;
@@ -293,8 +296,9 @@ export interface WatchImport {
   /** How many of the samples were sleep: none yet means the watch hadn't
    *  handed the night over, whatever In Bed or Awake samples came. */
   slept: number;
-  /** How many nights the watch had the listener asleep at the start of:
-   *  left untimed, and said, as their sleep wasn't outside them. */
+  /** The start of the newest night, untimed, that the watch had the
+   *  listener asleep at the start of: left untimed, and said whatever else
+   *  the line says (it may be last night). */
   asleepAtStart?: number;
   unchanged: number;
   /** The nights couldn't be stored (storage full): nothing changed. */
@@ -370,7 +374,7 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
   let unchanged = 0;
   let unsaved = false;
   let latestIsOlder = false;
-  let atStart = 0;
+  let atStart: number | null = null;
   let recordedUntimed: number | undefined;
   let recordedClosed: number | undefined;
   let saved: RestNight[] | undefined;
@@ -427,7 +431,7 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
     ...(latestIsOlder ? { latestIsOlder } : {}),
     ...(recordedUntimed !== undefined ? { recordedUntimed } : {}),
     ...(recordedClosed !== undefined ? { recordedClosed } : {}),
-    ...(atStart ? { asleepAtStart: atStart } : {}),
+    ...(atStart !== null ? { asleepAtStart: atStart } : {}),
     slept: samples.filter((s) => s.asleep).length,
     unrecognised,
     malformed,
@@ -513,20 +517,29 @@ export function watchNotice(r: WatchImport): string {
   // A killed tab's night recorded without its time (most likely the watch
   // hadn't handed it to the phone yet): said whatever else the line says.
   // Named, as an older timed night is: it may not be last night.
+  // A night the watch had the listener asleep at the start of: said, named,
+  // whatever else the line says (a killed tab's night among them: this says
+  // why it has no time).
+  const asleep =
+    r.asleepAtStart !== undefined
+      ? ` ${nightName(r.asleepAtStart)} has no watch time: your watch had you asleep before sleepcast started.`
+      : "";
   const again =
     r.recordedUntimed !== undefined
       ? ` ${nightName(r.recordedUntimed)} is recorded without the watch's time: run it again later.`
-      : r.recordedClosed !== undefined
+      : r.recordedClosed !== undefined && r.recordedClosed !== r.asleepAtStart
         ? ` ${nightName(r.recordedClosed)} is recorded without the watch's time.`
         : "";
   if (!r.timed.length && !r.unchanged) {
+    if (asleep) return `${again}${asleep}`.trim();
     if (again) return `${r.slept ? "no sleep from your watch inside a sleepcast night yet." : "nothing from your watch yet."}${again}`;
-    if (r.asleepAtStart) return "your watch had you asleep before sleepcast started, so it can't say when you fell asleep.";
     return r.slept
       ? "your watch's sleep didn't start inside a sleepcast night."
       : "nothing from your watch yet: run it again later (and check sleep tracking is on).";
   }
-  if (!r.timed.length) return `nothing new: your watch had already timed these nights.${again}`;
+  if (!r.timed.length) {
+    return `${asleep ? "nothing new from your watch." : "nothing new: your watch had already timed these nights."}${again}${asleep}`;
+  }
   const last = r.timed[r.timed.length - 1];
   const guess = last.inferredAtMs === null ? "" : `; sleepcast guessed ${fmtOnsetMinutes(last.inferredAtMs)}`;
   // Not last night's (it had no sleep the watch saw): say which night, or it
@@ -535,7 +548,7 @@ export function watchNotice(r: WatchImport): string {
   const lead = r.timed.length === 1 ? `your watch${older}` : `your watch timed ${r.timed.length} nights. the latest${older}`;
   // "asleep under a minute in" doesn't read: the fast case gets its own words.
   const when = underAMinute(last.atMs) ? "asleep within a minute" : `asleep ${fmtOnsetMinutes(last.atMs)} in`;
-  return `${lead}: ${when}${guess}.${again}`;
+  return `${lead}: ${when}${guess}.${again}${asleep}`;
 }
 
 /** How the detector's guesses compare with the watch: nights the watch

@@ -86,7 +86,7 @@ function readHeldLink(held: string): boolean {
   return true;
 }
 
-const HELD_LINK_STUCK = "this browser wouldn't keep your watch's night across a reload: open the link again in a new tab, or paste it in your rest.";
+const HELD_LINK_STUCK = "this browser wouldn't keep your watch's night across a reload: close this tab and run the shortcut again.";
 
 /** One quiet line above setup (the goodbye, the watch's result). */
 function HomeLine({ mark, markClass = "", children }: { mark: string; markClass?: string; children: ReactNode }) {

@@ -63,7 +63,7 @@ doesn't count, nor does a stage change within it: the listener was awake to
 press start. A night whose start falls inside a stretch isn't timed at all:
 the watch had the listener asleep as they pressed start, so it can't say when
 they fell asleep, and a stretch after a later wake, hours in, would pass for
-it. The notice says so. Only nights that began more than a minute (CONTIGUOUS_MS) after
+it. The notice says so, naming the night, whatever else it says. Only nights that began more than a minute (CONTIGUOUS_MS) after
 the window opened are matched (`timeableFrom`, which recordedUntimed uses
 too, so the notice never asks for a run that can't time a night): for
 an earlier one the window may have cut its sleep off (whether it began before
@@ -150,7 +150,8 @@ touches would read as awake ones and make the detector bolder.
   script), never back through the address. A paste reloads without it: the held
   link is older, and imported after the paste would undo its times. If session
   storage is blocked, so the link can't be handed on, the offer is replaced
-  with a line saying to open the link again in a new tab, or paste it. The
+  with a line saying to close the tab and run the Shortcut again (a new tab
+  reads the link on load). The
   line and the offer also show above a 3am re-anchor.
 - The rest view: how many nights the watch timed and the median gap between
   sleepcast's guess and the watch; a link to /watch; the paste box.
