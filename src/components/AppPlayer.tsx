@@ -1,4 +1,4 @@
-import { useState, useEffect, type ReactNode, useMemo } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import type { Episode } from "../lib/engine";
 import { formatTime } from "../lib/engine";
 import { loadLive, clearLive, clearLastNight, loadLastNight, type LiveSession, type LastNight, type ResumeDescriptor, resumeFrom, nightTimerMinutes, loadState, isRevivable, resumeMode, loadBlocked } from "../lib/store";
@@ -144,8 +144,9 @@ export function AppPlayer() {
   // lose what was being typed.
   const [heldLink, setHeldLink] = useState<string | null>(null);
   // Whether reading it ends a night left open: what the import will do
-  // (killedNightToRecord), not what the card shows.
-  const heldEndsNight = useMemo(() => heldLink !== null && killedNightToRecord(Date.now()) !== null, [heldLink]);
+  // (killedNightToRecord), not what the card shows; asked at each render, as
+  // the snapshot changes under a held link (a night resumed, ended, given up).
+  const heldEndsNight = heldLink !== null && killedNightToRecord(Date.now()) !== null;
   useEffect(() => {
     // The head script has already moved it out of the address (analytics).
     const onLink = () => {

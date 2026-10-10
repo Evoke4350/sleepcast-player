@@ -942,11 +942,16 @@ describe("data already read, or from days ago", () => {
     expect(watchLinkTooLong(`#watch=${payload}`)).toBe(false);
     expect(payloadFromPaste(`see https://sleepcast.pro/#watch=${payload}`)).toBe(payload);
   });
-  it("reads a wrapped link encoded whole, its later lines at the same depth", () => {
+  it("refuses a wrapped link encoded whole rather than guessing it together", () => {
     const s = "2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core";
     const link = encodeURIComponent("https://sleepcast.pro/#watch=" + encodeURIComponent(`window~2026-10-04T09:00:00+01:00\n${s}\n${s}`));
     const cut = Math.floor(link.length / 2);
-    expect(parseWatchPayload(payloadFromPaste(`${link.slice(0, cut)}\n${link.slice(cut)}`)).samples).toHaveLength(2);
+    const r = parseWatchPayload(payloadFromPaste(`${link.slice(0, cut)}\n${link.slice(cut)}`));
+    expect(r.malformed + r.unrecognised + (r.windowStart === null ? 1 : 0)).toBeGreaterThan(0);
+  });
+  it("doesn't take a message's escaped words after a link for the link", () => {
+    const enc = encodeURIComponent("window~2026-10-04T09:00:00+01:00\n2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core");
+    expect(payloadFromPaste(`https://sleepcast.pro/#watch=${enc} thanks`)).toBe("window~2026-10-04T09:00:00+01:00\n2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core");
   });
   it("counts no final line break as a line", () => {
     const lines = "x\n".repeat(MAX_LINES);

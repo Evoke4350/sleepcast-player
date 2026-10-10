@@ -343,7 +343,7 @@ export function timeableFrom(windowStart: number): number {
  *  night stays timed). `asleepAtStart` lists the others the watch had the
  *  listener asleep at the start of, which keep what they have; `pending`
  *  the others watchOnset found "pending" that a run RUN_AGAIN_MS after `now`
- *  (the run's time; by default the window's two days on) can still reach:
+ *  (when the data is read: a later run can be no earlier) can still reach:
  *  a later run can time those.
  *  Only nights from timeableFrom(windowStart): for an earlier one the
  *  window may have cut its sleep off (whether it began before the night's
@@ -490,20 +490,21 @@ export function payloadFromPaste(text: string): string {
   if (text.length > PASTE_MAX_CHARS) return text;
   const i = text.indexOf(WATCH_HASH);
   if (i >= 0) return linkPayload(text.slice(i + WATCH_HASH.length));
-  // A link percent-encoded whole: decoded from its start on, in one pass
-  // (a wrapped one's later lines with it, at the same depth), the words
-  // before it left as they were, and read as any link is.
-  // (Found, then walked back to the whitespace before it: a pattern with
-  // \S* before it would rescan a long token from every start.)
+  // A link percent-encoded whole: that token decoded by itself (its size
+  // checked first, at twice the payload's, as encoding it again grows it),
+  // the words around it left as they were, and read as any link is, from
+  // its #watch= on. A wrapped one isn't joined up: its later lines refuse it.
   const j = text.search(/%23watch%3[dD]/);
   if (j >= 0) {
+    // Back to the whitespace before it, and on to the one after.
     let start = j;
     while (start > 0 && !/\s/.test(text[start - 1])) start--;
-    const from = text.slice(start);
-    if (from.length > MAX_PAYLOAD_CHARS) return from;
-    const link = decodeLeniently(from);
+    let end = j;
+    while (end < text.length && !/\s/.test(text[end])) end++;
+    if (end - start > 2 * MAX_PAYLOAD_CHARS) return text.slice(start, end);
+    const link = decodeLeniently(text.slice(start, end));
     const k = link.indexOf(WATCH_HASH);
-    if (k >= 0) return linkPayload(link.slice(k + WATCH_HASH.length));
+    if (k >= 0) return linkPayload(link.slice(k + WATCH_HASH.length) + text.slice(end));
   }
   if (text.length > MAX_PAYLOAD_CHARS) return text;
   return decodeLeniently(text).trim();
@@ -514,19 +515,13 @@ export function payloadFromPaste(text: string): string {
 function linkPayload(after: string): string {
   if (after.length > MAX_PAYLOAD_CHARS) return after;
   // Encoded whole (every ":" escaped, as url-encode leaves it): the link is
-  // one token, with any that follow still encoded (a url-encoded payload has
-  // no whitespace of its own, so whitespace between is where it was
-  // wrapped), less what a message put after it. Unless the next word goes
-  // on unencoded (a "~" and no escape: the link encoded only in part), or
-  // the first one isn't encoded whole: then the rest is read with it.
-  const tokens = after.match(/\S+/g) ?? [];
-  const encoded = (t: string | undefined) => !!t && hasEscape(t) && !t.includes(":");
-  const partly = !encoded(tokens[1]) && !!tokens[1]?.includes("~");
-  if (encoded(tokens[0]) && !partly) {
-    let n = 1;
-    while (encoded(tokens[n])) n++;
-    return decodeLeniently(unpunctuated(tokens.slice(0, n).join(""))).trim();
-  }
+  // one token, ending at the first whitespace, less what a message put
+  // after it. Unless the next word goes on with the payload (a "~" or an
+  // escape in it: the link wrapped, or encoded only in part): then the rest
+  // is read with it, and refuses it rather than being guessed at.
+  const [, first = "", next = ""] = after.match(/^\s*(\S*)(?:\s+(\S+))?/) ?? [];
+  const token = unpunctuated(first);
+  if (hasEscape(token) && !token.includes(":") && !(next.includes("~") || hasEscape(next))) return decodeLeniently(token).trim();
   // Otherwise (the url-encode step missed) the rest of the paste, decoded
   // as the link would be.
   return decodeLeniently(unpunctuated(after)).trim();

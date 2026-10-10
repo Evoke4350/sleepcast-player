@@ -53,7 +53,8 @@ the link can't reach it. For that, the Shortcut copies the lines instead, and
 the rest view has a "paste from your watch" box (it accepts the lines or the
 whole link, itself perhaps percent-encoded). From a pasted link it takes, if
 url-encoded whole, the link itself (up to the first space, less trailing
-punctuation, unless the next word goes on with the payload: a wrapped link),
+punctuation, unless the next word goes on with the payload, a wrapped link,
+which is then read whole and refuses rather than being guessed together),
 and otherwise (the encode step missed, or done in part) the rest of the
 paste, decoded as the link would be. It
 reads with the payload's own grammar only: anything else that came with it (a
