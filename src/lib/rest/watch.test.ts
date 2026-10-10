@@ -4,6 +4,7 @@ import {
   watchOnset,
   AFTER_END_MS,
   applyWatch,
+  shortcutWindowOpens,
   importWatch,
   watchPayloadFromHash,
   watchNotice,
@@ -38,6 +39,8 @@ function night(over: Partial<RestNight> = {}): RestNight {
     ...over,
   };
 }
+/** applyWatch read when the Shortcut ran: its window's two days on. */
+const apply = (n: Parameters<typeof applyWatch>[0], s: Parameters<typeof applyWatch>[1], w: number) => applyWatch(n, s, w, w + 2 * 24 * 60 * MIN);
 const asleepAt = (ms: number, forMs = 5 * MIN): SleepSample => ({ start: START + ms, end: START + ms + forMs, asleep: true });
 const awakeAt = (ms: number, forMs = 5 * MIN): SleepSample => ({ start: START + ms, end: START + ms + forMs, asleep: false });
 /** Where a payload's window opens, well before the night. */
@@ -186,7 +189,7 @@ describe("watchOnset", () => {
     expect(watchOnset(START, sleepStretches([asleepAt(-40 * MIN, 30 * MIN), asleepAt(20 * MIN, 30 * MIN)]))).toBe(20 * MIN);
   });
   it("leaves a night the watch had the listener asleep at the start of as it was, and says so", () => {
-    const r = applyWatch([night()], [asleepAt(-5 * MIN, 150 * MIN), awakeAt(145 * MIN, 15 * MIN), asleepAt(160 * MIN, 60 * MIN)], START - 60 * MIN);
+    const r = apply([night()], [asleepAt(-5 * MIN, 150 * MIN), awakeAt(145 * MIN, 15 * MIN), asleepAt(160 * MIN, 60 * MIN)], START - 60 * MIN);
     expect([r.timed, r.asleepAtStart, r.nights]).toEqual([[], [START], [night()]]);
     const asleep = { startedAt: START, why: "asleep" as const };
     const base = { timed: [], unchanged: 0, unsaved: false, noWindow: false, badWindow: false, slept: 2, untimed: [asleep], unrecognised: 0, malformed: 0 };
@@ -200,14 +203,14 @@ describe("watchOnset", () => {
   });
   it("keeps a time it gave before (a timed night stays timed), unsaid", () => {
     const timed = night({ detector: "watch", sleptAtMs: 10 * MIN, timeToSleepMs: 10 * MIN, inferredAtMs: 20 * MIN });
-    const r = applyWatch([timed], [asleepAt(-5 * MIN, 60 * MIN)], START - 60 * MIN);
+    const r = apply([timed], [asleepAt(-5 * MIN, 60 * MIN)], START - 60 * MIN);
     expect([r.asleepAtStart, r.nights, r.unchanged]).toEqual([[], [timed], 1]);
   });
   it("doesn't time a night by sleep long after it ended", () => {
     const stopped = night({ endedAt: START + 3 * MIN, endedVia: "ended" });
-    expect(applyWatch([stopped], [asleepAt(200 * MIN)], START - 60 * MIN).timed).toEqual([]);
+    expect(apply([stopped], [asleepAt(200 * MIN)], START - 60 * MIN).timed).toEqual([]);
     // ...but does in the quiet just after it.
-    expect(applyWatch([stopped], [asleepAt(3 * MIN + AFTER_END_MS - 1)], START - 60 * MIN).timed).toHaveLength(1);
+    expect(apply([stopped], [asleepAt(3 * MIN + AFTER_END_MS - 1)], START - 60 * MIN).timed).toHaveLength(1);
   });
   it("adds a time where an untimed night shares last night's name, and only then", () => {
     const base = { unchanged: 0, unsaved: false, noWindow: false, badWindow: false, slept: 1, unrecognised: 0, malformed: 0 };
@@ -227,10 +230,10 @@ describe("watchOnset", () => {
   });
   it("keeps no guess the listener said was wrong", () => {
     const disowned = night({ selfLabel: "awake", sleptAtMs: 8 * MIN, timeToSleepMs: 8 * MIN });
-    expect(applyWatch([disowned], [asleepAt(45 * MIN)], START - 60 * MIN).nights[0]).toMatchObject({ detector: "watch", sleptAtMs: 45 * MIN, inferredAtMs: null });
+    expect(apply([disowned], [asleepAt(45 * MIN)], START - 60 * MIN).nights[0]).toMatchObject({ detector: "watch", sleptAtMs: 45 * MIN, inferredAtMs: null });
   });
   it("still counts an end before the start as the start, for a night stored before finish clamped it", () => {
-    expect(applyWatch([night({ endedAt: START - 60 * MIN })], [asleepAt(10 * MIN)], START - 60 * MIN).timed).toHaveLength(1);
+    expect(apply([night({ endedAt: START - 60 * MIN })], [asleepAt(10 * MIN)], START - 60 * MIN).timed).toHaveLength(1);
   });
   it("says to check sleep tracking when no sleep came, even beside a kept time", () => {
     const r = { timed: [], unchanged: 1, unsaved: false, noWindow: false, badWindow: false, slept: 0, unrecognised: 0, malformed: 0 };
@@ -238,8 +241,8 @@ describe("watchOnset", () => {
   });
   it("counts a night the watch timed before, and this run doesn't, as unchanged", () => {
     const timed = night({ detector: "watch", sleptAtMs: 10 * MIN, timeToSleepMs: 10 * MIN, inferredAtMs: 20 * MIN });
-    expect(applyWatch([timed], [asleepAt(-5 * MIN, 60 * MIN)], START - 60 * MIN).unchanged).toBe(1);
-    expect(applyWatch([timed], [], START - 60 * MIN).unchanged).toBe(1);
+    expect(apply([timed], [asleepAt(-5 * MIN, 60 * MIN)], START - 60 * MIN).unchanged).toBe(1);
+    expect(apply([timed], [], START - 60 * MIN).unchanged).toBe(1);
   });
   it("tells two nights with one name apart by their start", () => {
     const later = START + 30 * MIN;
@@ -311,7 +314,7 @@ describe("retimed", () => {
 describe("applyWatch and the window", () => {
   it("times a night that began after the window opened, its first-ever one included", () => {
     // A new watch: nothing before this night's sleep in the payload.
-    const r = applyWatch([night()], [asleepAt(20 * MIN)], START - 60 * MIN);
+    const r = apply([night()], [asleepAt(20 * MIN)], START - 60 * MIN);
     expect(r.timed.map((x) => x.atMs)).toEqual([20 * MIN]);
   });
 });
@@ -330,7 +333,7 @@ describe("applyWatch", () => {
   it("times each night by its own samples, the rest unchanged, order kept", () => {
     const second = night({ startedAt: START + 3 * 60 * MIN, endedAt: START + 4 * 60 * MIN });
     const other = night({ startedAt: START - 24 * 60 * MIN });
-    const { nights, timed } = applyWatch([other, night(), second], [asleepAt(15 * MIN), asleepAt(3 * 60 * MIN + 5 * MIN)], WINDOW);
+    const { nights, timed } = apply([other, night(), second], [asleepAt(15 * MIN), asleepAt(3 * 60 * MIN + 5 * MIN)], WINDOW);
     expect(nights[0]).toBe(other);
     expect(nights[1].timeToSleepMs).toBe(15 * MIN);
     expect(nights[2].timeToSleepMs).toBe(5 * MIN);
@@ -343,14 +346,14 @@ describe("applyWatch", () => {
     // mid-sleep, and a stretch after a brief wake would pass for its onset.
     const timed = night({ detector: "watch", sleptAtMs: 20 * MIN, timeToSleepMs: 20 * MIN, inferredAtMs: 30 * MIN });
     // The window opened an hour into it.
-    const r = applyWatch([timed], [asleepAt(60 * MIN, 10 * MIN), awakeAt(70 * MIN), asleepAt(75 * MIN, 60 * MIN)], START + 60 * MIN);
+    const r = apply([timed], [asleepAt(60 * MIN, 10 * MIN), awakeAt(70 * MIN), asleepAt(75 * MIN, 60 * MIN)], START + 60 * MIN);
     expect(r.nights[0]).toBe(timed);
     expect(r.timed).toEqual([]);
   });
 
   it("counts a night the watch had already timed the same as unchanged, not timed", () => {
-    const first = applyWatch([night()], [asleepAt(15 * MIN)], WINDOW);
-    const again = applyWatch(first.nights, [asleepAt(15 * MIN)], WINDOW);
+    const first = apply([night()], [asleepAt(15 * MIN)], WINDOW);
+    const again = apply(first.nights, [asleepAt(15 * MIN)], WINDOW);
     expect(again.timed).toEqual([]);
     expect(again.unchanged).toBe(1);
     expect(again.nights[0]).toBe(first.nights[0]);
@@ -424,7 +427,7 @@ describe("importWatch", () => {
     expect(r.windowStart).toBe(Date.parse("2026-10-05T23:10:30-07:00"));
     // A night at 23:10:45 is inside that margin: not timed.
     const at = Date.parse("2026-10-05T23:10:45-07:00");
-    expect(applyWatch([night({ startedAt: at })], r.samples, r.windowStart!).timed).toEqual([]);
+    expect(apply([night({ startedAt: at })], r.samples, r.windowStart!).timed).toEqual([]);
   });
 
   it("says so, and claims nothing, when the re-timed nights can't be stored", () => {
@@ -763,7 +766,7 @@ describe("the window's own edge", () => {
   it("leaves a night started within a minute of the window opening as it was", () => {
     // Sleep the Shortcut left out (ended just before the window) could have
     // joined the first kept sample: the night may have begun asleep.
-    const r = applyWatch([night()], [asleepAt(30_000)], START - 10_000);
+    const r = apply([night()], [asleepAt(30_000)], START - 10_000);
     expect(r.timed).toEqual([]);
   });
   it("reads a lowercase t", () => {
@@ -819,6 +822,25 @@ describe("run it again later, only within reach", () => {
     appendNight(night({ startedAt: edge }), Date.now());
     const r = importWatch(OPENS_LINE, edge - 60 * MIN + 48 * 60 * MIN);
     expect(r.untimed).toBeUndefined();
+  });
+});
+
+describe("shortcutWindowOpens", () => {
+  it("goes back two calendar days, at the same local time (47 or 49 h across DST)", () => {
+    const run = new Date(2027, 2, 15, 8, 0).getTime();
+    const opens = new Date(shortcutWindowOpens(run));
+    expect([opens.getFullYear(), opens.getMonth(), opens.getDate(), opens.getHours()]).toEqual([2027, 2, 13, 8]);
+  });
+});
+
+describe("a stale link", () => {
+  beforeEach(() => localStorage.clear());
+  it("is refused, so a link reopened from history changes nothing", () => {
+    appendNight(night(), Date.now());
+    const r = importWatch(`${OPENS_LINE}\n2026-10-05T23:04:00-07:00~2026-10-05T23:30:00-07:00~Core`, START + 7 * 24 * 60 * MIN);
+    expect(r).toMatchObject({ stale: true, timed: [] });
+    expect(isRefused(r)).toBe(true);
+    expect(watchNotice(r)).toMatch(/from days ago/);
   });
 });
 

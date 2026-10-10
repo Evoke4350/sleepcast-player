@@ -16,7 +16,7 @@
 // onset.
 import type { RestNight } from "./types";
 import { retimed } from "./attribution";
-import { lastOf, loadNights, storeNights, withNight } from "./ledger";
+import { lastOf, loadNights, storeNights, withNight, TIMELINE_KEEP_MS } from "./ledger";
 import { median } from "./stats";
 import { killedNightToRecord } from "./reconcile";
 import { WATCH_HASH } from "./watch-hash";
@@ -163,11 +163,18 @@ export function parseWatchPayload(text: string, now = Infinity): {
     else if (i >= firstKept) {
       samples.push(p);
       if (i === firstKept && firstKept > 0 && windowStart !== null) windowStart = Math.max(windowStart, p.start);
-    } else if (p.asleep && windowStart !== null) {
+    } else if (isSleep(p) && windowStart !== null) {
       windowStart = Math.max(windowStart, p.end);
     }
   });
   return { windowStart, badWindow, samples, unrecognised, malformed };
+}
+
+/** Whether a sample is sleep: an asleep stage, of some length (a
+ *  zero-length one has no time asleep to begin or run on). Every reader of
+ *  "sleep" asks this. */
+export function isSleep(s: SleepSample): boolean {
+  return s.asleep && s.end > s.start;
 }
 
 /** Asleep samples closer than this are one stretch of sleep: the watch's
@@ -178,8 +185,7 @@ const CONTIGUOUS_MS = 60_000;
  *  where one begins within CONTIGUOUS_MS of the stretch's end so far. A
  *  stage change within a stretch is not falling asleep. */
 export function sleepStretches(samples: readonly SleepSample[]): { start: number; end: number }[] {
-  // (A zero-length sample is no sleep: no time asleep to begin or run on.)
-  const asleep = samples.filter((s) => s.asleep && s.end > s.start).sort((a, b) => a.start - b.start);
+  const asleep = samples.filter(isSleep).sort((a, b) => a.start - b.start);
   const out: { start: number; end: number }[] = [];
   for (const s of asleep) {
     const cur = out.at(-1);
@@ -230,8 +236,21 @@ export const AFTER_END_MS = 30 * 60_000;
  *  that much later too). */
 export const RUN_AGAIN_MS = 6 * 60 * 60_000;
 
-/** How far back the Shortcut reads from when it runs (its adjust-date step). */
-export const SHORTCUT_WINDOW_MS = 2 * 24 * 60 * 60_000;
+/** Where the Shortcut's window opens for a run at `runAt`: two calendar
+ *  days back, as its adjust-date step counts them (47 or 49 h across a DST
+ *  change). */
+export function shortcutWindowOpens(runAt: number): number {
+  const d = new Date(runAt);
+  d.setDate(d.getDate() - 2);
+  return d.getTime();
+}
+
+/** How old a payload's window can be and still be read: the Shortcut's two
+ *  days, and as long again as its data may be read late (a paste, a held
+ *  link: TIMELINE_KEEP_MS). Older, it is a link reopened from history, not
+ *  this morning's: refused, as it would close tonight's night and re-time
+ *  nights to stale onsets. */
+export const STALE_AFTER_MS = 2 * 24 * 60 * 60_000 + TIMELINE_KEEP_MS;
 
 export interface WatchTiming {
   startedAt: number;
@@ -268,13 +287,13 @@ export function applyWatch(
   nights: readonly RestNight[],
   samples: readonly SleepSample[],
   windowStart: number,
-  now = windowStart + SHORTCUT_WINDOW_MS,
+  now: number,
 ): { nights: RestNight[]; timed: WatchTiming[]; unchanged: number; asleepAtStart: number[]; pending: number[] } {
   const stretches = sleepStretches(samples);
   const from = timeableFrom(windowStart);
   // Where a run RUN_AGAIN_MS on would open its window (each run reads the
   // Shortcut's two days back from when it runs, whenever its data is read).
-  const reach = timeableFrom(now + RUN_AGAIN_MS - SHORTCUT_WINDOW_MS);
+  const reach = timeableFrom(shortcutWindowOpens(now + RUN_AGAIN_MS));
   const starts = nights.map((n) => n.startedAt).sort((a, b) => a - b); // unique (loadNights)
   const next = new Map(starts.map((s, i) => [s, starts[i + 1] ?? Infinity]));
   const timed: WatchTiming[] = [];
@@ -312,8 +331,8 @@ export function applyWatch(
 }
 
 /** Every reason a payload is refused for its content, in one place. */
-function refusedFor(r: Pick<WatchImport, "noWindow" | "badWindow" | "unrecognised" | "malformed">): boolean {
-  return r.noWindow || r.badWindow || r.unrecognised > 0 || r.malformed > 0;
+function refusedFor(r: Pick<WatchImport, "noWindow" | "badWindow" | "stale" | "unrecognised" | "malformed">): boolean {
+  return r.noWindow || r.badWindow || !!r.stale || r.unrecognised > 0 || r.malformed > 0;
 }
 
 /** Whether an import changed nothing: refused for its content, or not
@@ -350,6 +369,9 @@ export interface WatchImport {
   /** A window line whose date didn't read, or that opens in the future:
    *  refused. */
   badWindow: boolean;
+  /** A window older than STALE_AFTER_MS (a link reopened from history):
+   *  refused. */
+  stale?: boolean;
   unrecognised: number;
   malformed: number;
 }
@@ -413,7 +435,8 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
   // No window line, samples or not: a Shortcut built before it was added
   // (or not this Shortcut's text at all) is told to use the updated steps.
   const noWindow = windowStart === null && !badWindow;
-  const refusedContent = refusedFor({ noWindow, badWindow, unrecognised, malformed });
+  const stale = windowStart !== null && windowStart < now - STALE_AFTER_MS;
+  const refusedContent = refusedFor({ noWindow, badWindow, stale, unrecognised, malformed });
   let timed: WatchTiming[] = [];
   let unchanged = 0;
   let unsaved = false;
@@ -475,10 +498,10 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
     ...(saved ? { nights: saved } : {}),
     noWindow,
     badWindow,
+    ...(stale ? { stale } : {}),
     ...(latestIsOlder ? { latestIsOlder } : {}),
     ...(untimed.length && !unsaved ? { untimed: untimed.sort((a, b) => a.startedAt - b.startedAt) } : {}),
-    // (As sleepStretches counts sleep: a zero-length sample is none.)
-    slept: samples.filter((s) => s.asleep && s.end > s.start).length,
+    slept: samples.filter(isSleep).length,
     unrecognised,
     malformed,
   };
@@ -568,7 +591,8 @@ function nightNamer(starts: readonly number[]): (startedAt: number) => string {
 export function watchNotice(r: WatchImport): string {
   if (r.badWindow) {
     return "the watch data's window line didn't read, or opens in the future, so nothing was changed: in the shortcut, the adjusted date should subtract 2 days, in iso 8601 with the time included, and a link's text should be url-encoded before it's opened.";
-  }
+  }  if (r.stale) return "this watch link is from days ago, so nothing was changed: run the shortcut again for this morning's.";
+
   // Before the other format checks: a missing (or misplaced) window line is
   // the structural problem, and a misplaced one also reads as a bad line.
   if (r.noWindow) {

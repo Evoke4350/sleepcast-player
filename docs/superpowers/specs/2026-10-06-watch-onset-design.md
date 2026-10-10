@@ -24,7 +24,9 @@ reads samples ending after "now minus 2 days", so a sample under way when
 the window opens is there from its own start; a window line with no
 samples yet (the watch hadn't synced) still goes ahead, recording a killed
 tab's night, and says to run it again later; a window line that opens in
-the future (an adjust-date step left adding) is a bad one; without the line
+the future (an adjust-date step left adding) is a bad one; one older than `STALE_AFTER_MS`
+(the Shortcut's two days, and as long again as its data may be read late) is a
+link reopened from history, refused; without the line
 the import is
 refused, with a notice pointing at the updated steps), then one sample per
 line, `start~end~stage`, ISO 8601 dates with time, the
@@ -153,7 +155,7 @@ onset isn't counted, so the detector keeps learning as the watch takes over.
   couldn't be stored. Each night stored without the watch's time is named
   with its one reason (the newest night, or a killed tab's, whose sleep the
   watch hasn't handed over yet, and that a run `RUN_AGAIN_MS` (6 h) after this
-  one (its window two days back from then) could still reach: run it again
+  one (its window two calendar days back from then, as the Shortcut counts) could still reach: run it again
   later; a killed tab's night no
   run can time; a night the watch had the listener asleep at the start of),
   whatever else the line says.
