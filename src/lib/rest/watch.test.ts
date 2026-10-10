@@ -722,3 +722,13 @@ describe("a killed night recorded without a time a later run could give", () => 
     expect(watchNotice(r)).toMatch(/is recorded without the watch's time\.$/);
   });
 });
+
+describe("pasting a link without its url-encode step, and looser dates", () => {
+  it("takes the sample lines that follow the link", () => {
+    const pasted = "https://sleepcast.pro/#watch=window~2026-10-04T09:00:00+01:00\n2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core\nsent from my iphone";
+    expect(payloadFromPaste(pasted)).toBe("window~2026-10-04T09:00:00+01:00\n2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core");
+  });
+  it("reads a space before the time and a lowercase z", () => {
+    expect(parseWatchPayload("window~2026-10-04 09:00:00z").windowStart).toBe(Date.parse("2026-10-04T09:00:00Z"));
+  });
+});

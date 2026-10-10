@@ -61,8 +61,7 @@ const NAMES = new Map<string, boolean>([
 /** A stage as sleep or not; "code" for a would-be code that isn't one
  *  (any digit: "-1", "(1)", "７" — the format, not a language); null for a
  *  name this doesn't know. */
-function stageAsleep(stage: string): boolean | "code" | null {
-  const raw = stage.trim();
+function stageAsleep(raw: string): boolean | "code" | null {
   if (/\p{N}/u.test(raw)) return CODES.get(raw) ?? "code";
   return NAMES.get(raw.toLowerCase().replace(/[^a-z]/g, "")) ?? null;
 }
@@ -71,9 +70,13 @@ function stageAsleep(stage: string): boolean | "code" | null {
  *  midnight UTC: no onset at all. */
 function parseTime(text: string | undefined): number | null {
   // A time of day as ISO 8601 writes it ("T23:15"): a weekday name has a
-  // "T" too, and parses as midnight.
-  // ISO 8601 allows a lowercase "t" too: normalised, for any parser.
-  const iso = text?.trim().replace(/t(?=\d{2}:\d{2})/, "T");
+  // "T" too, and parses as midnight. Normalised for any parser (Safari's is
+  // strict): a lowercase "t" or a space (RFC 3339) before the time becomes
+  // "T", and a lowercase "z" zone "Z".
+  const iso = text
+    ?.trim()
+    .replace(/^(\d{4}-\d{2}-\d{2})[ t](?=\d{2}:\d{2})/, "$1T")
+    .replace(/z$/, "Z");
   if (!iso || !/T\d{2}:\d{2}/.test(iso)) return null;
   const t = Date.parse(iso);
   return Number.isFinite(t) ? t : null;
@@ -94,11 +97,13 @@ const WINDOW_LINE = /^window\s*~\s*/i;
  *  notice), not a format one. */
 function parseLine(line: string): SleepSample | "malformed" | "unrecognised" {
   const fields = line.split("~");
-  const [startText, endText, stage] = fields;
+  if (fields.length !== 3) return "malformed";
+  const [startText, endText, rawStage] = fields;
+  const stage = rawStage.trim();
   const start = parseTime(startText);
   const end = parseTime(endText);
-  const stageOk = stage !== undefined && /^[\p{L}\p{M}\p{N} ()_-]+$/u.test(stage.trim()) && /[\p{L}\p{N}]/u.test(stage);
-  if (fields.length !== 3 || start === null || end === null || end < start || !stageOk) return "malformed";
+  const stageOk = /^[\p{L}\p{M}\p{N} ()_-]+$/u.test(stage) && /[\p{L}\p{N}]/u.test(stage);
+  if (start === null || end === null || end < start || !stageOk) return "malformed";
   const asleep = stageAsleep(stage);
   if (asleep === "code") return "malformed";
   if (asleep === null) return "unrecognised";
@@ -297,7 +302,20 @@ export function payloadFromPaste(text: string): string {
   // Punctuation or symbols a message put after it (a full stop, an
   // ellipsis, a closing quote, an autolink's >, markdown's **) aren't either:
   // an encoded payload ends in a stage's letter or digit.
-  if (i >= 0) return watchPayloadFromHash(text.slice(i).split(/\s/)[0].replace(/[\p{P}\p{S}]+$/u, "")) ?? "";
+  if (i >= 0) {
+    // A link pasted without its url-encode step has real line breaks: its
+    // sample lines follow it, up to the first line that isn't one.
+    const [first, ...rest] = text.slice(i).split(/\r?\n/);
+    if (!/%0a/i.test(first) && rest.length && rest[0].includes("~")) {
+      const lines = [first.trim()];
+      for (const l of rest) {
+        if (!l.includes("~")) break;
+        lines.push(l.trim());
+      }
+      return watchPayloadFromHash(lines.join("\n")) ?? "";
+    }
+    return watchPayloadFromHash(first.split(/\s/)[0].replace(/[\p{P}\p{S}]+$/u, "")) ?? "";
+  }
   return (/%[0-9a-f]{2}/i.test(text) ? decodeLeniently(text) : text).trim();
 }
 
@@ -353,11 +371,13 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
         const k = killed && stored.find((n) => n.startedAt === killed.night.startedAt);
         // ...and only if the watch hasn't handed over any sleep past its start
         // yet: if it has and still didn't time it, a later run won't either.
-        const synced = k && samples.some((s) => s.asleep && s.end > k.startedAt);
-        if (k && !synced && k.detector !== "watch" && k.startedAt >= timeableFrom(windowStart)) recordedUntimed = k.startedAt;
-        // Recorded without a time that a later run could give it: said too,
-        // as the resume offer it had is gone.
-        else if (k && k.detector !== "watch") recordedClosed = k.startedAt;
+        if (k && k.detector !== "watch") {
+          const synced = samples.some((s) => s.asleep && s.end > k.startedAt);
+          if (!synced && k.startedAt >= timeableFrom(windowStart)) recordedUntimed = k.startedAt;
+          // Recorded without a time that a later run could give it: said
+          // too, as the resume offer it had is gone.
+          else recordedClosed = k.startedAt;
+        }
       } else unsaved = true;
     }
   }
