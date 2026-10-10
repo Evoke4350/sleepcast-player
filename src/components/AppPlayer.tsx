@@ -5,8 +5,8 @@ import { loadLive, clearLive, clearLastNight, loadLastNight, type LiveSession, t
 import type { PlayMode } from "../lib/engine";
 import type { NoiseSettings } from "../lib/store";
 import { reanchorNext } from "../lib/rest/reanchor";
-import { importWatch, watchNotice, watchPayloadFromHash } from "../lib/rest/watch";
-import { WATCH_PENDING_KEY } from "../lib/rest/watch-hash";
+import { importWatch, MAX_PAYLOAD_CHARS, watchNotice, watchPayloadFromHash } from "../lib/rest/watch";
+import { WATCH_PENDING_KEY, WATCH_HASH } from "../lib/rest/watch-hash";
 import { DEFAULT_FEEL_MINUTES } from "../lib/timer-feel";
 import { SleepSetup } from "./SleepSetup";
 import { Player } from "./Player";
@@ -424,7 +424,11 @@ export function AppPlayer() {
           <HomeLine mark="⌚︎">
             <button
               onClick={() => {
-                if (!readHeldLink(heldLink)) {
+                // Too long to read: said as any import says it, not handed on.
+                if (heldLink.length > MAX_PAYLOAD_CHARS + WATCH_HASH.length) {
+                  setHeldLink(null);
+                  setWatchLine(watchNotice(importWatch(watchPayloadFromHash(heldLink) ?? "")));
+                } else if (!readHeldLink(heldLink)) {
                   setHeldLink(null);
                   setWatchLine(HELD_LINK_STUCK);
                 }

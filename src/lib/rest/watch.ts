@@ -16,7 +16,7 @@
 // onset.
 import type { RestNight } from "./types";
 import { retimed } from "./attribution";
-import { lastOf, loadNights, storeNights, withNight } from "./ledger";
+import { lastOf, loadNights, storeNights, withNight, TIMELINE_KEEP_MS } from "./ledger";
 import { writeMakingRoom } from "../store";
 import { median } from "./stats";
 import { killedNightToRecord } from "./reconcile";
@@ -46,8 +46,9 @@ export const MAX_SAMPLES = 2000;
 export const MAX_LINES = 10 * MAX_SAMPLES;
 
 /** The most characters a payload (or a pasted link) may have, checked
- *  before it is decoded or split: MAX_LINES of generous lines. */
-export const MAX_PAYLOAD_CHARS = MAX_LINES * 150;
+ *  before it is decoded or split: MAX_SAMPLES url-encoded lines (about 75
+ *  characters each) with room to spare. */
+export const MAX_PAYLOAD_CHARS = MAX_SAMPLES * 200;
 
 /** Health's sleep stages, by code (HKCategoryValueSleepAnalysis, for a
  *  Shortcut that hands the value over as a number: in bed 0, asleep
@@ -342,7 +343,10 @@ export function applyWatch(
   now: number,
 ): { nights: RestNight[]; timed: WatchTiming[]; unchanged: number; asleepAtStart: number[]; pending: number[] } {
   const stretches = sleepStretches(samples);
-  const from = timeableFrom(windowStart);
+  // And none older than a timeline is kept: data that reads further back
+  // (a Shortcut set to more days) would re-time a night without what was
+  // playing, losing its credit.
+  const from = Math.max(timeableFrom(windowStart), now - TIMELINE_KEEP_MS);
   // Where a run RUN_AGAIN_MS on would open its window (each run reads the
   // Shortcut's two days back from when it runs, whenever its data is read).
   const reach = timeableFrom(shortcutWindowOpens(now + RUN_AGAIN_MS));
@@ -384,7 +388,7 @@ export function applyWatch(
 
 /** Why an import changed nothing, the first reason in the order its
  *  notice gives them, or null when it didn't. The one place the reasons and
- *  their order live: the notice, isRefused and the paste box follow it. */
+ *  their order live: the notice and the paste box follow it. */
 export type Refusal = "tooLong" | "badWindow" | "noWindow" | "repeat" | "stale" | "unsaved" | "malformed" | "unrecognised";
 export function refusal(
   r: Pick<WatchImport, "tooLong" | "noWindow" | "badWindow" | "repeat" | "stale" | "unsaved" | "unrecognised" | "malformed">,
@@ -402,10 +406,6 @@ export function refusal(
   return null;
 }
 
-/** Whether an import changed nothing (refused, or not saved). */
-export function isRefused(r: WatchImport): boolean {
-  return refusal(r) !== null;
-}
 
 /** Whether a refused paste is worth keeping in the box: for the reason its
  *  notice gives (refusal), one the listener can fix or retry; not data read
@@ -474,7 +474,7 @@ export function payloadFromPaste(text: string): string {
     // it stay as they were, and read as any link is.
     const j = text.search(/%23watch%3D/i);
     if (j >= 0) {
-      const start = text.slice(0, j).search(/\S*$/);
+      const start = Math.max(...[" ", "\n", "\t", "\r"].map((c) => text.lastIndexOf(c, j))) + 1;
       const end = j + text.slice(j).search(/\s|$/);
       return payloadFromPaste(text.slice(0, start) + decodeLeniently(text.slice(start, end)) + text.slice(end));
     }
@@ -499,7 +499,13 @@ export function payloadFromPaste(text: string): string {
  *  stop, an ellipsis, a closing quote, an autolink's >, **), but not a
  *  "~" or ")", which a payload's last line may end with. */
 function unpunctuated(s: string): string {
-  return s.trim().replace(/(?:(?![~)])[\p{P}\p{S}])+$/u, "");
+  // From the end, a character at a time (a regex anchored at the end would
+  // retry from every start in a long run of punctuation).
+  const t = s.trim();
+  const chars = [...t];
+  let end = chars.length;
+  while (end > 0 && chars[end - 1] !== "~" && chars[end - 1] !== ")" && /[\p{P}\p{S}]/u.test(chars[end - 1])) end--;
+  return end === chars.length ? t : chars.slice(0, end).join("");
 }
 
 /** Reads a payload into the rest ledger. A payload without its window
@@ -620,25 +626,31 @@ function decodeLeniently(text: string): string {
     try {
       return decodeURIComponent(run);
     } catch {
-      // A bad byte in the run: decode what can be, a character (1 to 4
-      // escapes of UTF-8) at a time, leaving only the bad escapes as they
-      // were, so a good %0A beside one still breaks the line.
+      // A bad byte in the run: decode what can be, a character at a time
+      // (as many escapes as its UTF-8 lead byte says), leaving only the bad
+      // escapes as they were, so a good %0A beside one still breaks the
+      // line. One try per character at most, so a long run of bad bytes
+      // costs no more than a good one.
       const esc = run.match(/%[0-9a-f]{2}/gi)!;
       let out = "";
       for (let i = 0; i < esc.length; ) {
-        let n = Math.min(4, esc.length - i);
-        for (; n > 0; n--) {
+        const lead = parseInt(esc[i].slice(1), 16);
+        const n = lead < 0x80 ? 1 : lead >> 5 === 0b110 ? 2 : lead >> 4 === 0b1110 ? 3 : lead >> 3 === 0b11110 ? 4 : 0;
+        let char: string | null = null;
+        if (n > 0 && i + n <= esc.length) {
           try {
-            out += decodeURIComponent(esc.slice(i, i + n).join(""));
-            break;
+            char = decodeURIComponent(esc.slice(i, i + n).join(""));
           } catch {
-            /* shorter */
+            /* not a character */
           }
         }
-        if (n === 0) {
+        if (char === null) {
           out += esc[i];
           i += 1;
-        } else i += n;
+        } else {
+          out += char;
+          i += n;
+        }
       }
       return out;
     }

@@ -44,7 +44,9 @@ hasn't three fields, or whose stage isn't a name or code is malformed, and any
 malformed line refuses the import too: a sample missing from inside a stretch
 would split it, and its next stage change would pass for falling asleep. The
 notice names the Shortcut's format as the likely cause. The newest 2000 lines
-are read.
+are read. A payload past `MAX_PAYLOAD_CHARS` or `MAX_LINES` (no Shortcut's,
+many times that) isn't read at all: refused as too long, before it is
+decoded, so a crafted link can't hold up the page.
 
 A home-screen copy of the site keeps its own storage, apart from Safari's, so
 the link can't reach it. For that, the Shortcut copies the lines instead, and
@@ -76,7 +78,8 @@ watch gave it before: a timed night stays timed): the watch can be wrong there
 too, scoring lying still or reading as sleep, and the night's own touches may
 say otherwise. The notice names it on each run that finds it (at most two mornings, the
 Shortcut reading two days), unless the watch had timed it. Only nights that began more than a minute (CONTIGUOUS_MS) after
-the window opened are matched (`timeableFrom`, which the notice's "run it again later" uses
+the window opened, and within `TIMELINE_KEEP_MS` (so a night is never re-timed
+without its timeline), are matched (`timeableFrom`, which the notice's "run it again later" uses
 too, so the notice never asks for a run that can't time a night): for
 an earlier one the window may have cut its sleep off (whether it began before
 the night's start is unknown, and a stage change after a brief wake would pass

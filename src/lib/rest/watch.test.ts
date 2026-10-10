@@ -4,6 +4,7 @@ import {
   watchOnset,
   AFTER_END_MS,
   applyWatch,
+  MAX_PAYLOAD_CHARS,
   pasteWorthKeeping,
   MAX_LINES,
   shortcutWindowOpens,
@@ -11,7 +12,7 @@ import {
   watchPayloadFromHash,
   watchNotice,
   watchAgreement,
-  isRefused,
+  refusal,
   payloadFromPaste,
   normaliseIso,
   MATCH_WINDOW_MS,
@@ -19,6 +20,7 @@ import {
   sleepStretches,
   type SleepSample,
 } from "./watch";
+import { STALE_AFTER_MS } from "./watch-hash";
 import { appendNight, loadNights, rollup } from "./ledger";
 import { retimed } from "./attribution";
 import type { RestNight } from "./types";
@@ -579,7 +581,7 @@ describe("importWatch and a killed tab's snapshot", () => {
   it("leaves it alone when the import is refused: nothing changed, as the notice says", () => {
     localStorage.setItem("sleepcast2.live", JSON.stringify({ savedAt: 1, remainingMs: 0, totalSeconds: 0, position: 0, current: { id: "e1", title: "", url: "", feedId: "f", date: "" }, playedIds: [], pool: [], skipIntroByFeedId: {}, feedTitles: {}, artworkByFeedId: {}, modeKind: "all-night" }));
     const r = importWatch("not the shortcut's text at all");
-    expect(isRefused(r)).toBe(true);
+    expect((refusal(r) !== null)).toBe(true);
     expect(localStorage.getItem("sleepcast2.live")).not.toBeNull();
     expect(loadNights()).toHaveLength(0);
   });
@@ -640,7 +642,7 @@ describe("an import with nothing to read yet", () => {
     const live = { savedAt: START + 10 * MIN, remainingMs: 0, totalSeconds: 0, position: 0, current: { id: "e1", title: "", url: "", feedId: "f", date: "" }, playedIds: [], pool: [], skipIntroByFeedId: {}, feedTitles: {}, artworkByFeedId: {}, nightStartedAt: START, modeKind: "all-night" };
     localStorage.setItem("sleepcast2.live", JSON.stringify(live));
     const r = importWatch(OPENS_LINE, START + 10 * 60 * MIN);
-    expect(isRefused(r)).toBe(false);
+    expect((refusal(r) !== null)).toBe(false);
     expect(watchNotice(r)).toMatch(/^nothing from your watch yet \(check sleep tracking is on\)\. \w+ \w+ is recorded without the watch's time: run it again later\.$/);
     expect(localStorage.getItem("sleepcast2.live")).toBeNull();
     expect(loadNights()).toHaveLength(1);
@@ -853,7 +855,7 @@ describe("data already read, or from days ago", () => {
     expect(importWatch(payload, START + 10 * 60 * MIN).timed).toHaveLength(1);
     const r = importWatch(payload, START + 11 * 60 * MIN);
     expect(r).toMatchObject({ repeat: true, timed: [] });
-    expect(isRefused(r)).toBe(true);
+    expect((refusal(r) !== null)).toBe(true);
     expect(watchNotice(r)).toMatch(/read before/);
   });
   it("lets any fresh run through, however far back it reads", () => {
@@ -913,8 +915,26 @@ describe("data already read, or from days ago", () => {
   it("refuses a payload past MAX_LINES without reading it line by line", () => {
     expect(parseWatchPayload("x\n".repeat(MAX_LINES + 5)).tooLong).toBe(true);
     const r = importWatch(`${OPENS_LINE}\n${"x\n".repeat(MAX_LINES)}`);
-    expect([r.noWindow, isRefused(r), pasteWorthKeeping(r)]).toEqual([false, true, false]);
+    expect([r.noWindow, (refusal(r) !== null), pasteWorthKeeping(r)]).toEqual([false, true, false]);
     expect(watchNotice(r)).toMatch(/far longer/);
+  });
+  it("judges staleness at STALE_AFTER_MS from the newest sample", () => {
+    appendNight(night(), Date.now());
+    const end = Date.parse("2026-10-05T23:30:00-07:00");
+    expect(importWatch(payload, end + STALE_AFTER_MS - 1).stale).toBe(false);
+    localStorage.removeItem("sleepcast2.watch-read");
+    expect(importWatch(payload, end + STALE_AFTER_MS + 1).stale).toBe(true);
+  });
+  it("passes a payload past MAX_PAYLOAD_CHARS on undecoded, to be refused as too long", () => {
+    const big = "%FF".repeat(MAX_PAYLOAD_CHARS);
+    expect(watchPayloadFromHash(`#watch=${big}`)).toBe(big);
+    expect(payloadFromPaste(big)).toBe(big);
+    expect(parseWatchPayload(big).tooLong).toBe(true);
+  });
+  it("decodes a long run of bad escapes in linear time", () => {
+    const t0 = performance.now();
+    expect(watchPayloadFromHash(`#watch=${"%FF".repeat(50_000)}%0Aa`)).toBe(`${"%FF".repeat(50_000)}\na`);
+    expect(performance.now() - t0).toBeLessThan(1000);
   });
   it("names a missing window line ahead of the data's age", () => {
     const r = importWatch("2026-10-05T23:04:00-07:00~2026-10-05T23:30:00-07:00~Core", START + 7 * 24 * 60 * MIN);
