@@ -162,6 +162,9 @@ describe("watchOnset", () => {
     expect(watchOnset(START, sleepStretches([asleepAt(MATCH_WINDOW_MS)]))).toBeNull();
     expect(watchOnset(START, sleepStretches([asleepAt(90 * MIN)]), START + 60 * MIN)).toBeNull();
   });
+  it("counts a zero-length stretch at the very start as an onset, not pending", () => {
+    expect(watchOnset(START, [{ start: START, end: START }])).toBe(0);
+  });
   it("is pending with no sleep handed over past the start yet, whatever Awake came", () => {
     expect(watchOnset(START, sleepStretches([awakeAt(5 * 60 * MIN)]))).toBe("pending");
     expect(watchOnset(START, [])).toBe("pending");
@@ -806,7 +809,7 @@ describe("no night in the window and no sleep", () => {
   it("doesn't ask for a run that can't time a night", () => {
     appendNight(night({ startedAt: START - 4 * 24 * 60 * MIN }), Date.now());
     const r = importWatch(OPENS_LINE, START + 10 * 60 * MIN);
-    expect(watchNotice(r)).toBe("nothing from your watch yet: check sleep tracking is on.");
+    expect(watchNotice(r)).toBe("nothing from your watch yet: run it after a sleepcast night (and check sleep tracking is on).");
   });
 });
 

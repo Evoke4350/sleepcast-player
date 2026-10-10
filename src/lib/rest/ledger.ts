@@ -133,7 +133,10 @@ function merge(earlier: RestNight, n: RestNight): RestNight {
 function keepWatch(n: RestNight, watched: RestNight): RestNight {
   const withTimeline = n.timeline || !watched.timeline ? n : { ...n, timeline: watched.timeline };
   const r = retimed(withTimeline, watched.sleptAtMs as number);
-  return r.inferredAtMs === null && watched.inferredAtMs != null ? { ...r, inferredAtMs: watched.inferredAtMs } : r;
+  // (Not over a later copy the listener labelled "awake": its guess, and
+  // the earlier one with it, was disowned.)
+  const disowned = n.selfLabel === "awake";
+  return r.inferredAtMs === null && watched.inferredAtMs != null && !disowned ? { ...r, inferredAtMs: watched.inferredAtMs } : r;
 }
 
 /** The nights with every night recorded more than once collapsed into one

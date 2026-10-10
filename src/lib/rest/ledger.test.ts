@@ -289,6 +289,11 @@ describe("labels and merges with a night recorded twice", () => {
     expect(setSelfLabel(11, "slept")?.interactions).toBe(3);
     expect(loadNights().every((x) => x.selfLabel === "slept")).toBe(true);
   });
+  it("withNight doesn't bring back a guess over a later copy labelled awake", () => {
+    const watched = n({ detector: "watch", sleptAtMs: 300_000, timeToSleepMs: 300_000, inferredAtMs: 600_000 });
+    const [merged] = withNight([watched], n({ selfLabel: "awake" }));
+    expect(merged).toMatchObject({ detector: "watch", sleptAtMs: 300_000, inferredAtMs: null });
+  });
   it("withNight keeps the watched copy's guess, timeline and credit when the new copy has none", () => {
     const timeline = [{ t: 0, feedId: "a", episodeId: "a1" }];
     const watched = n({ detector: "watch", sleptAtMs: 300_000, timeToSleepMs: 300_000, inferredAtMs: 600_000, timeline, onsetFeedId: "a", onsetEpisodeId: "a1", onsetAfterMs: 300_000 });

@@ -201,15 +201,17 @@ export function sleepStretches(samples: readonly SleepSample[]): { start: number
  *  may say otherwise), so the night keeps what it has. "pending" when no
  *  sleep has been handed over past the night's start yet (Awake or In Bed
  *  samples there don't count: the watch may have synced the morning's wake
- *  before the night's sleep), which a later run can still time. */
+ *  before the night's sleep), which a later run can still time.
+ *  `stretches` as sleepStretches gives them: in time order, not
+ *  overlapping (it reads the first one past the start). */
 export function watchOnset(
   startedAt: number,
   stretches: readonly { start: number; end: number }[],
   until = Infinity,
 ): number | "asleep" | "pending" | null {
-  // The first stretch to end past the start (they're in time order and
-  // don't overlap): none yet, under way at it, or the first to begin in it.
-  const first = stretches.find((s) => s.end > startedAt);
+  // The first stretch to end past the start, or begin at it (a zero-length
+  // one): none yet, under way at it, or the first to begin in it.
+  const first = stretches.find((s) => s.end > startedAt || s.start >= startedAt);
   if (!first) return "pending";
   if (first.start < startedAt) return "asleep";
   return first.start < Math.min(startedAt + MATCH_WINDOW_MS, until) ? first.start - startedAt : null;
@@ -435,19 +437,18 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
     // written or not, as nothing about it changes.
     for (const startedAt of r.asleepAtStart) untimed.push({ startedAt, why: "asleep" });
     // Pending (its sleep not handed over yet, a later run can time it): said
-    // of the newest night and the killed tab's as stored, so the listener
-    // runs it again.
+    // of the newest night, so the listener runs it again (the killed tab's,
+    // below).
     const kStart = killed?.night.startedAt;
-    const kept = saved?.find((n) => n.startedAt === kStart);
-    for (const startedAt of r.pending) {
-      if (startedAt === newest || (startedAt === kStart && kept)) untimed.push({ startedAt, why: "later" });
-    }
+    if (newest !== undefined && newest !== kStart && r.pending.includes(newest)) untimed.push({ startedAt: newest, why: "later" });
     // The killed tab's night, stored untimed and not by the watch (one merged
     // into a night the watch had timed keeps that time), is said either way,
-    // as the resume offer it had is gone: else "recorded" (its sleep came and
-    // still didn't time it, or it began at the window's edge: no run will).
-    if (kept && kept.detector !== "watch" && !untimed.some((u) => u.startedAt === kStart)) {
-      untimed.push({ startedAt: kept.startedAt, why: "recorded" });
+    // as the resume offer it had is gone, with its one reason: asleep at its
+    // start (above), pending, or else "recorded" (its sleep came and still
+    // didn't time it, or it began at the window's edge: no run will).
+    const kept = saved?.find((n) => n.startedAt === kStart);
+    if (kept && kept.detector !== "watch" && !r.asleepAtStart.includes(kept.startedAt)) {
+      untimed.push({ startedAt: kept.startedAt, why: r.pending.includes(kept.startedAt) ? "later" : "recorded" });
     }
   }
   return {
@@ -579,7 +580,7 @@ export function watchNotice(r: WatchImport): string {
     if (notes) return `${r.slept ? "no sleep from your watch inside a sleepcast night yet." : "nothing from your watch yet (check sleep tracking is on)."}${notes}`;
     return r.slept
       ? "your watch's sleep didn't start inside a sleepcast night."
-      : "nothing from your watch yet: check sleep tracking is on.";
+      : "nothing from your watch yet: run it after a sleepcast night (and check sleep tracking is on).";
   }
   const guess = last.inferredAtMs === null ? "" : `; sleepcast guessed ${fmtOnsetMinutes(last.inferredAtMs)}`;
   // Not last night's (it had no sleep the watch saw): say which night, or it
