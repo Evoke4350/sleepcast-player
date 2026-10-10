@@ -407,7 +407,8 @@ export function AppPlayer() {
     );
   }
 
-  // The watch's line and a held link's offer, on whichever screen shows.
+  // The watch's line and a held link's offer: on the home screen, and above
+  // a 3am re-anchor (not during a night, nor in the rest view).
   const watchNote =
     heldLink !== null || watchLine ? (
       <>

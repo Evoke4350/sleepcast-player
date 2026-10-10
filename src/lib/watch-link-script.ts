@@ -1,8 +1,9 @@
 // The head script that moves a #watch= fragment (an Apple Watch link's
 // sleep stages, rest/watch.ts) out of the address before analytics can read
-// the page's URL, on load and if one lands later. The island then reads it
-// from window.__sleepcastWatch (AppPlayer's takeWatchLink), told by a
-// "sleepcast-watch" event. A held link handed on across a reload
+// the page's URL, on load and if one lands later, into
+// window.__sleepcastWatch. The island reads it there: at load, takeWatchLink
+// imports it; one landing later is announced by a "sleepcast-watch" event,
+// and AppPlayer's listener holds it as the "read it" offer. A held link handed on across a reload
 // (AppPlayer's readHeldLink) arrives through session storage instead,
 // read and cleared here (only on /, the page the player island is on:
 // elsewhere it waits). On any other page (/watch, /privacy) the link is

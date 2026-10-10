@@ -87,7 +87,9 @@ export function storeNights(nights: RestNight[], now: number): RestNight[] | nul
   const pruned = pruneTimelines(nights, now);
   // Over the cap, the oldest by start go, not the first recorded: a killed
   // night recorded late sits last but may be older than what it displaces.
-  const kept = pruned.length > MAX_NIGHTS ? newestByStart(pruned, MAX_NIGHTS) : pruned;
+  // (Kept in recording order either way.)
+  const newest = pruned.length > MAX_NIGHTS ? new Set(newestByStart(pruned, MAX_NIGHTS)) : null;
+  const kept = newest ? pruned.filter((n) => newest.has(n)) : pruned;
   try {
     return writeMakingRoom(KEY, JSON.stringify(kept)) ? kept : null;
   } catch {
@@ -149,10 +151,11 @@ function pruneTimelines(nights: RestNight[], now: number): RestNight[] {
   });
 }
 
-/** Labels a night, and returns it; null when there is none, or when it is
- *  watch-timed (measured, so there is nothing to confirm: a screen still
- *  showing the offer from before an import, in another tab, mustn't label
- *  it, nor tighten the detector for a call it didn't make). */
+/** Labels a night, and returns it as stored; null when there is none, when
+ *  it is watch-timed (measured, so there is nothing to confirm: a screen
+ *  still showing the offer from before an import, in another tab, mustn't
+ *  label it, nor tighten the detector for a call it didn't make), or when
+ *  the save failed. `now` prunes timelines, as for every write. */
 export function setSelfLabel(startedAt: number, label: "slept" | "awake", now = Date.now()): RestNight | null {
   const nights = loadNights();
   // (loadNights reads any copies of a night as one.)
@@ -161,7 +164,8 @@ export function setSelfLabel(startedAt: number, label: "slept" | "awake", now = 
   nights[i] = { ...nights[i], selfLabel: label };
   // A label that didn't store (storage full) didn't take: callers count and
   // act on it only when it did.
-  return storeNights(nights, now) ? nights[i] : null;
+  const stored = storeNights(nights, now);
+  return stored?.find((n) => n.startedAt === startedAt) ?? null;
 }
 
 /** Whether to ask if the listener really slept on a night: it claims an
