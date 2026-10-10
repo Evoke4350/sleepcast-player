@@ -27,18 +27,24 @@ export function lastOf(nights: readonly RestNight[]): RestNight | null {
 
 /** Whether a stored entry has the shape the readers rely on: a start, the
  *  onset fields (a number or null), a touch count, and its lists (timeline,
- *  sleptThrough, skipped) as lists when there. */
+ *  entry by entry, sleptThrough, skipped) as lists when there. */
 function isNight(x: unknown): x is RestNight {
   if (!x || typeof x !== "object") return false;
   const n = x as Record<string, unknown>;
   const numOrNull = (v: unknown) => v === null || typeof v === "number";
   const arrayOrAbsent = (v: unknown) => v === undefined || Array.isArray(v);
+  // Each timeline entry as attribution reads it (a corrupt one would throw
+  // there, in loadNights' own merge or a watch import on load).
+  const entry = (e: unknown) => {
+    const x = e as Record<string, unknown> | null;
+    return !!x && typeof x === "object" && typeof x.t === "number" && typeof x.feedId === "string" && typeof x.episodeId === "string";
+  };
   return (
     typeof n.startedAt === "number" &&
     numOrNull(n.sleptAtMs) &&
     numOrNull(n.timeToSleepMs) &&
     typeof n.interactions === "number" &&
-    arrayOrAbsent(n.timeline) &&
+    (n.timeline === undefined || (Array.isArray(n.timeline) && n.timeline.every(entry))) &&
     arrayOrAbsent(n.sleptThrough) &&
     arrayOrAbsent(n.skipped)
   );
@@ -60,10 +66,11 @@ export function loadNights(): RestNight[] {
   return collapsed(arr.filter(isNight));
 }
 
-/** How long a night keeps its timeline: long enough for a watch import a
- *  few mornings late to still attribute it, short enough that 90 nights of
- *  episode ids don't crowd local storage. */
-export const TIMELINE_KEEP_MS = 3 * 24 * 60 * 60 * 1000;
+/** How long a night keeps its timeline: as long as a watch import can
+ *  still reach it (the Shortcut reads two days, which a DST change makes
+ *  49 h; an hour's margin), and no longer, so 90 nights of episode ids
+ *  don't crowd local storage. */
+export const TIMELINE_KEEP_MS = 50 * 60 * 60 * 1000;
 
 /** Records a night; whether the save took. A night older than every one
  *  the cap keeps is, like any night past the cap, not kept: recorded all the

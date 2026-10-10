@@ -786,6 +786,17 @@ describe("a killed night to run again for, when the watch's sleep has synced", (
   });
 });
 
+describe("the newest night, before the watch has handed it over", () => {
+  beforeEach(() => localStorage.clear());
+  it("says to run it again later, beside an older night already timed", () => {
+    appendNight(night({ detector: "watch", sleptAtMs: 10 * MIN, timeToSleepMs: 10 * MIN, inferredAtMs: null }), Date.now());
+    appendNight(night({ startedAt: START + 24 * 60 * MIN }), Date.now());
+    const r = importWatch(`${OPENS_LINE}\n2026-10-05T23:10:00-07:00~2026-10-05T23:40:00-07:00~Core`, START + 34 * 60 * MIN);
+    expect(r.untimed).toEqual([{ startedAt: START + 24 * 60 * MIN, why: "later" }]);
+    expect(watchNotice(r)).toMatch(/^nothing new from your watch since it last ran\. \w+ \w+ is recorded without the watch's time: run it again later\.$/);
+  });
+});
+
 describe("a night asleep at its start, read again the next morning", () => {
   beforeEach(() => localStorage.clear());
   it("is said on each run that finds it, newest night or not", () => {
@@ -793,7 +804,11 @@ describe("a night asleep at its start, read again the next morning", () => {
     const payload = `${OPENS_LINE}\n2026-10-05T22:50:00-07:00~2026-10-06T02:00:00-07:00~Core`;
     expect(importWatch(payload, START + 10 * 60 * MIN).untimed).toEqual([{ startedAt: START, why: "asleep" }]);
     appendNight(night({ startedAt: START + 24 * 60 * MIN }), Date.now());
-    expect(importWatch(payload, START + 34 * 60 * MIN).untimed).toEqual([{ startedAt: START, why: "asleep" }]);
+    // (The newer night, its sleep not handed over yet, is said too.)
+    expect(importWatch(payload, START + 34 * 60 * MIN).untimed).toEqual([
+      { startedAt: START, why: "asleep" },
+      { startedAt: START + 24 * 60 * MIN, why: "later" },
+    ]);
   });
 });
 

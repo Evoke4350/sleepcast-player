@@ -93,7 +93,7 @@ Attribution (onset feed and episode, `onsetAfterMs`, `sleptThrough`) is redone
 from the night's `timeline` with the same function `RestSession.finish` uses
 (`attribution`, rest/attribution.ts). To make that possible, nights now record:
 
-- `timeline`: the night's episode starts, kept `TIMELINE_KEEP_MS` (3 days: the Shortcut reads two) and
+- `timeline`: the night's episode starts, kept `TIMELINE_KEEP_MS` (50 h: the Shortcut reads two days, 49 h across a DST change) and
   pruned on every ledger write (`storeNights`), so 90 nights of episode ids don't crowd
   storage;
 - `endedAt`: an onset after the night ended credits no show (the audio had

@@ -127,7 +127,11 @@ function isFresh(l: LiveSession, now: number): boolean {
  *  playing one night at once is out of scope (spec §6). */
 export function resumeTarget(card: LiveSession, now: number): { revive: LiveSession } | { card: LiveSession | null } {
   const stored = loadLive();
-  if (!stored) return { card: settleStoredLive(now) };
+  // None to revive: one that can't be read is cleared, as settleStoredLive does.
+  if (!stored) {
+    clearLive();
+    return { card: null };
+  }
   // The same night: the same snapshot, or one with the card's start (every
   // writer records it, once the night plays).
   const sameNight = (l: LiveSession) =>

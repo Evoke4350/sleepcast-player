@@ -301,8 +301,8 @@ export interface WatchImport {
    *  the watch saw): the notice names it. */
   latestIsOlder?: boolean;
   /** Nights stored without a watch time the notice names, one reason each,
-   *  oldest first: "later", a killed tab's night recorded whose sleep hadn't
-   *  synced yet (a later run can time it); "recorded", a killed tab's night
+   *  oldest first: "later", the newest night or a killed tab's recorded,
+   *  whose sleep hadn't synced yet (a later run can time it); "recorded", a killed tab's night
    *  no later run can time (its sleep synced past its start, or it began at
    *  the window's edge), said as its resume offer is gone; "asleep", a
    *  night the watch had the listener asleep at the start of, which keeps
@@ -404,6 +404,20 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
     const nights = killed ? withNight(loadNights(), killed.night) : loadNights();
     const newest = lastOf(nights)?.startedAt;
     const r = applyWatch(nights, samples, windowStart);
+    // A night whose sleep the watch hasn't handed over yet (no sleep sample
+    // ends past its start), that a later run can still time: said, so the
+    // listener runs it again. The newest, or the killed tab's (below).
+    const pending = (s: number) => !samples.some((x) => x.asleep && x.end > s) && s >= timeableFrom(windowStart);
+    const latestNight = lastOf(nights);
+    if (
+      latestNight &&
+      latestNight.detector !== "watch" &&
+      latestNight.startedAt !== killed?.night.startedAt &&
+      !r.timed.some((t) => t.startedAt === latestNight.startedAt) &&
+      pending(latestNight.startedAt)
+    ) {
+      untimed.push({ startedAt: latestNight.startedAt, why: "later" });
+    }
     const worthWriting = r.timed.length > 0 || killed !== null;
     // Said whether or not anything is written (nothing about them changes),
     // on every run that finds it: at most two mornings, the Shortcut reading
@@ -431,11 +445,9 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
         // yet: if it has and still didn't time it, a later run won't either.
         // (One asleep at its start is said as that, above.)
         if (k && k.detector !== "watch" && !untimed.some((u) => u.startedAt === k.startedAt)) {
-          const synced = samples.some((s) => s.asleep && s.end > k.startedAt);
           // Recorded without a time that a later run could give it: said
           // too, as the resume offer it had is gone.
-          const later = !synced && k.startedAt >= timeableFrom(windowStart);
-          untimed.push({ startedAt: k.startedAt, why: later ? "later" : "recorded" });
+          untimed.push({ startedAt: k.startedAt, why: pending(k.startedAt) ? "later" : "recorded" });
         }
       } else unsaved = true;
     }
