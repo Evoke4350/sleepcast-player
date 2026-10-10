@@ -976,6 +976,18 @@ describe("data already read, or from days ago", () => {
       for (const link of [encoded, plain]) expect(parseWatchPayload(payloadFromPaste(`${before}\n${link}`)).samples).toHaveLength(1);
     }
   });
+  it("reads a fresh link encoded whole after an old plain one, and tries no more than eight", () => {
+    const s = "2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core";
+    const fresh = encodeURIComponent("https://sleepcast.pro/#watch=" + encodeURIComponent(`window~2026-10-04T09:00:00+01:00\n${s}`));
+    expect(parseWatchPayload(payloadFromPaste(`https://sleepcast.pro/#watch=${encodeURIComponent(s)}\n${fresh}`)).samples).toHaveLength(1);
+    expect(parseWatchPayload(payloadFromPaste(`${"re: #watch= x\n".repeat(8)}${fresh}`)).samples).toHaveLength(0);
+    expect(parseWatchPayload(payloadFromPaste(`${"re: #watch= x\n".repeat(7)}${fresh}`)).samples).toHaveLength(1);
+  });
+  it("reads the encoded link after a plain #watch= in the same token", () => {
+    const s = "2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core";
+    const inner = encodeURIComponent("https://sleepcast.pro/#watch=" + encodeURIComponent(`window~2026-10-04T09:00:00+01:00\n${s}`));
+    expect(parseWatchPayload(payloadFromPaste(`https://sleepcast.pro/#watch=${inner}`)).samples).toHaveLength(1);
+  });
   it("reads a link encoded whole whose payload opens with a blank line", () => {
     const payload = "\nwindow~2026-10-04T09:00:00+01:00\n2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core";
     const encoded = encodeURIComponent("https://sleepcast.pro/#watch=" + encodeURIComponent(payload));
@@ -988,7 +1000,7 @@ describe("data already read, or from days ago", () => {
     expect(parseWatchPayload(`${lines}x`).tooLong).toBe(true);
   });
   it("reads a paste of many encoded-looking tokens in one pass, not one call each", () => {
-    expect(() => payloadFromPaste("%23Watch%3D ".repeat(80_000))).not.toThrow();
+    expect(() => payloadFromPaste("%23watch%3D ".repeat(80_000))).not.toThrow();
   });
   it("finds a percent-encoded link's start across any whitespace, as its end", () => {
     const link = "https://sleepcast.pro/#watch=" + encodeURIComponent("window~2026-10-04T09:00:00+01:00\n2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core");
