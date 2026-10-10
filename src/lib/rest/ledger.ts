@@ -36,8 +36,8 @@ function isNight(x: unknown): x is RestNight {
   // Each timeline entry as attribution reads it (a corrupt one would throw
   // there, in loadNights' own merge or a watch import on load).
   const entry = (e: unknown) => {
-    const x = e as Record<string, unknown> | null;
-    return !!x && typeof x === "object" && typeof x.t === "number" && typeof x.feedId === "string" && typeof x.episodeId === "string";
+    const r = e as Record<string, unknown> | null;
+    return !!r && typeof r === "object" && typeof r.t === "number" && typeof r.feedId === "string" && typeof r.episodeId === "string";
   };
   return (
     typeof n.startedAt === "number" &&

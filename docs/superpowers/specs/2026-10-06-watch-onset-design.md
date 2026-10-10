@@ -150,8 +150,9 @@ onset isn't counted, so the detector keeps learning as the watch takes over.
   "ended", not "faded", so no 3am re-anchor offers to continue it. The line also says when lines
   couldn't be read, when nothing was new, and when the re-timed nights
   couldn't be stored. Each night stored without the watch's time is named
-  with its one reason (a killed tab's night to run again for, or that no run
-  can time; a night the watch had the listener asleep at the start of),
+  with its one reason (the newest night, or a killed tab's, whose sleep the
+  watch hasn't handed over yet: run it again later; a killed tab's night no
+  run can time; a night the watch had the listener asleep at the start of),
   whatever else the line says.
 - A link landing in a tab already open (only the fragment changes) is held
   and offered on the home screen ("your watch's night came in: read it"),

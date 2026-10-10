@@ -236,7 +236,9 @@ export function timeableFrom(windowStart: number): number {
  *  timed the same again (the Shortcut reads two days, so each morning
  *  re-reads the night before), or not timed by this run at all (a timed
  *  night stays timed). `asleepAtStart` lists the others the watch had the
- *  listener asleep at the start of, which keep what they have.
+ *  listener asleep at the start of, which keep what they have; `pending`
+ *  the others no sleep was handed over past the start of yet, which a later
+ *  run can still time.
  *  Only nights from timeableFrom(windowStart): for an earlier one the
  *  window may have cut its sleep off (whether it began before the night's
  *  start is unknown, and a stage change after a brief wake would pass for
@@ -247,7 +249,7 @@ export function applyWatch(
   nights: readonly RestNight[],
   samples: readonly SleepSample[],
   windowStart: number,
-): { nights: RestNight[]; timed: WatchTiming[]; unchanged: number; asleepAtStart: number[] } {
+): { nights: RestNight[]; timed: WatchTiming[]; unchanged: number; asleepAtStart: number[]; pending: number[] } {
   const stretches = sleepStretches(samples);
   const from = timeableFrom(windowStart);
   const starts = nights.map((n) => n.startedAt).sort((a, b) => a - b); // unique (loadNights)
@@ -255,6 +257,7 @@ export function applyWatch(
   const timed: WatchTiming[] = [];
   let unchanged = 0;
   const atStart: number[] = [];
+  const pending: number[] = [];
   const out = nights.map((n) => {
     if (n.startedAt < from) return n;
     // Before the next night's start, and not long after this one ended.
@@ -269,6 +272,8 @@ export function applyWatch(
     if (typeof at !== "number" || (n.detector === "watch" && n.sleptAtMs === at)) {
       if (n.detector === "watch") unchanged++;
       else if (at === "asleep") atStart.push(n.startedAt);
+      // No sleep handed over past its start yet: a later run can time it.
+      else if (!stretches.some((s) => s.end > n.startedAt)) pending.push(n.startedAt);
       return n;
     }
     const r = retimed(n, at);
@@ -280,6 +285,7 @@ export function applyWatch(
     timed: timed.sort((a, b) => a.startedAt - b.startedAt),
     unchanged,
     asleepAtStart: atStart,
+    pending,
   };
 }
 
@@ -404,19 +410,11 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
     const nights = killed ? withNight(loadNights(), killed.night) : loadNights();
     const newest = lastOf(nights)?.startedAt;
     const r = applyWatch(nights, samples, windowStart);
-    // A night whose sleep the watch hasn't handed over yet (no sleep sample
-    // ends past its start), that a later run can still time: said, so the
-    // listener runs it again. The newest, or the killed tab's (below).
-    const pending = (s: number) => !samples.some((x) => x.asleep && x.end > s) && s >= timeableFrom(windowStart);
-    const latestNight = lastOf(nights);
-    if (
-      latestNight &&
-      latestNight.detector !== "watch" &&
-      latestNight.startedAt !== killed?.night.startedAt &&
-      !r.timed.some((t) => t.startedAt === latestNight.startedAt) &&
-      pending(latestNight.startedAt)
-    ) {
-      untimed.push({ startedAt: latestNight.startedAt, why: "later" });
+    // A night whose sleep the watch hasn't handed over yet, that a later run
+    // can still time (pending): said, so the listener runs it again. The
+    // newest, or the killed tab's (below).
+    if (newest !== undefined && newest !== killed?.night.startedAt && r.pending.includes(newest)) {
+      untimed.push({ startedAt: newest, why: "later" });
     }
     const worthWriting = r.timed.length > 0 || killed !== null;
     // Said whether or not anything is written (nothing about them changes),
@@ -447,7 +445,7 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
         if (k && k.detector !== "watch" && !untimed.some((u) => u.startedAt === k.startedAt)) {
           // Recorded without a time that a later run could give it: said
           // too, as the resume offer it had is gone.
-          untimed.push({ startedAt: k.startedAt, why: pending(k.startedAt) ? "later" : "recorded" });
+          untimed.push({ startedAt: k.startedAt, why: r.pending.includes(k.startedAt) ? "later" : "recorded" });
         }
       } else unsaved = true;
     }
