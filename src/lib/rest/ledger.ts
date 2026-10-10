@@ -60,20 +60,6 @@ export function loadNights(): RestNight[] {
   return collapsed(arr.filter(isNight));
 }
 
-/** Stores the nights, the newest MAX_NIGHTS of them, and returns what it
- *  stored; null when it couldn't (quota, private mode: a lost stat is not
- *  worth throwing over, but a caller reporting a change needs to know). */
-function saveNights(nights: RestNight[]): RestNight[] | null {
-  // Over the cap, the oldest by start go, not the first recorded: a killed
-  // night recorded late sits last but may be older than what it displaces.
-  const kept = nights.length > MAX_NIGHTS ? newestByStart(nights, MAX_NIGHTS) : nights;
-  try {
-    return writeMakingRoom(KEY, JSON.stringify(kept)) ? kept : null;
-  } catch {
-    return null;
-  }
-}
-
 /** How long a night keeps its timeline: long enough for a watch import a
  *  few mornings late to still attribute it, short enough that 90 nights of
  *  episode ids don't crowd local storage. */
@@ -93,10 +79,20 @@ export function appendNight(n: RestNight, now = Date.now()): boolean {
   return storeNights(withNight(loadNights(), n), now) !== null;
 }
 
-/** Stores a night set the way every night write does: timelines pruned
- *  against `now`, then saved (capped). The stored nights, or null. */
+/** Stores a night set, the one way every ledger write does: timelines
+ *  pruned against `now`, then the newest MAX_NIGHTS saved. Returns what it
+ *  stored; null when it couldn't (quota, private mode: a lost stat is not
+ *  worth throwing over, but a caller reporting a change needs to know). */
 export function storeNights(nights: RestNight[], now: number): RestNight[] | null {
-  return saveNights(pruneTimelines(nights, now));
+  const pruned = pruneTimelines(nights, now);
+  // Over the cap, the oldest by start go, not the first recorded: a killed
+  // night recorded late sits last but may be older than what it displaces.
+  const kept = pruned.length > MAX_NIGHTS ? newestByStart(pruned, MAX_NIGHTS) : pruned;
+  try {
+    return writeMakingRoom(KEY, JSON.stringify(kept)) ? kept : null;
+  } catch {
+    return null;
+  }
 }
 
 /** `nights` with `n` added, or merged into the night with its start (see
@@ -145,7 +141,7 @@ function collapsed(nights: readonly RestNight[]): RestNight[] {
 
 /** Drops the timeline of any night that began more than TIMELINE_KEEP_MS
  *  before `now`. */
-export function pruneTimelines(nights: RestNight[], now: number): RestNight[] {
+function pruneTimelines(nights: RestNight[], now: number): RestNight[] {
   return nights.map((n) => {
     if (!n.timeline || now - n.startedAt <= TIMELINE_KEEP_MS) return n;
     const { timeline: _drop, ...rest } = n;
@@ -157,7 +153,7 @@ export function pruneTimelines(nights: RestNight[], now: number): RestNight[] {
  *  watch-timed (measured, so there is nothing to confirm: a screen still
  *  showing the offer from before an import, in another tab, mustn't label
  *  it, nor tighten the detector for a call it didn't make). */
-export function setSelfLabel(startedAt: number, label: "slept" | "awake"): RestNight | null {
+export function setSelfLabel(startedAt: number, label: "slept" | "awake", now = Date.now()): RestNight | null {
   const nights = loadNights();
   // (loadNights reads any copies of a night as one.)
   const i = nights.findIndex((n) => n.startedAt === startedAt);
@@ -165,7 +161,7 @@ export function setSelfLabel(startedAt: number, label: "slept" | "awake"): RestN
   nights[i] = { ...nights[i], selfLabel: label };
   // A label that didn't store (storage full) didn't take: callers count and
   // act on it only when it did.
-  return storeNights(nights, Date.now()) ? nights[i] : null;
+  return storeNights(nights, now) ? nights[i] : null;
 }
 
 /** Whether to ask if the listener really slept on a night: it claims an

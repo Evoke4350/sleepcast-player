@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { loadNights, appendNight, rollup, setSelfLabel, leanComparison, pruneTimelines, offerForLabel, lastOf, newestByStart, withNight, MIN_PLAUSIBLE_ONSET_MS, PRE_FIX_BEFORE_MS, TIMELINE_KEEP_MS } from "./ledger";
+import { loadNights, appendNight, rollup, setSelfLabel, leanComparison, storeNights, offerForLabel, lastOf, newestByStart, withNight, MIN_PLAUSIBLE_ONSET_MS, PRE_FIX_BEFORE_MS, TIMELINE_KEEP_MS } from "./ledger";
 import { DEFAULT_PARAMS, LAMBDA_MAX, quietTicksToDecide, TICK_MS } from "./detector";
 import type { RestNight } from "./types";
 import { onsetAfterEnd } from "./attribution";
@@ -182,7 +182,7 @@ describe("timelines", () => {
 
   it("are kept for TIMELINE_KEEP_MS, then dropped", () => {
     const now = 100 * TIMELINE_KEEP_MS;
-    const [old, recent] = pruneTimelines([at(now - TIMELINE_KEEP_MS - 1), at(now - TIMELINE_KEEP_MS)], now);
+    const [old, recent] = storeNights([at(now - TIMELINE_KEEP_MS - 1), at(now - TIMELINE_KEEP_MS)], now)!;
     expect(old).not.toHaveProperty("timeline");
     expect(recent.timeline).toEqual(timeline);
   });
@@ -252,7 +252,7 @@ describe("lastOf", () => {
   });
 });
 
-describe("saveNights over the cap", () => {
+describe("the ledger over the cap (storeNights)", () => {
   beforeEach(() => localStorage.clear());
   it("drops the earliest-started, not the first recorded", () => {
     const n = (startedAt: number): RestNight => ({ startedAt, timerMinutes: 60, endedVia: "faded", sleptAtMs: null, timeToSleepMs: null, interactions: 0, detector: "none" });

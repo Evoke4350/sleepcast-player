@@ -78,7 +78,7 @@ from the night's `timeline` with the same function `RestSession.finish` uses
 (`attribution`, rest/attribution.ts). To make that possible, nights now record:
 
 - `timeline`: the night's episode starts, kept `TIMELINE_KEEP_MS` (7 days) and
-  pruned as nights are appended, so 90 nights of episode ids don't crowd
+  pruned on every ledger write (`storeNights`), so 90 nights of episode ids don't crowd
   storage;
 - `endedAt`: an onset after the night ended credits no show (the audio had
   stopped). A night reconciled from a killed tab ends when it was last seen
