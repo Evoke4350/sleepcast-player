@@ -3,8 +3,9 @@
 // the page's URL, on load and if one lands later, into
 // window.__sleepcastWatch. The island reads it there: at load, takeWatchLink
 // imports it; one landing later is announced by a "sleepcast-watch" event,
-// and AppPlayer's listener holds it as the "read it" offer. A held link handed on across a reload
-// (AppPlayer's readHeldLink) arrives through session storage instead,
+// and AppPlayer's listener holds it as the "read it" offer. A held link
+// handed on across a reload (AppPlayer's readHeldLink) arrives through
+// session storage instead,
 // read and cleared here (only on /, the page the player island is on:
 // elsewhere it waits). On any other page (/watch, /privacy) the link is
 // sent on to / (out of this page's address first), where it is read. A

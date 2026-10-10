@@ -711,3 +711,14 @@ describe("recordedUntimed when the watch's sleep has synced", () => {
     expect(r.recordedUntimed).toBeUndefined();
   });
 });
+
+describe("a killed night recorded without a time a later run could give", () => {
+  beforeEach(() => localStorage.clear());
+  it("is still said to be recorded", () => {
+    const live = { savedAt: START + 10 * MIN, remainingMs: 0, totalSeconds: 0, position: 0, current: { id: "e1", title: "", url: "", feedId: "f", date: "" }, playedIds: [], pool: [], skipIntroByFeedId: {}, feedTitles: {}, artworkByFeedId: {}, nightStartedAt: START, modeKind: "all-night" };
+    localStorage.setItem("sleepcast2.live", JSON.stringify(live));
+    const r = importWatch(`${OPENS_LINE}\n2026-10-05T22:50:00-07:00~2026-10-06T02:00:00-07:00~Core`, START + 10 * 60 * MIN);
+    expect(r.recordedClosed).toBe(START);
+    expect(watchNotice(r)).toMatch(/is recorded without the watch's time\.$/);
+  });
+});

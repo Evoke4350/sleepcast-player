@@ -337,3 +337,24 @@ describe("loadNights and an entry with a list that isn't one", () => {
     expect(loadNights().map((x) => x.startedAt)).toEqual([50]);
   });
 });
+
+describe("the cap and setSelfLabel, as stored", () => {
+  beforeEach(() => localStorage.clear());
+  const n = (startedAt: number, over: Partial<RestNight> = {}): RestNight => ({ startedAt, timerMinutes: 60, endedVia: "faded", sleptAtMs: 600_000, timeToSleepMs: 600_000, interactions: 0, detector: "inference", ...over });
+  it("keeps recording order over the cap", () => {
+    const nights = [n(5), ...Array.from({ length: 89 }, (_, i) => n(100 + i)), n(6)];
+    const stored = storeNights(nights, 0)!;
+    expect(stored).toHaveLength(90);
+    // n(5) dropped (the earliest start); n(6) stays last, where it was
+    // recorded, not first, where sorting by start would put it.
+    expect(stored[0].startedAt).toBe(100);
+    expect(stored.at(-1)?.startedAt).toBe(6);
+  });
+  it("setSelfLabel returns the night as stored (its expired timeline pruned)", () => {
+    const old = n(0, { timeline: [{ t: 0, feedId: "a", episodeId: "a1" }] });
+    localStorage.setItem("sleepcast2.rest", JSON.stringify([old]));
+    const labelled = setSelfLabel(0, "slept", TIMELINE_KEEP_MS + 1);
+    expect(labelled).not.toHaveProperty("timeline");
+    expect(labelled?.selfLabel).toBe("slept");
+  });
+});

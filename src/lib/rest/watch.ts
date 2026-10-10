@@ -264,6 +264,10 @@ export interface WatchImport {
    *  and is stored without a watch time (its sleep hadn't synced yet): the
    *  notice says to run it again later, which can time it. */
   recordedUntimed?: number;
+  /** The start of a killed tab's night that was recorded without a watch
+   *  time no later run can give it (its sleep synced past its start, or it
+   *  began at the window's edge): the notice says it was recorded. */
+  recordedClosed?: number;
   /** How many of the samples were sleep: none yet means the watch hadn't
    *  handed the night over, whatever In Bed or Awake samples came. */
   slept: number;
@@ -315,6 +319,7 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
   let unsaved = false;
   let latestIsOlder = false;
   let recordedUntimed: number | undefined;
+  let recordedClosed: number | undefined;
   let saved: RestNight[] | undefined;
   // A window line and nothing refused: the import goes ahead, even with no
   // samples (the watch hadn't synced yet), as the night it closes is over.
@@ -350,6 +355,9 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
         // yet: if it has and still didn't time it, a later run won't either.
         const synced = k && samples.some((s) => s.asleep && s.end > k.startedAt);
         if (k && !synced && k.detector !== "watch" && k.startedAt >= timeableFrom(windowStart)) recordedUntimed = k.startedAt;
+        // Recorded without a time that a later run could give it: said too,
+        // as the resume offer it had is gone.
+        else if (k && k.detector !== "watch") recordedClosed = k.startedAt;
       } else unsaved = true;
     }
   }
@@ -362,6 +370,7 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
     badWindow,
     ...(latestIsOlder ? { latestIsOlder } : {}),
     ...(recordedUntimed !== undefined ? { recordedUntimed } : {}),
+    ...(recordedClosed !== undefined ? { recordedClosed } : {}),
     slept: samples.filter((s) => s.asleep).length,
     unrecognised,
     malformed,
@@ -446,7 +455,11 @@ export function watchNotice(r: WatchImport): string {
   // hadn't handed it to the phone yet): said whatever else the line says.
   // Named, as an older timed night is: it may not be last night.
   const again =
-    r.recordedUntimed !== undefined ? ` ${nightName(r.recordedUntimed)} is recorded without the watch's time: run it again later.` : "";
+    r.recordedUntimed !== undefined
+      ? ` ${nightName(r.recordedUntimed)} is recorded without the watch's time: run it again later.`
+      : r.recordedClosed !== undefined
+        ? ` ${nightName(r.recordedClosed)} is recorded without the watch's time.`
+        : "";
   if (!r.timed.length && !r.unchanged) {
     if (again) return `${r.slept ? "no sleep from your watch inside a sleepcast night yet." : "nothing from your watch yet."}${again}`;
     return r.slept
