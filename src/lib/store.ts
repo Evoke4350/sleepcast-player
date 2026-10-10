@@ -382,6 +382,7 @@ function isLiveSession(x: unknown): x is LiveSession {
   const s = x as Record<string, unknown>;
   const num = (v: unknown) => typeof v === "number" && Number.isFinite(v);
   const optNum = (v: unknown) => v === undefined || num(v);
+  const optBool = (v: unknown) => v === undefined || typeof v === "boolean";
   const obj = (v: unknown) => !!v && typeof v === "object" && !Array.isArray(v);
   return (
     num(s.savedAt) &&
@@ -397,19 +398,16 @@ function isLiveSession(x: unknown): x is LiveSession {
     obj(s.artworkByFeedId) &&
     optNum(s.nightStartedAt) &&
     optNum(s.timerMinutes) &&
+    (s.pool as unknown[]).every((e) => !!e && typeof e === "object" && typeof (e as Record<string, unknown>).id === "string") &&
+    (s.playedIds as unknown[]).every((id) => typeof id === "string") &&
+    optNum(s.interactions) &&
+    optNum(s.touches) &&
+    optNum(s.extensions) &&
+    optBool(s.ruleSpent) &&
+    optBool(s.wasVaried) &&
+    (s.shuffleLean === undefined || obj(s.shuffleLean)) &&
     (s.modeKind === undefined || typeof s.modeKind === "string")
   );
-}
-
-/** Clears a stored snapshot that can't be read (unparseable, or the wrong
- *  shape), which would otherwise sit in storage for good: once, as the
- *  player mounts, so loadLive itself only reads. */
-export function clearUnreadableLive(): void {
-  try {
-    if (localStorage.getItem(KEY_LIVE) !== null && loadLive() === null) localStorage.removeItem(KEY_LIVE);
-  } catch {
-    /* nothing to do */
-  }
 }
 
 export function loadLive(): LiveSession | null {

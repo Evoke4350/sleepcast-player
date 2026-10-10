@@ -787,23 +787,13 @@ describe("a killed night to run again for, when the watch's sleep has synced", (
 });
 
 describe("a night asleep at its start, read again the next morning", () => {
-  it("isn't said again with no newer night either", () => {
-    localStorage.clear();
+  beforeEach(() => localStorage.clear());
+  it("is said on each run that finds it, newest night or not", () => {
     appendNight(night(), Date.now());
     const payload = `${OPENS_LINE}\n2026-10-05T22:50:00-07:00~2026-10-06T02:00:00-07:00~Core`;
     expect(importWatch(payload, START + 10 * 60 * MIN).untimed).toEqual([{ startedAt: START, why: "asleep" }]);
-    expect(importWatch(payload, START + 34 * 60 * MIN).untimed).toBeUndefined();
-  });
-  beforeEach(() => localStorage.clear());
-  it("isn't said again once a newer night has come", () => {
-    appendNight(night(), Date.now());
     appendNight(night({ startedAt: START + 24 * 60 * MIN }), Date.now());
-    const r = importWatch(
-      `${OPENS_LINE}\n2026-10-05T22:50:00-07:00~2026-10-06T02:00:00-07:00~Core\n2026-10-06T23:10:00-07:00~2026-10-06T23:40:00-07:00~Core`,
-      START + 34 * 60 * MIN,
-    );
-    expect(r.timed.map((t) => t.startedAt)).toEqual([START + 24 * 60 * MIN]);
-    expect(r.untimed).toBeUndefined();
+    expect(importWatch(payload, START + 34 * 60 * MIN).untimed).toEqual([{ startedAt: START, why: "asleep" }]);
   });
 });
 

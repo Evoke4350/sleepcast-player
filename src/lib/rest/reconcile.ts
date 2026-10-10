@@ -80,6 +80,15 @@ export function killedNight(
 /** On page load: return the snapshot if it should be offered for revival;
  *  otherwise reconcile it (unless it may still be live in another tab) and
  *  return null. */
+/** settleLive for the snapshot in storage, as the player loads or a night
+ *  ends: one that can't be read (unparseable, or not the shape the player
+ *  writes) is cleared, or it would sit in storage for good. */
+export function settleStoredLive(now: number): LiveSession | null {
+  const l = loadLive();
+  if (!l) clearLive();
+  return settleLive(l, now);
+}
+
 export function settleLive(l: LiveSession | null, now: number): LiveSession | null {
   if (!l) return null;
   if (isRevivable(l, now)) return l;

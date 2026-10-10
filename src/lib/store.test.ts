@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import { settleStoredLive } from "./rest/reconcile";
 import {
   BUILTIN_FEEDS,
-  clearUnreadableLive,
   loadState,
   saveState,
   addCustomFeed,
@@ -799,7 +799,7 @@ describe("loadLive and a snapshot missing its lists", () => {
     localStorage.setItem("sleepcast2.live", JSON.stringify({ current: { id: "e" }, remainingMs: 0, savedAt: 0 }));
     expect(loadLive()).toBeNull();
     expect(localStorage.getItem("sleepcast2.live")).not.toBeNull();
-    clearUnreadableLive();
+    settleStoredLive(Date.now());
     expect(localStorage.getItem("sleepcast2.live")).toBeNull();
   });
   it("reads none without a start it can do sums with, and clears one that won't parse", () => {
@@ -813,8 +813,12 @@ describe("loadLive and a snapshot missing its lists", () => {
     expect(loadLive()).toBeNull();
     localStorage.setItem("sleepcast2.live", JSON.stringify({ ...ok, timerMinutes: "45" }));
     expect(loadLive()).toBeNull();
+    localStorage.setItem("sleepcast2.live", JSON.stringify({ ...ok, interactions: "3" }));
+    expect(loadLive()).toBeNull();
+    localStorage.setItem("sleepcast2.live", JSON.stringify({ ...ok, pool: [null] }));
+    expect(loadLive()).toBeNull();
     localStorage.setItem("sleepcast2.live", "{not json");
-    clearUnreadableLive();
+    settleStoredLive(Date.now());
     expect(localStorage.getItem("sleepcast2.live")).toBeNull();
   });
 });

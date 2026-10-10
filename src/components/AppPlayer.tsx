@@ -1,7 +1,7 @@
 import { useState, useEffect, type ReactNode } from "react";
 import type { Episode } from "../lib/engine";
 import { formatTime } from "../lib/engine";
-import { loadLive, clearLive, clearLastNight, loadLastNight, type LiveSession, type LastNight, type ResumeDescriptor, resumeFrom, nightTimerMinutes, loadState, isRevivable, resumeMode, loadBlocked, clearUnreadableLive } from "../lib/store";
+import { loadLive, clearLive, clearLastNight, loadLastNight, type LiveSession, type LastNight, type ResumeDescriptor, resumeFrom, nightTimerMinutes, loadState, isRevivable, resumeMode, loadBlocked } from "../lib/store";
 import type { PlayMode } from "../lib/engine";
 import type { NoiseSettings } from "../lib/store";
 import { reanchorNext } from "../lib/rest/reanchor";
@@ -15,7 +15,7 @@ import { Night } from "./Night";
 import { isYouTubeLineup, isMixedLineup } from "../lib/youtube-night";
 import { RestView } from "./RestView";
 import { WatchLine } from "./WatchLine";
-import { reconcileLive, resumeTarget, settleLive } from "../lib/rest/reconcile";
+import { reconcileLive, resumeTarget, settleLive, settleStoredLive } from "../lib/rest/reconcile";
 import { ReanchorView } from "./ReanchorView";
 import { shouldGreetGoodbye, markGoodbyeSeen } from "../lib/rest/surface";
 import { fmtOnsetMinutes } from "../lib/rest/sleepscore";
@@ -192,10 +192,7 @@ export function AppPlayer() {
   // A night snapshotted before a reload. Offer to revive it only if enough
   // time is left and it is recent; otherwise the tab was killed and the night
   // is over, so record it (rest/reconcile.ts) rather than dropping it.
-  const [live, setLive] = useState<LiveSession | null>(() => {
-    clearUnreadableLive();
-    return settleLive(loadLive(), Date.now());
-  });
+  const [live, setLive] = useState<LiveSession | null>(() => settleStoredLive(Date.now()));
 
   const [reanchor, setReanchor] = useState<{ lastNight: LastNight; next: Episode } | null>(null);
 
@@ -321,7 +318,7 @@ export function AppPlayer() {
     setReanchor(null);
     // A snapshot the night kept (the app gave up on a revived night) comes
     // back as the resume card, or is recorded if too old to revive.
-    setLive(settleLive(loadLive(), Date.now()));
+    setLive(settleStoredLive(Date.now()));
   }
 
   // Continue the spread as a fresh clock-blind night, led by the next unplayed
