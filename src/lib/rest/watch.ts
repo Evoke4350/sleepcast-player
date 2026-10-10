@@ -198,13 +198,17 @@ export function sleepStretches(samples: readonly SleepSample[]): { start: number
  *  asleep as they pressed start, so it can't say when they fell asleep (a
  *  stretch after a later wake would pass for it). The watch can be wrong
  *  there (lying still, reading, scored as sleep; the night's own touches
- *  may say otherwise), so the night keeps what it has. */
+ *  may say otherwise), so the night keeps what it has. "pending" when no
+ *  sleep has been handed over past the night's start yet (Awake or In Bed
+ *  samples there don't count: the watch may have synced the morning's wake
+ *  before the night's sleep), which a later run can still time. */
 export function watchOnset(
   startedAt: number,
   stretches: readonly { start: number; end: number }[],
   until = Infinity,
-): number | "asleep" | null {
+): number | "asleep" | "pending" | null {
   if (stretches.some((s) => s.start < startedAt && s.end > startedAt)) return "asleep";
+  if (!stretches.some((s) => s.end > startedAt)) return "pending";
   const limit = Math.min(startedAt + MATCH_WINDOW_MS, until);
   const first = stretches.find((s) => s.start >= startedAt);
   return first && first.start < limit ? first.start - startedAt : null;
@@ -237,8 +241,7 @@ export function timeableFrom(windowStart: number): number {
  *  re-reads the night before), or not timed by this run at all (a timed
  *  night stays timed). `asleepAtStart` lists the others the watch had the
  *  listener asleep at the start of, which keep what they have; `pending`
- *  the others no sleep was handed over past the start of yet, which a later
- *  run can still time.
+ *  the others watchOnset found "pending", which a later run can still time.
  *  Only nights from timeableFrom(windowStart): for an earlier one the
  *  window may have cut its sleep off (whether it began before the night's
  *  start is unknown, and a stage change after a brief wake would pass for
@@ -272,8 +275,7 @@ export function applyWatch(
     if (typeof at !== "number" || (n.detector === "watch" && n.sleptAtMs === at)) {
       if (n.detector === "watch") unchanged++;
       else if (at === "asleep") atStart.push(n.startedAt);
-      // No sleep handed over past its start yet: a later run can time it.
-      else if (!stretches.some((s) => s.end > n.startedAt)) pending.push(n.startedAt);
+      else if (at === "pending") pending.push(n.startedAt);
       return n;
     }
     const r = retimed(n, at);
@@ -308,7 +310,7 @@ export interface WatchImport {
   latestIsOlder?: boolean;
   /** Nights stored without a watch time the notice names, one reason each,
    *  oldest first: "later", the newest night or a killed tab's recorded,
-   *  whose sleep hadn't synced yet (a later run can time it); "recorded", a killed tab's night
+   *  that watchOnset found "pending" (a later run can time it); "recorded", a killed tab's night
    *  no later run can time (its sleep synced past its start, or it began at
    *  the window's edge), said as its resume offer is gone; "asleep", a
    *  night the watch had the listener asleep at the start of, which keeps
@@ -434,17 +436,14 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
         timed = r.timed;
         saved = stored;
         latestIsOlder = latest !== undefined && newest !== undefined && latest.startedAt < newest;
-        // Untimed as stored, and not by the watch (a night merged into one the
-        // watch had timed keeps that time; one asleep at its start is named
-        // for that), and inside the window, where a later run can still
-        // time it.
+        // The killed tab's night, if stored untimed and not by the watch (a
+        // night merged into one the watch had timed keeps that time; one
+        // asleep at its start is said as that, above), is said either way,
+        // as the resume offer it had is gone: "later" if pending (a later run
+        // can time it), else "recorded" (its sleep came and still didn't
+        // time it, or it began at the window's edge: no run will).
         const k = killed && stored.find((n) => n.startedAt === killed.night.startedAt);
-        // ...and only if the watch hasn't handed over any sleep past its start
-        // yet: if it has and still didn't time it, a later run won't either.
-        // (One asleep at its start is said as that, above.)
         if (k && k.detector !== "watch" && !untimed.some((u) => u.startedAt === k.startedAt)) {
-          // Recorded without a time that a later run could give it: said
-          // too, as the resume offer it had is gone.
           untimed.push({ startedAt: k.startedAt, why: r.pending.includes(k.startedAt) ? "later" : "recorded" });
         }
       } else unsaved = true;

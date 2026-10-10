@@ -158,9 +158,13 @@ describe("watchOnset", () => {
     expect(watchOnset(START, sleepStretches([awakeAt(5 * MIN), asleepAt(25 * MIN), asleepAt(18 * MIN)]))).toBe(18 * MIN);
   });
   it("ignores sleep before the night began, past the window, or in the next night", () => {
-    expect(watchOnset(START, sleepStretches([asleepAt(-10 * MIN)]))).toBeNull();
+    expect(watchOnset(START, sleepStretches([asleepAt(-10 * MIN)]))).toBe("pending");
     expect(watchOnset(START, sleepStretches([asleepAt(MATCH_WINDOW_MS)]))).toBeNull();
     expect(watchOnset(START, sleepStretches([asleepAt(90 * MIN)]), START + 60 * MIN)).toBeNull();
+  });
+  it("is pending with no sleep handed over past the start yet, whatever Awake came", () => {
+    expect(watchOnset(START, sleepStretches([awakeAt(5 * 60 * MIN)]))).toBe("pending");
+    expect(watchOnset(START, [])).toBe("pending");
   });
   it("counts an onset at the very start", () => {
     expect(watchOnset(START, sleepStretches([asleepAt(0)]))).toBe(0);

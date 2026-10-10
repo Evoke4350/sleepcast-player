@@ -25,9 +25,10 @@ export function lastOf(nights: readonly RestNight[]): RestNight | null {
   return newest;
 }
 
-/** Whether a stored entry has the shape the readers rely on: a start, the
- *  onset fields (a number or null), a touch count, and its lists (timeline,
- *  entry by entry, sleptThrough, skipped) as lists when there. */
+/** Whether a stored entry has the shape the readers rely on: a start, an
+ *  end when there, the onset fields (a number or null, inferredAtMs too when
+ *  there), the detector, a touch count, and its lists (timeline, entry by
+ *  entry, sleptThrough, skipped) as lists when there. */
 function isNight(x: unknown): x is RestNight {
   if (!x || typeof x !== "object") return false;
   const n = x as Record<string, unknown>;
@@ -41,6 +42,9 @@ function isNight(x: unknown): x is RestNight {
   };
   return (
     typeof n.startedAt === "number" &&
+    (n.endedAt === undefined || typeof n.endedAt === "number") &&
+    (n.inferredAtMs === undefined || numOrNull(n.inferredAtMs)) &&
+    typeof n.detector === "string" &&
     numOrNull(n.sleptAtMs) &&
     numOrNull(n.timeToSleepMs) &&
     typeof n.interactions === "number" &&
@@ -67,10 +71,12 @@ export function loadNights(): RestNight[] {
 }
 
 /** How long a night keeps its timeline: as long as a watch import can
- *  still reach it (the Shortcut reads two days, which a DST change makes
- *  49 h; an hour's margin), and no longer, so 90 nights of episode ids
- *  don't crowd local storage. */
-export const TIMELINE_KEEP_MS = 50 * 60 * 60 * 1000;
+ *  still reach it, and not much longer, so 90 nights of episode ids don't
+ *  crowd local storage. The Shortcut reads two days (49 h across a DST
+ *  change) back from when it ran, and its data can be read later still: a
+ *  paste of a clipboard copied hours before, a held link read that evening.
+ *  Pruning goes by each write's time, so the keep covers both. */
+export const TIMELINE_KEEP_MS = 3 * 24 * 60 * 60 * 1000;
 
 /** Records a night; whether the save took. A night older than every one
  *  the cap keeps is, like any night past the cap, not kept: recorded all the
