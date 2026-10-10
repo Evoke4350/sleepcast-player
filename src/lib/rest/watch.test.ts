@@ -201,13 +201,17 @@ describe("watchOnset", () => {
     // ...but does in the quiet just after it.
     expect(applyWatch([stopped], [asleepAt(3 * MIN + AFTER_END_MS - 1)], START - 60 * MIN).timed).toHaveLength(1);
   });
-  it("adds a time only where two named nights share a name", () => {
-    const one = watchNotice({
-      timed: [{ startedAt: START, atMs: 10 * MIN, inferredAtMs: null }],
-      untimed: [{ startedAt: START + 30 * MIN, why: "asleep" }],
-      unchanged: 0, unsaved: false, noWindow: false, badWindow: false, slept: 1, unrecognised: 0, malformed: 0,
-    });
-    expect(one).not.toMatch(/\(from/);
+  it("adds a time where an untimed night shares last night's name, and only then", () => {
+    const base = { unchanged: 0, unsaved: false, noWindow: false, badWindow: false, slept: 1, unrecognised: 0, malformed: 0 };
+    // Asleep at the evening's first start; the restart after, timed: the newest.
+    const same = watchNotice({ ...base, timed: [{ startedAt: START + 40 * MIN, atMs: 12 * MIN, inferredAtMs: null }], untimed: [{ startedAt: START, why: "asleep" }] });
+    expect(same).toMatch(/\(from \d+:\d{2}[ap]m\) has no watch time/);
+    const apart = watchNotice({ ...base, timed: [{ startedAt: START, atMs: 12 * MIN, inferredAtMs: null }], untimed: [{ startedAt: START - 24 * 60 * MIN, why: "asleep" }] });
+    expect(apart).not.toMatch(/\(from/);
+  });
+  it("counts an end before the start (a clock set back) as the start", () => {
+    const n = night({ endedAt: START - 60 * MIN });
+    expect(applyWatch([n], [asleepAt(10 * MIN)], START - 60 * MIN).timed).toHaveLength(1);
   });
   it("tells two nights with one name apart by their start", () => {
     const later = START + 30 * MIN;

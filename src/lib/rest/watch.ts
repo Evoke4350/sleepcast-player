@@ -191,7 +191,9 @@ export function sleepStretches(samples: readonly SleepSample[]): { start: number
 /** The watch's onset for a night, from its start (ms): the start of the
  *  first stretch of sleep (sleepStretches) that begins at or after the
  *  night's start, before MATCH_WINDOW_MS and before the next night's start
- *  (a 3am re-anchor is its own night), or `until`; null when none does. "asleep" when a
+ *  (a 3am re-anchor is its own night) and the night's end: `until`, the
+ *  caller's limit (applyWatch passes the next night's start or the end plus
+ *  AFTER_END_MS, whichever comes first); null when none does. "asleep" when a
  *  stretch was under way at the night's start: the watch had the listener
  *  asleep as they pressed start, so it can't say when they fell asleep (a
  *  stretch after a later wake would pass for it). The watch can be wrong
@@ -253,7 +255,10 @@ export function applyWatch(
   const out = nights.map((n) => {
     if (n.startedAt < from) return n;
     // Before the next night's start, and not long after this one ended.
-    const until = Math.min(next.get(n.startedAt) ?? Infinity, n.endedAt === undefined ? Infinity : n.endedAt + AFTER_END_MS);
+    // (An end before the start, from a clock set back mid-night, counts as
+    // the start.)
+    const end = n.endedAt === undefined ? Infinity : Math.max(n.startedAt, n.endedAt) + AFTER_END_MS;
+    const until = Math.min(next.get(n.startedAt) ?? Infinity, end);
     const at = watchOnset(n.startedAt, stretches, until);
     if (at === null) return n;
     // Asleep at its start: no watch time, and the night keeps what it has
@@ -512,14 +517,15 @@ const UNTIMED_WHY = {
   asleep: "has no watch time: your watch had you asleep before sleepcast started",
 } as const;
 
-/** Names for the nights a notice names: nightName, with the start's time
- *  added where two would share a name (a restart the same evening). */
+/** Names for the nights a notice names (its lead's, last night's or an
+ *  older one's, among them): nightName, with the start's time added where
+ *  two would share a name (a restart the same evening). */
 function nightNamer(starts: readonly number[]): (startedAt: number) => string {
-  const names = new Map(starts.map((s) => [s, nightName(s)]));
-  const shared = (name: string) => [...names.values()].filter((x) => x === name).length > 1;
+  const counts = new Map<string, number>();
+  for (const s of new Set(starts)) counts.set(nightName(s), (counts.get(nightName(s)) ?? 0) + 1);
   return (s) => {
-    const name = names.get(s) ?? nightName(s);
-    if (!shared(name)) return name;
+    const name = nightName(s);
+    if ((counts.get(name) ?? 0) < 2) return name;
     const time = new Date(s).toLocaleTimeString("en", { hour: "numeric", minute: "2-digit" });
     return `${name} (from ${time.toLowerCase().replace(/\s/g, "")})`;
   };
@@ -546,7 +552,7 @@ export function watchNotice(r: WatchImport): string {
   // Each night stored without the watch's time, named with why, whatever
   // else the line says (it may be last night).
   const last = r.timed.at(-1);
-  const name = nightNamer([...(r.untimed ?? []).map((u) => u.startedAt), ...(last && r.latestIsOlder ? [last.startedAt] : [])]);
+  const name = nightNamer([...(r.untimed ?? []).map((u) => u.startedAt), ...(last ? [last.startedAt] : [])]);
   const notes = (r.untimed ?? []).map(({ startedAt, why }) => ` ${name(startedAt)} ${UNTIMED_WHY[why]}.`).join("");
   if (!last) {
     if (r.unchanged) return `nothing new from your watch since it last ran.${notes}`;
