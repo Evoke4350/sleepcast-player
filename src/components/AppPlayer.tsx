@@ -15,7 +15,7 @@ import { Night } from "./Night";
 import { isYouTubeLineup, isMixedLineup } from "../lib/youtube-night";
 import { RestView } from "./RestView";
 import { WatchLine } from "./WatchLine";
-import { reconcileLive, resumeTarget, settleStoredLive, killedNightToRecord } from "../lib/rest/reconcile";
+import { reconcileLive, resumeTarget, settleStoredLive, killedNightToRecord, SNAPSHOT_FRESH_MS } from "../lib/rest/reconcile";
 import { ReanchorView } from "./ReanchorView";
 import { shouldGreetGoodbye, markGoodbyeSeen } from "../lib/rest/surface";
 import { fmtOnsetMinutes } from "../lib/rest/sleepscore";
@@ -145,8 +145,10 @@ export function AppPlayer() {
   const [heldLink, setHeldLink] = useState<string | null>(null);
   // Whether reading it ends a night left open: what the import will do
   // (killedNightToRecord), not what the card shows; asked at each render, as
-  // the snapshot changes under a held link (a night resumed, ended, given up).
-  const heldEndsNight = heldLink !== null && killedNightToRecord(Date.now()) !== null;
+  // the snapshot changes under a held link (a night resumed, ended, given
+  // up), and for a tap any time from now (a snapshot fresh now won't be by
+  // then). Not while a night plays: the offer isn't shown.
+  const heldEndsNight = heldLink !== null && !session && killedNightToRecord(Date.now() + SNAPSHOT_FRESH_MS) !== null;
   useEffect(() => {
     // The head script has already moved it out of the address (analytics).
     const onLink = () => {

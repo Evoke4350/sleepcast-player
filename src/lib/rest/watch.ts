@@ -496,11 +496,13 @@ export function payloadFromPaste(text: string): string {
   // its #watch= on. A wrapped one isn't joined up: its later lines refuse it.
   const j = text.search(/%23watch%3[dD]/);
   if (j >= 0) {
-    // Back to the whitespace before it, and on to the one after.
+    // Back to the whitespace before it (no further than the bound), and on
+    // to the one after.
     let start = j;
-    while (start > 0 && !/\s/.test(text[start - 1])) start--;
-    let end = j;
-    while (end < text.length && !/\s/.test(text[end])) end++;
+    while (start > 0 && j - start <= 2 * MAX_PAYLOAD_CHARS && !/\s/.test(text[start - 1])) start--;
+    const ws = /\s/g;
+    ws.lastIndex = j;
+    const end = ws.exec(text)?.index ?? text.length;
     if (end - start > 2 * MAX_PAYLOAD_CHARS) return text.slice(start, end);
     const link = decodeLeniently(text.slice(start, end));
     const k = link.indexOf(WATCH_HASH);
@@ -511,9 +513,8 @@ export function payloadFromPaste(text: string): string {
 }
 
 /** The payload of a pasted link, from what follows its WATCH_HASH. Measured
- *  as an opened link's is (watchLinkTooLong): from there on. */
+ *  as an opened link's is (watchLinkTooLong): what is read of it. */
 function linkPayload(after: string): string {
-  if (after.length > MAX_PAYLOAD_CHARS) return after;
   // Encoded whole (every ":" escaped, as url-encode leaves it): the link is
   // one token, ending at the first whitespace, less what a message put
   // after it. Unless the next word goes on with the payload (a "~" or an
@@ -521,7 +522,11 @@ function linkPayload(after: string): string {
   // is read with it, and refuses it rather than being guessed at.
   const [, first = "", next = ""] = after.match(/^\s*(\S*)(?:\s+(\S+))?/) ?? [];
   const token = unpunctuated(first);
-  if (hasEscape(token) && !token.includes(":") && !(next.includes("~") || hasEscape(next))) return decodeLeniently(token).trim();
+  // (Each measured as it is read: the token alone, or all the rest.)
+  if (hasEscape(token) && !token.includes(":") && !(next.includes("~") || hasEscape(next))) {
+    return token.length > MAX_PAYLOAD_CHARS ? token : decodeLeniently(token).trim();
+  }
+  if (after.length > MAX_PAYLOAD_CHARS) return after;
   // Otherwise (the url-encode step missed) the rest of the paste, decoded
   // as the link would be.
   return decodeLeniently(unpunctuated(after)).trim();

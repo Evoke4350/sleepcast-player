@@ -1,5 +1,6 @@
 import type { Episode, PlayMode } from "./engine";
 import { recordHeard, migrateLegacyHistory, type Play } from "./plays";
+import { num, obj, optBool, optNum } from "./guards";
 import { shouldRemember, putPosition, type Positions } from "./positions";
 
 // ---------------------------------------------------------------------------
@@ -380,10 +381,6 @@ export function saveLive(s: LiveSession): boolean {
 function isLiveSession(x: unknown): x is LiveSession {
   if (!x || typeof x !== "object") return false;
   const s = x as Record<string, unknown>;
-  const num = (v: unknown) => typeof v === "number" && Number.isFinite(v);
-  const optNum = (v: unknown) => v === undefined || num(v);
-  const optBool = (v: unknown) => v === undefined || typeof v === "boolean";
-  const obj = (v: unknown) => !!v && typeof v === "object" && !Array.isArray(v);
   return (
     num(s.savedAt) &&
     num(s.remainingMs) &&

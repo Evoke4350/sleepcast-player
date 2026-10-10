@@ -3,6 +3,7 @@ import { retimed } from "./attribution";
 import { median } from "./stats";
 import { writeMakingRoom } from "../store";
 import { SHORTCUT_REACH_MS, STALE_AFTER_MS } from "./watch-hash";
+import { arrayOrAbsent, num, numOrNull, obj, optNum } from "../guards";
 import { DEFAULT_PARAMS, LAMBDA_MAX, TICK_MS, quietTicksToDecide } from "./detector";
 
 const KEY = "sleepcast2.rest";
@@ -33,22 +34,20 @@ export function lastOf(nights: readonly RestNight[]): RestNight | null {
 function isNight(x: unknown): x is RestNight {
   if (!x || typeof x !== "object") return false;
   const n = x as Record<string, unknown>;
-  const numOrNull = (v: unknown) => v === null || typeof v === "number";
-  const arrayOrAbsent = (v: unknown) => v === undefined || Array.isArray(v);
   // Each timeline entry as attribution reads it (a corrupt one would throw
   // there, in loadNights' own merge or a watch import on load).
   const entry = (e: unknown) => {
     const r = e as Record<string, unknown> | null;
-    return !!r && typeof r === "object" && typeof r.t === "number" && typeof r.feedId === "string" && typeof r.episodeId === "string";
+    return obj(r) && num(r.t) && typeof r.feedId === "string" && typeof r.episodeId === "string";
   };
   return (
-    typeof n.startedAt === "number" &&
-    (n.endedAt === undefined || typeof n.endedAt === "number") &&
+    num(n.startedAt) &&
+    optNum(n.endedAt) &&
     (n.inferredAtMs === undefined || numOrNull(n.inferredAtMs)) &&
     typeof n.detector === "string" &&
     numOrNull(n.sleptAtMs) &&
     numOrNull(n.timeToSleepMs) &&
-    typeof n.interactions === "number" &&
+    num(n.interactions) &&
     (n.timeline === undefined || (Array.isArray(n.timeline) && n.timeline.every(entry))) &&
     arrayOrAbsent(n.sleptThrough) &&
     arrayOrAbsent(n.skipped)

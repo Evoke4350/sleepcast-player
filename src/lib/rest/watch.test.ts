@@ -953,6 +953,12 @@ describe("data already read, or from days ago", () => {
     const enc = encodeURIComponent("window~2026-10-04T09:00:00+01:00\n2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core");
     expect(payloadFromPaste(`https://sleepcast.pro/#watch=${enc} thanks`)).toBe("window~2026-10-04T09:00:00+01:00\n2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core");
   });
+  it("measures a pasted encoded link by its token, not the message after it", () => {
+    const enc = encodeURIComponent("window~2026-10-04T09:00:00+01:00\n2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core");
+    expect(payloadFromPaste(`https://sleepcast.pro/#watch=${enc} ${"word ".repeat(MAX_PAYLOAD_CHARS / 4)}`)).toBe(
+      "window~2026-10-04T09:00:00+01:00\n2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core",
+    );
+  });
   it("counts no final line break as a line", () => {
     const lines = "x\n".repeat(MAX_LINES);
     expect(parseWatchPayload(lines).tooLong).toBe(false);
