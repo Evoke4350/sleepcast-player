@@ -245,12 +245,29 @@ export function shortcutWindowOpens(runAt: number): number {
   return d.getTime();
 }
 
-/** How old a payload's window can be and still be read: the Shortcut's two
- *  days, and as long again as its data may be read late (a paste, a held
- *  link: TIMELINE_KEEP_MS). Older, it is a link reopened from history, not
- *  this morning's: refused, as it would close tonight's night and re-time
- *  nights to stale onsets. */
-export const STALE_AFTER_MS = 2 * 24 * 60 * 60_000 + TIMELINE_KEEP_MS;
+/** Where the newest window imported opened. A payload whose window is no
+ *  newer is data already read, or older: a link reopened from Safari's
+ *  history, an old clipboard pasted. Refused, at any age, as it would close
+ *  tonight's night and re-time nights to an older run's samples; a fresh
+ *  run, however far back it reads, opens later. */
+const LAST_WINDOW_KEY = "sleepcast2.watch-window";
+
+function loadLastWindow(): number | null {
+  try {
+    const v = Number(localStorage.getItem(LAST_WINDOW_KEY));
+    return localStorage.getItem(LAST_WINDOW_KEY) !== null && Number.isFinite(v) ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveLastWindow(windowStart: number): void {
+  try {
+    localStorage.setItem(LAST_WINDOW_KEY, String(windowStart));
+  } catch {
+    /* a refusal missed later is the old behaviour: not worth throwing over */
+  }
+}
 
 export interface WatchTiming {
   startedAt: number;
@@ -331,8 +348,8 @@ export function applyWatch(
 }
 
 /** Every reason a payload is refused for its content, in one place. */
-function refusedFor(r: Pick<WatchImport, "noWindow" | "badWindow" | "stale" | "unrecognised" | "malformed">): boolean {
-  return r.noWindow || r.badWindow || !!r.stale || r.unrecognised > 0 || r.malformed > 0;
+function refusedFor(r: Pick<WatchImport, "noWindow" | "badWindow" | "repeat" | "unrecognised" | "malformed">): boolean {
+  return r.noWindow || r.badWindow || r.repeat || r.unrecognised > 0 || r.malformed > 0;
 }
 
 /** Whether an import changed nothing: refused for its content, or not
@@ -369,9 +386,9 @@ export interface WatchImport {
   /** A window line whose date didn't read, or that opens in the future:
    *  refused. */
   badWindow: boolean;
-  /** A window older than STALE_AFTER_MS (a link reopened from history):
-   *  refused. */
-  stale?: boolean;
+  /** A window no newer than the last one imported (data already read, or
+   *  older: a link reopened from history, an old clipboard): refused. */
+  repeat: boolean;
   unrecognised: number;
   malformed: number;
 }
@@ -435,8 +452,9 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
   // No window line, samples or not: a Shortcut built before it was added
   // (or not this Shortcut's text at all) is told to use the updated steps.
   const noWindow = windowStart === null && !badWindow;
-  const stale = windowStart !== null && windowStart < now - STALE_AFTER_MS;
-  const refusedContent = refusedFor({ noWindow, badWindow, stale, unrecognised, malformed });
+  const last = loadLastWindow();
+  const repeat = windowStart !== null && last !== null && windowStart <= last;
+  const refusedContent = refusedFor({ noWindow, badWindow, repeat, unrecognised, malformed });
   let timed: WatchTiming[] = [];
   let unchanged = 0;
   let unsaved = false;
@@ -471,6 +489,9 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
         latestIsOlder = latest !== undefined && newest !== undefined && latest.startedAt < newest;
       } else unsaved = true;
     }
+    // Read: a payload no newer is refused from now on (one not saved isn't
+    // read, and may come again).
+    if (!unsaved) saveLastWindow(windowStart);
     // The nights the notice names without a watch time, one reason each, in
     // one place. Asleep at the start: said on every run that finds it (at
     // most two mornings, the Shortcut reading two days; true each time),
@@ -498,7 +519,7 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
     ...(saved ? { nights: saved } : {}),
     noWindow,
     badWindow,
-    ...(stale ? { stale } : {}),
+    repeat,
     ...(latestIsOlder ? { latestIsOlder } : {}),
     ...(untimed.length && !unsaved ? { untimed: untimed.sort((a, b) => a.startedAt - b.startedAt) } : {}),
     slept: samples.filter(isSleep).length,
@@ -591,8 +612,8 @@ function nightNamer(starts: readonly number[]): (startedAt: number) => string {
 export function watchNotice(r: WatchImport): string {
   if (r.badWindow) {
     return "the watch data's window line didn't read, or opens in the future, so nothing was changed: in the shortcut, the adjusted date should subtract 2 days, in iso 8601 with the time included, and a link's text should be url-encoded before it's opened.";
-  }  if (r.stale) return "this watch link is from days ago, so nothing was changed: run the shortcut again for this morning's.";
-
+  }
+  if (r.repeat) return "this watch data was read before (or is older than what was), so nothing was changed: run the shortcut again for fresh data.";
   // Before the other format checks: a missing (or misplaced) window line is
   // the structural problem, and a misplaced one also reads as a bad line.
   if (r.noWindow) {

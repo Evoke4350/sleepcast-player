@@ -24,9 +24,11 @@ reads samples ending after "now minus 2 days", so a sample under way when
 the window opens is there from its own start; a window line with no
 samples yet (the watch hadn't synced) still goes ahead, recording a killed
 tab's night, and says to run it again later; a window line that opens in
-the future (an adjust-date step left adding) is a bad one; one older than `STALE_AFTER_MS`
-(the Shortcut's two days, and as long again as its data may be read late) is a
-link reopened from history, refused; without the line
+the future (an adjust-date step left adding) is a bad one; a window no newer than the last one
+imported is data already read, or older (a link reopened from history, an old
+clipboard), refused at any age, as it would close tonight's night and re-time
+nights to an older run's samples (a fresh run, however far back it reads,
+opens later); without the line
 the import is
 refused, with a notice pointing at the updated steps), then one sample per
 line, `start~end~stage`, ISO 8601 dates with time, the
