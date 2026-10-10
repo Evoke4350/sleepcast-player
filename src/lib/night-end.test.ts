@@ -95,7 +95,7 @@ describe("the last episode", () => {
 
 describe("recordNightEnd when the night can't be stored", () => {
   beforeEach(() => { localStorage.clear(); saveLive(live); });
-  it("keeps the snapshot and writes nothing else, so the night isn't lost from both", () => {
+  it("still ends the night: it was ended here, so it isn't offered to resume", () => {
     const setItem = Storage.prototype.setItem;
     Storage.prototype.setItem = function (this: Storage, k: string, v: string) {
       if (k === "sleepcast2.rest") throw new Error("QuotaExceededError");
@@ -106,7 +106,7 @@ describe("recordNightEnd when the night can't be stored", () => {
     } finally {
       Storage.prototype.setItem = setItem;
     }
-    expect(loadLive()).not.toBeNull();
-    expect(loadLastNight()).toBeNull();
+    expect(loadLive()).toBeNull();
+    expect(loadLastNight()?.endedVia).toBe(end().reason);
   });
 });

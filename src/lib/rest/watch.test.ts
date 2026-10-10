@@ -725,19 +725,27 @@ describe("a killed night recorded without a time a later run could give", () => 
 });
 
 describe("pasting a link without its url-encode step, and looser dates", () => {
-  it("takes the sample lines that follow the link", () => {
-    const pasted = "https://sleepcast.pro/#watch=window~2026-10-04T09:00:00+01:00\n2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core\nsent from my iphone";
-    expect(payloadFromPaste(pasted)).toBe("window~2026-10-04T09:00:00+01:00\n2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core");
+  it("takes the rest of the paste after the link, blank lines and all", () => {
+    const pasted = "look: https://sleepcast.pro/#watch=window~2026-10-04T09:00:00+01:00\n\n2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core.";
+    expect(payloadFromPaste(pasted)).toBe("window~2026-10-04T09:00:00+01:00\n\n2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core");
+    expect(parseWatchPayload(payloadFromPaste(pasted)).samples).toHaveLength(1);
   });
   it("reads a space before the time, and normalises a lowercase z (for Safari)", () => {
     expect(parseWatchPayload("window~2026-10-04 09:00:00Z").windowStart).toBe(Date.parse("2026-10-04T09:00:00Z"));
     expect(normaliseIso("2026-10-04 09:00:00z")).toBe("2026-10-04T09:00:00Z");
     expect(normaliseIso("2026-10-04t09:00:00+01:00")).toBe("2026-10-04T09:00:00+01:00");
   });
-  it("skips blank lines and a message's words, wherever they fall", () => {
+  it("refuses, rather than guesses away, what else comes with an unencoded link", () => {
     const w = "window~2026-10-04T09:00:00+01:00";
     const s = "2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core";
-    expect(payloadFromPaste(`look: https://sleepcast.pro/#watch=${w} thanks!\n\n${s}.\n~ nate`)).toBe(`${w}\n${s}`);
+    expect(parseWatchPayload(payloadFromPaste(`https://sleepcast.pro/#watch=${w}\n${s}\nsent from my iphone`)).malformed).toBe(1);
+    expect(parseWatchPayload(payloadFromPaste(`https://sleepcast.pro/#watch=${w} ${s}`)).badWindow).toBe(true);
+    expect(parseWatchPayload(payloadFromPaste(`> https://sleepcast.pro/#watch=${w}\n> ${s}`)).malformed).toBe(1);
+    expect(parseWatchPayload(payloadFromPaste(`https://sleepcast.pro/#watch=${w}\n${s}~iPhone`)).malformed).toBe(1);
+  });
+  it("reads a link pasted fully percent-encoded", () => {
+    const link = "https://sleepcast.pro/#watch=" + encodeURIComponent("window~2026-10-04T09:00:00+01:00\n2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core");
+    expect(payloadFromPaste(encodeURIComponent(link))).toBe("window~2026-10-04T09:00:00+01:00\n2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core");
   });
   it("keeps a malformed line, and a window line run into a sample, so they refuse", () => {
     const w = "window~2026-10-04T09:00:00+01:00";
@@ -747,7 +755,7 @@ describe("pasting a link without its url-encode step, and looser dates", () => {
     expect(parseWatchPayload(runIn).badWindow).toBe(true);
   });
   it("keeps a space-separated window date whole, and an encoded window-only link with a ~ after it", () => {
-    expect(payloadFromPaste("https://sleepcast.pro/#watch=window~2026-10-04 09:00:00+01:00")).toBe("window~2026-10-04 09:00:00+01:00");
+    expect(payloadFromPaste("https://sleepcast.pro/#watch=window~2026-10-04 09:00:00+01:00.")).toBe("window~2026-10-04 09:00:00+01:00");
     expect(payloadFromPaste("https://sleepcast.pro/#watch=window~2026-10-04T09%3A00%3A00%2B01%3A00\napprox ~7h")).toBe("window~2026-10-04T09:00:00+01:00");
   });
 });

@@ -66,8 +66,6 @@ function stageAsleep(raw: string): boolean | "code" | null {
   return NAMES.get(raw.toLowerCase().replace(/[^a-z]/g, "")) ?? null;
 }
 
-/** A date with a time of day, in ms, or null. A date alone parses as
- *  midnight UTC: no onset at all. */
 /** A date as a strict parser (Safari's) wants it: "T" before the time
  *  (for a space or a lowercase t, RFC 3339) and "Z" for a lowercase z. */
 export function normaliseIso(text: string): string {
@@ -77,13 +75,13 @@ export function normaliseIso(text: string): string {
     .replace(/z$/, "Z");
 }
 
-function parseTime(text: string | undefined): number | null {
+/** A date with a time of day, in ms, or null. A date alone parses as
+ *  midnight UTC: no onset at all. */
+function parseTime(text: string): number | null {
   // A time of day as ISO 8601 writes it ("T23:15"): a weekday name has a
-  // "T" too, and parses as midnight. Normalised for any parser (Safari's is
-  // strict): a lowercase "t" or a space (RFC 3339) before the time becomes
-  // "T", and a lowercase "z" zone "Z".
-  const iso = text === undefined ? undefined : normaliseIso(text);
-  if (!iso || !/T\d{2}:\d{2}/.test(iso)) return null;
+  // "T" too, and parses as midnight.
+  const iso = normaliseIso(text);
+  if (!/T\d{2}:\d{2}/.test(iso)) return null;
   const t = Date.parse(iso);
   return Number.isFinite(t) ? t : null;
 }
@@ -92,14 +90,6 @@ function parseTime(text: string | undefined): number | null {
  *  any case, spaces around the "~" allowed). */
 const WINDOW_LINE = /^window\s*~\s*/i;
 
-/** A date with a time of day as a payload writes one (ISO 8601 / RFC 3339,
- *  as parseTime reads them), and the shapes of the window line and a
- *  sample line built from it: for picking a payload out of a paste. */
-const DATE_SHAPE = String.raw`\d{4}-\d{2}-\d{2}[Tt ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:[Zz]|[+-]\d{2}:?\d{2})?`;
-// Its date ends the window line: a date run on into more (a sample whose line
-// break was lost) is a bad window, not one cut short.
-const WINDOW_LINE_SHAPE = new RegExp(`^window\\s*~\\s*${DATE_SHAPE}(?![\\w~+:.-])`, "i");
-const SAMPLE_LINE_SHAPE = new RegExp(`^${DATE_SHAPE}~${DATE_SHAPE}~[\\p{L}\\p{M}\\p{N} ()_-]*[\\p{L}\\p{M}\\p{N})]`, "u");
 
 /** One sample line, read: a sample, or why it isn't one. A bad end matters
  *  as much as a bad start: zero-length samples never join into a stretch,
@@ -308,30 +298,26 @@ export interface WatchImport {
 
 /** A pasted payload: the lines themselves, still url-encoded or not (the
  *  paste variant of the Shortcut may keep its url-encode step), or a whole
- *  #watch= link. Plain text never holds an escape (dates and stage names
- *  have no "%"), so any escape means it is still encoded. */
+ *  #watch= link, itself perhaps encoded. Plain text never holds an escape
+ *  (dates and stage names have no "%"), so any escape means it is still
+ *  encoded. Read by the payload's own grammar only: whatever else comes
+ *  with it (a message's words, a quote marker) refuses the import, which
+ *  changes nothing, rather than being guessed away. */
 export function payloadFromPaste(text: string): string {
   const i = text.indexOf(WATCH_HASH);
-  if (i < 0) return (/%[0-9a-f]{2}/i.test(text) ? decodeLeniently(text) : text).trim();
-  const after = text.slice(i + WATCH_HASH.length);
-  // Encoded (its line breaks escaped): the link is one token, ending at the
-  // first whitespace, less any punctuation or symbol a message put after it
-  // (a full stop, an ellipsis, a closing quote, an autolink's >, **).
-  const token = after.split(/\s/)[0].replace(/[\p{P}\p{S}]+$/u, "");
-  if (/%0a/i.test(token)) return decodeLeniently(token).trim();
-  // Unencoded (the url-encode step missed: real line breaks), or a window
-  // line alone: the window line, then the lines shaped like samples, each
-  // cut to its own shape. Blank lines and a message's own words aren't
-  // either, wherever they fall; a line starting with a date that isn't
-  // shaped like a sample is kept whole, so it refuses the import as
-  // malformed rather than going missing from inside a stretch.
-  const lines = decodeLeniently(after).split(/\r?\n/);
-  const out = [lines[0].trim().match(WINDOW_LINE_SHAPE)?.[0] ?? decodeLeniently(token)];
-  for (const l of lines.slice(1)) {
-    const line = l.trim();
-    if (/^\d{4}-\d{2}-\d{2}/.test(line)) out.push(line.match(SAMPLE_LINE_SHAPE)?.[0] ?? line);
+  if (i < 0) {
+    const plain = /%[0-9a-f]{2}/i.test(text) ? decodeLeniently(text) : text;
+    return plain.includes(WATCH_HASH) ? payloadFromPaste(plain) : plain.trim();
   }
-  return out.join("\n");
+  // Less any punctuation or symbol a message put after the link (a full
+  // stop, an ellipsis, a closing quote, an autolink's >, **).
+  const unpunctuated = (s: string) => s.trim().replace(/[\p{P}\p{S}]+$/u, "");
+  const after = text.slice(i + WATCH_HASH.length);
+  // Encoded: the link is one token, ending at the first whitespace.
+  const token = unpunctuated(after.split(/\s/)[0]);
+  if (/%[0-9a-f]{2}/i.test(token)) return decodeLeniently(token).trim();
+  // Unencoded (the url-encode step missed): the rest of the paste.
+  return unpunctuated(after);
 }
 
 /** Reads a payload into the rest ledger. A payload without its window
@@ -473,7 +459,7 @@ export const WATCH_STEPS = "sleepcast.pro/watch";
 /** What an import did, in a line for the listener. */
 export function watchNotice(r: WatchImport): string {
   if (r.badWindow) {
-    return "the watch data's window line didn't read, or opens in the future, so nothing was changed: in the shortcut, the adjusted date should subtract 2 days, in iso 8601 with the time included, and the text should be url-encoded before it's opened.";
+    return "the watch data's window line didn't read, or opens in the future, so nothing was changed: in the shortcut, the adjusted date should subtract 2 days, in iso 8601 with the time included, and a link's text should be url-encoded before it's opened.";
   }
   // Before the other format checks: a missing (or misplaced) window line is
   // the structural problem, and a misplaced one also reads as a bad line.

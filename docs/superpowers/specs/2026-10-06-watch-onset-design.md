@@ -43,12 +43,12 @@ are read.
 A home-screen copy of the site keeps its own storage, apart from Safari's, so
 the link can't reach it. For that, the Shortcut copies the lines instead, and
 the rest view has a "paste from your watch" box (it accepts the lines or the
-whole link). From a pasted link it takes, if url-encoded, the link itself (up
-to the first space, less trailing punctuation); if not (the encode step
-missed), the window line and the lines that start with a date, each cut to a
-sample's shape, so blank lines and a message's words around them are dropped
-while a malformed sample still refuses. A window line run into a sample (its
-line break lost) is a bad window, and the notice points at the url-encode step.
+whole link, itself perhaps percent-encoded). From a pasted link it takes, if
+url-encoded, the link itself (up to the first space, less trailing
+punctuation), and if not (the encode step missed) the rest of the paste. It
+reads with the payload's own grammar only: anything else that came with it (a
+message's words, a quote marker, line breaks turned to spaces) refuses the
+import, which changes nothing, rather than being guessed away.
 
 ## 3. Matching
 
