@@ -9,6 +9,7 @@ import {
   watchAgreement,
   isRefused,
   payloadFromPaste,
+  normaliseIso,
   MATCH_WINDOW_MS,
   MAX_SAMPLES,
   sleepStretches,
@@ -728,7 +729,25 @@ describe("pasting a link without its url-encode step, and looser dates", () => {
     const pasted = "https://sleepcast.pro/#watch=window~2026-10-04T09:00:00+01:00\n2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core\nsent from my iphone";
     expect(payloadFromPaste(pasted)).toBe("window~2026-10-04T09:00:00+01:00\n2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core");
   });
-  it("reads a space before the time and a lowercase z", () => {
-    expect(parseWatchPayload("window~2026-10-04 09:00:00z").windowStart).toBe(Date.parse("2026-10-04T09:00:00Z"));
+  it("reads a space before the time, and normalises a lowercase z (for Safari)", () => {
+    expect(parseWatchPayload("window~2026-10-04 09:00:00Z").windowStart).toBe(Date.parse("2026-10-04T09:00:00Z"));
+    expect(normaliseIso("2026-10-04 09:00:00z")).toBe("2026-10-04T09:00:00Z");
+    expect(normaliseIso("2026-10-04t09:00:00+01:00")).toBe("2026-10-04T09:00:00+01:00");
+  });
+  it("skips blank lines and a message's words, wherever they fall", () => {
+    const w = "window~2026-10-04T09:00:00+01:00";
+    const s = "2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core";
+    expect(payloadFromPaste(`look: https://sleepcast.pro/#watch=${w} thanks!\n\n${s}.\n~ nate`)).toBe(`${w}\n${s}`);
+  });
+  it("keeps a malformed line, and a window line run into a sample, so they refuse", () => {
+    const w = "window~2026-10-04T09:00:00+01:00";
+    const pasted = payloadFromPaste(`https://sleepcast.pro/#watch=${w}\n2026-10-05~2026-10-05T23:50:00+01:00~Core`);
+    expect(parseWatchPayload(pasted).malformed).toBe(1);
+    const runIn = payloadFromPaste(`https://sleepcast.pro/#watch=${w}2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core`);
+    expect(parseWatchPayload(runIn).badWindow).toBe(true);
+  });
+  it("keeps a space-separated window date whole, and an encoded window-only link with a ~ after it", () => {
+    expect(payloadFromPaste("https://sleepcast.pro/#watch=window~2026-10-04 09:00:00+01:00")).toBe("window~2026-10-04 09:00:00+01:00");
+    expect(payloadFromPaste("https://sleepcast.pro/#watch=window~2026-10-04T09%3A00%3A00%2B01%3A00\napprox ~7h")).toBe("window~2026-10-04T09:00:00+01:00");
   });
 });
