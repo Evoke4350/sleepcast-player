@@ -15,7 +15,7 @@ import { Night } from "./Night";
 import { isYouTubeLineup, isMixedLineup } from "../lib/youtube-night";
 import { RestView } from "./RestView";
 import { WatchLine } from "./WatchLine";
-import { reconcileLive, resumeTarget, settleLive, settleStoredLive } from "../lib/rest/reconcile";
+import { reconcileLive, resumeTarget, settleStoredLive } from "../lib/rest/reconcile";
 import { ReanchorView } from "./ReanchorView";
 import { shouldGreetGoodbye, markGoodbyeSeen } from "../lib/rest/surface";
 import { fmtOnsetMinutes } from "../lib/rest/sleepscore";
