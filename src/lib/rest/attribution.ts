@@ -36,7 +36,9 @@ export function onsetAfterEnd(n: RestNight, atMs: number): boolean {
   return n.endedAt !== undefined && n.startedAt + atMs > n.endedAt;
 }
 
-/** A night re-timed by the watch's onset `atMs`. Attribution comes from the
+/** A night re-timed by the watch's onset `atMs`, or null for none (the
+ *  watch had the listener asleep at its start: the detector's guess is
+ *  ruled out, and kept only as inferredAtMs). Attribution comes from the
  *  night's timeline when it covers the onset; an onset after the night
  *  ended credits nothing (the audio had stopped). A timeline that starts
  *  after the onset (a night revived after a reload notes only what played
@@ -46,16 +48,16 @@ export function onsetAfterEnd(n: RestNight, atMs: number): boolean {
  *  (applyWatch never re-times a night to the onset it already has). A
  *  "slept" or "awake" label was on the detector's claim, which the watch
  *  replaces. */
-export function retimed(n: RestNight, atMs: number): RestNight {
+export function retimed(n: RestNight, atMs: number | null): RestNight {
   const inferredAtMs = n.detector === "watch" ? (n.inferredAtMs ?? null) : n.sleptAtMs;
   const { selfLabel: _l, onsetFeedId: _f, onsetEpisodeId: _e, onsetAfterMs: _a, sleptThrough: _s, ...base } = n;
-  const covering = n.timeline?.some((e) => e.t <= atMs) ? n.timeline : undefined;
+  const covering = atMs !== null && n.timeline?.some((e) => e.t <= atMs) ? n.timeline : undefined;
   return {
     ...base,
     sleptAtMs: atMs,
     timeToSleepMs: atMs,
     detector: "watch",
     inferredAtMs,
-    ...(!onsetAfterEnd(n, atMs) && covering ? attribution(covering, atMs) : {}),
+    ...(atMs !== null && !onsetAfterEnd(n, atMs) && covering ? attribution(covering, atMs) : {}),
   };
 }

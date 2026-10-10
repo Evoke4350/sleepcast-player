@@ -108,10 +108,10 @@ export function withNight(nights: readonly RestNight[], n: RestNight): RestNight
 }
 
 /** A night recorded again (`n`, the later) merged with what was there: the
- *  later wins, keeping the watch's time from the earlier unless the later
- *  has a watch time of its own. */
+ *  later wins, keeping the watch's time (or its finding of none) from the
+ *  earlier unless the later has a watch time of its own. */
 function merge(earlier: RestNight, n: RestNight): RestNight {
-  if (n.detector === "watch" || earlier.detector !== "watch" || earlier.sleptAtMs === null) return n;
+  if (n.detector === "watch" || earlier.detector !== "watch") return n;
   return keepWatch(n, earlier);
 }
 
@@ -122,7 +122,7 @@ function merge(earlier: RestNight, n: RestNight): RestNight {
  *  watched copy where `n` has none. */
 function keepWatch(n: RestNight, watched: RestNight): RestNight {
   const withTimeline = n.timeline || !watched.timeline ? n : { ...n, timeline: watched.timeline };
-  const r = retimed(withTimeline, watched.sleptAtMs as number);
+  const r = retimed(withTimeline, watched.sleptAtMs);
   return r.inferredAtMs === null && watched.inferredAtMs != null ? { ...r, inferredAtMs: watched.inferredAtMs } : r;
 }
 

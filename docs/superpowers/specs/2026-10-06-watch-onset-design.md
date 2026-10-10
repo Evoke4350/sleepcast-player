@@ -60,11 +60,14 @@ the start of the first stretch that begins at or after the night's start,
 within `MATCH_WINDOW_MS` (4 h) and before the next night's start (a 3am
 re-anchor is its own night). A stretch that began before the night's start
 doesn't count, nor does a stage change within it: the listener was awake to
-press start. A night whose start falls inside a stretch isn't timed at all:
+press start. A night whose start falls inside a stretch has no onset at all:
 the watch had the listener asleep as they pressed start, so it can't say when
 they fell asleep, and a stretch after a later wake, hours in, would pass for
-it. The notice says so, naming the night, whatever else it says. Only nights that began more than a minute (CONTIGUOUS_MS) after
-the window opened are matched (`timeableFrom`, which recordedUntimed uses
+it. That rules out the detector's guess too (and an earlier run's time, from
+samples since filled in): the night becomes `detector: "watch"` with no
+onset, its guess kept as `inferredAtMs`, and merges keep that finding as they
+keep a watch time. Only nights that began more than a minute (CONTIGUOUS_MS) after
+the window opened are matched (`timeableFrom`, which the notice's "run it again later" uses
 too, so the notice never asks for a run that can't time a night): for
 an earlier one the window may have cut its sleep off (whether it began before
 the night's start is unknown, and a stage change after a brief wake would pass
@@ -141,7 +144,10 @@ touches would read as awake ones and make the detector bolder.
   30 s (it may be playing in another tab). Its last-night record says
   "ended", not "faded", so no 3am re-anchor offers to continue it. The line also says when lines
   couldn't be read, when nothing was new, and when the re-timed nights
-  couldn't be stored.
+  couldn't be stored. Each night stored without the watch's time is named
+  with its one reason (a killed tab's night to run again for, or that no run
+  can time; a night the watch had the listener asleep at the start of),
+  whatever else the line says.
 - A link landing in a tab already open (only the fragment changes) is held
   and offered on the home screen ("your watch's night came in: read it"),
   read by a reload when tapped: never a reload by itself, which could end a

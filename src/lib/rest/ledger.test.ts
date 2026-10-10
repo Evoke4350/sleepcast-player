@@ -295,6 +295,11 @@ describe("labels and merges with a night recorded twice", () => {
     const [merged] = withNight([watched], n({ detector: "none", sleptAtMs: null, timeToSleepMs: null }));
     expect(merged).toMatchObject({ detector: "watch", sleptAtMs: 300_000, inferredAtMs: 600_000, onsetFeedId: "a", timeline });
   });
+  it("withNight keeps the watch's finding of no onset (asleep at the start) over a woken tab's guess", () => {
+    const ruledOut = n({ detector: "watch", sleptAtMs: null, timeToSleepMs: null, inferredAtMs: 600_000 });
+    const [merged] = withNight([ruledOut], n({ interactions: 2 }));
+    expect(merged).toMatchObject({ detector: "watch", sleptAtMs: null, timeToSleepMs: null, inferredAtMs: 600_000, interactions: 2 });
+  });
 });
 
 describe("loadNights and copies of a night", () => {
