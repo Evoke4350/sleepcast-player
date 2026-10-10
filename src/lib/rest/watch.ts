@@ -49,12 +49,10 @@ export const MAX_SAMPLES = 2000;
  *  bound on the work a crafted link can make, not on a real payload. */
 export const MAX_PAYLOAD_CHARS = 1_000_000;
 
-/** WATCH_HASH as a link encoded whole writes it ("%23watch%3D"), its
- *  escapes' hex in either case, the rest as written: from WATCH_HASH, so the
- *  key lives in one place. */
-const ENCODED_HASH = new RegExp(
-  encodeURIComponent(WATCH_HASH).replace(/%([0-9A-F])([0-9A-F])/g, (_, a: string, b: string) => `%[${a}${a.toLowerCase()}][${b}${b.toLowerCase()}]`),
-);
+/** WATCH_HASH as a link encoded whole writes it ("%23watch%3D"), matched in
+ *  any case (its decoding must still hold WATCH_HASH itself): from
+ *  WATCH_HASH, so the key lives in one place, its regex characters escaped. */
+const ENCODED_HASH = new RegExp(encodeURIComponent(WATCH_HASH).replace(/[.*+?^${}()|[\]\\]/g, (c) => `\\${c}`), "i");
 
 /** The most of a paste looked through for a link at all: room for any
  *  message around a link of MAX_PAYLOAD_CHARS. */
@@ -176,7 +174,7 @@ export function parseWatchPayload(text: string, now = Infinity): {
   // Past MAX_PAYLOAD_CHARS or MAX_LINES (anyone can write a link): not read
   // line by line, before the page's first paint spends long on it.
   const tooLong = { tooLong: true, windowStart: null, windowLine: null, badWindow: false, samples: [], unrecognised: 0, malformed: 0 };
-  if (text.length > MAX_PAYLOAD_CHARS) return tooLong;
+  if (tooLongToRead(text.length)) return tooLong;
   // Split no further than two past MAX_LINES, so many short lines cost
   // little; a final line break (an empty last piece) isn't a line.
   const raw = text.split(/\r?\n/, MAX_LINES + 2);
@@ -496,11 +494,14 @@ function hasEscape(s: string): boolean {
  *  still encoded. Read by the payload's own grammar only: whatever else
  *  comes with it (a message's words, a quote marker) refuses the import,
  *  which changes nothing, rather than being guessed away. */
-export function payloadFromPaste(text: string): string {
+export function payloadFromPaste(pasted: string): string {
+  // (Trimmed before anything is measured, so the measures and the parse
+  // agree.)
+  const text = pasted.trim();
   // Far too long to look through at all (no message around a link is this
   // long): passed on as it is, to be refused. Past here, nothing is decoded
   // without its own length checked first (MAX_PAYLOAD_CHARS).
-  if (text.length > PASTE_MAX_CHARS) return text;
+  if (tooLongToRead(text.length, PASTE_MAX_CHARS)) return text;
   const i = text.indexOf(WATCH_HASH);
   if (i >= 0) return linkPayload(text.slice(i + WATCH_HASH.length));
   // A link percent-encoded whole: that token decoded by itself (its size
@@ -520,8 +521,7 @@ export function payloadFromPaste(text: string): string {
     const k = link.indexOf(WATCH_HASH);
     if (k >= 0) return linkPayload(link.slice(k + WATCH_HASH.length) + text.slice(end));
   }
-  // (Trimmed before it is measured, so the measure and the parse agree.)
-  return decodeWithin(text.trim()).trim();
+  return decodeWithin(text).trim();
 }
 
 /** The payload of a pasted link, from what follows its WATCH_HASH. Measured
