@@ -517,8 +517,8 @@ function linkPayload(after: string): string {
   // one token, with any that follow still encoded (a url-encoded payload has
   // no whitespace of its own, so whitespace between is where it was
   // wrapped), less what a message put after it. Unless the next word goes
-  // on unencoded (a "~" and no escape: the link encoded only in part), or the first one
-  // isn't encoded whole: then the rest is read with it.
+  // on unencoded (a "~" and no escape: the link encoded only in part), or
+  // the first one isn't encoded whole: then the rest is read with it.
   const tokens = after.match(/\S+/g) ?? [];
   const encoded = (t: string | undefined) => !!t && hasEscape(t) && !t.includes(":");
   const partly = !encoded(tokens[1]) && !!tokens[1]?.includes("~");
