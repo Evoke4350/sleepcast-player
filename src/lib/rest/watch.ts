@@ -63,12 +63,8 @@ const LINK_START = new RegExp(
   "g",
 );
 
-/** How many links in one paste are tried. */
+/** How many links in one paste are tried, each read in full. */
 const MAX_LINKS_TRIED = 8;
-
-/** How much of a link's start is decoded to see whether it opens with its
- *  window line: blank lines and the line itself fit many times over. */
-const PROBE_CHARS = 2000;
 
 /** Whether a payload opens with its window line, as parseWatchPayload reads
  *  it: blank lines skipped, then WINDOW_LINE. */
@@ -526,11 +522,11 @@ export function payloadFromPaste(pasted: string): string {
   // without its own length checked first (MAX_PAYLOAD_CHARS).
   if (tooLongToRead(text.length, PASTE_MAX_CHARS)) return text;
   // Each link in it, plain or percent-encoded whole, in the order they
-  // come, until one reads as a payload that opens with its window line (as
-  // the parser reads it, tried on a short decoded start of it before the
-  // whole is read): a mention of #watch= before the link, or a quoted broken
-  // attempt, doesn't hide it. A few at most (MAX_LINKS_TRIED). Failing that,
-  // the first plain one, read as it is (a Shortcut built before the window
+  // come, until one reads (as it would be read: one rule) as a payload that
+  // opens with its window line, as the parser reads it: a mention of
+  // #watch= before the link, or a quoted broken attempt, doesn't hide it. A
+  // few at most (MAX_LINKS_TRIED), each read bounded by MAX_PAYLOAD_CHARS.
+  // Failing that, the first plain one (a Shortcut built before the window
   // line is told so).
   const re = new RegExp(LINK_START);
   let firstPlain: number | null = null;
@@ -538,7 +534,8 @@ export function payloadFromPaste(pasted: string): string {
     const at = m.index + m[0].length;
     if (m[0] === WATCH_HASH) {
       firstPlain ??= at;
-      if (opensWithWindow(decodeLeniently(text.slice(at, at + PROBE_CHARS)))) return linkPayload(text.slice(at));
+      const payload = linkPayload(text.slice(at));
+      if (opensWithWindow(payload)) return payload;
     } else {
       // Encoded whole: decoded once from here (its #watch= on) to the
       // whitespace after it, its size checked first, at twice the
@@ -547,8 +544,8 @@ export function payloadFromPaste(pasted: string): string {
       const ws = /\s/g;
       ws.lastIndex = at;
       const end = ws.exec(text)?.index ?? text.length;
-      const probe = decodeLeniently(decodeLeniently(text.slice(at, Math.min(end, at + PROBE_CHARS))));
-      if (opensWithWindow(probe)) return linkPayload(decodeWithin(text.slice(at, end), 2 * MAX_PAYLOAD_CHARS) + text.slice(end));
+      const payload = linkPayload(decodeWithin(text.slice(at, end), 2 * MAX_PAYLOAD_CHARS) + text.slice(end));
+      if (opensWithWindow(payload)) return payload;
       re.lastIndex = Math.max(re.lastIndex, end);
     }
   }

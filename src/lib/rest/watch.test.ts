@@ -988,8 +988,8 @@ describe("data already read, or from days ago", () => {
     const inner = encodeURIComponent("https://sleepcast.pro/#watch=" + encodeURIComponent(`window~2026-10-04T09:00:00+01:00\n${s}`));
     expect(parseWatchPayload(payloadFromPaste(`https://sleepcast.pro/#watch=${inner}`)).samples).toHaveLength(1);
   });
-  it("reads a link encoded whole whose payload opens with a blank line", () => {
-    const payload = "\nwindow~2026-10-04T09:00:00+01:00\n2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core";
+  it("reads a link encoded whole whose payload opens with blank lines, any number", () => {
+    const payload = "\n".repeat(500) + "window~2026-10-04T09:00:00+01:00\n2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core";
     const encoded = encodeURIComponent("https://sleepcast.pro/#watch=" + encodeURIComponent(payload));
     expect(parseWatchPayload(payloadFromPaste(encoded)).samples).toHaveLength(1);
   });
@@ -1000,7 +1000,13 @@ describe("data already read, or from days ago", () => {
     expect(parseWatchPayload(`${lines}x`).tooLong).toBe(true);
   });
   it("reads a paste of many encoded-looking tokens in one pass, not one call each", () => {
-    expect(() => payloadFromPaste("%23watch%3D ".repeat(80_000))).not.toThrow();
+    // Bounded work for crafted input, whatever its shape: timed, as the cap
+    // alone would let a per-token cost before or after the loop pass.
+    for (const crafted of ["%23watch%3D ".repeat(80_000), "#watch= ".repeat(400_000), "%23watch%3D".repeat(300_000)]) {
+      const t0 = performance.now();
+      expect(() => payloadFromPaste(crafted)).not.toThrow();
+      expect(performance.now() - t0).toBeLessThan(2000);
+    }
   });
   it("finds a percent-encoded link's start across any whitespace, as its end", () => {
     const link = "https://sleepcast.pro/#watch=" + encodeURIComponent("window~2026-10-04T09:00:00+01:00\n2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core");
