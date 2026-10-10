@@ -25,7 +25,7 @@ import type { RestNight } from "./types";
 
 const MIN = 60_000;
 /** An import's flags, all clear. */
-const FLAGS = { unsaved: false, noWindow: false, badWindow: false, repeat: false, stale: false, slept: 1 };
+const FLAGS = { unsaved: false, noWindow: false, badWindow: false, repeat: false, stale: false, tooLong: false, slept: 1 };
 const START = Date.parse("2026-10-05T23:00:00-07:00");
 // The clock, for every import not given one: the morning after the data
 // here, which a real clock would one day judge stale.
@@ -201,7 +201,7 @@ describe("watchOnset", () => {
     const r = apply([night()], [asleepAt(-5 * MIN, 150 * MIN), awakeAt(145 * MIN, 15 * MIN), asleepAt(160 * MIN, 60 * MIN)], START - 60 * MIN);
     expect([r.timed, r.asleepAtStart, r.nights]).toEqual([[], [START], [night()]]);
     const asleep = { startedAt: START, why: "asleep" as const };
-    const base = { timed: [], unchanged: 0, unsaved: false, noWindow: false, badWindow: false, repeat: false, stale: false, slept: 2, untimed: [asleep], unrecognised: 0, malformed: 0 };
+    const base = { timed: [], unchanged: 0, unsaved: false, noWindow: false, badWindow: false, repeat: false, stale: false, tooLong: false, slept: 2, untimed: [asleep], unrecognised: 0, malformed: 0 };
     expect(watchNotice(base)).toMatch(/^\w+ \w+ has no watch time: your watch had you asleep before sleepcast started\.$/);
     // ...beside a night already timed, or an older one timed,
     expect(watchNotice({ ...base, unchanged: 1 })).toMatch(/^\w+ \w+ has no watch time: .*started\. the nights your watch timed before keep their times\.$/);
@@ -222,7 +222,7 @@ describe("watchOnset", () => {
     expect(apply([stopped], [asleepAt(3 * MIN + AFTER_END_MS - 1)], START - 60 * MIN).timed).toHaveLength(1);
   });
   it("adds a time where an untimed night shares last night's name, and only then", () => {
-    const base = { unchanged: 0, unsaved: false, noWindow: false, badWindow: false, repeat: false, stale: false, slept: 1, unrecognised: 0, malformed: 0 };
+    const base = { unchanged: 0, unsaved: false, noWindow: false, badWindow: false, repeat: false, stale: false, tooLong: false, slept: 1, unrecognised: 0, malformed: 0 };
     // Asleep at the evening's first start; the restart after, timed: the newest.
     const same = watchNotice({ ...base, timed: [{ startedAt: START + 40 * MIN, atMs: 12 * MIN, inferredAtMs: null }], untimed: [{ startedAt: START, why: "asleep" }] });
     expect(same).toMatch(/\(from \d+:\d{2}[ap]m\) has no watch time/);
@@ -233,7 +233,7 @@ describe("watchOnset", () => {
     const notice = watchNotice({
       timed: [{ startedAt: START, atMs: 12 * MIN, inferredAtMs: null }, { startedAt: START + 24 * 60 * MIN, atMs: 9 * MIN, inferredAtMs: null }],
       untimed: [{ startedAt: START + 40 * MIN, why: "asleep" }],
-      unchanged: 0, unsaved: false, noWindow: false, badWindow: false, repeat: false, stale: false, slept: 2, unrecognised: 0, malformed: 0,
+      unchanged: 0, unsaved: false, noWindow: false, badWindow: false, repeat: false, stale: false, tooLong: false, slept: 2, unrecognised: 0, malformed: 0,
     });
     expect(notice).toMatch(/\(from \d+:\d{2}[ap]m\) has no watch time/);
   });
@@ -245,7 +245,7 @@ describe("watchOnset", () => {
     expect(apply([night({ endedAt: START - 60 * MIN })], [asleepAt(10 * MIN)], START - 60 * MIN).timed).toHaveLength(1);
   });
   it("says to check sleep tracking when no sleep came, even beside a kept time", () => {
-    const r = { timed: [], unchanged: 1, unsaved: false, noWindow: false, badWindow: false, repeat: false, stale: false, slept: 0, unrecognised: 0, malformed: 0 };
+    const r = { timed: [], unchanged: 1, unsaved: false, noWindow: false, badWindow: false, repeat: false, stale: false, tooLong: false, slept: 0, unrecognised: 0, malformed: 0 };
     expect(watchNotice(r)).toMatch(/check sleep tracking/);
   });
   it("counts a night the watch timed before, and this run doesn't, as unchanged", () => {
@@ -259,7 +259,7 @@ describe("watchOnset", () => {
       timed: [{ startedAt: START, atMs: 10 * MIN, inferredAtMs: null }],
       latestIsOlder: true,
       untimed: [{ startedAt: later, why: "asleep" }],
-      unchanged: 0, unsaved: false, noWindow: false, badWindow: false, repeat: false, stale: false, slept: 1, unrecognised: 0, malformed: 0,
+      unchanged: 0, unsaved: false, noWindow: false, badWindow: false, repeat: false, stale: false, tooLong: false, slept: 1, unrecognised: 0, malformed: 0,
     });
     const [a, b] = [...notice.matchAll(/\(from (\d+:\d{2}[ap]m)\)/g)].map((m) => m[1]);
     expect(a).toBeDefined();
@@ -860,7 +860,7 @@ describe("data already read, or from days ago", () => {
     appendNight(night(), Date.now());
     importWatch(payload, START + 10 * 60 * MIN);
     const wide = `window~2026-10-02T11:00:00-07:00\n2026-10-05T23:04:00-07:00~2026-10-05T23:30:00-07:00~Core`;
-    expect(importWatch(wide, START + 11 * 60 * MIN)).toMatchObject({ repeat: false, stale: false, unchanged: 1 });
+    expect(importWatch(wide, START + 11 * 60 * MIN)).toMatchObject({ repeat: false, stale: false, tooLong: false, unchanged: 1 });
   });
   it("is refused when its newest sample is from days ago (a link read before this was kept)", () => {
     appendNight(night(), Date.now());
@@ -897,21 +897,24 @@ describe("data already read, or from days ago", () => {
     expect(watchNotice(importWatch(`${payload}\n2026-10-07T01:00`, START + 10 * 60 * MIN))).toMatch(/read before/);
   });
   it("says \"yet\" only beside a night a later run can time", () => {
-    const base = { ...FLAGS, repeat: false, stale: false, timed: [], unchanged: 0, unrecognised: 0, malformed: 0 };
+    const base = { ...FLAGS, repeat: false, stale: false, tooLong: false, timed: [], unchanged: 0, unrecognised: 0, malformed: 0 };
     expect(watchNotice({ ...base, untimed: [{ startedAt: START, why: "recorded" }] })).toMatch(/^your watch's sleep didn't start inside a sleepcast night\. /);
     expect(watchNotice({ ...base, untimed: [{ startedAt: START, why: "later" }] })).toMatch(/inside a sleepcast night yet\. /);
     expect(watchNotice({ ...base, slept: 0, untimed: [{ startedAt: START, why: "recorded" }] })).toMatch(/^nothing from your watch \(check sleep tracking is on\)\. /);
     expect(watchNotice({ ...base, slept: 0, untimed: [{ startedAt: START, why: "later" }] })).toMatch(/^nothing from your watch yet \(check/);
   });
   it("keeps a paste to fix, not one read before or days old", () => {
-    const base = { timed: [], unchanged: 0, unsaved: false, noWindow: false, badWindow: false, repeat: false, stale: false, slept: 1, unrecognised: 0, malformed: 0 };
+    const base = { timed: [], unchanged: 0, unsaved: false, noWindow: false, badWindow: false, repeat: false, stale: false, tooLong: false, slept: 1, unrecognised: 0, malformed: 0 };
     expect(pasteWorthKeeping({ ...base, badWindow: true, stale: true })).toBe(true);
     expect(pasteWorthKeeping({ ...base, repeat: true })).toBe(false);
     expect(pasteWorthKeeping({ ...base, malformed: 1 })).toBe(true);
     expect(pasteWorthKeeping(base)).toBe(false);
   });
   it("refuses a payload past MAX_LINES without reading it line by line", () => {
-    expect(parseWatchPayload("x\n".repeat(MAX_LINES + 5)).malformed).toBe(6);
+    expect(parseWatchPayload("x\n".repeat(MAX_LINES + 5)).tooLong).toBe(true);
+    const r = importWatch(`${OPENS_LINE}\n${"x\n".repeat(MAX_LINES)}`);
+    expect([r.noWindow, isRefused(r), pasteWorthKeeping(r)]).toEqual([false, true, false]);
+    expect(watchNotice(r)).toMatch(/far longer/);
   });
   it("names a missing window line ahead of the data's age", () => {
     const r = importWatch("2026-10-05T23:04:00-07:00~2026-10-05T23:30:00-07:00~Core", START + 7 * 24 * 60 * MIN);

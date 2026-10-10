@@ -28,7 +28,8 @@ the future (an adjust-date step left adding) is a bad one; a window line already
 as the stale check would let its data through) is a link reopened from history or a clipboard pasted again, refused,
 as it would close tonight's night and re-time nights to that run's samples (any
 fresh run has a line of its own); a payload whose newest sample is older than
-`STALE_AFTER_MS` (the Shortcut's two days and the three it may be read late)
+`STALE_AFTER_MS` (3.5 days: the three it may be read late, and the half day
+before the run its newest sample may come from)
 is refused too, for a link read before the lines were kept; without the line
 the import is
 refused, with a notice pointing at the updated steps), then one sample per
@@ -98,8 +99,8 @@ Attribution (onset feed and episode, `onsetAfterMs`, `sleptThrough`) is redone
 from the night's `timeline` with the same function `RestSession.finish` uses
 (`attribution`, rest/attribution.ts). To make that possible, nights now record:
 
-- `timeline`: the night's episode starts, kept `TIMELINE_KEEP_MS` (3 days: the Shortcut reads two, and its data may be
-  read later, a paste or a held link) and
+- `timeline`: the night's episode starts, kept `TIMELINE_KEEP_MS` (`STALE_AFTER_MS` plus the Shortcut's 49 h reach:
+  every night data read that late can reach) and
   pruned on every ledger write (`storeNights`), so 90 nights of episode ids don't crowd
   storage;
 - `endedAt`: an onset after the night ended credits no show (the audio had

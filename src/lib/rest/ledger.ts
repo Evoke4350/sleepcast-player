@@ -2,6 +2,7 @@ import type { RestNight, RestRollup, DetectorParams } from "./types";
 import { retimed } from "./attribution";
 import { median } from "./stats";
 import { writeMakingRoom } from "../store";
+import { SHORTCUT_REACH_MS, STALE_AFTER_MS } from "./watch-hash";
 import { DEFAULT_PARAMS, LAMBDA_MAX, TICK_MS, quietTicksToDecide } from "./detector";
 
 const KEY = "sleepcast2.rest";
@@ -71,12 +72,11 @@ export function loadNights(): RestNight[] {
 }
 
 /** How long a night keeps its timeline: as long as a watch import can
- *  still reach it, and not much longer, so 90 nights of episode ids don't
- *  crowd local storage. The Shortcut reads two days (49 h across a DST
- *  change) back from when it ran, and its data can be read later still: a
- *  paste of a clipboard copied hours before, a held link read that evening.
- *  Pruning goes by each write's time, so the keep covers both. */
-export const TIMELINE_KEEP_MS = 3 * 24 * 60 * 60 * 1000;
+ *  still reach it, and no longer, so 90 nights of episode ids don't crowd
+ *  local storage. Data is read up to STALE_AFTER_MS late, and reaches
+ *  SHORTCUT_REACH_MS back from its run. Pruning goes by each write's time,
+ *  so the keep covers both. */
+export const TIMELINE_KEEP_MS = STALE_AFTER_MS + SHORTCUT_REACH_MS;
 
 /** Records a night; whether the save took. A night older than every one
  *  the cap keeps is, like any night past the cap, not kept: recorded all the

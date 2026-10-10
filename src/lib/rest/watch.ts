@@ -16,11 +16,11 @@
 // onset.
 import type { RestNight } from "./types";
 import { retimed } from "./attribution";
-import { lastOf, loadNights, storeNights, withNight, TIMELINE_KEEP_MS } from "./ledger";
+import { lastOf, loadNights, storeNights, withNight } from "./ledger";
 import { writeMakingRoom } from "../store";
 import { median } from "./stats";
 import { killedNightToRecord } from "./reconcile";
-import { WATCH_HASH } from "./watch-hash";
+import { STALE_AFTER_MS, WATCH_HASH } from "./watch-hash";
 import { NIGHT_ENDS_HOUR } from "./reanchor";
 import { fmtOnsetMinutes, underAMinute } from "./sleepscore";
 
@@ -44,6 +44,10 @@ export const MAX_SAMPLES = 2000;
 /** The most lines a payload may have at all: two days of samples come to a
  *  few hundred; many times MAX_SAMPLES is no Shortcut's. */
 export const MAX_LINES = 10 * MAX_SAMPLES;
+
+/** The most characters a payload (or a pasted link) may have, checked
+ *  before it is decoded or split: MAX_LINES of generous lines. */
+export const MAX_PAYLOAD_CHARS = MAX_LINES * 150;
 
 /** Health's sleep stages, by code (HKCategoryValueSleepAnalysis, for a
  *  Shortcut that hands the value over as a number: in bed 0, asleep
@@ -131,6 +135,8 @@ function parseLine(line: string): SleepSample | "malformed" | "unrecognised" {
  *  name or code), which most likely means the Shortcut's format is off.
  *  Blank lines are neither. */
 export function parseWatchPayload(text: string, now = Infinity): {
+  /** Past MAX_PAYLOAD_CHARS or MAX_LINES: not read at all. */
+  tooLong: boolean;
   windowStart: number | null;
   /** The window line as written: what identifies a run's data. */
   windowLine: string | null;
@@ -139,11 +145,12 @@ export function parseWatchPayload(text: string, now = Infinity): {
   unrecognised: number;
   malformed: number;
 } {
+  // Past MAX_PAYLOAD_CHARS or MAX_LINES (anyone can write a link): not read
+  // line by line, before the page's first paint spends long on it.
+  const tooLong = { tooLong: true, windowStart: null, windowLine: null, badWindow: false, samples: [], unrecognised: 0, malformed: 0 };
+  if (text.length > MAX_PAYLOAD_CHARS) return tooLong;
   const all = text.split(/\r?\n/);
-  // Past MAX_LINES (anyone can write a link), not read line by line: the
-  // excess refuses it as lines that don't read, before the page's first
-  // paint spends long on it.
-  if (all.length > MAX_LINES) return { windowStart: null, windowLine: null, badWindow: false, samples: [], unrecognised: 0, malformed: all.length - MAX_LINES };
+  if (all.length > MAX_LINES) return tooLong;
   const lines = all.map((l) => l.trim()).filter(Boolean);
   let windowStart: number | null = null;
   let windowLine: string | null = null;
@@ -181,7 +188,7 @@ export function parseWatchPayload(text: string, now = Infinity): {
       windowStart = Math.max(windowStart, p.end);
     }
   });
-  return { windowStart, windowLine, badWindow, samples, unrecognised, malformed };
+  return { tooLong: false, windowStart, windowLine, badWindow, samples, unrecognised, malformed };
 }
 
 /** Whether a sample is sleep: an asleep stage, of some length (a
@@ -296,12 +303,6 @@ function saveRead(read: readonly ReadRun[], line: string, now: number): void {
   }
 }
 
-/** How old a payload's newest sample can be and still be read: the
- *  Shortcut's two days, and as long again as its data may be read late (a
- *  paste, a held link: TIMELINE_KEEP_MS). Older, it is a link reopened from
- *  history (one read before this was kept, say): refused. By its samples,
- *  not its window, so a run that reads further back isn't. */
-export const STALE_AFTER_MS = 2 * 24 * 60 * 60_000 + TIMELINE_KEEP_MS;
 
 export interface WatchTiming {
   startedAt: number;
@@ -381,25 +382,37 @@ export function applyWatch(
   };
 }
 
-/** Every reason a payload is refused for its content, in one place. */
-function refusedFor(r: Pick<WatchImport, "noWindow" | "badWindow" | "repeat" | "stale" | "unrecognised" | "malformed">): boolean {
-  return r.noWindow || r.badWindow || r.repeat || r.stale || r.unrecognised > 0 || r.malformed > 0;
+/** Why an import changed nothing, the first reason in the order its
+ *  notice gives them, or null when it didn't. The one place the reasons and
+ *  their order live: the notice, isRefused and the paste box follow it. */
+export type Refusal = "tooLong" | "badWindow" | "noWindow" | "repeat" | "stale" | "unsaved" | "malformed" | "unrecognised";
+export function refusal(
+  r: Pick<WatchImport, "tooLong" | "noWindow" | "badWindow" | "repeat" | "stale" | "unsaved" | "unrecognised" | "malformed">,
+): Refusal | null {
+  if (r.tooLong) return "tooLong";
+  if (r.badWindow) return "badWindow";
+  // Before the other format checks: a missing (or misplaced) window line is
+  // the structural problem, and a misplaced one also reads as a bad line.
+  if (r.noWindow) return "noWindow";
+  if (r.repeat) return "repeat";
+  if (r.stale) return "stale";
+  if (r.unsaved) return "unsaved";
+  if (r.malformed) return "malformed";
+  if (r.unrecognised) return "unrecognised";
+  return null;
+}
+
+/** Whether an import changed nothing (refused, or not saved). */
+export function isRefused(r: WatchImport): boolean {
+  return refusal(r) !== null;
 }
 
 /** Whether a refused paste is worth keeping in the box: for the reason its
- *  notice gives (in the notice's order), one the listener can fix or retry;
- *  not data read before or days old, which no retry changes. */
+ *  notice gives (refusal), one the listener can fix or retry; not data read
+ *  before, days old or far too long, which no retry changes. */
 export function pasteWorthKeeping(r: WatchImport): boolean {
-  if (!isRefused(r)) return false;
-  if (r.badWindow || r.noWindow) return true;
-  return !r.repeat && !r.stale;
-}
-
-/** Whether an import changed nothing: refused for its content, or not
- *  saved (a killed tab's night included), so a paste is worth keeping to
- *  look at. */
-export function isRefused(r: WatchImport): boolean {
-  return refusedFor(r) || r.unsaved;
+  const why = refusal(r);
+  return why !== null && why !== "repeat" && why !== "stale" && why !== "tooLong";
 }
 
 export interface WatchImport {
@@ -429,6 +442,8 @@ export interface WatchImport {
   /** A window line whose date didn't read, or that opens in the future:
    *  refused. */
   badWindow: boolean;
+  /** Past MAX_PAYLOAD_CHARS or MAX_LINES: not read, refused. */
+  tooLong: boolean;
   /** A window line already read (a link reopened from history, a
    *  clipboard pasted again): refused. */
   repeat: boolean;
@@ -451,6 +466,8 @@ function hasEscape(s: string): boolean {
  *  comes with it (a message's words, a quote marker) refuses the import,
  *  which changes nothing, rather than being guessed away. */
 export function payloadFromPaste(text: string): string {
+  // (Too long to read: passed on as it is, for parseWatchPayload to refuse.)
+  if (text.length > MAX_PAYLOAD_CHARS) return text;
   const i = text.indexOf(WATCH_HASH);
   if (i < 0) {
     // A link percent-encoded whole: decoded by itself, so the words around
@@ -493,10 +510,10 @@ function unpunctuated(s: string): string {
  *  malformed line: a sample missing from inside a stretch splits it, and
  *  its next stage change would pass for falling asleep. */
 export function importWatch(text: string, now = Date.now()): WatchImport {
-  const { windowStart, windowLine, badWindow, samples, unrecognised, malformed } = parseWatchPayload(text, now);
+  const { tooLong, windowStart, windowLine, badWindow, samples, unrecognised, malformed } = parseWatchPayload(text, now);
   // No window line, samples or not: a Shortcut built before it was added
   // (or not this Shortcut's text at all) is told to use the updated steps.
-  const noWindow = windowStart === null && !badWindow;
+  const noWindow = windowStart === null && !badWindow && !tooLong;
   // One pass for what the samples say as a whole: how many are sleep, and
   // how recent the newest is.
   let slept = 0;
@@ -510,7 +527,7 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
   // says which reason comes first).
   const read = loadRead(now);
   const repeat = windowLine !== null && read.some((r) => r.line === windowLine);
-  const refusedContent = refusedFor({ noWindow, badWindow, repeat, stale, unrecognised, malformed });
+  const refusedContent = refusal({ tooLong, noWindow, badWindow, repeat, stale, unsaved: false, unrecognised, malformed }) !== null;
   let timed: WatchTiming[] = [];
   let unchanged = 0;
   let unsaved = false;
@@ -575,6 +592,7 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
     ...(saved ? { nights: saved } : {}),
     noWindow,
     badWindow,
+    tooLong,
     repeat,
     stale,
     ...(latestIsOlder ? { latestIsOlder } : {}),
@@ -592,7 +610,9 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
  *  then counts as malformed, and the notice says so). */
 export function watchPayloadFromHash(hash: string): string | null {
   if (!hash.startsWith(WATCH_HASH)) return null;
-  return decodeLeniently(hash.slice(WATCH_HASH.length));
+  const raw = hash.slice(WATCH_HASH.length);
+  // (Too long to read: passed on as it is, for parseWatchPayload to refuse.)
+  return raw.length > MAX_PAYLOAD_CHARS ? raw : decodeLeniently(raw);
 }
 
 function decodeLeniently(text: string): string {
@@ -667,24 +687,29 @@ function nightNamer(starts: readonly number[]): (startedAt: number) => string {
 
 /** What an import did, in a line for the listener. */
 export function watchNotice(r: WatchImport): string {
-  if (r.badWindow) {
-    return "the watch data's window line didn't read, or opens in the future, so nothing was changed: in the shortcut, the adjusted date should subtract 2 days, in iso 8601 with the time included, and a link's text should be url-encoded before it's opened.";
+  switch (refusal(r)) {
+    case "tooLong":
+      return `this watch data is far longer than the shortcut's, so nothing was changed: see the steps at ${WATCH_STEPS}.`;
+    case "badWindow":
+      return "the watch data's window line didn't read, or opens in the future, so nothing was changed: in the shortcut, the adjusted date should subtract 2 days, in iso 8601 with the time included, and a link's text should be url-encoded before it's opened.";
+    case "noWindow":
+      return `the watch shortcut needs its window line first, so nothing was changed: see the updated steps at ${WATCH_STEPS}.`;
+    case "repeat":
+      return "this watch data was read before, so nothing was changed: run the shortcut again for fresh data.";
+    case "stale":
+      return "this watch data is from days ago, so nothing was changed: run the shortcut again for fresh data.";
+    case "unsaved":
+      return "nothing could be saved: this browser's storage for sleepcast is full.";
+    case "malformed": {
+      const lines = r.malformed === 1 ? "a line" : `${r.malformed} lines`;
+      return `${lines} of the watch data didn't read, so nothing was changed: in the shortcut, check the text is start date~end date~value, with both dates iso 8601 and the time included.`;
+    }
+    case "unrecognised":
+      return "your watch's sleep stages didn't read, so nothing was changed: sleepcast reads them in english only for now, and each line should end with the stage alone.";
+    case null:
+      break;
   }
-  // Before the other format checks: a missing (or misplaced) window line is
-  // the structural problem, and a misplaced one also reads as a bad line.
-  if (r.noWindow) {
-    return `the watch shortcut needs its window line first, so nothing was changed: see the updated steps at ${WATCH_STEPS}.`;
-  }
-  if (r.repeat) return "this watch data was read before, so nothing was changed: run the shortcut again for fresh data.";
-  if (r.stale) return "this watch data is from days ago, so nothing was changed: run the shortcut again for fresh data.";
-  if (r.unsaved) return "nothing could be saved: this browser's storage for sleepcast is full.";
-  if (r.malformed) {
-    const lines = r.malformed === 1 ? "a line" : `${r.malformed} lines`;
-    return `${lines} of the watch data didn't read, so nothing was changed: in the shortcut, check the text is start date~end date~value, with both dates iso 8601 and the time included.`;
-  }
-  if (r.unrecognised) {
-    return "your watch's sleep stages didn't read, so nothing was changed: sleepcast reads them in english only for now, and each line should end with the stage alone.";
-  }
+
   // Each night stored without the watch's time, named with why, whatever
   // else the line says (it may be last night).
   const last = r.timed.at(-1);
