@@ -217,6 +217,17 @@ describe("watchOnset", () => {
     });
     expect(notice).toMatch(/\(from \d+:\d{2}[ap]m\) has no watch time/);
   });
+  it("keeps no guess the listener said was wrong", () => {
+    const disowned = night({ selfLabel: "awake", sleptAtMs: 8 * MIN, timeToSleepMs: 8 * MIN });
+    expect(applyWatch([disowned], [asleepAt(45 * MIN)], START - 60 * MIN).nights[0]).toMatchObject({ detector: "watch", sleptAtMs: 45 * MIN, inferredAtMs: null });
+  });
+  it("still counts an end before the start as the start, for a night stored before finish clamped it", () => {
+    expect(applyWatch([night({ endedAt: START - 60 * MIN })], [asleepAt(10 * MIN)], START - 60 * MIN).timed).toHaveLength(1);
+  });
+  it("says to check sleep tracking when no sleep came, even beside a kept time", () => {
+    const r = { timed: [], unchanged: 1, unsaved: false, noWindow: false, badWindow: false, slept: 0, unrecognised: 0, malformed: 0 };
+    expect(watchNotice(r)).toMatch(/check sleep tracking/);
+  });
   it("counts a night the watch timed before, and this run doesn't, as unchanged", () => {
     const timed = night({ detector: "watch", sleptAtMs: 10 * MIN, timeToSleepMs: 10 * MIN, inferredAtMs: 20 * MIN });
     expect(applyWatch([timed], [asleepAt(-5 * MIN, 60 * MIN)], START - 60 * MIN).unchanged).toBe(1);

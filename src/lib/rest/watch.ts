@@ -232,8 +232,11 @@ export function timeableFrom(windowStart: number): number {
 
 /** Every night the samples time, re-timed; the rest as they were, in the
  *  same order. `timed` lists the nights whose time this changed;
- *  `unchanged` counts those the watch had already timed the same (the
- *  Shortcut reads two days, so each morning re-reads the night before).
+ *  `unchanged` counts those the watch had already timed and keep that time:
+ *  timed the same again (the Shortcut reads two days, so each morning
+ *  re-reads the night before), or not timed by this run at all (a timed
+ *  night stays timed). `asleepAtStart` lists the others the watch had the
+ *  listener asleep at the start of, which keep what they have.
  *  Only nights from timeableFrom(windowStart): for an earlier one the
  *  window may have cut its sleep off (whether it began before the night's
  *  start is unknown, and a stage change after a brief wake would pass for
@@ -255,19 +258,17 @@ export function applyWatch(
   const out = nights.map((n) => {
     if (n.startedAt < from) return n;
     // Before the next night's start, and not long after this one ended.
-    const end = n.endedAt === undefined ? Infinity : n.endedAt + AFTER_END_MS;
+    // (An end before the start, from a clock set back, counts as the start:
+    // finish clamps it, but a ledger may hold one written before it did.)
+    const end = n.endedAt === undefined ? Infinity : Math.max(n.startedAt, n.endedAt) + AFTER_END_MS;
     const until = Math.min(next.get(n.startedAt) ?? Infinity, end);
     const at = watchOnset(n.startedAt, stretches, until);
-    // Not timed by this run: the night keeps what it has. One the watch
-    // timed before stays timed, unchanged; one it had the listener asleep
-    // at the start of is said.
-    if (at === null || at === "asleep") {
+    // Not timed anew: the night keeps what it has. One the watch timed
+    // before stays timed, unchanged; one it had the listener asleep at the
+    // start of is said.
+    if (typeof at !== "number" || (n.detector === "watch" && n.sleptAtMs === at)) {
       if (n.detector === "watch") unchanged++;
       else if (at === "asleep") atStart.push(n.startedAt);
-      return n;
-    }
-    if (n.detector === "watch" && n.sleptAtMs === at) {
-      unchanged++;
       return n;
     }
     const r = retimed(n, at);
@@ -555,7 +556,8 @@ export function watchNotice(r: WatchImport): string {
   const name = nightNamer([...(r.untimed ?? []), ...r.timed].map((x) => x.startedAt));
   const notes = (r.untimed ?? []).map(({ startedAt, why }) => ` ${name(startedAt)} ${UNTIMED_WHY[why]}.`).join("");
   if (!last) {
-    if (r.unchanged) return `nothing new from your watch since it last ran.${notes}`;
+    // (With no sleep at all handed over, the hint below says more.)
+    if (r.unchanged && r.slept) return `nothing new from your watch since it last ran.${notes}`;
     // Nights the watch had someone asleep at the start of: why, said.
     if (r.untimed?.some((u) => u.why === "asleep")) return notes.trim();
     if (notes) return `${r.slept ? "no sleep from your watch inside a sleepcast night yet." : "nothing from your watch yet."}${notes}`;

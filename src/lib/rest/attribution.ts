@@ -47,7 +47,9 @@ export function onsetAfterEnd(n: RestNight, atMs: number): boolean {
  *  "slept" or "awake" label was on the detector's claim, which the watch
  *  replaces. */
 export function retimed(n: RestNight, atMs: number): RestNight {
-  const inferredAtMs = n.detector === "watch" ? (n.inferredAtMs ?? null) : n.sleptAtMs;
+  // The detector's guess, kept to compare (and calibrate from), unless the
+  // listener said it was wrong ("awake"): then there is none.
+  const inferredAtMs = n.detector === "watch" ? (n.inferredAtMs ?? null) : n.selfLabel === "awake" ? null : n.sleptAtMs;
   const { selfLabel: _l, onsetFeedId: _f, onsetEpisodeId: _e, onsetAfterMs: _a, sleptThrough: _s, ...base } = n;
   const covering = n.timeline?.some((e) => e.t <= atMs) ? n.timeline : undefined;
   return {

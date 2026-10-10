@@ -83,7 +83,7 @@ night is timed too.
 
 A matched night becomes `detector: "watch"`, `sleptAtMs`/`timeToSleepMs` the
 watch's onset, and keeps the detector's onset as `inferredAtMs` (null when it
-found none). Re-importing is idempotent: `inferredAtMs` keeps the detector's
+found none, or the listener said it was wrong: labelled "awake"). Re-importing is idempotent: `inferredAtMs` keeps the detector's
 original. A night the watch already timed at the same onset is left alone
 and counted as unchanged, not re-timed (the Shortcut reads two days, so each
 morning re-reads the night before).
