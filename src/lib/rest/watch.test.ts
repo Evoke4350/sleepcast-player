@@ -166,37 +166,45 @@ describe("watchOnset", () => {
   });
   it("doesn't take a stage change in sleep that began before the start for falling asleep", () => {
     // Core from 10 min before start to 20 min after, then REM: one stretch.
-    expect(watchOnset(START, sleepStretches([asleepAt(-10 * MIN, 30 * MIN), asleepAt(20 * MIN, 30 * MIN)]))).toBeNull();
+    expect(watchOnset(START, sleepStretches([asleepAt(-10 * MIN, 30 * MIN), asleepAt(20 * MIN, 30 * MIN)]))).toBe("asleep");
     // Woke, then slept again: still unknown, as the watch had them asleep
     // when they pressed start (a stretch after a later wake, hours in,
     // would pass for falling asleep).
     expect(
       watchOnset(START, sleepStretches([asleepAt(-10 * MIN, 30 * MIN), awakeAt(20 * MIN, 10 * MIN), asleepAt(30 * MIN, 30 * MIN)])),
-    ).toBeNull();
+    ).toBe("asleep");
     // Sleep that ended before the start isn't under way at it.
     expect(watchOnset(START, sleepStretches([asleepAt(-40 * MIN, 30 * MIN), asleepAt(20 * MIN, 30 * MIN)]))).toBe(20 * MIN);
   });
-  it("rules the detector's guess out when the watch had the listener asleep at the start, and says so", () => {
+  it("leaves a night the watch had the listener asleep at the start of as it was, and says so", () => {
     const r = applyWatch([night()], [asleepAt(-5 * MIN, 150 * MIN), awakeAt(145 * MIN, 15 * MIN), asleepAt(160 * MIN, 60 * MIN)], START - 60 * MIN);
-    expect([r.timed, r.asleepAtStart]).toEqual([[], [START]]);
-    expect(r.nights[0]).toMatchObject({ detector: "watch", sleptAtMs: null, timeToSleepMs: null, inferredAtMs: night().sleptAtMs });
+    expect([r.timed, r.asleepAtStart, r.nights]).toEqual([[], [START], [night()]]);
     const asleep = { startedAt: START, why: "asleep" as const };
     const base = { timed: [], unchanged: 0, unsaved: false, noWindow: false, badWindow: false, slept: 2, untimed: [asleep], unrecognised: 0, malformed: 0 };
-    expect(watchNotice(base)).toMatch(/^\w+ \w+ has no time: your watch had you asleep before sleepcast started\.$/);
+    expect(watchNotice(base)).toMatch(/^\w+ \w+ has no watch time: your watch had you asleep before sleepcast started\.$/);
     // ...beside a night already timed, or an older one timed,
-    expect(watchNotice({ ...base, unchanged: 1 })).toMatch(/^\w+ \w+ has no time: .*started\.$/);
+    expect(watchNotice({ ...base, unchanged: 1 })).toMatch(/^\w+ \w+ has no watch time: .*started\.$/);
     expect(watchNotice({ ...base, timed: [{ startedAt: START - 24 * 60 * MIN, atMs: 10 * MIN, inferredAtMs: null }], latestIsOlder: true })).toMatch(/asleep before sleepcast started\.$/);
     // ...and each night with its own reason, a killed tab's among them.
     const two = watchNotice({ ...base, untimed: [{ startedAt: START - 24 * 60 * MIN, why: "recorded" }, asleep] });
-    expect(two).toMatch(/^\w+ \w+ is recorded without the watch's time\. \w+ \w+ has no time: your watch had you asleep/);
+    expect(two).toMatch(/^\w+ \w+ is recorded without the watch's time\. \w+ \w+ has no watch time: your watch had you asleep/);
   });
-  it("takes back an earlier run's time the samples now rule out, and is idempotent", () => {
+  it("keeps a time it gave before (a timed night stays timed), unsaid", () => {
     const timed = night({ detector: "watch", sleptAtMs: 10 * MIN, timeToSleepMs: 10 * MIN, inferredAtMs: 20 * MIN });
     const r = applyWatch([timed], [asleepAt(-5 * MIN, 60 * MIN)], START - 60 * MIN);
-    expect(r.asleepAtStart).toEqual([START]);
-    expect(r.nights[0]).toMatchObject({ detector: "watch", sleptAtMs: null, inferredAtMs: 20 * MIN });
-    const again = applyWatch(r.nights, [asleepAt(-5 * MIN, 60 * MIN)], START - 60 * MIN);
-    expect([again.asleepAtStart, again.unchanged]).toEqual([[], 1]);
+    expect([r.asleepAtStart, r.nights]).toEqual([[], [timed]]);
+  });
+  it("tells two nights with one name apart by their start", () => {
+    const later = START + 30 * MIN;
+    const notice = watchNotice({
+      timed: [{ startedAt: START, atMs: 10 * MIN, inferredAtMs: null }],
+      latestIsOlder: true,
+      untimed: [{ startedAt: later, why: "asleep" }],
+      unchanged: 0, unsaved: false, noWindow: false, badWindow: false, slept: 1, unrecognised: 0, malformed: 0,
+    });
+    const [a, b] = [...notice.matchAll(/\(from (\d+:\d{2}[ap]m)\)/g)].map((m) => m[1]);
+    expect(a).toBeDefined();
+    expect(a).not.toBe(b);
   });
 });
 
@@ -747,7 +755,7 @@ describe("a killed night recorded without a time a later run could give", () => 
     const r = importWatch(`${OPENS_LINE}\n2026-10-05T22:50:00-07:00~2026-10-06T02:00:00-07:00~Core`, START + 10 * 60 * MIN);
     expect(r.untimed).toEqual([{ startedAt: START, why: "asleep" }]);
     // Asleep through its start: said as the reason it has no time.
-    expect(watchNotice(r)).toMatch(/^\w+ \w+ has no time: your watch had you asleep before sleepcast started\.$/);
+    expect(watchNotice(r)).toMatch(/^\w+ \w+ has no watch time: your watch had you asleep before sleepcast started\.$/);
   });
 });
 

@@ -188,29 +188,19 @@ export function sleepStretches(samples: readonly SleepSample[]): { start: number
   return out;
 }
 
-/** The watch's onset for a night, from its start (ms), or null: the start
- *  of the first stretch of sleep (sleepStretches) that begins at or after
- *  the night's start, before MATCH_WINDOW_MS and before the next night's
- *  start (a 3am re-anchor is its own night). Null too when a stretch was
- *  under way at the night's start (asleepAtStart): the watch had the
- *  listener asleep as they pressed start, so it can't say when they fell
- *  asleep, and a stretch after a later wake would pass for it. */
+/** The watch's onset for a night, from its start (ms): the start of the
+ *  first stretch of sleep (sleepStretches) that begins at or after the
+ *  night's start, before MATCH_WINDOW_MS and before the next night's start
+ *  (a 3am re-anchor is its own night); null when none does. "asleep" when a
+ *  stretch was under way at the night's start: the watch had the listener
+ *  asleep as they pressed start, so it can't say when they fell asleep (a
+ *  stretch after a later wake would pass for it). The watch can be wrong
+ *  there (lying still, reading, scored as sleep; the night's own touches
+ *  may say otherwise), so the night keeps what it has. */
 export function watchOnset(
   startedAt: number,
   stretches: readonly { start: number; end: number }[],
   nextStartedAt = Infinity,
-): number | null {
-  const at = onsetOrWhy(startedAt, stretches, nextStartedAt);
-  return typeof at === "number" ? at : null;
-}
-
-/** watchOnset, or why there is none: "asleep" when a stretch was under way
- *  at the night's start (the watch then rules the detector's guess out
- *  too), null when the watch saw no sleep begin inside the night. */
-function onsetOrWhy(
-  startedAt: number,
-  stretches: readonly { start: number; end: number }[],
-  nextStartedAt: number,
 ): number | "asleep" | null {
   if (stretches.some((s) => s.start < startedAt && s.end > startedAt)) return "asleep";
   const limit = Math.min(startedAt + MATCH_WINDOW_MS, nextStartedAt);
@@ -257,17 +247,13 @@ export function applyWatch(
   const atStart: number[] = [];
   const out = nights.map((n) => {
     if (n.startedAt < from) return n;
-    const at = onsetOrWhy(n.startedAt, stretches, next.get(n.startedAt) ?? Infinity);
+    const at = watchOnset(n.startedAt, stretches, next.get(n.startedAt));
     if (at === null) return n;
-    // Asleep at its start: no onset, the detector's guess (or an earlier
-    // run's time, from samples since filled in) ruled out with it.
+    // Asleep at its start: no watch time, and the night keeps what it has
+    // (said, unless the watch timed it before: a timed night stays timed).
     if (at === "asleep") {
-      if (n.detector === "watch" && n.sleptAtMs === null) {
-        unchanged++;
-        return n;
-      }
-      atStart.push(n.startedAt);
-      return retimed(n, null);
+      if (n.detector !== "watch") atStart.push(n.startedAt);
+      return n;
     }
     if (n.detector === "watch" && n.sleptAtMs === at) {
       unchanged++;
@@ -281,7 +267,7 @@ export function applyWatch(
     nights: out,
     timed: timed.sort((a, b) => a.startedAt - b.startedAt),
     unchanged,
-    asleepAtStart: atStart.sort((a, b) => a - b),
+    asleepAtStart: atStart,
   };
 }
 
@@ -307,7 +293,8 @@ export interface WatchImport {
    *  synced yet (a later run can time it); "recorded", a killed tab's night
    *  no later run can time (its sleep synced past its start, or it began at
    *  the window's edge), said as its resume offer is gone; "asleep", a
-   *  night the watch had the listener asleep at the start of. */
+   *  night the watch had the listener asleep at the start of, which keeps
+   *  what it had. */
   untimed?: { startedAt: number; why: "later" | "recorded" | "asleep" }[];
   /** How many of the samples were sleep: none yet means the watch hadn't
    *  handed the night over, whatever In Bed or Awake samples came. */
@@ -400,7 +387,9 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
     const nights = killed ? withNight(loadNights(), killed.night) : loadNights();
     const newest = lastOf(nights)?.startedAt;
     const r = applyWatch(nights, samples, windowStart);
-    const worthWriting = r.timed.length > 0 || r.asleepAtStart.length > 0 || killed !== null;
+    const worthWriting = r.timed.length > 0 || killed !== null;
+    // Said whether or not anything is written: nothing about them changes.
+    for (const startedAt of r.asleepAtStart) untimed.push({ startedAt, why: "asleep" });
     const latest = r.timed.at(-1);
     unchanged = r.unchanged;
     // Nothing to write, nothing written (a full store would evict cached
@@ -414,7 +403,6 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
         timed = r.timed;
         saved = stored;
         latestIsOlder = latest !== undefined && newest !== undefined && latest.startedAt < newest;
-        for (const startedAt of r.asleepAtStart) untimed.push({ startedAt, why: "asleep" });
         // Untimed as stored, and not by the watch (a night merged into one the
         // watch had timed keeps that time; one asleep at its start is named
         // for that), and inside the window, where a later run can still
@@ -422,7 +410,7 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
         const k = killed && stored.find((n) => n.startedAt === killed.night.startedAt);
         // ...and only if the watch hasn't handed over any sleep past its start
         // yet: if it has and still didn't time it, a later run won't either.
-        if (k && k.detector !== "watch") {
+        if (k && k.detector !== "watch" && !r.asleepAtStart.includes(k.startedAt)) {
           const synced = samples.some((s) => s.asleep && s.end > k.startedAt);
           // Recorded without a time that a later run could give it: said
           // too, as the resume offer it had is gone.
@@ -440,7 +428,7 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
     noWindow,
     badWindow,
     ...(latestIsOlder ? { latestIsOlder } : {}),
-    ...(untimed.length ? { untimed: untimed.sort((a, b) => a.startedAt - b.startedAt) } : {}),
+    ...(untimed.length && !unsaved ? { untimed: untimed.sort((a, b) => a.startedAt - b.startedAt) } : {}),
     slept: samples.filter((s) => s.asleep).length,
     unrecognised,
     malformed,
@@ -505,13 +493,28 @@ function nightName(startedAt: number): string {
  *  it a link). */
 export const WATCH_STEPS = "sleepcast.pro/watch";
 
-/** What an import did, in a line for the listener. */
+/** What the notice says of a night stored without the watch's time. */
 const UNTIMED_WHY = {
   later: "is recorded without the watch's time: run it again later",
   recorded: "is recorded without the watch's time",
-  asleep: "has no time: your watch had you asleep before sleepcast started",
+  asleep: "has no watch time: your watch had you asleep before sleepcast started",
 } as const;
 
+/** Names for the nights a notice names: nightName, with the start's time
+ *  added where two nights would share a name (a restart the same evening). */
+function nightNamer(starts: readonly number[]): (startedAt: number) => string {
+  const byName = new Map<string, Set<number>>();
+  for (const s of starts) byName.set(nightName(s), (byName.get(nightName(s)) ?? new Set()).add(s));
+  return (s) => {
+    const name = nightName(s);
+    if ((byName.get(name)?.size ?? 0) < 2) return name;
+    const d = new Date(s);
+    const h = d.getHours() % 12 || 12;
+    return `${name} (from ${h}:${String(d.getMinutes()).padStart(2, "0")}${d.getHours() < 12 ? "am" : "pm"})`;
+  };
+}
+
+/** What an import did, in a line for the listener. */
 export function watchNotice(r: WatchImport): string {
   if (r.badWindow) {
     return "the watch data's window line didn't read, or opens in the future, so nothing was changed: in the shortcut, the adjusted date should subtract 2 days, in iso 8601 with the time included, and a link's text should be url-encoded before it's opened.";
@@ -529,16 +532,13 @@ export function watchNotice(r: WatchImport): string {
   if (r.unrecognised) {
     return "your watch's sleep stages didn't read, so nothing was changed: sleepcast reads them in english only for now, and each line should end with the stage alone.";
   }
-  // A killed tab's night recorded without its time (most likely the watch
-  // hadn't handed it to the phone yet): said whatever else the line says.
-  // Named, as an older timed night is: it may not be last night.
   // Each night stored without the watch's time, named with why, whatever
   // else the line says (it may be last night).
-  const notes = (r.untimed ?? [])
-    .map(({ startedAt, why }) => ` ${nightName(startedAt)} ${UNTIMED_WHY[why]}.`)
-    .join("");
-  if (!r.timed.length) {
-    // Nights the watch had someone asleep at the start of: the change, said.
+  const last = r.timed.at(-1);
+  const name = nightNamer([...(r.untimed ?? []).map((u) => u.startedAt), ...(last ? [last.startedAt] : [])]);
+  const notes = (r.untimed ?? []).map(({ startedAt, why }) => ` ${name(startedAt)} ${UNTIMED_WHY[why]}.`).join("");
+  if (!last) {
+    // Nights the watch had someone asleep at the start of: why, said.
     if (r.untimed?.some((u) => u.why === "asleep")) return notes.trim();
     if (r.unchanged) return `nothing new from your watch since it last ran.${notes}`;
     if (notes) return `${r.slept ? "no sleep from your watch inside a sleepcast night yet." : "nothing from your watch yet."}${notes}`;
@@ -546,11 +546,10 @@ export function watchNotice(r: WatchImport): string {
       ? "your watch's sleep didn't start inside a sleepcast night."
       : "nothing from your watch yet: run it again later (and check sleep tracking is on).";
   }
-  const last = r.timed[r.timed.length - 1];
   const guess = last.inferredAtMs === null ? "" : `; sleepcast guessed ${fmtOnsetMinutes(last.inferredAtMs)}`;
   // Not last night's (it had no sleep the watch saw): say which night, or it
   // reads as last night's beside the goodbye.
-  const older = r.latestIsOlder ? ` for ${nightName(last.startedAt)}` : "";
+  const older = r.latestIsOlder ? ` for ${name(last.startedAt)}` : "";
   const lead = r.timed.length === 1 ? `your watch${older}` : `your watch timed ${r.timed.length} nights. the latest${older}`;
   // "asleep under a minute in" doesn't read: the fast case gets its own words.
   const when = underAMinute(last.atMs) ? "asleep within a minute" : `asleep ${fmtOnsetMinutes(last.atMs)} in`;
