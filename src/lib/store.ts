@@ -377,7 +377,9 @@ export function loadLive(): LiveSession | null {
     const raw = localStorage.getItem(KEY_LIVE);
     if (!raw) return null;
     const s = JSON.parse(raw) as LiveSession;
-    if (!s || !s.current || typeof s.remainingMs !== "number") return null;
+    // Its lists too: a watch link records a stale snapshot on load (killedNight),
+    // and one without them would throw there, before the page drew.
+    if (!s || !s.current || typeof s.remainingMs !== "number" || !Array.isArray(s.pool) || !Array.isArray(s.playedIds)) return null;
     return s;
   } catch {
     return null;
@@ -476,8 +478,8 @@ export interface LastNight {
 }
 
 export function saveLastNight(n: LastNight): void {
-  const bounded: LastNight = { ...n, pool: n.pool.slice(0, LASTNIGHT_POOL_CAP) };
   try {
+    const bounded: LastNight = { ...n, pool: n.pool.slice(0, LASTNIGHT_POOL_CAP) };
     writeMakingRoom(KEY_LASTNIGHT, JSON.stringify(bounded));
   } catch {
     /* quota / private mode: a lost re-anchor is not worth throwing over */

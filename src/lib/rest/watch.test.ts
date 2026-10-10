@@ -620,7 +620,7 @@ describe("an import with nothing to read yet", () => {
     localStorage.setItem("sleepcast2.live", JSON.stringify(live));
     const r = importWatch(OPENS_LINE, START + 10 * 60 * MIN);
     expect(isRefused(r)).toBe(false);
-    expect(watchNotice(r)).toMatch(/^nothing from your watch yet\. \w+ \w+ is recorded without the watch's time: run it again later\.$/);
+    expect(watchNotice(r)).toMatch(/^nothing from your watch yet \(check sleep tracking is on\)\. \w+ \w+ is recorded without the watch's time: run it again later\.$/);
     expect(localStorage.getItem("sleepcast2.live")).toBeNull();
     expect(loadNights()).toHaveLength(1);
   });

@@ -791,3 +791,11 @@ describe("the last episode (the exact one again)", () => {
     expect(loadLastEpisode()?.id).toBe("z");
   });
 });
+
+describe("loadLive and a snapshot missing its lists", () => {
+  beforeEach(() => localStorage.clear());
+  it("reads none, so nothing downstream throws on it", () => {
+    localStorage.setItem("sleepcast2.live", JSON.stringify({ current: { id: "e" }, remainingMs: 0, savedAt: 0 }));
+    expect(loadLive()).toBeNull();
+  });
+});

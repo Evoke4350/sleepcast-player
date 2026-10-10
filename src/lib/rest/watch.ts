@@ -560,7 +560,7 @@ export function watchNotice(r: WatchImport): string {
     if (r.unchanged && r.slept) return `nothing new from your watch since it last ran.${notes}`;
     // Nights the watch had someone asleep at the start of: why, said.
     if (r.untimed?.some((u) => u.why === "asleep")) return notes.trim();
-    if (notes) return `${r.slept ? "no sleep from your watch inside a sleepcast night yet." : "nothing from your watch yet."}${notes}`;
+    if (notes) return `${r.slept ? "no sleep from your watch inside a sleepcast night yet." : "nothing from your watch yet (check sleep tracking is on)."}${notes}`;
     return r.slept
       ? "your watch's sleep didn't start inside a sleepcast night."
       : "nothing from your watch yet: run it again later (and check sleep tracking is on).";
