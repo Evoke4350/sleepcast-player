@@ -900,7 +900,7 @@ describe("data already read, or from days ago", () => {
   });
   it("says \"yet\" only beside a night a later run can time", () => {
     const base = { ...FLAGS, repeat: false, stale: false, tooLong: false, timed: [], unchanged: 0, unrecognised: 0, malformed: 0 };
-    expect(watchNotice({ ...base, untimed: [{ startedAt: START, why: "recorded" }] })).toMatch(/^your watch's sleep didn't start inside a sleepcast night\. /);
+    expect(watchNotice({ ...base, untimed: [{ startedAt: START, why: "recorded" }] })).toMatch(/^your watch's sleep didn't start inside a sleepcast night in reach\. /);
     expect(watchNotice({ ...base, untimed: [{ startedAt: START, why: "later" }] })).toMatch(/inside a sleepcast night yet\. /);
     expect(watchNotice({ ...base, slept: 0, untimed: [{ startedAt: START, why: "recorded" }] })).toMatch(/^nothing from your watch \(check sleep tracking is on\)\. /);
     expect(watchNotice({ ...base, slept: 0, untimed: [{ startedAt: START, why: "later" }] })).toMatch(/^nothing from your watch yet \(check/);
@@ -931,10 +931,13 @@ describe("data already read, or from days ago", () => {
     expect(payloadFromPaste(big)).toBe(big);
     expect(parseWatchPayload(big).tooLong).toBe(true);
   });
-  it("counts a night past the timeline keep that the watch timed as unchanged, and re-times none", () => {
+  it("re-times no night past the timeline keep, and counts none there, as before the window", () => {
     const old = night({ detector: "watch", sleptAtMs: 10 * MIN, timeToSleepMs: 10 * MIN, inferredAtMs: null });
     const r = applyWatch([old], [asleepAt(30 * MIN)], START - 60 * MIN, START + TIMELINE_KEEP_MS + 1);
-    expect([r.timed, r.unchanged]).toEqual([[], 1]);
+    expect([r.timed, r.unchanged]).toEqual([[], 0]);
+  });
+  it("reads a paste of many encoded-looking tokens in one pass, not one call each", () => {
+    expect(() => payloadFromPaste("%23Watch%3D ".repeat(80_000))).not.toThrow();
   });
   it("finds a percent-encoded link's start across any whitespace, as its end", () => {
     const link = "https://sleepcast.pro/#watch=" + encodeURIComponent("window~2026-10-04T09:00:00+01:00\n2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core");

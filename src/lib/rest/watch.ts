@@ -158,9 +158,9 @@ export function parseWatchPayload(text: string, now = Infinity): {
   // line by line, before the page's first paint spends long on it.
   const tooLong = { tooLong: true, windowStart: null, windowLine: null, badWindow: false, samples: [], unrecognised: 0, malformed: 0 };
   if (text.length > MAX_PAYLOAD_CHARS) return tooLong;
-  const all = text.split(/\r?\n/);
-  if (all.length > MAX_LINES) return tooLong;
-  const lines = all.map((l) => l.trim()).filter(Boolean);
+  // Lines counted before they are split out, so many short ones cost nothing.
+  for (let n = 0, at = text.indexOf("\n"); at >= 0; at = text.indexOf("\n", at + 1)) if (++n >= MAX_LINES) return tooLong;
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   let windowStart: number | null = null;
   let windowLine: string | null = null;
   let badWindow = false;
@@ -345,7 +345,8 @@ export function timeableFrom(windowStart: number): number {
  *  under way at or after its start (the Shortcut filters by end date), its
  *  first-ever one included. Nor nights older than TIMELINE_KEEP_MS (data
  *  that reads further back, a Shortcut set to more days, would re-time one
- *  without what was playing): a timed one counts as unchanged. */
+ *  without what was playing). A night out of reach either way counts for
+ *  nothing, timed or not. */
 export function applyWatch(
   nights: readonly RestNight[],
   samples: readonly SleepSample[],
@@ -366,11 +367,8 @@ export function applyWatch(
   const out = nights.map((n) => {
     if (n.startedAt < from) return n;
     // Older than a timeline is kept: not re-timed (it would lose what was
-    // playing); one the watch timed keeps that time, unchanged.
-    if (n.startedAt < now - TIMELINE_KEEP_MS) {
-      if (n.detector === "watch") unchanged++;
-      return n;
-    }
+    // playing), and out of reach as one before the window is.
+    if (n.startedAt < now - TIMELINE_KEEP_MS) return n;
     // Before the next night's start, and not long after this one ended.
     // (An end before the start, from a clock set back, counts as the start:
     // finish clamps it, but a ledger may hold one written before it did.)
@@ -484,13 +482,16 @@ export function payloadFromPaste(text: string): string {
   const i = text.indexOf(WATCH_HASH);
   if (i < 0) {
     // A link percent-encoded whole: decoded by itself, so the words around
-    // it stay as they were, and read as any link is.
-    const j = text.search(/%23watch%3D/i);
+    // it stay as they were, and read as any link is. Matched as WATCH_HASH
+    // is ("watch" as written; the escapes' hex either case), so its decoding
+    // holds WATCH_HASH and this recurses once at most.
+    const j = text.search(/%23watch%3[dD]/);
     if (j >= 0) {
       // Back to the whitespace before it, by the same rule as its end.
       let start = j;
       while (start > 0 && !/\s/.test(text[start - 1])) start--;
-      const end = j + text.slice(j).search(/\s|$/);
+      let end = j;
+      while (end < text.length && !/\s/.test(text[end])) end++;
       return payloadFromPaste(text.slice(0, start) + decodeLeniently(text.slice(start, end)) + text.slice(end));
     }
     return decodeLeniently(text).trim();
@@ -764,7 +765,8 @@ export function watchNotice(r: WatchImport): string {
     if (!r.slept && !notes) return "nothing from your watch yet: run it after a sleepcast night (and check sleep tracking is on).";
     if (!r.slept) return `nothing from your watch${yet ? " yet" : ""} (check sleep tracking is on).${notes}`;
     if (yet) return `no sleep from your watch inside a sleepcast night yet.${notes}`;
-    return `your watch's sleep didn't start inside a sleepcast night.${notes}`;
+    // (Of the nights in reach: one too old to re-time isn't.)
+    return `your watch's sleep didn't start inside a sleepcast night in reach.${notes}`;
   }
   const guess = last.inferredAtMs === null ? "" : `; sleepcast guessed ${fmtOnsetMinutes(last.inferredAtMs)}`;
   // Not last night's (it had no sleep the watch saw): say which night, or it
