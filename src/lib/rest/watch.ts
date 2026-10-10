@@ -213,6 +213,8 @@ export function watchOnset(
 /** How long after a night ended sleep can still be its onset: drifting
  *  off in the quiet after the fade. Later sleep began without sleepcast
  *  (a night stopped after three minutes isn't timed by sleep hours on). */
+const DAY_MS = 24 * 60 * 60_000;
+
 export const AFTER_END_MS = 30 * 60_000;
 
 export interface WatchTiming {
@@ -406,10 +408,12 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
     const r = applyWatch(nights, samples, windowStart);
     const worthWriting = r.timed.length > 0 || killed !== null;
     // Said whether or not anything is written: nothing about them changes.
-    // Only of the newest night (the one this run is for): the Shortcut reads
-    // two days, and the next morning's run would say it of the same night
-    // again.
-    for (const startedAt of r.asleepAtStart) if (startedAt === newest) untimed.push({ startedAt, why: "asleep" });
+    // Only of the night this run is for, the killed tab's it records or the
+    // newest begun in the last day: the Shortcut reads two days, and the
+    // next morning's run would say it of the same night again.
+    for (const startedAt of r.asleepAtStart) {
+      if (startedAt === killed?.night.startedAt || (startedAt === newest && now - startedAt < DAY_MS)) untimed.push({ startedAt, why: "asleep" });
+    }
     const latest = r.timed.at(-1);
     unchanged = r.unchanged;
     // Nothing to write, nothing written (a full store would evict cached
@@ -430,17 +434,13 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
         const k = killed && stored.find((n) => n.startedAt === killed.night.startedAt);
         // ...and only if the watch hasn't handed over any sleep past its start
         // yet: if it has and still didn't time it, a later run won't either.
-        if (k && k.detector !== "watch" && !untimed.some((u) => u.startedAt === k.startedAt)) {
-          // The night this import closes: asleep at its start is its reason,
-          // newest or not.
-          if (r.asleepAtStart.includes(k.startedAt)) untimed.push({ startedAt: k.startedAt, why: "asleep" });
-          else {
-            const synced = samples.some((s) => s.asleep && s.end > k.startedAt);
-            // Recorded without a time that a later run could give it: said
-            // too, as the resume offer it had is gone.
-            const later = !synced && k.startedAt >= timeableFrom(windowStart);
-            untimed.push({ startedAt: k.startedAt, why: later ? "later" : "recorded" });
-          }
+        // (One asleep at its start is said as that, above.)
+        if (k && k.detector !== "watch" && !r.asleepAtStart.includes(k.startedAt)) {
+          const synced = samples.some((s) => s.asleep && s.end > k.startedAt);
+          // Recorded without a time that a later run could give it: said
+          // too, as the resume offer it had is gone.
+          const later = !synced && k.startedAt >= timeableFrom(windowStart);
+          untimed.push({ startedAt: k.startedAt, why: later ? "later" : "recorded" });
         }
       } else unsaved = true;
     }

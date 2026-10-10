@@ -803,11 +803,15 @@ describe("loadLive and a snapshot missing its lists", () => {
     expect(localStorage.getItem("sleepcast2.live")).toBeNull();
   });
   it("reads none without a start it can do sums with, and clears one that won't parse", () => {
-    const ok = { savedAt: 1, remainingMs: 0, totalSeconds: 0, position: 0, current: { id: "e" }, pool: [], playedIds: [] };
+    const ok = { savedAt: 1, remainingMs: 0, totalSeconds: 0, position: 0, current: { id: "e" }, pool: [], playedIds: [], skipIntroByFeedId: {}, feedTitles: {}, artworkByFeedId: {} };
     expect(loadLive()).toBeNull();
     localStorage.setItem("sleepcast2.live", JSON.stringify(ok));
     expect(loadLive()).not.toBeNull();
     localStorage.setItem("sleepcast2.live", JSON.stringify({ ...ok, savedAt: undefined }));
+    expect(loadLive()).toBeNull();
+    localStorage.setItem("sleepcast2.live", JSON.stringify({ ...ok, feedTitles: undefined }));
+    expect(loadLive()).toBeNull();
+    localStorage.setItem("sleepcast2.live", JSON.stringify({ ...ok, timerMinutes: "45" }));
     expect(loadLive()).toBeNull();
     localStorage.setItem("sleepcast2.live", "{not json");
     clearUnreadableLive();

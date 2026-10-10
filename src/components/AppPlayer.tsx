@@ -1,7 +1,7 @@
 import { useState, useEffect, type ReactNode } from "react";
 import type { Episode } from "../lib/engine";
 import { formatTime } from "../lib/engine";
-import { loadLive, clearLive, clearLastNight, loadLastNight, type LiveSession, type LastNight, type ResumeDescriptor, resumeFrom, nightTimerMinutes, loadState, isRevivable, resumeMode, loadBlocked } from "../lib/store";
+import { loadLive, clearLive, clearLastNight, loadLastNight, type LiveSession, type LastNight, type ResumeDescriptor, resumeFrom, nightTimerMinutes, loadState, isRevivable, resumeMode, loadBlocked, clearUnreadableLive } from "../lib/store";
 import type { PlayMode } from "../lib/engine";
 import type { NoiseSettings } from "../lib/store";
 import { reanchorNext } from "../lib/rest/reanchor";
@@ -192,7 +192,10 @@ export function AppPlayer() {
   // A night snapshotted before a reload. Offer to revive it only if enough
   // time is left and it is recent; otherwise the tab was killed and the night
   // is over, so record it (rest/reconcile.ts) rather than dropping it.
-  const [live, setLive] = useState<LiveSession | null>(() => settleLive(loadLive(), Date.now()));
+  const [live, setLive] = useState<LiveSession | null>(() => {
+    clearUnreadableLive();
+    return settleLive(loadLive(), Date.now());
+  });
 
   const [reanchor, setReanchor] = useState<{ lastNight: LastNight; next: Episode } | null>(null);
 

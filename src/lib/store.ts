@@ -371,31 +371,39 @@ export function saveLive(s: LiveSession): boolean {
   }
 }
 
-/** Whether a stored snapshot has the shape its readers rely on: the
- *  numbers reconcile does arithmetic on, the playing episode, and its lists.
- *  A watch link records a stale snapshot on load (killedNight): one without
- *  them would throw there, before the page drew, or record a night with no
- *  start. */
+/** Whether a stored snapshot has the shape the player writes: every field
+ *  it has written since the first snapshot, and the later ones (absent on
+ *  older snapshots) of the right type where there. Its readers (revive,
+ *  reconcile, a watch link recording a stale one on load) rely on all of it:
+ *  one without would throw, before the page drew, or record a night with no
+ *  start. Anything else is corrupt. */
 function isLiveSession(x: unknown): x is LiveSession {
   if (!x || typeof x !== "object") return false;
   const s = x as Record<string, unknown>;
   const num = (v: unknown) => typeof v === "number" && Number.isFinite(v);
-  const current = s.current as Record<string, unknown> | null | undefined;
+  const optNum = (v: unknown) => v === undefined || num(v);
+  const obj = (v: unknown) => !!v && typeof v === "object" && !Array.isArray(v);
   return (
     num(s.savedAt) &&
     num(s.remainingMs) &&
     num(s.totalSeconds) &&
     num(s.position) &&
-    !!current && typeof current === "object" && typeof current.id === "string" &&
+    obj(s.current) &&
+    typeof (s.current as Record<string, unknown>).id === "string" &&
     Array.isArray(s.pool) &&
     Array.isArray(s.playedIds) &&
-    (s.nightStartedAt === undefined || num(s.nightStartedAt))
+    obj(s.skipIntroByFeedId) &&
+    obj(s.feedTitles) &&
+    obj(s.artworkByFeedId) &&
+    optNum(s.nightStartedAt) &&
+    optNum(s.timerMinutes) &&
+    (s.modeKind === undefined || typeof s.modeKind === "string")
   );
 }
 
 /** Clears a stored snapshot that can't be read (unparseable, or the wrong
  *  shape), which would otherwise sit in storage for good: once, as the
- *  page settles its snapshot on load, so loadLive itself only reads. */
+ *  player mounts, so loadLive itself only reads. */
 export function clearUnreadableLive(): void {
   try {
     if (localStorage.getItem(KEY_LIVE) !== null && loadLive() === null) localStorage.removeItem(KEY_LIVE);
@@ -429,7 +437,7 @@ function isTimerless(l: LiveSession): boolean {
 }
 
 export function isRevivable(l: LiveSession | null, now: number): boolean {
-  if (!l || typeof l.savedAt !== "number") return false;
+  if (!l) return false;
   // A timerless night snapshots no remaining time; only a timed one can run out.
   if (!isTimerless(l) && l.remainingMs <= 60_000) return false;
   const age = now - l.savedAt;
