@@ -49,10 +49,16 @@ export const MAX_SAMPLES = 2000;
  *  bound on the work a crafted link can make, not on a real payload. */
 export const MAX_PAYLOAD_CHARS = 1_000_000;
 
-/** WATCH_HASH as a link encoded whole writes it ("%23watch%3D"), matched in
- *  any case (its decoding must still hold WATCH_HASH itself): from
- *  WATCH_HASH, so the key lives in one place, its regex characters escaped. */
-const ENCODED_HASH = new RegExp(encodeURIComponent(WATCH_HASH).replace(/[.*+?^${}()|[\]\\]/g, (c) => `\\${c}`), "i");
+/** WATCH_HASH as a link encoded whole writes it ("%23watch%3D"): the escapes'
+ *  hex in either case, the rest as written (no other case can decode to
+ *  WATCH_HASH), regex characters escaped. From WATCH_HASH, so the key lives
+ *  in one place. Global, to try each match in turn. */
+const ENCODED_HASH = new RegExp(
+  encodeURIComponent(WATCH_HASH)
+    .replace(/[.*+?^${}()|[\]\\]/g, (c) => `\\${c}`)
+    .replace(/%([0-9A-F])([0-9A-F])/g, (_, a: string, b: string) => `%[${a}${a.toLowerCase()}][${b}${b.toLowerCase()}]`),
+  "g",
+);
 
 /** The most of a paste looked through for a link at all: room for any
  *  message around a link of MAX_PAYLOAD_CHARS. */
@@ -508,8 +514,11 @@ export function payloadFromPaste(pasted: string): string {
   // checked first, at twice the payload's, as encoding it again grows it),
   // the words around it left as they were, and read as any link is, from
   // its #watch= on. A wrapped one isn't joined up: its later lines refuse it.
-  const j = text.search(ENCODED_HASH);
-  if (j >= 0) {
+  // Each match in turn, until one decodes to a link: an earlier token that
+  // only looks like one (a quoted, broken attempt) doesn't hide it.
+  const re = new RegExp(ENCODED_HASH);
+  for (let m = re.exec(text); m; m = re.exec(text)) {
+    const j = m.index;
     // Back to the whitespace before it (no further than the bound), and on
     // to the one after.
     let start = j;
@@ -518,9 +527,15 @@ export function payloadFromPaste(pasted: string): string {
     ws.lastIndex = j;
     const end = ws.exec(text)?.index ?? text.length;
     const link = decodeWithin(text.slice(start, end), 2 * MAX_PAYLOAD_CHARS);
+    // A link: its #watch= followed by a payload, which opens with its
+    // window line (a Shortcut built before it was added isn't pasted encoded
+    // whole, a home-screen paste being its lines).
     const k = link.indexOf(WATCH_HASH);
-    if (k >= 0) return linkPayload(link.slice(k + WATCH_HASH.length) + text.slice(end));
+    const after = k >= 0 ? link.slice(k + WATCH_HASH.length) : "";
+    if (/^window/i.test(after)) return linkPayload(after + text.slice(end));
+    re.lastIndex = Math.max(re.lastIndex, end);
   }
+
   return decodeWithin(text).trim();
 }
 

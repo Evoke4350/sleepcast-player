@@ -406,6 +406,15 @@ function isLiveSession(s: unknown): s is LiveSession {
   );
 }
 
+/** Whether any snapshot is stored, without reading it. */
+export function hasStoredLive(): boolean {
+  try {
+    return localStorage.getItem(KEY_LIVE) !== null;
+  } catch {
+    return false;
+  }
+}
+
 export function loadLive(): LiveSession | null {
   try {
     const raw = localStorage.getItem(KEY_LIVE);

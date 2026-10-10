@@ -1,7 +1,7 @@
 import { useState, useEffect, type ReactNode } from "react";
 import type { Episode } from "../lib/engine";
 import { formatTime } from "../lib/engine";
-import { loadLive, clearLive, clearLastNight, loadLastNight, type LiveSession, type LastNight, type ResumeDescriptor, resumeFrom, nightTimerMinutes, loadState, isRevivable, resumeMode, loadBlocked } from "../lib/store";
+import { hasStoredLive, loadLive, clearLive, clearLastNight, loadLastNight, type LiveSession, type LastNight, type ResumeDescriptor, resumeFrom, nightTimerMinutes, loadState, isRevivable, resumeMode, loadBlocked } from "../lib/store";
 import type { PlayMode } from "../lib/engine";
 import type { NoiseSettings } from "../lib/store";
 import { reanchorNext } from "../lib/rest/reanchor";
@@ -94,7 +94,7 @@ const HELD_LINK_STUCK = "this browser wouldn't keep your watch's night across a 
  *  each time the offer renders (only then), as the snapshot changes under a
  *  held link (a night resumed, ended, given up). */
 function EndsNightNote() {
-  return loadLive() !== null ? <> (it ends the night left open)</> : null;
+  return hasStoredLive() ? <> (it ends the night left open)</> : null;
 }
 
 /** One quiet line above setup (the goodbye, the watch's result). */
