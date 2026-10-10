@@ -963,6 +963,10 @@ describe("data already read, or from days ago", () => {
     const pasted = `${"a".repeat(2 * MAX_PAYLOAD_CHARS + 10)}%23watch%3Dwindow`;
     expect(parseWatchPayload(payloadFromPaste(pasted)).tooLong).toBe(true);
   });
+  it("measures an unlinked paste after trimming it, as it is parsed", () => {
+    const enc = encodeURIComponent("window~2026-10-04T09:00:00+01:00\n2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core");
+    expect(payloadFromPaste(enc + " ".repeat(MAX_PAYLOAD_CHARS))).toBe("window~2026-10-04T09:00:00+01:00\n2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core");
+  });
   it("counts no final line break as a line", () => {
     const lines = "x\n".repeat(MAX_LINES);
     expect(parseWatchPayload(lines).tooLong).toBe(false);

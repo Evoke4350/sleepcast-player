@@ -49,6 +49,13 @@ export const MAX_SAMPLES = 2000;
  *  bound on the work a crafted link can make, not on a real payload. */
 export const MAX_PAYLOAD_CHARS = 1_000_000;
 
+/** WATCH_HASH as a link encoded whole writes it ("%23watch%3D"), its
+ *  escapes' hex in either case, the rest as written: from WATCH_HASH, so the
+ *  key lives in one place. */
+const ENCODED_HASH = new RegExp(
+  encodeURIComponent(WATCH_HASH).replace(/%([0-9A-F])([0-9A-F])/g, (_, a: string, b: string) => `%[${a}${a.toLowerCase()}][${b}${b.toLowerCase()}]`),
+);
+
 /** The most of a paste looked through for a link at all: room for any
  *  message around a link of MAX_PAYLOAD_CHARS. */
 const PASTE_MAX_CHARS = 4 * MAX_PAYLOAD_CHARS;
@@ -61,7 +68,13 @@ export const MAX_LINES = 10 * MAX_SAMPLES;
 /** Whether a #watch= fragment is too long to read (and to hand on across a
  *  reload): the one measure for the link, wherever it is asked. */
 export function watchLinkTooLong(hash: string): boolean {
-  return hash.length - WATCH_HASH.length > MAX_PAYLOAD_CHARS;
+  return tooLongToRead(hash.length - WATCH_HASH.length);
+}
+
+/** The one size rule: whether a payload of `length` characters is too long
+ *  to read (`limit`, MAX_PAYLOAD_CHARS unless said). */
+function tooLongToRead(length: number, limit = MAX_PAYLOAD_CHARS): boolean {
+  return length > limit;
 }
 
 /** Health's sleep stages, by code (HKCategoryValueSleepAnalysis, for a
@@ -494,7 +507,7 @@ export function payloadFromPaste(text: string): string {
   // checked first, at twice the payload's, as encoding it again grows it),
   // the words around it left as they were, and read as any link is, from
   // its #watch= on. A wrapped one isn't joined up: its later lines refuse it.
-  const j = text.search(/%23watch%3[dD]/);
+  const j = text.search(ENCODED_HASH);
   if (j >= 0) {
     // Back to the whitespace before it (no further than the bound), and on
     // to the one after.
@@ -507,7 +520,8 @@ export function payloadFromPaste(text: string): string {
     const k = link.indexOf(WATCH_HASH);
     if (k >= 0) return linkPayload(link.slice(k + WATCH_HASH.length) + text.slice(end));
   }
-  return decodeWithin(text).trim();
+  // (Trimmed before it is measured, so the measure and the parse agree.)
+  return decodeWithin(text.trim()).trim();
 }
 
 /** The payload of a pasted link, from what follows its WATCH_HASH. Measured
@@ -655,9 +669,7 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
  *  then counts as malformed, and the notice says so). */
 export function watchPayloadFromHash(hash: string): string | null {
   if (!hash.startsWith(WATCH_HASH)) return null;
-  const raw = hash.slice(WATCH_HASH.length);
-  // (Too long to read: passed on as it is, for parseWatchPayload to refuse.)
-  return decodeWithin(raw);
+  return decodeWithin(hash.slice(WATCH_HASH.length));
 }
 
 /** decodeLeniently, for text within `limit` (MAX_PAYLOAD_CHARS unless
@@ -665,7 +677,7 @@ export function watchPayloadFromHash(hash: string): string | null {
  *  long. Every decode of what arrives goes through here, so none can run on
  *  unbounded input. */
 function decodeWithin(text: string, limit = MAX_PAYLOAD_CHARS): string {
-  return text.length > limit ? text : decodeLeniently(text);
+  return tooLongToRead(text.length, limit) ? text : decodeLeniently(text);
 }
 
 function decodeLeniently(text: string): string {

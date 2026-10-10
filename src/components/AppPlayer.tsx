@@ -88,6 +88,15 @@ function readHeldLink(held: string): boolean {
 
 const HELD_LINK_STUCK = "this browser wouldn't keep your watch's night across a reload: close this tab and run the shortcut again.";
 
+/** Beside the held link's offer: whether reading it ends a night left open,
+ *  by what the import will do (killedNightToRecord), not what the card
+ *  shows; asked each time the offer renders (only then), as the snapshot
+ *  changes under a held link (a night resumed, ended, given up), and for a
+ *  tap any time from now (a snapshot fresh now won't be by then). */
+function EndsNightNote() {
+  return killedNightToRecord(Date.now() + SNAPSHOT_FRESH_MS) !== null ? <> (it ends the night left open)</> : null;
+}
+
 /** One quiet line above setup (the goodbye, the watch's result). */
 function HomeLine({ mark, markClass = "", children }: { mark: string; markClass?: string; children: ReactNode }) {
   return (
@@ -143,12 +152,6 @@ export function AppPlayer() {
   // reload by itself could end a night still on (a tab frozen mid-night) or
   // lose what was being typed.
   const [heldLink, setHeldLink] = useState<string | null>(null);
-  // Whether reading it ends a night left open: what the import will do
-  // (killedNightToRecord), not what the card shows; asked at each render, as
-  // the snapshot changes under a held link (a night resumed, ended, given
-  // up), and for a tap any time from now (a snapshot fresh now won't be by
-  // then). Not while a night plays: the offer isn't shown.
-  const heldEndsNight = heldLink !== null && !session && killedNightToRecord(Date.now() + SNAPSHOT_FRESH_MS) !== null;
   useEffect(() => {
     // The head script has already moved it out of the address (analytics).
     const onLink = () => {
@@ -441,7 +444,8 @@ export function AppPlayer() {
               }}
               className={QUIET_LINK}
             >
-              your watch's night came in: read it{heldEndsNight ? " (it ends the night left open)" : ""}
+              your watch's night came in: read it
+              <EndsNightNote />
             </button>
           </HomeLine>
         )}
