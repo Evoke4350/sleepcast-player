@@ -58,18 +58,14 @@ const NAMES = new Map<string, boolean>([
   ["rem", true], ["asleeprem", true], ["remsleep", true],
 ]);
 
-/** A stage as sleep or not; "code" for one that's the format's fault,
- *  not a language's: a would-be code that isn't one (any digit: "-1",
- *  "(1)", "７"), or a known name with words after it ("Core thanks", a
- *  message run onto the last line); null for a name this doesn't know. */
+/** A stage as sleep or not; "code" for a would-be code that isn't one
+ *  (any digit: "-1", "(1)", "７" — the format, not a language); null for a
+ *  name this doesn't know (another language's, or a known one with words
+ *  run on after it: the two can't be told apart, "REM Uykusu" from "Core
+ *  thanks", so the notice names both). */
 function stageAsleep(raw: string): boolean | "code" | null {
   if (/\p{N}/u.test(raw)) return CODES.get(raw) ?? "code";
-  const letters = (s: string) => s.toLowerCase().replace(/[^a-z]/g, "");
-  const known = NAMES.get(letters(raw));
-  if (known !== undefined) return known;
-  const words = raw.trim().split(/\s+/);
-  for (let n = 1; n < words.length; n++) if (NAMES.has(letters(words.slice(0, n).join(" ")))) return "code";
-  return null;
+  return NAMES.get(raw.toLowerCase().replace(/[^a-z]/g, "")) ?? null;
 }
 
 /** A date as a strict parser (Safari's) wants it: "T" before the time
@@ -195,17 +191,25 @@ export function sleepStretches(samples: readonly SleepSample[]): { start: number
 /** The watch's onset for a night, from its start (ms), or null: the start
  *  of the first stretch of sleep (sleepStretches) that begins at or after
  *  the night's start, before MATCH_WINDOW_MS and before the next night's
- *  start (a 3am re-anchor is its own night). A stretch that began before
- *  the night's start doesn't count, nor does a stage change within it: the
- *  listener was awake to press start, whatever the watch scored. */
+ *  start (a 3am re-anchor is its own night). Null too when a stretch was
+ *  under way at the night's start (asleepAtStart): the watch had the
+ *  listener asleep as they pressed start, so it can't say when they fell
+ *  asleep, and a stretch after a later wake would pass for it. */
 export function watchOnset(
   startedAt: number,
-  stretches: readonly { start: number }[],
+  stretches: readonly { start: number; end: number }[],
   nextStartedAt = Infinity,
 ): number | null {
+  if (asleepAtStart(startedAt, stretches)) return null;
   const limit = Math.min(startedAt + MATCH_WINDOW_MS, nextStartedAt);
   const first = stretches.find((s) => s.start >= startedAt);
   return first && first.start < limit ? first.start - startedAt : null;
+}
+
+/** Whether a stretch of sleep began before the night's start and ran on
+ *  past it. */
+function asleepAtStart(startedAt: number, stretches: readonly { start: number; end: number }[]): boolean {
+  return stretches.some((s) => s.start < startedAt && s.end > startedAt);
 }
 
 export interface WatchTiming {
@@ -237,15 +241,17 @@ export function applyWatch(
   nights: readonly RestNight[],
   samples: readonly SleepSample[],
   windowStart: number,
-): { nights: RestNight[]; timed: WatchTiming[]; unchanged: number } {
+): { nights: RestNight[]; timed: WatchTiming[]; unchanged: number; asleepAtStart: number } {
   const stretches = sleepStretches(samples);
   const from = timeableFrom(windowStart);
   const starts = nights.map((n) => n.startedAt).sort((a, b) => a - b); // unique (loadNights)
   const next = new Map(starts.map((s, i) => [s, starts[i + 1] ?? Infinity]));
   const timed: WatchTiming[] = [];
   let unchanged = 0;
+  let atStart = 0;
   const out = nights.map((n) => {
     if (n.startedAt < from) return n;
+    if (asleepAtStart(n.startedAt, stretches)) atStart++;
     const at = watchOnset(n.startedAt, stretches, next.get(n.startedAt));
     if (at === null) return n;
     if (n.detector === "watch" && n.sleptAtMs === at) {
@@ -256,7 +262,7 @@ export function applyWatch(
     timed.push({ startedAt: n.startedAt, atMs: at, inferredAtMs: r.inferredAtMs ?? null });
     return r;
   });
-  return { nights: out, timed: timed.sort((a, b) => a.startedAt - b.startedAt), unchanged };
+  return { nights: out, timed: timed.sort((a, b) => a.startedAt - b.startedAt), unchanged, asleepAtStart: atStart };
 }
 
 /** Every reason a payload is refused for its content, in one place. */
@@ -287,6 +293,9 @@ export interface WatchImport {
   /** How many of the samples were sleep: none yet means the watch hadn't
    *  handed the night over, whatever In Bed or Awake samples came. */
   slept: number;
+  /** How many nights the watch had the listener asleep at the start of:
+   *  left untimed, and said, as their sleep wasn't outside them. */
+  asleepAtStart?: number;
   unchanged: number;
   /** The nights couldn't be stored (storage full): nothing changed. */
   unsaved: boolean;
@@ -361,6 +370,7 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
   let unchanged = 0;
   let unsaved = false;
   let latestIsOlder = false;
+  let atStart = 0;
   let recordedUntimed: number | undefined;
   let recordedClosed: number | undefined;
   let saved: RestNight[] | undefined;
@@ -379,6 +389,7 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
     const worthWriting = r.timed.length > 0 || killed !== null;
     const latest = r.timed.at(-1);
     unchanged = r.unchanged;
+    atStart = r.asleepAtStart;
     // Nothing to write, nothing written (a full store would evict cached
     // feeds to make room for no change).
     if (worthWriting) {
@@ -416,6 +427,7 @@ export function importWatch(text: string, now = Date.now()): WatchImport {
     ...(latestIsOlder ? { latestIsOlder } : {}),
     ...(recordedUntimed !== undefined ? { recordedUntimed } : {}),
     ...(recordedClosed !== undefined ? { recordedClosed } : {}),
+    ...(atStart ? { asleepAtStart: atStart } : {}),
     slept: samples.filter((s) => s.asleep).length,
     unrecognised,
     malformed,
@@ -495,7 +507,9 @@ export function watchNotice(r: WatchImport): string {
     const lines = r.malformed === 1 ? "a line" : `${r.malformed} lines`;
     return `${lines} of the watch data didn't read, so nothing was changed: in the shortcut, check the text is start date~end date~value, with both dates iso 8601 and the time included.`;
   }
-  if (r.unrecognised) return "your watch's sleep stages came in a language sleepcast can't read yet (english only), so nothing was changed.";
+  if (r.unrecognised) {
+    return "your watch's sleep stages didn't read, so nothing was changed: sleepcast reads them in english only for now, and each line should end with the stage alone.";
+  }
   // A killed tab's night recorded without its time (most likely the watch
   // hadn't handed it to the phone yet): said whatever else the line says.
   // Named, as an older timed night is: it may not be last night.
@@ -507,6 +521,7 @@ export function watchNotice(r: WatchImport): string {
         : "";
   if (!r.timed.length && !r.unchanged) {
     if (again) return `${r.slept ? "no sleep from your watch inside a sleepcast night yet." : "nothing from your watch yet."}${again}`;
+    if (r.asleepAtStart) return "your watch had you asleep before sleepcast started, so it can't say when you fell asleep.";
     return r.slept
       ? "your watch's sleep didn't start inside a sleepcast night."
       : "nothing from your watch yet: run it again later (and check sleep tracking is on).";

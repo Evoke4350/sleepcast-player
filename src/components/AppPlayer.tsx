@@ -21,6 +21,7 @@ import { shouldGreetGoodbye, markGoodbyeSeen } from "../lib/rest/surface";
 import { fmtOnsetMinutes } from "../lib/rest/sleepscore";
 import { loadNights, loadQuietUntil, saveQuietUntil, loadStepBackAsked, markStepBackAsked } from "../lib/rest/ledger";
 import { qualifiesForStepBack, isQuiet, quietUntilFrom } from "../lib/rest/stepback";
+import { QUIET_LINK } from "./quiet-link";
 
 interface SessionState {
   pool: Episode[];
@@ -77,10 +78,15 @@ function handOn(held: string): boolean {
 }
 
 /** Reads a held link: hands it on and reloads, so it is read as on any page
- *  load. If it can't be handed on, stays (a reload would lose it unread). */
-function readHeldLink(held: string): void {
-  if (handOn(held)) window.location.reload();
+ *  load. If it can't be handed on (session storage blocked), false: no
+ *  reload, which would lose it unread. */
+function readHeldLink(held: string): boolean {
+  if (!handOn(held)) return false;
+  window.location.reload();
+  return true;
 }
+
+const HELD_LINK_STUCK = "this browser wouldn't keep your watch's night across a reload: open the link again in a new tab, or paste it in your rest.";
 
 /** One quiet line above setup (the goodbye, the watch's result). */
 function HomeLine({ mark, markClass = "", children }: { mark: string; markClass?: string; children: ReactNode }) {
@@ -416,7 +422,15 @@ export function AppPlayer() {
       <>
         {heldLink !== null && (
           <HomeLine mark="⌚︎">
-            <button onClick={() => readHeldLink(heldLink)} className="underline decoration-[#3a3325] underline-offset-4 hover:text-[#b59a76]">
+            <button
+              onClick={() => {
+                if (!readHeldLink(heldLink)) {
+                  setHeldLink(null);
+                  setWatchLine(HELD_LINK_STUCK);
+                }
+              }}
+              className={QUIET_LINK}
+            >
               your watch's night came in: read it
             </button>
           </HomeLine>

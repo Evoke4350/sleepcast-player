@@ -63,7 +63,7 @@ export function loadNights(): RestNight[] {
 /** How long a night keeps its timeline: long enough for a watch import a
  *  few mornings late to still attribute it, short enough that 90 nights of
  *  episode ids don't crowd local storage. */
-export const TIMELINE_KEEP_MS = 7 * 24 * 60 * 60 * 1000;
+export const TIMELINE_KEEP_MS = 3 * 24 * 60 * 60 * 1000;
 
 /** Records a night; whether the save took. A night older than every one
  *  the cap keeps is, like any night past the cap, not kept: recorded all the

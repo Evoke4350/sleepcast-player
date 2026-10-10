@@ -9,10 +9,8 @@ export function lastNight(): RestNight | null {
   return lastOf(loadNights());
 }
 
-/** Minutes, as fmtOnsetMinutes words them. */
-export function fmtDuration(ms: number): string {
-  return fmtOnsetMinutes(ms);
-}
+/** Minutes, as fmtOnsetMinutes words them (the host app's name for it). */
+export { fmtOnsetMinutes as fmtDuration };
 
 const GOODBYE_SEEN_KEY = "sleepcast2.rest.goodbye";
 

@@ -5,6 +5,7 @@ import { scoreFeeds, medianTimeToSleep, meetsSuggestionGate, shuffleWeights, plu
 import { getPlays, loadState } from "../lib/store";
 import { playsSince, playAtMoment } from "../lib/plays";
 import { importWatch, isRefused, payloadFromPaste, watchAgreement, watchNotice } from "../lib/rest/watch";
+import { QUIET_LINK } from "./quiet-link";
 import { WatchLine } from "./WatchLine";
 
 /** `onClose(changed)`: changed when a paste altered what the home screen
@@ -221,7 +222,7 @@ export function RestView({ onClose }: { onClose: (changed?: boolean) => void }) 
         ) : (
           <p>have an apple watch? it can time your nights instead of sleepcast guessing.</p>
         )}
-        <a href="/watch" className="block underline decoration-[#3a3325] underline-offset-4 hover:text-[#b59a76]">
+        <a href="/watch" className={`block ${QUIET_LINK}`}>
           set up the watch shortcut
         </a>
         {/* The home-screen app keeps its own storage, apart from Safari's, so
@@ -254,7 +255,7 @@ export function RestView({ onClose }: { onClose: (changed?: boolean) => void }) 
         counted only on this device. no account, nothing sent anywhere. we're
         rooting for the nights you don't need us.
       </p>
-      <button onClick={close} className="text-xs underline decoration-[#3a3325] underline-offset-4 hover:text-[#b59a76]">back</button>
+      <button onClick={close} className={`text-xs ${QUIET_LINK}`}>back</button>
     </div>
   );
 }

@@ -167,10 +167,19 @@ describe("watchOnset", () => {
   it("doesn't take a stage change in sleep that began before the start for falling asleep", () => {
     // Core from 10 min before start to 20 min after, then REM: one stretch.
     expect(watchOnset(START, sleepStretches([asleepAt(-10 * MIN, 30 * MIN), asleepAt(20 * MIN, 30 * MIN)]))).toBeNull();
-    // Woke, then slept again: the new stretch is the onset.
+    // Woke, then slept again: still unknown, as the watch had them asleep
+    // when they pressed start (a stretch after a later wake, hours in,
+    // would pass for falling asleep).
     expect(
       watchOnset(START, sleepStretches([asleepAt(-10 * MIN, 30 * MIN), awakeAt(20 * MIN, 10 * MIN), asleepAt(30 * MIN, 30 * MIN)])),
-    ).toBe(30 * MIN);
+    ).toBeNull();
+    // Sleep that ended before the start isn't under way at it.
+    expect(watchOnset(START, sleepStretches([asleepAt(-40 * MIN, 30 * MIN), asleepAt(20 * MIN, 30 * MIN)]))).toBe(20 * MIN);
+  });
+  it("says when the watch had the listener asleep at the start", () => {
+    const r = applyWatch([night()], [asleepAt(-5 * MIN, 150 * MIN), awakeAt(145 * MIN, 15 * MIN), asleepAt(160 * MIN, 60 * MIN)], START - 60 * MIN);
+    expect([r.timed, r.asleepAtStart]).toEqual([[], 1]);
+    expect(watchNotice({ timed: [], unchanged: 0, unsaved: false, noWindow: false, badWindow: false, slept: 2, asleepAtStart: 1, unrecognised: 0, malformed: 0 })).toMatch(/asleep before sleepcast started/);
   });
 });
 
@@ -762,9 +771,10 @@ describe("pasting a link without its url-encode step, and looser dates", () => {
     expect(parseWatchPayload(payloadFromPaste(`https://sleepcast.pro/#watch=${w}\n2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core~`)).malformed).toBe(1);
     expect(payloadFromPaste(`https://sleepcast.pro/#watch=${w}\na~b~Asleep (Core)`)).toBe(`${w}\na~b~Asleep (Core)`);
   });
-  it("counts a known stage with words after it as the format, not a language", () => {
+  it("can't tell a known stage with words after it from another language's, so refuses either", () => {
     const r = parseWatchPayload("window~2026-10-04T09:00:00+01:00\n2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core thanks");
-    expect([r.malformed, r.unrecognised]).toEqual([1, 0]);
+    expect([r.malformed, r.unrecognised]).toEqual([0, 1]);
+    expect(parseWatchPayload("window~2026-10-04T09:00:00+01:00\n2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~REM Uykusu").unrecognised).toBe(1);
     expect(parseWatchPayload("window~2026-10-04T09:00:00+01:00\n2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~REM Sleep").samples).toHaveLength(1);
   });
   it("reads a link pasted fully percent-encoded", () => {

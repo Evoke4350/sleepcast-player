@@ -29,9 +29,7 @@ the import is
 refused, with a notice pointing at the updated steps), then one sample per
 line, `start~end~stage`, ISO 8601 dates with time, the
 stage as Health names it (Core, Deep, REM, Asleep, Awake, In Bed, matched as
-whole names) or its numeric code (HKCategoryValueSleepAnalysis 0–5). A known
-name with words after it is the format's fault (a message run onto the line), not
-a language's. English
+whole names) or its numeric code (HKCategoryValueSleepAnalysis 0–5). English
 names only, and any unrecognised name refuses the whole import: in several
 languages REM is still "REM" while the other stages aren't English, and the
 recognised part alone would time the night from its first REM stage. A line
@@ -62,7 +60,10 @@ the start of the first stretch that begins at or after the night's start,
 within `MATCH_WINDOW_MS` (4 h) and before the next night's start (a 3am
 re-anchor is its own night). A stretch that began before the night's start
 doesn't count, nor does a stage change within it: the listener was awake to
-press start. Only nights that began more than a minute (CONTIGUOUS_MS) after
+press start. A night whose start falls inside a stretch isn't timed at all:
+the watch had the listener asleep as they pressed start, so it can't say when
+they fell asleep, and a stretch after a later wake, hours in, would pass for
+it. The notice says so. Only nights that began more than a minute (CONTIGUOUS_MS) after
 the window opened are matched (`timeableFrom`, which recordedUntimed uses
 too, so the notice never asks for a run that can't time a night): for
 an earlier one the window may have cut its sleep off (whether it began before
@@ -86,7 +87,7 @@ Attribution (onset feed and episode, `onsetAfterMs`, `sleptThrough`) is redone
 from the night's `timeline` with the same function `RestSession.finish` uses
 (`attribution`, rest/attribution.ts). To make that possible, nights now record:
 
-- `timeline`: the night's episode starts, kept `TIMELINE_KEEP_MS` (7 days) and
+- `timeline`: the night's episode starts, kept `TIMELINE_KEEP_MS` (3 days: the Shortcut reads two) and
   pruned on every ledger write (`storeNights`), so 90 nights of episode ids don't crowd
   storage;
 - `endedAt`: an onset after the night ended credits no show (the audio had
@@ -147,7 +148,9 @@ touches would read as awake ones and make the detector bolder.
   night still on or lose what was being typed. The held link is handed
   across that reload through session storage (read and cleared by the head
   script), never back through the address. A paste reloads without it: the held
-  link is older, and imported after the paste would undo its times. The
+  link is older, and imported after the paste would undo its times. If session
+  storage is blocked, so the link can't be handed on, the offer is replaced
+  with a line saying to open the link again in a new tab, or paste it. The
   line and the offer also show above a 3am re-anchor.
 - The rest view: how many nights the watch timed and the median gap between
   sleepcast's guess and the watch; a link to /watch; the paste box.
