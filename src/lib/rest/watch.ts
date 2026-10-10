@@ -48,6 +48,10 @@ export const MAX_SAMPLES = 2000;
  *  bound on the work a crafted link can make, not on a real payload. */
 export const MAX_PAYLOAD_CHARS = 1_000_000;
 
+/** The most of a paste looked through for a link at all: room for any
+ *  message around a link of MAX_PAYLOAD_CHARS. */
+const PASTE_MAX_CHARS = 4 * MAX_PAYLOAD_CHARS;
+
 /** The most lines a payload may have (blank ones included, a final line
  *  break not), for one under MAX_PAYLOAD_CHARS of very short lines, which
  *  would still be many to read one by one. */
@@ -159,10 +163,10 @@ export function parseWatchPayload(text: string, now = Infinity): {
   // line by line, before the page's first paint spends long on it.
   const tooLong = { tooLong: true, windowStart: null, windowLine: null, badWindow: false, samples: [], unrecognised: 0, malformed: 0 };
   if (text.length > MAX_PAYLOAD_CHARS) return tooLong;
-  // Split no further than one past MAX_LINES (a final line break isn't a
-  // line), so many short lines cost little.
-  const raw = text.replace(/\r?\n$/, "").split(/\r?\n/, MAX_LINES + 1);
-  if (raw.length > MAX_LINES) return tooLong;
+  // Split no further than two past MAX_LINES, so many short lines cost
+  // little; a final line break (an empty last piece) isn't a line.
+  const raw = text.split(/\r?\n/, MAX_LINES + 2);
+  if (raw.length > MAX_LINES + 1 || (raw.length === MAX_LINES + 1 && raw[MAX_LINES] !== "")) return tooLong;
   const lines = raw.map((l) => l.trim()).filter(Boolean);
   let windowStart: number | null = null;
   let windowLine: string | null = null;
@@ -480,22 +484,26 @@ function hasEscape(s: string): boolean {
  *  comes with it (a message's words, a quote marker) refuses the import,
  *  which changes nothing, rather than being guessed away. */
 export function payloadFromPaste(text: string): string {
-  // (Far too long to look through: passed on as it is, to be refused.)
-  if (text.length > 2 * MAX_PAYLOAD_CHARS) return text;
+  // Far too long to look through at all (no message around a link is this
+  // long): passed on as it is, to be refused. Past here, nothing is decoded
+  // without its own length checked first (MAX_PAYLOAD_CHARS).
+  if (text.length > PASTE_MAX_CHARS) return text;
   const i = text.indexOf(WATCH_HASH);
   if (i >= 0) return linkPayload(text.slice(i + WATCH_HASH.length));
-  // A link percent-encoded whole: that token decoded by itself, so the
-  // words around it stay as they were, and read as any link is.
+  // A link percent-encoded whole: decoded from its start on, in one pass
+  // (a wrapped one's later lines with it, at the same depth), the words
+  // before it left as they were, and read as any link is.
+  // (Found, then walked back to the whitespace before it: a pattern with
+  // \S* before it would rescan a long token from every start.)
   const j = text.search(/%23watch%3[dD]/);
   if (j >= 0) {
-    // Back to the whitespace before it, and on to the one after.
     let start = j;
     while (start > 0 && !/\s/.test(text[start - 1])) start--;
-    let end = j;
-    while (end < text.length && !/\s/.test(text[end])) end++;
-    const link = decodeLeniently(text.slice(start, end));
+    const from = text.slice(start);
+    if (from.length > MAX_PAYLOAD_CHARS) return from;
+    const link = decodeLeniently(from);
     const k = link.indexOf(WATCH_HASH);
-    if (k >= 0) return linkPayload(link.slice(k + WATCH_HASH.length) + text.slice(end));
+    if (k >= 0) return linkPayload(link.slice(k + WATCH_HASH.length));
   }
   if (text.length > MAX_PAYLOAD_CHARS) return text;
   return decodeLeniently(text).trim();
@@ -506,13 +514,19 @@ export function payloadFromPaste(text: string): string {
 function linkPayload(after: string): string {
   if (after.length > MAX_PAYLOAD_CHARS) return after;
   // Encoded whole (every ":" escaped, as url-encode leaves it): the link is
-  // one token, ending at the first whitespace, less what a message put
-  // after it. Unless the next word goes on with the payload (a "~" or an
-  // escape in it: the link wrapped), or the link was encoded only in part:
-  // then the rest is read with it.
-  const [, first = "", next = ""] = after.match(/^\s*(\S*)(?:\s+(\S+))?/) ?? [];
-  const token = unpunctuated(first);
-  if (hasEscape(token) && !token.includes(":") && !(next.includes("~") || hasEscape(next))) return decodeLeniently(token).trim();
+  // one token, with any that follow still encoded (a url-encoded payload has
+  // no whitespace of its own, so whitespace between is where it was
+  // wrapped), less what a message put after it. Unless the next word goes
+  // on unencoded (a "~" and no escape: the link encoded only in part), or the first one
+  // isn't encoded whole: then the rest is read with it.
+  const tokens = after.match(/\S+/g) ?? [];
+  const encoded = (t: string | undefined) => !!t && hasEscape(t) && !t.includes(":");
+  const partly = !encoded(tokens[1]) && !!tokens[1]?.includes("~");
+  if (encoded(tokens[0]) && !partly) {
+    let n = 1;
+    while (encoded(tokens[n])) n++;
+    return decodeLeniently(unpunctuated(tokens.slice(0, n).join(""))).trim();
+  }
   // Otherwise (the url-encode step missed) the rest of the paste, decoded
   // as the link would be.
   return decodeLeniently(unpunctuated(after)).trim();
