@@ -57,8 +57,10 @@ import, which changes nothing, rather than being guessed away.
 Asleep samples (Core, Deep, REM, Asleep) are merged into stretches of sleep
 where one begins within a minute of the last's end. A night's watch onset is
 the start of the first stretch that begins at or after the night's start,
-within `MATCH_WINDOW_MS` (4 h) and before the next night's start (a 3am
-re-anchor is its own night). A stretch that began before the night's start
+within `MATCH_WINDOW_MS` (4 h), before the next night's start (a 3am
+re-anchor is its own night), and before `AFTER_END_MS` (30 min) past the
+night's end (drifting off in the quiet after the fade; later sleep began
+without sleepcast, and a night stopped after three minutes isn't timed by it). A stretch that began before the night's start
 doesn't count, nor does a stage change within it: the listener was awake to
 press start. A night whose start falls inside a stretch has no onset at all:
 the watch had the listener asleep as they pressed start, so it can't say when

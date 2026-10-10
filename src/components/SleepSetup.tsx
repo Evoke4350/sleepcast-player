@@ -31,6 +31,7 @@ import { diversePick } from "../lib/semantic-math";
 import { FEEL_PRESETS } from "../lib/timer-feel";
 import { needsFetch } from "../lib/feed-status";
 import { pickNextEpisode } from "../lib/plays";
+import { QUIET_LINK } from "./quiet-link";
 
 const VARIED_N = 8;
 const EMBED_CAP = 96; // max titles to embed per varied-night run (~10s cold on a phone)
@@ -1010,7 +1011,7 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
                 </p>
                 <a
                   href="/help/"
-                  className="inline-block underline decoration-[#3a3325] underline-offset-4 transition-colors hover:text-[#b59a76]"
+                  className={`inline-block transition-colors ${QUIET_LINK}`}
                 >
                   Full guide →
                 </a>

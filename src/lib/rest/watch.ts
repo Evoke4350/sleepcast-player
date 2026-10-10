@@ -191,7 +191,7 @@ export function sleepStretches(samples: readonly SleepSample[]): { start: number
 /** The watch's onset for a night, from its start (ms): the start of the
  *  first stretch of sleep (sleepStretches) that begins at or after the
  *  night's start, before MATCH_WINDOW_MS and before the next night's start
- *  (a 3am re-anchor is its own night); null when none does. "asleep" when a
+ *  (a 3am re-anchor is its own night), or `until`; null when none does. "asleep" when a
  *  stretch was under way at the night's start: the watch had the listener
  *  asleep as they pressed start, so it can't say when they fell asleep (a
  *  stretch after a later wake would pass for it). The watch can be wrong
@@ -200,13 +200,18 @@ export function sleepStretches(samples: readonly SleepSample[]): { start: number
 export function watchOnset(
   startedAt: number,
   stretches: readonly { start: number; end: number }[],
-  nextStartedAt = Infinity,
+  until = Infinity,
 ): number | "asleep" | null {
   if (stretches.some((s) => s.start < startedAt && s.end > startedAt)) return "asleep";
-  const limit = Math.min(startedAt + MATCH_WINDOW_MS, nextStartedAt);
+  const limit = Math.min(startedAt + MATCH_WINDOW_MS, until);
   const first = stretches.find((s) => s.start >= startedAt);
   return first && first.start < limit ? first.start - startedAt : null;
 }
+
+/** How long after a night ended sleep can still be its onset: drifting
+ *  off in the quiet after the fade. Later sleep began without sleepcast
+ *  (a night stopped after three minutes isn't timed by sleep hours on). */
+export const AFTER_END_MS = 30 * 60_000;
 
 export interface WatchTiming {
   startedAt: number;
@@ -247,7 +252,9 @@ export function applyWatch(
   const atStart: number[] = [];
   const out = nights.map((n) => {
     if (n.startedAt < from) return n;
-    const at = watchOnset(n.startedAt, stretches, next.get(n.startedAt));
+    // Before the next night's start, and not long after this one ended.
+    const until = Math.min(next.get(n.startedAt) ?? Infinity, n.endedAt === undefined ? Infinity : n.endedAt + AFTER_END_MS);
+    const at = watchOnset(n.startedAt, stretches, until);
     if (at === null) return n;
     // Asleep at its start: no watch time, and the night keeps what it has
     // (said, unless the watch timed it before: a timed night stays timed).
@@ -314,6 +321,11 @@ export interface WatchImport {
   malformed: number;
 }
 
+/** Whether text still holds a url-encoded escape. */
+function hasEscape(s: string): boolean {
+  return /%[0-9a-f]{2}/i.test(s);
+}
+
 /** A pasted payload: the lines themselves, still url-encoded or not (the
  *  paste variant of the Shortcut may keep its url-encode step), or a whole
  *  #watch= link, itself perhaps percent-encoded. Plain text never holds an
@@ -332,7 +344,7 @@ export function payloadFromPaste(text: string): string {
       const end = j + text.slice(j).search(/\s|$/);
       return payloadFromPaste(text.slice(0, start) + decodeLeniently(text.slice(start, end)) + text.slice(end));
     }
-    return (/%[0-9a-f]{2}/i.test(text) ? decodeLeniently(text) : text).trim();
+    return (hasEscape(text) ? decodeLeniently(text) : text).trim();
   }
   const after = text.slice(i + WATCH_HASH.length);
   // Encoded whole (every ":" escaped, as url-encode leaves it): the link is
@@ -342,11 +354,11 @@ export function payloadFromPaste(text: string): string {
   // then the rest is read with it.
   const [first, next = ""] = after.trim().split(/\s+/);
   const token = unpunctuated(first);
-  if (/%[0-9a-f]{2}/i.test(token) && !token.includes(":") && !/~|%[0-9a-f]{2}/i.test(next)) return decodeLeniently(token).trim();
+  if (hasEscape(token) && !token.includes(":") && !(next.includes("~") || hasEscape(next))) return decodeLeniently(token).trim();
   // Otherwise (the url-encode step missed) the rest of the paste, decoded
   // as the link would be.
   const tail = unpunctuated(after);
-  return (/%[0-9a-f]{2}/i.test(tail) ? decodeLeniently(tail) : tail).trim();
+  return (hasEscape(tail) ? decodeLeniently(tail) : tail).trim();
 }
 
 /** Less any punctuation or symbol a message put after a link (a full
@@ -501,16 +513,15 @@ const UNTIMED_WHY = {
 } as const;
 
 /** Names for the nights a notice names: nightName, with the start's time
- *  added where two nights would share a name (a restart the same evening). */
+ *  added where two would share a name (a restart the same evening). */
 function nightNamer(starts: readonly number[]): (startedAt: number) => string {
-  const byName = new Map<string, Set<number>>();
-  for (const s of starts) byName.set(nightName(s), (byName.get(nightName(s)) ?? new Set()).add(s));
+  const names = new Map(starts.map((s) => [s, nightName(s)]));
+  const shared = (name: string) => [...names.values()].filter((x) => x === name).length > 1;
   return (s) => {
-    const name = nightName(s);
-    if ((byName.get(name)?.size ?? 0) < 2) return name;
-    const d = new Date(s);
-    const h = d.getHours() % 12 || 12;
-    return `${name} (from ${h}:${String(d.getMinutes()).padStart(2, "0")}${d.getHours() < 12 ? "am" : "pm"})`;
+    const name = names.get(s) ?? nightName(s);
+    if (!shared(name)) return name;
+    const time = new Date(s).toLocaleTimeString("en", { hour: "numeric", minute: "2-digit" });
+    return `${name} (from ${time.toLowerCase().replace(/\s/g, "")})`;
   };
 }
 
@@ -535,12 +546,12 @@ export function watchNotice(r: WatchImport): string {
   // Each night stored without the watch's time, named with why, whatever
   // else the line says (it may be last night).
   const last = r.timed.at(-1);
-  const name = nightNamer([...(r.untimed ?? []).map((u) => u.startedAt), ...(last ? [last.startedAt] : [])]);
+  const name = nightNamer([...(r.untimed ?? []).map((u) => u.startedAt), ...(last && r.latestIsOlder ? [last.startedAt] : [])]);
   const notes = (r.untimed ?? []).map(({ startedAt, why }) => ` ${name(startedAt)} ${UNTIMED_WHY[why]}.`).join("");
   if (!last) {
+    if (r.unchanged) return `nothing new from your watch since it last ran.${notes}`;
     // Nights the watch had someone asleep at the start of: why, said.
     if (r.untimed?.some((u) => u.why === "asleep")) return notes.trim();
-    if (r.unchanged) return `nothing new from your watch since it last ran.${notes}`;
     if (notes) return `${r.slept ? "no sleep from your watch inside a sleepcast night yet." : "nothing from your watch yet."}${notes}`;
     return r.slept
       ? "your watch's sleep didn't start inside a sleepcast night."

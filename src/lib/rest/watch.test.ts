@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import {
   parseWatchPayload,
   watchOnset,
+  AFTER_END_MS,
   applyWatch,
   importWatch,
   watchPayloadFromHash,
@@ -183,7 +184,7 @@ describe("watchOnset", () => {
     const base = { timed: [], unchanged: 0, unsaved: false, noWindow: false, badWindow: false, slept: 2, untimed: [asleep], unrecognised: 0, malformed: 0 };
     expect(watchNotice(base)).toMatch(/^\w+ \w+ has no watch time: your watch had you asleep before sleepcast started\.$/);
     // ...beside a night already timed, or an older one timed,
-    expect(watchNotice({ ...base, unchanged: 1 })).toMatch(/^\w+ \w+ has no watch time: .*started\.$/);
+    expect(watchNotice({ ...base, unchanged: 1 })).toMatch(/^nothing new from your watch since it last ran\. \w+ \w+ has no watch time: .*started\.$/);
     expect(watchNotice({ ...base, timed: [{ startedAt: START - 24 * 60 * MIN, atMs: 10 * MIN, inferredAtMs: null }], latestIsOlder: true })).toMatch(/asleep before sleepcast started\.$/);
     // ...and each night with its own reason, a killed tab's among them.
     const two = watchNotice({ ...base, untimed: [{ startedAt: START - 24 * 60 * MIN, why: "recorded" }, asleep] });
@@ -193,6 +194,20 @@ describe("watchOnset", () => {
     const timed = night({ detector: "watch", sleptAtMs: 10 * MIN, timeToSleepMs: 10 * MIN, inferredAtMs: 20 * MIN });
     const r = applyWatch([timed], [asleepAt(-5 * MIN, 60 * MIN)], START - 60 * MIN);
     expect([r.asleepAtStart, r.nights]).toEqual([[], [timed]]);
+  });
+  it("doesn't time a night by sleep long after it ended", () => {
+    const stopped = night({ endedAt: START + 3 * MIN, endedVia: "ended" });
+    expect(applyWatch([stopped], [asleepAt(200 * MIN)], START - 60 * MIN).timed).toEqual([]);
+    // ...but does in the quiet just after it.
+    expect(applyWatch([stopped], [asleepAt(3 * MIN + AFTER_END_MS - 1)], START - 60 * MIN).timed).toHaveLength(1);
+  });
+  it("adds a time only where two named nights share a name", () => {
+    const one = watchNotice({
+      timed: [{ startedAt: START, atMs: 10 * MIN, inferredAtMs: null }],
+      untimed: [{ startedAt: START + 30 * MIN, why: "asleep" }],
+      unchanged: 0, unsaved: false, noWindow: false, badWindow: false, slept: 1, unrecognised: 0, malformed: 0,
+    });
+    expect(one).not.toMatch(/\(from/);
   });
   it("tells two nights with one name apart by their start", () => {
     const later = START + 30 * MIN;
