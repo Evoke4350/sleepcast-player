@@ -58,12 +58,18 @@ const NAMES = new Map<string, boolean>([
   ["rem", true], ["asleeprem", true], ["remsleep", true],
 ]);
 
-/** A stage as sleep or not; "code" for a would-be code that isn't one
- *  (any digit: "-1", "(1)", "７" — the format, not a language); null for a
- *  name this doesn't know. */
+/** A stage as sleep or not; "code" for one that's the format's fault,
+ *  not a language's: a would-be code that isn't one (any digit: "-1",
+ *  "(1)", "７"), or a known name with words after it ("Core thanks", a
+ *  message run onto the last line); null for a name this doesn't know. */
 function stageAsleep(raw: string): boolean | "code" | null {
   if (/\p{N}/u.test(raw)) return CODES.get(raw) ?? "code";
-  return NAMES.get(raw.toLowerCase().replace(/[^a-z]/g, "")) ?? null;
+  const letters = (s: string) => s.toLowerCase().replace(/[^a-z]/g, "");
+  const known = NAMES.get(letters(raw));
+  if (known !== undefined) return known;
+  const words = raw.trim().split(/\s+/);
+  for (let n = 1; n < words.length; n++) if (NAMES.has(letters(words.slice(0, n).join(" ")))) return "code";
+  return null;
 }
 
 /** A date as a strict parser (Safari's) wants it: "T" before the time
@@ -298,26 +304,44 @@ export interface WatchImport {
 
 /** A pasted payload: the lines themselves, still url-encoded or not (the
  *  paste variant of the Shortcut may keep its url-encode step), or a whole
- *  #watch= link, itself perhaps encoded. Plain text never holds an escape
- *  (dates and stage names have no "%"), so any escape means it is still
- *  encoded. Read by the payload's own grammar only: whatever else comes
- *  with it (a message's words, a quote marker) refuses the import, which
- *  changes nothing, rather than being guessed away. */
+ *  #watch= link, itself perhaps percent-encoded. Plain text never holds an
+ *  escape (dates and stage names have no "%"), so any escape means it is
+ *  still encoded. Read by the payload's own grammar only: whatever else
+ *  comes with it (a message's words, a quote marker) refuses the import,
+ *  which changes nothing, rather than being guessed away. */
 export function payloadFromPaste(text: string): string {
   const i = text.indexOf(WATCH_HASH);
   if (i < 0) {
-    const plain = /%[0-9a-f]{2}/i.test(text) ? decodeLeniently(text) : text;
-    return plain.includes(WATCH_HASH) ? payloadFromPaste(plain) : plain.trim();
+    // A link percent-encoded whole: decoded by itself, so the words around
+    // it stay as they were, and read as any link is.
+    const j = text.search(/%23watch%3D/i);
+    if (j >= 0) {
+      const start = text.slice(0, j).search(/\S*$/);
+      const end = j + text.slice(j).search(/\s|$/);
+      return payloadFromPaste(text.slice(0, start) + decodeLeniently(text.slice(start, end)) + text.slice(end));
+    }
+    return (/%[0-9a-f]{2}/i.test(text) ? decodeLeniently(text) : text).trim();
   }
-  // Less any punctuation or symbol a message put after the link (a full
-  // stop, an ellipsis, a closing quote, an autolink's >, **).
-  const unpunctuated = (s: string) => s.trim().replace(/[\p{P}\p{S}]+$/u, "");
   const after = text.slice(i + WATCH_HASH.length);
-  // Encoded: the link is one token, ending at the first whitespace.
-  const token = unpunctuated(after.split(/\s/)[0]);
-  if (/%[0-9a-f]{2}/i.test(token)) return decodeLeniently(token).trim();
-  // Unencoded (the url-encode step missed): the rest of the paste.
-  return unpunctuated(after);
+  // Encoded whole (every ":" escaped, as url-encode leaves it): the link is
+  // one token, ending at the first whitespace, less what a message put
+  // after it. Unless the next word goes on with the payload (a "~" or an
+  // escape in it: the link wrapped), or the link was encoded only in part:
+  // then the rest is read with it.
+  const [first, next = ""] = after.trim().split(/\s+/);
+  const token = unpunctuated(first);
+  if (/%[0-9a-f]{2}/i.test(token) && !token.includes(":") && !/~|%[0-9a-f]{2}/i.test(next)) return decodeLeniently(token).trim();
+  // Otherwise (the url-encode step missed) the rest of the paste, decoded
+  // as the link would be.
+  const tail = unpunctuated(after);
+  return (/%[0-9a-f]{2}/i.test(tail) ? decodeLeniently(tail) : tail).trim();
+}
+
+/** Less any punctuation or symbol a message put after a link (a full
+ *  stop, an ellipsis, a closing quote, an autolink's >, **), but not a
+ *  "~" or ")", which a payload's last line may end with. */
+function unpunctuated(s: string): string {
+  return s.trim().replace(/(?:(?![~)])[\p{P}\p{S}])+$/u, "");
 }
 
 /** Reads a payload into the rest ledger. A payload without its window

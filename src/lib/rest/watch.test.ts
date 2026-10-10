@@ -743,6 +743,30 @@ describe("pasting a link without its url-encode step, and looser dates", () => {
     expect(parseWatchPayload(payloadFromPaste(`> https://sleepcast.pro/#watch=${w}\n> ${s}`)).malformed).toBe(1);
     expect(parseWatchPayload(payloadFromPaste(`https://sleepcast.pro/#watch=${w}\n${s}~iPhone`)).malformed).toBe(1);
   });
+  it("reads a percent-encoded link as one token, with words after it", () => {
+    const link = "https://sleepcast.pro/#watch=" + encodeURIComponent("window~2026-10-04T09:00:00+01:00\n2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core");
+    expect(payloadFromPaste(`see ${encodeURIComponent(link)} thanks`)).toBe("window~2026-10-04T09:00:00+01:00\n2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core");
+  });
+  it("reads a link encoded in part, or wrapped, whole, so it refuses rather than imports a prefix", () => {
+    const s = "2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core";
+    const partly = parseWatchPayload(payloadFromPaste(`https://sleepcast.pro/#watch=window~2026-10-04T09:00:00%2B01:00\n${s}`));
+    expect(partly.samples).toHaveLength(1);
+    const enc = encodeURIComponent(`window~2026-10-04T09:00:00+01:00\n${s}\n${s.replaceAll("23:", "22:")}`);
+    const cut = enc.indexOf("%0A", enc.indexOf("%0A") + 1) + 3;
+    const wrapped = parseWatchPayload(payloadFromPaste(`https://sleepcast.pro/#watch=${enc.slice(0, cut)}\n${enc.slice(cut)}`));
+    expect(wrapped.malformed + wrapped.samples.length).toBeGreaterThan(1);
+  });
+  it("decodes an unencoded link's escapes as the link would, and keeps a last ~ or )", () => {
+    const w = "window~2026-10-04T09:00:00+01:00";
+    expect(payloadFromPaste(`https://sleepcast.pro/#watch=${w}\na~b~In%20Bed`)).toBe(`${w}\na~b~In Bed`);
+    expect(parseWatchPayload(payloadFromPaste(`https://sleepcast.pro/#watch=${w}\n2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core~`)).malformed).toBe(1);
+    expect(payloadFromPaste(`https://sleepcast.pro/#watch=${w}\na~b~Asleep (Core)`)).toBe(`${w}\na~b~Asleep (Core)`);
+  });
+  it("counts a known stage with words after it as the format, not a language", () => {
+    const r = parseWatchPayload("window~2026-10-04T09:00:00+01:00\n2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core thanks");
+    expect([r.malformed, r.unrecognised]).toEqual([1, 0]);
+    expect(parseWatchPayload("window~2026-10-04T09:00:00+01:00\n2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~REM Sleep").samples).toHaveLength(1);
+  });
   it("reads a link pasted fully percent-encoded", () => {
     const link = "https://sleepcast.pro/#watch=" + encodeURIComponent("window~2026-10-04T09:00:00+01:00\n2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core");
     expect(payloadFromPaste(encodeURIComponent(link))).toBe("window~2026-10-04T09:00:00+01:00\n2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core");

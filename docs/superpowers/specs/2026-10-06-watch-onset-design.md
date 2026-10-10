@@ -29,7 +29,9 @@ the import is
 refused, with a notice pointing at the updated steps), then one sample per
 line, `start~end~stage`, ISO 8601 dates with time, the
 stage as Health names it (Core, Deep, REM, Asleep, Awake, In Bed, matched as
-whole names) or its numeric code (HKCategoryValueSleepAnalysis 0–5). English
+whole names) or its numeric code (HKCategoryValueSleepAnalysis 0–5). A known
+name with words after it is the format's fault (a message run onto the line), not
+a language's. English
 names only, and any unrecognised name refuses the whole import: in several
 languages REM is still "REM" while the other stages aren't English, and the
 recognised part alone would time the night from its first REM stage. A line
@@ -44,8 +46,10 @@ A home-screen copy of the site keeps its own storage, apart from Safari's, so
 the link can't reach it. For that, the Shortcut copies the lines instead, and
 the rest view has a "paste from your watch" box (it accepts the lines or the
 whole link, itself perhaps percent-encoded). From a pasted link it takes, if
-url-encoded, the link itself (up to the first space, less trailing
-punctuation), and if not (the encode step missed) the rest of the paste. It
+url-encoded whole, the link itself (up to the first space, less trailing
+punctuation, unless the next word goes on with the payload: a wrapped link),
+and otherwise (the encode step missed, or done in part) the rest of the
+paste, decoded as the link would be. It
 reads with the payload's own grammar only: anything else that came with it (a
 message's words, a quote marker, line breaks turned to spaces) refuses the
 import, which changes nothing, rather than being guessed away.
