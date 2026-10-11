@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, type ReactNode } from "react";
 import type { Episode } from "../lib/engine";
 
 // No-PII aggregate beacon, same shape as SleepSetup's — a single allowlisted
@@ -13,16 +13,19 @@ interface ReanchorViewProps {
   next: Episode;
   onKeepDrifting: () => void;
   onDismiss: () => void;
+  /** A line to show above (the watch import's result, a held link's offer). */
+  note?: ReactNode;
 }
 
 // The middle-night re-entry: near-black, no time, one tap. The half-asleep
 // brain gets one choice and no numbers. Shown only when reanchorNext() finds
 // an episode (reopened in the dark soon after a faded night, with more to play).
-export function ReanchorView({ next, onKeepDrifting, onDismiss }: ReanchorViewProps) {
+export function ReanchorView({ next, onKeepDrifting, onDismiss, note }: ReanchorViewProps) {
   useEffect(() => { beacon("reanchor_shown"); }, []);
 
   return (
     <main className="flex min-h-dvh flex-col items-center justify-center gap-10 bg-[#050508] px-8 text-center">
+      {note && <div>{note}</div>}
       <p className="text-sm text-[#4a4540]">still here?</p>
       <button
         onClick={() => { beacon("reanchor_tapped"); onKeepDrifting(); }}

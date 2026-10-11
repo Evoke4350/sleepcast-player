@@ -89,3 +89,24 @@ describe("paramsFromHistory keeps the detector able to decide", () => {
     expect(ticks * TICK_MS).toBeLessThan(25 * 60_000 - 60_000); // before the fade window
   });
 });
+
+describe("calibration and watch onsets", () => {
+  it("learns from a watch-timed night by the detector's own onset, as before it was re-timed", () => {
+    const n = (over: Partial<RestNight>): RestNight => ({
+      startedAt: 0, endedAt: 45 * 60_000, timerMinutes: 45, endedVia: "faded", sleptAtMs: 20 * 60_000,
+      timeToSleepMs: 20 * 60_000, interactions: 40, detector: "inference", ...over,
+    });
+    const watched = n({ detector: "watch", sleptAtMs: 6 * 60_000, timeToSleepMs: 6 * 60_000, inferredAtMs: 20 * 60_000 });
+    expect(paramsFromHistory([watched, watched, watched])).toEqual(paramsFromHistory([n({}), n({}), n({})]));
+    expect(paramsFromHistory([watched, watched, watched])).not.toEqual(DEFAULT_PARAMS);
+  });
+  it("doesn't learn from watch-timed nights by the watch's onset, whose touches run past it", () => {
+    const n = (over: Partial<RestNight>): RestNight => ({
+      startedAt: 0, endedAt: 45 * 60_000, timerMinutes: 45, endedVia: "faded", sleptAtMs: 20 * 60_000,
+      timeToSleepMs: 20 * 60_000, interactions: 2, detector: "inference", ...over,
+    });
+    const observed = [n({}), n({}), n({})];
+    const watched = n({ detector: "watch", sleptAtMs: 6 * 60_000, timeToSleepMs: 6 * 60_000, interactions: 6 });
+    expect(paramsFromHistory([...observed, watched])).toEqual(paramsFromHistory(observed));
+  });
+});

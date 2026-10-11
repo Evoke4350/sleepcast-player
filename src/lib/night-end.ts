@@ -43,9 +43,13 @@ export function recordNightEnd(e: NightEnd): void {
       return;
     }
   }
+  // The snapshot goes first, freeing its room for the night, which the
+  // ledger then has before its last-night record does. If the night can't
+  // be stored (storage full) it is still over: it was ended here, not
+  // killed, so its snapshot mustn't be offered to resume.
   clearLive();
+  if (e.rest) appendNight(e.rest.finish(e.reason, e.now), e.now);
   // "faded" is the natural end — stamp it so setup can offer a smaller re-arm.
   if (e.reason === "faded") recordSessionEnd(e.timerMinutes, e.modeKind);
   saveLastNight({ ...e.lastNight, endedVia: e.reason, endedAt: e.now });
-  if (e.rest) appendNight(e.rest.finish(e.reason, e.now));
 }

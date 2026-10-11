@@ -1,15 +1,39 @@
-import { useMemo } from "react";
-import { loadNights, rollup, setSelfLabel, leanComparison } from "../lib/rest/ledger";
+import { useMemo, useState } from "react";
+import { loadNights, lastOf, rollup, setSelfLabel, leanComparison, offerForLabel } from "../lib/rest/ledger";
 import { recordFalsePositive } from "../lib/rest/calibrate";
 import { scoreFeeds, medianTimeToSleep, meetsSuggestionGate, shuffleWeights, pluralNights, fmtOnsetMinutes, MIN_NIGHTS } from "../lib/rest/sleepscore";
-import { fmtDuration, lastNight } from "../lib/rest/surface";
 import { getPlays, loadState } from "../lib/store";
 import { playsSince, playAtMoment } from "../lib/plays";
+import { importWatch, pasteWorthKeeping, payloadFromPaste, watchAgreement, watchNotice } from "../lib/rest/watch";
+import { QUIET_LINK } from "./quiet-link";
+import { WatchLine } from "./WatchLine";
 
-export function RestView({ onClose }: { onClose: () => void }) {
-  const nights = useMemo(() => loadNights(), []);
+/** `onClose(changed)`: changed when a paste altered what the home screen
+ *  works its lines out from, which the caller reloads to read again. */
+export function RestView({ onClose }: { onClose: (changed?: boolean) => void }) {
+  // Re-read after a pasted watch import re-times them.
+  const [nights, setNights] = useState(() => loadNights());
+  const watch = useMemo(() => watchAgreement(nights), [nights]);
+  const [pasted, setPasted] = useState("");
+  const [pasteLine, setPasteLine] = useState<string | null>(null);
+  // A pasted import may change what the home screen worked out its lines
+  // from: re-timed nights (the goodbye, the step-back offer), or a killed
+  // tab's night recorded first (the resume offer). Leaving then says so, and
+  // the page reloads to read them again, as the link's import does.
+  const [changedHere, setChangedHere] = useState(false);
+  function importPasted() {
+    const r = importWatch(payloadFromPaste(pasted));
+    setPasteLine(watchNotice(r));
+    // Kept when it can be looked at or tried again (pasteWorthKeeping).
+    if (!pasteWorthKeeping(r)) setPasted("");
+    if (r.nights) {
+      setNights(r.nights);
+      setChangedHere(true);
+    }
+  }
+  const close = () => onClose(changedHere);
   const r = useMemo(() => rollup(nights), [nights]);
-  const last = lastNight();
+  const last = lastOf(nights);
 
   // Only custom feeds can go missing from here — loadState always re-merges
   // every BUILTIN_FEEDS entry regardless of what's saved, and removeCustomFeed
@@ -50,14 +74,20 @@ export function RestView({ onClose }: { onClose: () => void }) {
     () => (last ? playsSince(getPlays(), last.startedAt) : []),
     [last?.startedAt],
   );
-  // The episode running at the moment the detector decided you'd gone.
-  const driftedDuring = useMemo(
-    () =>
-      last && last.sleptAtMs !== null
-        ? playAtMoment(lastPlays, last.startedAt + last.sleptAtMs)
-        : null,
-    [lastPlays, last?.startedAt, last?.sleptAtMs],
-  );
+  // The episode running at the moment you went under. A watch onset was
+  // attributed from the night's own timeline, which knows when the audio
+  // was dead (after the end, or before a revive): its episode or none. The
+  // play ledger can't tell, so it only answers for the detector's onset.
+  const driftedDuring = useMemo(() => {
+    if (!last || last.sleptAtMs === null) return null;
+    // The credited episode, when the night has one: or none, if it isn't
+    // among the plays (one only counts after HEARD_SEC), never another
+    // episode that would contradict the credit.
+    if (last.onsetEpisodeId !== undefined) return lastPlays.find((p) => p.id === last.onsetEpisodeId) ?? null;
+    // No attribution: a watch night's onset may be when nothing was playing,
+    // so none; an older detector night falls back on the plays.
+    return last.detector === "watch" ? null : playAtMoment(lastPlays, last.startedAt + last.sleptAtMs);
+  }, [lastPlays, last]);
 
   // Shared row markup so the two groups below (counted / not-yet-counted)
   // can never drift apart in what they show per feed.
@@ -92,12 +122,12 @@ export function RestView({ onClose }: { onClose: () => void }) {
 
   function label(kind: "slept" | "awake") {
     if (!last) return;
-    setSelfLabel(last.startedAt, kind);
+    const labelled = setSelfLabel(last.startedAt, kind);
     // a confirmed false positive tightens the detector for next time
-    if (kind === "awake" && last.sleptAtMs !== null) {
+    if (labelled && kind === "awake" && labelled.sleptAtMs !== null) {
       recordFalsePositive();
     }
-    onClose();
+    close();
   }
 
   return (
@@ -108,13 +138,13 @@ export function RestView({ onClose }: { onClose: () => void }) {
       </div>
       {r.bestTimeToSleepMs !== null && (
         <div>
-          <div className="text-2xl text-[#b0a898]">{fmtDuration(r.bestTimeToSleepMs)}</div>
+          <div className="text-2xl text-[#b0a898]">{fmtOnsetMinutes(r.bestTimeToSleepMs)}</div>
           <div className="mt-1 text-xs uppercase tracking-widest">fastest you left us</div>
         </div>
       )}
       {r.medianTimeToSleepMs !== null && (
         <div>
-          <div className="text-2xl text-[#b0a898]">{fmtDuration(r.medianTimeToSleepMs)}</div>
+          <div className="text-2xl text-[#b0a898]">{fmtOnsetMinutes(r.medianTimeToSleepMs)}</div>
           <div className="mt-1 text-xs uppercase tracking-widest">how long you usually take</div>
         </div>
       )}
@@ -138,7 +168,7 @@ export function RestView({ onClose }: { onClose: () => void }) {
           </ul>
         </div>
       )}
-      {last && last.sleptAtMs !== null && last.selfLabel === undefined && (
+      {last && offerForLabel(last) && (
         <div className="space-y-2 border-t border-[#241f30] pt-6 text-sm">
           <p>did you fall asleep to it last time?</p>
           <div className="flex justify-center gap-3">
@@ -175,17 +205,57 @@ export function RestView({ onClose }: { onClose: () => void }) {
       )}
       {/* Outside the scored section: timed nights stay comparable even when
           no feed has scored nights (slept nights with no feed attributed). */}
-      {/* The headline's measure split by lean, so formatted like it (fmtDuration). */}
+      {/* The headline's measure split by lean, so formatted like it (fmtOnsetMinutes). */}
       {compared && (
         <p className="text-[11px] leading-snug text-[#8a7a5c]">
-          {`How long you usually take: ${orDash(compared.leaned.medianMs, fmtDuration)} on nights the shuffle leaned (${pluralNights(compared.leaned.timedNights, "timed")}), ${orDash(compared.plain.medianMs, fmtDuration)} on plain-shuffle nights (${pluralNights(compared.plain.timedNights, "timed")}). A rough guide: the two differ in more than the lean (which shows, which weeks).`}
+          {`How long you usually take: ${orDash(compared.leaned.medianMs, fmtOnsetMinutes)} on nights the shuffle leaned (${pluralNights(compared.leaned.timedNights, "timed")}), ${orDash(compared.plain.medianMs, fmtOnsetMinutes)} on plain-shuffle nights (${pluralNights(compared.plain.timedNights, "timed")}). A rough guide: the two differ in more than the lean (which shows, which weeks).`}
         </p>
       )}
+      <section className="space-y-2 border-t border-[#241f30] pt-6 text-xs">
+        {watch.watchNights > 0 ? (
+          <p>
+            {`your watch timed ${pluralNights(watch.watchNights)}.`}
+            {watch.medianOffMs !== null
+              ? ` sleepcast's own guess was ${fmtOnsetMinutes(watch.medianOffMs)} off it, typically (${pluralNights(watch.compared)} to compare).`
+              : ""}
+          </p>
+        ) : (
+          <p>have an apple watch? it can time your nights instead of sleepcast guessing.</p>
+        )}
+        <a href="/watch" className={`block ${QUIET_LINK}`}>
+          set up the watch shortcut
+        </a>
+        {/* The home-screen app keeps its own storage, apart from Safari's, so
+            the Shortcut's link can't reach it: its copy-to-clipboard variant
+            is pasted here instead. */}
+        <details className="text-left">
+          <summary className="cursor-pointer text-center text-[#4a4540] hover:text-[#8a7a5c]">paste from your watch</summary>
+          <textarea
+            value={pasted}
+            onChange={(e) => setPasted(e.target.value)}
+            rows={3}
+            aria-label="watch sleep data"
+            className="mt-2 w-full rounded border border-[#241f30] bg-transparent p-2 text-[11px] text-[#b0a898]"
+          />
+          <button
+            onClick={importPasted}
+            disabled={!pasted.trim()}
+            className="mt-1 rounded-full border border-[#241f30] px-4 py-1 hover:border-[#6e5d44] disabled:opacity-40"
+          >
+            read it
+          </button>
+        </details>
+        {pasteLine && (
+          <p className="text-[#b0a898]">
+            <WatchLine text={pasteLine} />
+          </p>
+        )}
+      </section>
       <p className="text-xs text-[#4a4540]">
         counted only on this device. no account, nothing sent anywhere. we're
         rooting for the nights you don't need us.
       </p>
-      <button onClick={onClose} className="text-xs underline decoration-[#3a3325] underline-offset-4 hover:text-[#b59a76]">back</button>
+      <button onClick={close} className={`text-xs ${QUIET_LINK}`}>back</button>
     </div>
   );
 }

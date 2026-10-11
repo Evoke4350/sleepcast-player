@@ -1,5 +1,6 @@
 import type { Episode, PlayMode } from "./engine";
 import { recordHeard, migrateLegacyHistory, type Play } from "./plays";
+import { num, obj, optBool, optNum } from "./guards";
 import { shouldRemember, putPosition, type Positions } from "./positions";
 
 // ---------------------------------------------------------------------------
@@ -327,7 +328,7 @@ export function resumeFrom(l: LiveSession): ResumeDescriptor {
   const fields = Object.fromEntries(
     Object.entries(l).filter(([k]) => k !== "current" && !sessionField.has(k)),
   ) as ResumeFields;
-  return { ...fields, episode: l.current, playedIds: l.playedIds ?? [] };
+  return { ...fields, episode: l.current };
 }
 
 /** The night's own timer length: the snapshot's, else estimated from its
@@ -340,8 +341,7 @@ const LIVE_POOL_CAP = 80;
 
 /** A snapshot's played episodes, the current one included. */
 export function withCurrentPlayed(l: Pick<LiveSession, "playedIds" | "current">): string[] {
-  const ids = l.playedIds ?? []; // an older snapshot may lack it
-  return ids.includes(l.current.id) ? ids : [...ids, l.current.id];
+  return l.playedIds.includes(l.current.id) ? l.playedIds : [...l.playedIds, l.current.id];
 }
 
 /** The periodic counter after the snapshot taken at an episode's start
@@ -372,13 +372,55 @@ export function saveLive(s: LiveSession): boolean {
   }
 }
 
+/** Whether a stored snapshot has the shape the player writes: every field
+ *  it has written since the first snapshot, and the later ones (absent on
+ *  older snapshots) of the right type where there. Its readers (revive,
+ *  reconcile, a watch link recording a stale one on load) rely on all of it:
+ *  one without would throw, before the page drew, or record a night with no
+ *  start. Anything else is corrupt. */
+function isLiveSession(s: unknown): s is LiveSession {
+  if (!obj(s)) return false;
+  return (
+    num(s.savedAt) &&
+    num(s.remainingMs) &&
+    num(s.totalSeconds) &&
+    num(s.position) &&
+    obj(s.current) &&
+    typeof s.current.id === "string" &&
+    Array.isArray(s.pool) &&
+    Array.isArray(s.playedIds) &&
+    obj(s.skipIntroByFeedId) &&
+    obj(s.feedTitles) &&
+    obj(s.artworkByFeedId) &&
+    optNum(s.nightStartedAt) &&
+    optNum(s.timerMinutes) &&
+    (s.pool as unknown[]).every((e) => obj(e) && typeof e.id === "string") &&
+    (s.playedIds as unknown[]).every((id) => typeof id === "string") &&
+    optNum(s.interactions) &&
+    optNum(s.touches) &&
+    optNum(s.extensions) &&
+    optBool(s.ruleSpent) &&
+    optBool(s.wasVaried) &&
+    (s.shuffleLean === undefined || obj(s.shuffleLean)) &&
+    (s.modeKind === undefined || typeof s.modeKind === "string")
+  );
+}
+
+/** Whether any snapshot is stored, without reading it. */
+export function hasStoredLive(): boolean {
+  try {
+    return localStorage.getItem(KEY_LIVE) !== null;
+  } catch {
+    return false;
+  }
+}
+
 export function loadLive(): LiveSession | null {
   try {
     const raw = localStorage.getItem(KEY_LIVE);
     if (!raw) return null;
-    const s = JSON.parse(raw) as LiveSession;
-    if (!s || !s.current || typeof s.remainingMs !== "number") return null;
-    return s;
+    const s: unknown = JSON.parse(raw);
+    return isLiveSession(s) ? s : null;
   } catch {
     return null;
   }
@@ -398,7 +440,7 @@ function isTimerless(l: LiveSession): boolean {
 }
 
 export function isRevivable(l: LiveSession | null, now: number): boolean {
-  if (!l || typeof l.savedAt !== "number") return false;
+  if (!l) return false;
   // A timerless night snapshots no remaining time; only a timed one can run out.
   if (!isTimerless(l) && l.remainingMs <= 60_000) return false;
   const age = now - l.savedAt;
@@ -476,8 +518,8 @@ export interface LastNight {
 }
 
 export function saveLastNight(n: LastNight): void {
-  const bounded: LastNight = { ...n, pool: n.pool.slice(0, LASTNIGHT_POOL_CAP) };
   try {
+    const bounded: LastNight = { ...n, pool: n.pool.slice(0, LASTNIGHT_POOL_CAP) };
     writeMakingRoom(KEY_LASTNIGHT, JSON.stringify(bounded));
   } catch {
     /* quota / private mode: a lost re-anchor is not worth throwing over */

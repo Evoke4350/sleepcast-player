@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { shouldGreetGoodbye, fmtDuration, markGoodbyeSeen } from "./surface";
+import { shouldGreetGoodbye, markGoodbyeSeen, fmtDuration } from "./surface";
+import { fmtOnsetMinutes } from "./sleepscore";
 import { appendNight } from "./ledger";
 import type { RestNight } from "./types";
 
@@ -11,13 +12,20 @@ const night = (over: Partial<RestNight> = {}): RestNight => ({
 describe("surface", () => {
   beforeEach(() => localStorage.clear());
 
-  it("fmtDuration renders minutes", () => {
-    expect(fmtDuration(300000)).toBe("5 min");
-    expect(fmtDuration(90000)).toBe("2 min");
+  it("fmtDuration (kept for the host app) words minutes as fmtOnsetMinutes does", () => {
+    expect(fmtDuration(300_000)).toBe("5 min");
+    expect(fmtDuration(20_000)).toBe("under a minute");
+  });
+
+  it("fmtOnsetMinutes renders minutes", () => {
+    expect(fmtOnsetMinutes(300000)).toBe("5 min");
+    expect(fmtOnsetMinutes(90000)).toBe("2 min");
+    // A watch onset can be this fast; read as the watch's own line reads it.
+    expect(fmtOnsetMinutes(20_000)).toBe("under a minute");
   });
 
   it("greets goodbye once for a slept night, then not again", () => {
-    appendNight(night({ startedAt: 5000, sleptAtMs: 240000 }));
+    appendNight(night({ startedAt: 5000, sleptAtMs: 240000 }), Date.now());
     const g = shouldGreetGoodbye(9_999_999);
     expect(g?.startedAt).toBe(5000);
     markGoodbyeSeen(5000);
@@ -25,7 +33,7 @@ describe("surface", () => {
   });
 
   it("does not greet if the last night was not detected as slept", () => {
-    appendNight(night({ startedAt: 6000, sleptAtMs: null, timeToSleepMs: null }));
+    appendNight(night({ startedAt: 6000, sleptAtMs: null, timeToSleepMs: null }), Date.now());
     expect(shouldGreetGoodbye(9_999_999)).toBeNull();
   });
 });

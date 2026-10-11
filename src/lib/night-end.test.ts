@@ -92,3 +92,21 @@ describe("the last episode", () => {
     expect(loadNights()).toHaveLength(1);
   });
 });
+
+describe("recordNightEnd when the night can't be stored", () => {
+  beforeEach(() => { localStorage.clear(); saveLive(live); });
+  it("still ends the night: it was ended here, so it isn't offered to resume", () => {
+    const setItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (this: Storage, k: string, v: string) {
+      if (k === "sleepcast2.rest") throw new Error("QuotaExceededError");
+      return setItem.call(this, k, v);
+    };
+    try {
+      recordNightEnd(end());
+    } finally {
+      Storage.prototype.setItem = setItem;
+    }
+    expect(loadLive()).toBeNull();
+    expect(loadLastNight()?.endedVia).toBe(end().reason);
+  });
+});

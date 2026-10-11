@@ -1,10 +1,12 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import type { Episode } from "../lib/engine";
 import { formatTime } from "../lib/engine";
-import { loadLive, clearLastNight, loadLastNight, type LiveSession, type LastNight, type ResumeDescriptor, resumeFrom, nightTimerMinutes, loadState, isRevivable, resumeMode, loadBlocked } from "../lib/store";
+import { hasStoredLive, loadLive, clearLive, clearLastNight, loadLastNight, type LiveSession, type LastNight, type ResumeDescriptor, resumeFrom, nightTimerMinutes, loadState, isRevivable, resumeMode, loadBlocked } from "../lib/store";
 import type { PlayMode } from "../lib/engine";
 import type { NoiseSettings } from "../lib/store";
 import { reanchorNext } from "../lib/rest/reanchor";
+import { importWatch, TOO_LONG_NOTICE, watchLinkTooLong, watchNotice, watchPayloadFromHash } from "../lib/rest/watch";
+import { WATCH_PENDING_KEY } from "../lib/rest/watch-hash";
 import { DEFAULT_FEEL_MINUTES } from "../lib/timer-feel";
 import { SleepSetup } from "./SleepSetup";
 import { Player } from "./Player";
@@ -12,11 +14,14 @@ import { YouTubeNight } from "./YouTubeNight";
 import { Night } from "./Night";
 import { isYouTubeLineup, isMixedLineup } from "../lib/youtube-night";
 import { RestView } from "./RestView";
-import { reconcileLive, settleLive } from "../lib/rest/reconcile";
+import { WatchLine } from "./WatchLine";
+import { reconcileLive, resumeTarget, settleStoredLive } from "../lib/rest/reconcile";
 import { ReanchorView } from "./ReanchorView";
-import { shouldGreetGoodbye, markGoodbyeSeen, fmtDuration } from "../lib/rest/surface";
+import { shouldGreetGoodbye, markGoodbyeSeen } from "../lib/rest/surface";
+import { fmtOnsetMinutes } from "../lib/rest/sleepscore";
 import { loadNights, loadQuietUntil, saveQuietUntil, loadStepBackAsked, markStepBackAsked } from "../lib/rest/ledger";
 import { qualifiesForStepBack, isQuiet, quietUntilFrom } from "../lib/rest/stepback";
+import { QUIET_LINK } from "./quiet-link";
 
 interface SessionState {
   pool: Episode[];
@@ -32,10 +37,81 @@ interface SessionState {
   leadPosition?: number;
 }
 
-// The /app player: the setup screen until a night begins, then the immersive
-// player. A night in progress is snapshotted to localStorage (store.saveLive),
-// so a full reload — including iOS reclaiming the backgrounded tab — can offer
-// to resume it rather than waking you to silence.
+/** A #watch= link's import, if the page loaded with one (the head script
+ *  took it out of the address), and the line saying what it did. Run once
+ *  per page load (an initializer called twice gets the first call's line),
+ *  as it writes to storage: the module lives as long as the page, and the
+ *  site has no client-side routing, so a page load is a mount. */
+let watchLinkLine: string | null | undefined; // undefined: not yet run
+function takeWatchLink(): string | null {
+  if (watchLinkLine !== undefined) return watchLinkLine;
+  const payload = watchPayloadFromHash(takeHeldHash() ?? "");
+  watchLinkLine = payload === null ? null : watchNotice(importWatch(payload));
+  return watchLinkLine;
+}
+
+declare global {
+  interface Window {
+    /** A #watch= fragment, moved out of the address by PlayerLayout's head
+     *  script before analytics could read it. */
+    __sleepcastWatch?: string | null;
+  }
+}
+
+/** The #watch= fragment the head script took, once. */
+function takeHeldHash(): string | null {
+  const h = window.__sleepcastWatch ?? null;
+  window.__sleepcastWatch = null;
+  return h;
+}
+
+/** Hands a held link on to the next page load, through session storage
+ *  (the head script reads it), never back through the address. Whether it
+ *  could (blocked storage can't). */
+function handOn(held: string): boolean {
+  try {
+    sessionStorage.setItem(WATCH_PENDING_KEY, held);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Reads a held link: hands it on and reloads, so it is read as on any page
+ *  load. If it can't be handed on (session storage blocked), false: no
+ *  reload, which would lose it unread. */
+function readHeldLink(held: string): boolean {
+  if (!handOn(held)) return false;
+  window.location.reload();
+  return true;
+}
+
+const HELD_LINK_STUCK = "this browser wouldn't keep your watch's night across a reload: close this tab and run the shortcut again.";
+
+/** Beside the held link's offer: whether reading it ends a night left open.
+ *  Any snapshot stored: the import records one (killedNightToRecord) unless
+ *  it was saved in the last 30 s, which by the tap it may not be. Asked
+ *  each time the offer renders (only then), as the snapshot changes under a
+ *  held link (a night resumed, ended, given up). */
+function EndsNightNote() {
+  return hasStoredLive() ? <> (it ends the night left open)</> : null;
+}
+
+/** One quiet line above setup (the goodbye, the watch's result). */
+function HomeLine({ mark, markClass = "", children }: { mark: string; markClass?: string; children: ReactNode }) {
+  return (
+    <div className="mb-6 flex items-center justify-center gap-2 text-center text-xs text-[#6e5d44]">
+      <span className={`${markClass} text-sm text-[#8a7a5c]`.trim()}>{mark}</span>
+      <span>{children}</span>
+    </div>
+  );
+}
+
+// The player (the page at /): the setup screen until a night begins, then the
+// immersive player. A night in progress is snapshotted to localStorage
+// (store.saveLive), so a full reload — including iOS reclaiming the
+// backgrounded tab — can offer to resume it rather than waking you to
+// silence.
 export function AppPlayer() {
   const [session, setSession] = useState<SessionState | null>(null);
   const [resume, setResume] = useState<ResumeDescriptor | null>(null);
@@ -55,6 +131,38 @@ export function AppPlayer() {
   const [feedTrim, setFeedTrim] = useState<Record<string, number>>({});
   const [noise, setNoise] = useState<NoiseSettings>({ on: false, level: 0.15 });
   const [leveling, setLeveling] = useState(false);
+
+  // An Apple Watch import (sleepcast.pro/#watch=..., from the iOS Shortcut;
+  // rest/watch.ts). Read before the goodbye below, so last night's line
+  // shows the watch's time. A night whose tab was killed is only in the
+  // ledger once its snapshot is recorded, and that is the night the morning
+  // Shortcut most needs to time, so the import records it (killedNightToRecord;
+  // the `live` state below then finds no snapshot). The fragment is cleared
+  // at once: a reload, or the link shared, mustn't import it again.
+  // The morning's line is about the night before: gone once a night starts
+  // or is resumed (handleStart, handleResume).
+  const [watchLine, setWatchLine] = useState(takeWatchLink);
+  // The link can also land in a tab already open, where only the fragment
+  // changes. It is held (heldLink: not in the address, where a reload
+  // mid-night would import it and end the night; lost if the page goes
+  // first, which the next morning's two-day run makes up) and offered on
+  // the home screen and above a 3am re-anchor, read by a reload when the
+  // listener taps it: everything here (the resume card, setup's label offer,
+  // the goodbye) was worked out from the ledger before the import, and a
+  // reload by itself could end a night still on (a tab frozen mid-night) or
+  // lose what was being typed.
+  const [heldLink, setHeldLink] = useState<string | null>(null);
+  useEffect(() => {
+    // The head script has already moved it out of the address (analytics).
+    const onLink = () => {
+      const hash = takeHeldHash();
+      if (hash === null) return;
+      setHeldLink(hash);
+    };
+    window.addEventListener("sleepcast-watch", onLink);
+    onLink(); // one that landed between the first render and this effect
+    return () => window.removeEventListener("sleepcast-watch", onLink);
+  }, []);
 
   const [goodbye] = useState(() => (isQuiet(loadQuietUntil(), Date.now()) ? null : shouldGreetGoodbye(Date.now())));
 
@@ -93,7 +201,7 @@ export function AppPlayer() {
   // A night snapshotted before a reload. Offer to revive it only if enough
   // time is left and it is recent; otherwise the tab was killed and the night
   // is over, so record it (rest/reconcile.ts) rather than dropping it.
-  const [live, setLive] = useState<LiveSession | null>(() => settleLive(loadLive(), Date.now()));
+  const [live, setLive] = useState<LiveSession | null>(() => settleStoredLive(Date.now()));
 
   const [reanchor, setReanchor] = useState<{ lastNight: LastNight; next: Episode } | null>(null);
 
@@ -109,6 +217,8 @@ export function AppPlayer() {
       // KEY_LIVE, so normally only one of the two is present — this guards the
       // edge where an older faded night lingers under a still-live one.)
       const live = loadLive();
+      // (A night a watch import closed has its last night "ended", which no
+      // re-anchor continues: killedNightToRecord.)
       if (isRevivable(live, Date.now())) {
         setReanchor(null);
         return;
@@ -155,7 +265,9 @@ export function AppPlayer() {
   function recordStoredNight(keepItsLastNight: boolean) {
     if (keepItsLastNight) clearLastNight();
     const stored = loadLive();
-    if (stored) reconcileLive(stored, Date.now());
+    // Gone either way: a night turned down or replaced mustn't be offered
+    // again, even if storage was too full to record it.
+    if (stored && !reconcileLive(stored, Date.now())) clearLive();
     if (!keepItsLastNight) clearLastNight();
     setLive(null);
   }
@@ -172,6 +284,10 @@ export function AppPlayer() {
     modeOverride?: PlayMode
   ) {
     setResume(null); // a fresh night, not a revival
+    // A held link predates this new night (one that lands during a night is
+    // kept for when it ends; resuming a night keeps one too).
+    setHeldLink(null);
+    setWatchLine(null);
     recordStoredNight(true);
     applyNightSettings(modeOverride ?? loadState().settings.mode);
     setSession({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artworkByFeedId, leadEpisode, wasVaried, leadPosition });
@@ -181,15 +297,24 @@ export function AppPlayer() {
   // reload needs before audio can start again.
   function handleResume() {
     if (!live) return;
-    applyNightSettings(resumeMode(live)); // (the lean comes with the snapshot)
-    setResume(resumeFrom(live));
+    // The card may be stale (resumeTarget): revive what is stored now, or
+    // show what storage holds now.
+    const t = resumeTarget(live, Date.now());
+    if (!("revive" in t)) {
+      setLive(t.card);
+      return;
+    }
+    const target = t.revive;
+    setWatchLine(null);
+    applyNightSettings(resumeMode(target)); // (the lean comes with the snapshot)
+    setResume(resumeFrom(target));
     setSession({
-      pool: live.pool,
-      timerMinutes: nightTimerMinutes(live),
-      wasVaried: live.wasVaried,
-      skipIntroByFeedId: live.skipIntroByFeedId,
-      feedTitles: live.feedTitles,
-      artworkByFeedId: live.artworkByFeedId,
+      pool: target.pool,
+      timerMinutes: nightTimerMinutes(target),
+      wasVaried: target.wasVaried,
+      skipIntroByFeedId: target.skipIntroByFeedId,
+      feedTitles: target.feedTitles,
+      artworkByFeedId: target.artworkByFeedId,
     });
     setLive(null);
   }
@@ -202,7 +327,7 @@ export function AppPlayer() {
     setReanchor(null);
     // A snapshot the night kept (the app gave up on a revived night) comes
     // back as the resume card, or is recorded if too old to revive.
-    setLive(settleLive(loadLive(), Date.now()));
+    setLive(settleStoredLive(Date.now()));
   }
 
   // Continue the spread as a fresh clock-blind night, led by the next unplayed
@@ -299,17 +424,53 @@ export function AppPlayer() {
     );
   }
 
+  // The watch's line and a held link's offer: on the home screen, and above
+  // a 3am re-anchor (not during a night, nor in the rest view).
+  const watchNote =
+    heldLink !== null || watchLine ? (
+      <>
+        {heldLink !== null && (
+          <HomeLine mark="⌚︎">
+            <button
+              onClick={() => {
+                // Too long to read: said as any import says it, not handed on.
+                if (watchLinkTooLong(heldLink)) {
+                  setHeldLink(null);
+                  setWatchLine(TOO_LONG_NOTICE);
+                } else if (!readHeldLink(heldLink)) {
+                  setHeldLink(null);
+                  setWatchLine(HELD_LINK_STUCK);
+                }
+              }}
+              className={QUIET_LINK}
+            >
+              your watch's night came in: read it
+              <EndsNightNote />
+            </button>
+          </HomeLine>
+        )}
+        {watchLine && (
+          <HomeLine mark="⌚︎">
+            <WatchLine text={watchLine} />
+          </HomeLine>
+        )}
+      </>
+    ) : null;
+
   if (reanchor) {
     return (
       <ReanchorView
         next={reanchor.next}
         onKeepDrifting={handleKeepDrifting}
         onDismiss={handleReanchorDismiss}
+        note={watchNote}
       />
     );
   }
 
-  if (view === "rest") return <RestView onClose={() => setView("player")} />;
+  // A paste's reload doesn't hand a held link on: it is older than the
+  // paste, and imported after it would undo the paste's times.
+  if (view === "rest") return <RestView onClose={(changed) => (changed ? window.location.reload() : setView("player"))} />;
   return (
     <main className="flex-1 px-4 py-8 text-[#b59a76]">
       <div className="mx-auto max-w-xl">
@@ -357,13 +518,11 @@ export function AppPlayer() {
             </div>
           </div>
         )}
+        {watchNote}
         {goodbye && (
-          <div className="mb-6 flex items-center justify-center gap-2 text-center text-xs text-[#6e5d44]">
-            <span className="player-moon text-sm text-[#8a7a5c]">☾</span>
-            <span>
-              you slept{goodbye.timeToSleepMs !== null ? ` — gone in ${fmtDuration(goodbye.timeToSleepMs)}` : ""}.
-            </span>
-          </div>
+          <HomeLine mark="☾" markClass="player-moon">
+            you slept{goodbye.timeToSleepMs !== null ? ` — gone in ${fmtOnsetMinutes(goodbye.timeToSleepMs)}` : ""}.
+          </HomeLine>
         )}
         <SleepSetup onStart={handleStart} />
         <button onClick={() => setView("rest")} className="mt-8 block w-full text-center text-xs text-[#4a4540] underline decoration-[#2a2620] underline-offset-4 hover:text-[#8a7a5c]">

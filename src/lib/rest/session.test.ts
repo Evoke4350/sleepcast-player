@@ -261,3 +261,26 @@ describe("RestSession shuffle record", () => {
     expect(new RestSession(0, 45).finish("faded", 1000)).not.toHaveProperty("shuffle");
   });
 });
+
+describe("what a night keeps for a later onset", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("never ends before it started (a clock set back mid-night)", () => {
+    expect(new RestSession(1000, 60).finish("ended", 500).endedAt).toBe(1000);
+  });
+  it("records when it ended and its episode starts, in time order", () => {
+    const s = new RestSession(1000, 60);
+    s.noteEpisode("b", "b1", 1000 + 600_000);
+    s.noteEpisode("a", "a1", 1000);
+    const night = s.finish("ended", 1000 + 900_000);
+    expect(night.endedAt).toBe(1000 + 900_000);
+    expect(night.timeline).toEqual([
+      { t: 0, feedId: "a", episodeId: "a1" },
+      { t: 600_000, feedId: "b", episodeId: "b1" },
+    ]);
+  });
+
+  it("keeps no timeline when nothing played", () => {
+    expect(new RestSession(1000, 60).finish("ended", 2000)).not.toHaveProperty("timeline");
+  });
+});

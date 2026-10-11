@@ -12,6 +12,7 @@
 // never converge on anything. Feeds accumulate dozens of nights.
 
 import type { FeedWeight, RestNight } from "./types";
+import { median } from "./stats";
 
 export const CREDIT_ONSET = 2;
 export const CREDIT_SLEPT = 1;
@@ -249,10 +250,8 @@ export function medianTimeToSleep(
   nights: readonly RestNight[],
   feedId: string,
 ): number | null {
-  const times = onsetTimesFor(nights, feedId).sort((a, b) => a - b);
-  if (!times.length) return null;
-  const mid = Math.floor(times.length / 2);
-  return times.length % 2 ? times[mid] : Math.round((times[mid - 1] + times[mid]) / 2);
+  const m = median(onsetTimesFor(nights, feedId));
+  return m === null ? null : Math.round(m);
 }
 
 /** A time to sleep in minutes, for the evidence sentence and the panel it
@@ -261,8 +260,13 @@ export function medianTimeToSleep(
  *  minute count but reads like the detector glitched, not like a fast, real
  *  result — so that reads "under a minute". */
 export function fmtOnsetMinutes(ms: number): string {
-  const mins = Math.round(ms / 60_000);
-  return mins === 0 ? "under a minute" : `${mins} min`;
+  return underAMinute(ms) ? "under a minute" : `${Math.round(ms / 60_000)} min`;
+}
+
+/** Whether a time rounds to no minutes: "under a minute", as fmtOnsetMinutes
+ *  words it (and sentences that can't take that wording word it themselves). */
+export function underAMinute(ms: number): boolean {
+  return Math.round(ms / 60_000) === 0;
 }
 
 /** "1 night" / "3 nights" (or "1 timed night" with `kind`) — singularises

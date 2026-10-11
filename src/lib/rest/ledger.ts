@@ -1,46 +1,178 @@
 import type { RestNight, RestRollup, DetectorParams } from "./types";
+import { retimed } from "./attribution";
+import { median } from "./stats";
 import { writeMakingRoom } from "../store";
+import { SHORTCUT_REACH_MS, STALE_AFTER_MS } from "./watch-hash";
+import { arrayOrAbsent, num, numOrNull, obj, optNum } from "../guards";
 import { DEFAULT_PARAMS, LAMBDA_MAX, TICK_MS, quietTicksToDecide } from "./detector";
 
 const KEY = "sleepcast2.rest";
 const MAX_NIGHTS = 90;
 
+/** The newest `n` nights by start, oldest first: the one ordering rollup,
+ *  step-back, the cap and lastOf all share (the ledger is in recording
+ *  order, which an upsert in place or a clock stepped back can make differ;
+ *  two that started together keep their recording order). */
+export function newestByStart(nights: readonly RestNight[], n: number): RestNight[] {
+  if (n <= 0) return []; // (slice(-0) would be every night)
+  return [...nights].sort((a, b) => a.startedAt - b.startedAt).slice(-n);
+}
+
+/** The newest night by start (the later-recorded of two that started
+ *  together), or null. */
+export function lastOf(nights: readonly RestNight[]): RestNight | null {
+  // One pass (a render's worth of calls): the same order as newestByStart.
+  let newest: RestNight | null = null;
+  for (const n of nights) if (!newest || n.startedAt >= newest.startedAt) newest = n;
+  return newest;
+}
+
+/** Whether a stored entry has the shape the readers rely on: a start, an
+ *  end when there, the onset fields (a number or null, inferredAtMs too when
+ *  there), the detector, a touch count, and its lists (timeline, entry by
+ *  entry, sleptThrough, skipped) as lists when there. */
+function isNight(n: unknown): n is RestNight {
+  if (!obj(n)) return false;
+  // Each timeline entry as attribution reads it (a corrupt one would throw
+  // there, in loadNights' own merge or a watch import on load).
+  const entry = (e: unknown) => obj(e) && num(e.t) && typeof e.feedId === "string" && typeof e.episodeId === "string";
+  return (
+    num(n.startedAt) &&
+    optNum(n.endedAt) &&
+    (n.inferredAtMs === undefined || numOrNull(n.inferredAtMs)) &&
+    typeof n.detector === "string" &&
+    numOrNull(n.sleptAtMs) &&
+    numOrNull(n.timeToSleepMs) &&
+    num(n.interactions) &&
+    (n.timeline === undefined || (Array.isArray(n.timeline) && n.timeline.every(entry))) &&
+    arrayOrAbsent(n.sleptThrough) &&
+    arrayOrAbsent(n.skipped)
+  );
+}
+
 export function loadNights(): RestNight[] {
+  let arr: unknown;
   try {
     const raw = localStorage.getItem(KEY);
-    const arr = raw ? (JSON.parse(raw) as RestNight[]) : [];
-    return Array.isArray(arr) ? arr : [];
+    arr = raw ? JSON.parse(raw) : [];
   } catch {
     return [];
   }
+  if (!Array.isArray(arr)) return [];
+  // A ledger from before could hold a night twice: read as one, so every
+  // reader (counts, scores, the step-back, the watch import) agrees. An
+  // entry that isn't a night is passed over, not allowed to blank the rest
+  // (which the next save would then overwrite).
+  return collapsed(arr.filter(isNight));
 }
 
-function save(nights: RestNight[]): void {
+/** How long a night keeps its timeline: as long as a watch import can
+ *  still reach it, and no longer, so 90 nights of episode ids don't crowd
+ *  local storage. Data is read up to STALE_AFTER_MS late, and reaches
+ *  SHORTCUT_REACH_MS back from its run. Pruning goes by each write's time,
+ *  so the keep covers both. */
+export const TIMELINE_KEEP_MS = STALE_AFTER_MS + SHORTCUT_REACH_MS;
+
+/** Records a night; whether the save took. A night older than every one
+ *  the cap keeps is, like any night past the cap, not kept: recorded all the
+ *  same (its snapshot then goes), as the ledger only ever holds the newest.
+ *  `now` (for pruning timelines) is passed by every caller here, and
+ *  defaults for the host app's calls, which leave it out. A night with the
+ *  same start already there is the same night recorded twice, and this one
+ *  replaces it: a watch import records a suspended tab's snapshot (it can't
+ *  tell one from a killed tab's), and the tab may wake and record its night
+ *  again, by ending it or by being reconciled. The night keeps the watch's
+ *  time if it had one. */
+export function appendNight(n: RestNight, now = Date.now()): boolean {
+  return storeNights(withNight(loadNights(), n), now) !== null;
+}
+
+/** Stores a night set, the one way every ledger write does: timelines
+ *  pruned against `now`, then the newest MAX_NIGHTS saved. Returns what it
+ *  stored; null when it couldn't (quota, private mode: a lost stat is not
+ *  worth throwing over, but a caller reporting a change needs to know). */
+export function storeNights(nights: RestNight[], now: number): RestNight[] | null {
+  const pruned = pruneTimelines(nights, now);
+  // Over the cap, the oldest by start go, not the first recorded: a killed
+  // night recorded late sits last but may be older than what it displaces.
+  // (Kept in recording order either way.)
+  const newest = pruned.length > MAX_NIGHTS ? new Set(newestByStart(pruned, MAX_NIGHTS)) : null;
+  const kept = newest ? pruned.filter((n) => newest.has(n)) : pruned;
   try {
-    writeMakingRoom(KEY, JSON.stringify(nights.slice(-MAX_NIGHTS)));
+    return writeMakingRoom(KEY, JSON.stringify(kept)) ? kept : null;
   } catch {
-    /* quota / private mode: a lost stat is not worth throwing */
+    return null;
   }
 }
 
-export function appendNight(n: RestNight): void {
-  save([...loadNights(), n]);
+/** `nights` with `n` added, or merged into the night with its start (see
+ *  appendNight), for a caller that saves them itself. */
+export function withNight(nights: readonly RestNight[], n: RestNight): RestNight[] {
+  // The rule loadNights reads copies by, so the two agree.
+  return collapsed([...nights, n]);
 }
 
-export function setSelfLabel(startedAt: number, label: "slept" | "awake"): RestNight | null {
+/** A night recorded again (`n`, the later) merged with what was there: the
+ *  later wins, keeping the watch's time from the earlier unless the later
+ *  has a watch time of its own. */
+function merge(earlier: RestNight, n: RestNight): RestNight {
+  if (n.detector === "watch" || earlier.detector !== "watch" || earlier.sleptAtMs === null) return n;
+  // Re-timed as the watch import re-times, from n's timeline or, where it has
+  // none (a killed snapshot's night), the earlier copy's, so its credit is
+  // re-checked against n's end; retimed takes the earlier copy's guess
+  // where n has none.
+  const withTimeline = n.timeline || !earlier.timeline ? n : { ...n, timeline: earlier.timeline };
+  return retimed(withTimeline, earlier.sleptAtMs, earlier.inferredAtMs ?? null);
+}
+
+/** The nights with every night recorded more than once collapsed into one
+ *  (merge), where its first copy was, in one pass. */
+function collapsed(nights: readonly RestNight[]): RestNight[] {
+  const out: RestNight[] = [];
+  const at = new Map<number, number>();
+  for (const n of nights) {
+    const i = at.get(n.startedAt);
+    if (i === undefined) {
+      at.set(n.startedAt, out.length);
+      out.push(n);
+    } else out[i] = merge(out[i], n);
+  }
+  return out;
+}
+
+/** Drops the timeline of any night that began more than TIMELINE_KEEP_MS
+ *  before `now`. */
+function pruneTimelines(nights: RestNight[], now: number): RestNight[] {
+  return nights.map((n) => {
+    if (!n.timeline || now - n.startedAt <= TIMELINE_KEEP_MS) return n;
+    const { timeline: _drop, ...rest } = n;
+    return rest;
+  });
+}
+
+/** Labels a night, and returns it as stored; null when there is none, when
+ *  it is watch-timed (measured, so there is nothing to confirm: a screen
+ *  still showing the offer from before an import, in another tab, mustn't
+ *  label it, nor tighten the detector for a call it didn't make), or when
+ *  the save failed. `now` prunes timelines, as for every write. */
+export function setSelfLabel(startedAt: number, label: "slept" | "awake", now = Date.now()): RestNight | null {
   const nights = loadNights();
+  // (loadNights reads any copies of a night as one.)
   const i = nights.findIndex((n) => n.startedAt === startedAt);
-  if (i === -1) return null;
+  if (i === -1 || nights[i].detector === "watch") return null;
   nights[i] = { ...nights[i], selfLabel: label };
-  save(nights);
-  return nights[i];
+  // A label that didn't store (storage full) didn't take: callers count and
+  // act on it only when it did.
+  const stored = storeNights(nights, now);
+  return stored?.find((n) => n.startedAt === startedAt) ?? null;
 }
 
-function median(xs: number[]): number | null {
-  if (!xs.length) return null;
-  const s = [...xs].sort((a, b) => a - b);
-  const m = Math.floor(s.length / 2);
-  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+/** Whether to ask if the listener really slept on a night: it claims an
+ *  onset nobody has confirmed or denied, and the onset was the detector's
+ *  guess. A watch-timed night was measured, so there is nothing to confirm
+ *  (and an "awake" would tighten the detector for a call it didn't make). */
+export function offerForLabel(n: RestNight): boolean {
+  return n.sleptAtMs !== null && n.selfLabel === undefined && n.detector !== "watch";
 }
 
 /** Floor on a believable onset: the fastest the detector can reach its
@@ -59,7 +191,10 @@ export const MIN_PLAUSIBLE_ONSET_MS =
 export const PRE_FIX_BEFORE_MS = Date.UTC(2026, 6, 31);
 const LEGACY_FLOOR_MS = 7 * 60_000;
 
+/** A watch onset is measured, not inferred, so no detector floor applies:
+ *  falling asleep in 3 minutes is a real night, not an artifact. */
 function plausibleFloor(n: RestNight): number {
+  if (n.detector === "watch") return 0;
   return n.startedAt < PRE_FIX_BEFORE_MS ? LEGACY_FLOOR_MS : MIN_PLAUSIBLE_ONSET_MS;
 }
 
@@ -116,7 +251,7 @@ export function rollup(nights: RestNight[]): RestRollup {
   // The nights themselves still count as slept — the sleep was real, only the
   // figure was wrong — so this filters the time statistics, not the ledger.
   const tts = believableOnsets(slept);
-  const last7 = nights.slice(-7);
+  const last7 = newestByStart(nights, 7);
   const avg7 = last7.length
     ? last7.reduce((s, n) => s + n.interactions, 0) / last7.length
     : 0;

@@ -1,4 +1,5 @@
-import type { SleepSignal, SleepOnset, RestNight } from "./types";
+import type { SleepSignal, SleepOnset, RestNight, TimelineEntry } from "./types";
+import { attribution } from "./attribution";
 import { SleepDetector } from "./detector";
 import { loadNights, loadParams } from "./ledger";
 import { currentParams } from "./calibrate";
@@ -19,7 +20,7 @@ export class RestSession {
    *  SleepOnset.atMs. This is why attribution is a comparison and not a join
    *  against the play ledger, which de-duplicates by episode id and so cannot
    *  answer "what was playing then" for any night but the most recent. */
-  private timeline: { t: number; feedId: string; episodeId: string }[] = [];
+  private timeline: TimelineEntry[] = [];
   private skipped = new Set<string>();
 
   /** `shuffleLeaned`: the night's shuffle leaned on the scores (the
@@ -106,17 +107,15 @@ export class RestSession {
 
   finish(endedVia: RestNight["endedVia"], now: number): RestNight {
     const atMs = this.onset ? this.onset.atMs : null;
-    // noteEpisode takes an explicit `now`, so a clock adjustment or a resumed
-    // night can append an earlier t after a later one. .at(-1) means "latest
-    // by time" only if entries arrived in time order, so sort a copy — this
-    // must not mutate state a caller might still read — before trusting it.
-    const sorted = [...this.timeline].sort((a, b) => a.t - b.t);
-    const at = atMs === null ? null : sorted.filter((e) => e.t <= atMs).at(-1);
-    const after = atMs === null ? [] : sorted.filter((e) => e.t > atMs);
-    const sleptThrough = [...new Set(after.map((e) => e.feedId))];
-
+    // In time order: noteEpisode takes an explicit `now`, so a clock
+    // adjustment or a resumed night can append an earlier t after a later
+    // one. Sorted on a copy, which must not mutate state a caller might
+    // still read.
+    const timeline = [...this.timeline].sort((a, b) => a.t - b.t);
     return {
       startedAt: this.startedAt,
+      // Never before the start (a clock set back mid-night), as killedNight.
+      endedAt: Math.max(this.startedAt, now),
       timerMinutes: this.timerMinutes,
       endedVia,
       sleptAtMs: atMs,
@@ -124,16 +123,9 @@ export class RestSession {
       interactions: this.interactions,
       detector: this.onset ? "inference" : "none",
       ...(this.shuffleLeaned ? { shuffle: "leaned" as const } : {}),
-      // Spread rather than assign: an absent field and an empty array must not
-      // become two shapes in a ledger that already holds 90 nights without them.
-      // at.t is when the credited feed itself started, so atMs - at.t is how
-      // long *it* had been playing — not the timeToSleepMs above, which is
-      // measured from night start regardless of how much got skipped first.
-      ...(at
-        ? { onsetFeedId: at.feedId, onsetEpisodeId: at.episodeId, onsetAfterMs: (atMs as number) - at.t }
-        : {}),
-      ...(sleptThrough.length ? { sleptThrough } : {}),
+      ...attribution(timeline, atMs),
       ...(this.skipped.size ? { skipped: [...this.skipped] } : {}),
+      ...(timeline.length ? { timeline } : {}),
     };
   }
 }

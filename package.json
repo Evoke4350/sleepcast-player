@@ -12,7 +12,7 @@
     "start": "node ./dist/server/entry.mjs",
     "astro": "astro",
     "typecheck": "astro check",
-    "test": "vitest run --environment jsdom"
+    "test": "TZ=America/Los_Angeles vitest run --environment jsdom"
   },
   "dependencies": {
     "@astrojs/node": "^10.0.6",

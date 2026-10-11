@@ -1,16 +1,18 @@
 import type { RestNight } from "./types";
-import { loadNights } from "./ledger";
+import { lastOf, loadNights } from "./ledger";
+import { fmtOnsetMinutes } from "./sleepscore";
+
+// Also imported by the host app (sleepcast-app), so they stay exported; the
+// goodbye below uses lastNight too.
+/** The newest night (lastOf over the ledger). */
+export function lastNight(): RestNight | null {
+  return lastOf(loadNights());
+}
+
+/** Minutes, as fmtOnsetMinutes words them (the host app's name for it). */
+export { fmtOnsetMinutes as fmtDuration };
 
 const GOODBYE_SEEN_KEY = "sleepcast2.rest.goodbye";
-
-export function fmtDuration(ms: number): string {
-  return `${Math.max(1, Math.round(ms / 60000))} min`;
-}
-
-export function lastNight(): RestNight | null {
-  const n = loadNights();
-  return n.length ? n[n.length - 1] : null;
-}
 
 /** The most recent night, only if it was detected as slept and we haven't
  *  already said goodbye for it. Time-agnostic beyond the once-per-night guard —

@@ -105,8 +105,8 @@ describe("reported onset time", () => {
 
   it("does not claim sleep within the first minute of an untouched night", () => {
     // The bug: candidateOnset was pinned to the first tick that lifted S off
-    // the zero floor, which for an untouched night is tick one. fmtDuration
-    // then rendered 0ms as "1 min".
+    // the zero floor, which for an untouched night is tick one. The minutes
+    // formatter then rendered 0ms as "1 min".
     const onset = untouchedNight(45 * 60_000);
     expect(onset).not.toBeNull();
     expect(onset!.atMs).toBeGreaterThan(60_000);

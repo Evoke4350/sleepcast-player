@@ -22,7 +22,8 @@ import { diverseByMeta, formatTime } from "../lib/engine";
 import { parseFeedFor, youtubeFeedUrl } from "../lib/youtube";
 import { beacon } from "../lib/beacon";
 import type { Episode } from "../lib/engine";
-import { loadNights, setSelfLabel } from "../lib/rest/ledger";
+import { loadNights, offerForLabel, setSelfLabel } from "../lib/rest/ledger";
+import { lastNight } from "../lib/rest/surface";
 import { recordFalsePositive } from "../lib/rest/calibrate";
 import { rankedFeeds, evidenceFor } from "../lib/rest/sleepscore";
 import type { RestNight } from "../lib/rest/types";
@@ -30,6 +31,7 @@ import { diversePick } from "../lib/semantic-math";
 import { FEEL_PRESETS } from "../lib/timer-feel";
 import { needsFetch } from "../lib/feed-status";
 import { pickNextEpisode } from "../lib/plays";
+import { QUIET_LINK } from "./quiet-link";
 
 const VARIED_N = 8;
 const EMBED_CAP = 96; // max titles to embed per varied-night run (~10s cold on a phone)
@@ -93,8 +95,8 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
   const [feedError, setFeedError] = useState("");
   const [lastEpisode] = useState(() => loadLastEpisode());
   const [greetNight, setGreetNight] = useState<RestNight | null>(() => {
-    const last = loadNights().at(-1) ?? null;
-    return last && last.sleptAtMs !== null && last.selfLabel === undefined ? last : null;
+    const last = lastNight();
+    return last && offerForLabel(last) ? last : null;
   });
 
   // A returning listener saw the welcome — fire once. (Aggregate, no PII.)
@@ -578,9 +580,10 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
   // false positive (we thought you slept, you didn't) tightens it for next time.
   function handleSleepLabel(kind: "slept" | "awake") {
     if (!greetNight) return;
-    beacon(kind === "slept" ? "slept_yes" : "slept_no");
-    setSelfLabel(greetNight.startedAt, kind);
-    if (kind === "awake" && greetNight.sleptAtMs !== null) {
+    const labelled = setSelfLabel(greetNight.startedAt, kind);
+    // Counted only when it took: a watch-timed night refuses the label.
+    if (labelled) beacon(kind === "slept" ? "slept_yes" : "slept_no");
+    if (labelled && kind === "awake" && labelled.sleptAtMs !== null) {
       recordFalsePositive();
     }
     setGreetNight(null);
@@ -1008,7 +1011,7 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
                 </p>
                 <a
                   href="/help/"
-                  className="inline-block underline decoration-[#3a3325] underline-offset-4 transition-colors hover:text-[#b59a76]"
+                  className={`inline-block transition-colors ${QUIET_LINK}`}
                 >
                   Full guide →
                 </a>

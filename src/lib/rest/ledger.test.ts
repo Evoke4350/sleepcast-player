@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { loadNights, appendNight, rollup, setSelfLabel, leanComparison, MIN_PLAUSIBLE_ONSET_MS, PRE_FIX_BEFORE_MS } from "./ledger";
+import { loadNights, appendNight, rollup, setSelfLabel, leanComparison, storeNights, offerForLabel, lastOf, newestByStart, withNight, MIN_PLAUSIBLE_ONSET_MS, PRE_FIX_BEFORE_MS, TIMELINE_KEEP_MS } from "./ledger";
 import { DEFAULT_PARAMS, LAMBDA_MAX, quietTicksToDecide, TICK_MS } from "./detector";
 import type { RestNight } from "./types";
+import { onsetAfterEnd } from "./attribution";
 
 const night = (over: Partial<RestNight> = {}): RestNight => ({
   startedAt: 1000, timerMinutes: 60, endedVia: "faded",
@@ -13,17 +14,27 @@ describe("ledger", () => {
   beforeEach(() => localStorage.clear());
 
   it("append then load round-trips", () => {
-    appendNight(night());
+    appendNight(night(), Date.now());
     expect(loadNights()).toHaveLength(1);
     expect(loadNights()[0].timeToSleepMs).toBe(300000);
   });
 
   it("keeps at most 90 nights, newest last", () => {
-    for (let i = 0; i < 95; i++) appendNight(night({ startedAt: i }));
+    for (let i = 0; i < 95; i++) appendNight(night({ startedAt: i }), Date.now());
     const n = loadNights();
     expect(n).toHaveLength(90);
     expect(n[n.length - 1].startedAt).toBe(94);
     expect(n[0].startedAt).toBe(5);
+  });
+
+  it("evicts the oldest by start, not the first recorded", () => {
+    for (let i = 10; i < 100; i++) appendNight(night({ startedAt: i }), Date.now());
+    // Recorded last, but the oldest: it is the one that goes.
+    appendNight(night({ startedAt: 1 }), Date.now());
+    const n = loadNights();
+    expect(n).toHaveLength(90);
+    expect(n.some((x) => x.startedAt === 1)).toBe(false);
+    expect(n.some((x) => x.startedAt === 10)).toBe(true);
   });
 
   it("rollup: best is the minimum time-to-sleep, median is robust", () => {
@@ -46,7 +57,7 @@ describe("ledger", () => {
   });
 
   it("setSelfLabel tags the matching night", () => {
-    appendNight(night({ startedAt: 42 }));
+    appendNight(night({ startedAt: 42 }), Date.now());
     const updated = setSelfLabel(42, "awake");
     expect(updated?.selfLabel).toBe("awake");
     expect(loadNights()[0].selfLabel).toBe("awake");
@@ -158,5 +169,197 @@ describe("leanComparison", () => {
     ])!;
     expect(c.leaned).toEqual({ timedNights: 1, medianMs: 20 * 60_000 });
     expect(c.plain).toEqual({ timedNights: 1, medianMs: 30 * 60_000 });
+  });
+});
+
+describe("timelines", () => {
+  beforeEach(() => localStorage.clear());
+  const timeline = [{ t: 0, feedId: "a", episodeId: "a1" }];
+  const at = (startedAt: number): RestNight => ({
+    startedAt, timerMinutes: 60, endedVia: "faded", sleptAtMs: null, timeToSleepMs: null,
+    interactions: 0, detector: "none", timeline,
+  });
+
+  it("are kept for TIMELINE_KEEP_MS, then dropped", () => {
+    const now = 100 * TIMELINE_KEEP_MS;
+    const [old, recent] = storeNights([at(now - TIMELINE_KEEP_MS - 1), at(now - TIMELINE_KEEP_MS)], now)!;
+    expect(old).not.toHaveProperty("timeline");
+    expect(recent.timeline).toEqual(timeline);
+  });
+
+  it("are pruned as each night is appended", () => {
+    appendNight(at(0), 0);
+    appendNight(at(TIMELINE_KEEP_MS + 1), TIMELINE_KEEP_MS + 1); // pruned against now
+    const [first, second] = loadNights();
+    expect(first).not.toHaveProperty("timeline");
+    expect(second.timeline).toEqual(timeline);
+  });
+});
+
+describe("offerForLabel", () => {
+  const n = (over: Partial<RestNight>): RestNight => ({
+    startedAt: 0, timerMinutes: 60, endedVia: "faded", sleptAtMs: 600_000, timeToSleepMs: 600_000,
+    interactions: 0, detector: "inference", ...over,
+  });
+  it("asks about the detector's unconfirmed onset, never a watch's", () => {
+    expect(offerForLabel(n({}))).toBe(true);
+    expect(offerForLabel(n({ selfLabel: "slept" }))).toBe(false);
+    expect(offerForLabel(n({ sleptAtMs: null, timeToSleepMs: null, detector: "none" }))).toBe(false);
+    expect(offerForLabel(n({ detector: "watch" }))).toBe(false);
+  });
+});
+
+describe("onsetAfterEnd", () => {
+  const n: RestNight = { startedAt: 1000, endedAt: 1000 + 600_000, timerMinutes: 10, endedVia: "faded", sleptAtMs: null, timeToSleepMs: null, interactions: 0, detector: "none" };
+  it("is whether the onset came after the night ended, unknown being no", () => {
+    expect(onsetAfterEnd(n, 600_000)).toBe(false);
+    expect(onsetAfterEnd(n, 600_001)).toBe(true);
+    expect(onsetAfterEnd({ ...n, endedAt: undefined }, 10 ** 9)).toBe(false);
+  });
+});
+
+describe("setSelfLabel and watch nights", () => {
+  beforeEach(() => localStorage.clear());
+  it("won't label a watch-timed night", () => {
+    appendNight({ startedAt: 5, timerMinutes: 60, endedVia: "faded", sleptAtMs: 60_000, timeToSleepMs: 60_000, interactions: 0, detector: "watch" }, Date.now());
+    expect(setSelfLabel(5, "awake")).toBeNull();
+    expect(loadNights()[0]).not.toHaveProperty("selfLabel");
+  });
+});
+
+describe("setSelfLabel when storage is full", () => {
+  beforeEach(() => localStorage.clear());
+  it("returns null: the label didn't take", () => {
+    appendNight({ startedAt: 7, timerMinutes: 60, endedVia: "faded", sleptAtMs: 60_000, timeToSleepMs: 60_000, interactions: 0, detector: "inference" }, Date.now());
+    const setItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = () => {
+      throw new Error("QuotaExceededError");
+    };
+    try {
+      expect(setSelfLabel(7, "awake")).toBeNull();
+    } finally {
+      Storage.prototype.setItem = setItem;
+    }
+  });
+});
+
+describe("lastOf", () => {
+  const n = (startedAt: number): RestNight => ({ startedAt, timerMinutes: 60, endedVia: "faded", sleptAtMs: null, timeToSleepMs: null, interactions: 0, detector: "none" });
+  it("is the newest by start, whatever the recording order", () => {
+    expect(lastOf([n(3), n(1), n(2)])?.startedAt).toBe(3);
+    expect(lastOf([])).toBeNull();
+    expect(newestByStart([n(1), n(2)], 0)).toEqual([]);
+  });
+});
+
+describe("the ledger over the cap (storeNights)", () => {
+  beforeEach(() => localStorage.clear());
+  it("drops the earliest-started, not the first recorded", () => {
+    const n = (startedAt: number): RestNight => ({ startedAt, timerMinutes: 60, endedVia: "faded", sleptAtMs: null, timeToSleepMs: null, interactions: 0, detector: "none" });
+    // 90 nights from 100 on, then one recorded late that started at 50.
+    for (let i = 0; i < 90; i++) appendNight(n(100 + i), 0);
+    appendNight(n(50), 0);
+    const starts = loadNights().map((x) => x.startedAt);
+    expect(starts).toHaveLength(90);
+    expect(starts).not.toContain(50);
+    expect(starts).toContain(100);
+  });
+});
+
+describe("a night stored twice, then recorded again", () => {
+  beforeEach(() => localStorage.clear());
+  it("collapses every copy into one, keeping the watch's time", () => {
+    const base: RestNight = { startedAt: 9, timerMinutes: 60, endedVia: "faded", sleptAtMs: null, timeToSleepMs: null, interactions: 0, detector: "none" };
+    const watched = { ...base, detector: "watch" as const, sleptAtMs: 60_000, timeToSleepMs: 60_000, inferredAtMs: null };
+    const other: RestNight = { ...base, startedAt: 10 };
+    // Stored with copies (an older ledger); read as one, then recorded again.
+    localStorage.setItem("sleepcast2.rest", JSON.stringify([base, other, watched]));
+    appendNight({ ...base, interactions: 5 }, Date.now());
+    const out = loadNights();
+    expect(out.map((x) => x.startedAt)).toEqual([9, 10]);
+    expect(out[0]).toMatchObject({ detector: "watch", sleptAtMs: 60_000, interactions: 5 });
+  });
+});
+
+describe("labels and merges with a night recorded twice", () => {
+  beforeEach(() => localStorage.clear());
+  const n = (over: Partial<RestNight> = {}): RestNight => ({ startedAt: 11, timerMinutes: 60, endedVia: "faded", sleptAtMs: 600_000, timeToSleepMs: 600_000, interactions: 0, detector: "inference", ...over });
+  it("setSelfLabel labels the night that was offered, a ledger's copies being read as one", () => {
+    localStorage.setItem("sleepcast2.rest", JSON.stringify([n(), n({ interactions: 3 })]));
+    expect(setSelfLabel(11, "slept")?.interactions).toBe(3);
+    expect(loadNights().every((x) => x.selfLabel === "slept")).toBe(true);
+  });
+  it("withNight doesn't bring back a guess over a later copy labelled awake", () => {
+    const watched = n({ detector: "watch", sleptAtMs: 300_000, timeToSleepMs: 300_000, inferredAtMs: 600_000 });
+    const [merged] = withNight([watched], n({ selfLabel: "awake" }));
+    expect(merged).toMatchObject({ detector: "watch", sleptAtMs: 300_000, inferredAtMs: null });
+  });
+  it("withNight keeps the watched copy's guess, timeline and credit when the new copy has none", () => {
+    const timeline = [{ t: 0, feedId: "a", episodeId: "a1" }];
+    const watched = n({ detector: "watch", sleptAtMs: 300_000, timeToSleepMs: 300_000, inferredAtMs: 600_000, timeline, onsetFeedId: "a", onsetEpisodeId: "a1", onsetAfterMs: 300_000 });
+    const [merged] = withNight([watched], n({ detector: "none", sleptAtMs: null, timeToSleepMs: null }));
+    expect(merged).toMatchObject({ detector: "watch", sleptAtMs: 300_000, inferredAtMs: 600_000, onsetFeedId: "a", timeline });
+  });
+});
+
+describe("loadNights and copies of a night", () => {
+  beforeEach(() => localStorage.clear());
+  const n = (over: Partial<RestNight> = {}): RestNight => ({ startedAt: 21, timerMinutes: 60, endedVia: "faded", sleptAtMs: null, timeToSleepMs: null, interactions: 0, detector: "none", ...over });
+  it("reads them as one, so every reader counts the night once", () => {
+    localStorage.setItem("sleepcast2.rest", JSON.stringify([n(), n({ startedAt: 22 }), n({ interactions: 2 })]));
+    expect(loadNights().map((x) => [x.startedAt, x.interactions])).toEqual([[21, 2], [22, 0]]);
+  });
+  it("of two watch-timed copies, keeps the later's time", () => {
+    const w = (at: number) => n({ detector: "watch", sleptAtMs: at, timeToSleepMs: at, inferredAtMs: null });
+    localStorage.setItem("sleepcast2.rest", JSON.stringify([w(20 * 60_000), w(12 * 60_000)]));
+    expect(loadNights()[0].sleptAtMs).toBe(12 * 60_000);
+  });
+});
+
+describe("loadNights and a bad entry", () => {
+  beforeEach(() => localStorage.clear());
+  it("passes over it, keeping the rest (the next save mustn't erase them)", () => {
+    const n: RestNight = { startedAt: 30, timerMinutes: 60, endedVia: "faded", sleptAtMs: null, timeToSleepMs: null, interactions: 0, detector: "none" };
+    localStorage.setItem("sleepcast2.rest", JSON.stringify([n, null, 7, { startedAt: "x" }, { ...n, startedAt: 31 }]));
+    expect(loadNights().map((x) => x.startedAt)).toEqual([30, 31]);
+  });
+});
+
+describe("loadNights and a half-formed entry", () => {
+  beforeEach(() => localStorage.clear());
+  it("passes over one missing the fields readers rely on", () => {
+    const n: RestNight = { startedAt: 40, timerMinutes: 60, endedVia: "faded", sleptAtMs: null, timeToSleepMs: null, interactions: 0, detector: "none" };
+    localStorage.setItem("sleepcast2.rest", JSON.stringify([n, { startedAt: 41 }, { ...n, startedAt: 42, sleptAtMs: "x" }]));
+    expect(loadNights().map((x) => x.startedAt)).toEqual([40]);
+  });
+});
+
+describe("loadNights and an entry with a list that isn't one", () => {
+  beforeEach(() => localStorage.clear());
+  it("passes over it", () => {
+    const n: RestNight = { startedAt: 50, timerMinutes: 60, endedVia: "faded", sleptAtMs: null, timeToSleepMs: null, interactions: 0, detector: "none" };
+    localStorage.setItem("sleepcast2.rest", JSON.stringify([n, { ...n, startedAt: 51, timeline: "x" }]));
+    expect(loadNights().map((x) => x.startedAt)).toEqual([50]);
+  });
+});
+
+describe("the cap and setSelfLabel, as stored", () => {
+  beforeEach(() => localStorage.clear());
+  const n = (startedAt: number, over: Partial<RestNight> = {}): RestNight => ({ startedAt, timerMinutes: 60, endedVia: "faded", sleptAtMs: 600_000, timeToSleepMs: 600_000, interactions: 0, detector: "inference", ...over });
+  it("keeps recording order over the cap", () => {
+    const nights = [n(5), ...Array.from({ length: 89 }, (_, i) => n(100 + i)), n(6)];
+    const stored = storeNights(nights, 0)!;
+    expect(stored).toHaveLength(90);
+    // n(5) dropped (the earliest start); n(6) stays last, where it was
+    // recorded, not first, where sorting by start would put it.
+    expect(stored[0].startedAt).toBe(100);
+    expect(stored.at(-1)?.startedAt).toBe(6);
+  });
+  it("setSelfLabel returns the night as stored (its expired timeline pruned)", () => {
+    const old = n(0, { timeline: [{ t: 0, feedId: "a", episodeId: "a1" }] });
+    localStorage.setItem("sleepcast2.rest", JSON.stringify([old]));
+    const labelled = setSelfLabel(0, "slept", TIMELINE_KEEP_MS + 1);
+    expect(labelled).not.toHaveProperty("timeline");
+    expect(labelled?.selfLabel).toBe("slept");
   });
 });

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { reconcileLive, settleLive, SNAPSHOT_FRESH_MS } from "./reconcile";
-import { loadNights } from "./ledger";
+import { reconcileLive, settleLive, killedNightToRecord, resumeTarget, SNAPSHOT_FRESH_MS } from "./reconcile";
+import { appendNight, loadNights } from "./ledger";
 import { loadLive, saveLive, loadLastNight, type LiveSession } from "../store";
 
 const ep = (id: string) => ({ id, title: id.toUpperCase(), url: `https://x/${id}.mp3`, feedId: "f", date: "2024-01-01" }) as any;
@@ -37,6 +37,12 @@ describe("reconcileLive", () => {
   it("ends the night at its scheduled end, not when the page reopened", () => {
     reconcileLive(snap(), T0 + 10 * 60 * 60_000);
     expect(loadLastNight()?.endedAt).toBe(T0 + 45 * 60_000);
+  });
+
+  it("records the night's own end as when it was last seen alive", () => {
+    // Its touches (and audio) stopped with the tab: nothing after was observed.
+    reconcileLive(snap(), T0 + 10 * 60 * 60_000);
+    expect(loadNights()[0].endedAt).toBe(T0 + 20 * 60_000);
   });
 
   it("marks the episode that was playing as played", () => {
@@ -136,5 +142,82 @@ describe("reconcileLive interactions", () => {
   it("records the snapshot's interactions, not 0", () => {
     reconcileLive(snap({ interactions: 12 }), T0 + 10 * 60 * 60_000);
     expect(loadNights()[0].interactions).toBe(12);
+  });
+});
+
+describe("killedNightToRecord (a watch import)", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("offers a snapshot's night even when it could still be revived, and clears it only on commit", () => {
+    // Timerless: revivable for hours, but the morning import ends the night.
+    saveLive(snap({ remainingMs: 0, modeKind: "all-night" }));
+    const now = T0 + 20 * 60_000 + 60 * 60_000;
+    expect(settleLive(loadLive(), now)).not.toBeNull();
+    const k = killedNightToRecord(now)!;
+    expect(k.night).toMatchObject({ startedAt: T0, detector: "none" });
+    expect(loadLive()).not.toBeNull();
+    k.commit();
+    expect(loadLive()).toBeNull();
+    // Ended, not faded: no re-anchor offers to continue a night the import closed.
+    expect(loadLastNight()?.endedVia).toBe("ended");
+  });
+
+  it("offers none that may still be playing in another tab", () => {
+    saveLive(snap());
+    expect(killedNightToRecord(T0 + 20 * 60_000 + SNAPSHOT_FRESH_MS - 1)).toBeNull();
+  });
+});
+
+describe("reconcileLive when storage is full", () => {
+  beforeEach(() => localStorage.clear());
+  it("keeps the snapshot it couldn't record, and says so", () => {
+    saveLive(snap());
+    const setItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = () => {
+      throw new Error("QuotaExceededError");
+    };
+    let recorded: boolean;
+    try {
+      recorded = reconcileLive(snap(), T0 + 10 * 60 * 60_000);
+    } finally {
+      Storage.prototype.setItem = setItem;
+    }
+    expect(recorded).toBe(false);
+    expect(loadLive()).not.toBeNull();
+  });
+});
+
+describe("reconcileLive and a night already recorded", () => {
+  beforeEach(() => localStorage.clear());
+  it("replaces it, keeping the watch's time: a woken tab killed again", () => {
+    // The morning import recorded the suspended tab's snapshot; the watch timed it.
+    appendNight({ startedAt: T0, timerMinutes: 45, endedVia: "faded", sleptAtMs: 12 * 60_000, timeToSleepMs: 12 * 60_000, interactions: 1, detector: "watch", inferredAtMs: null }, Date.now());
+    // The tab woke, wrote a newer snapshot, and was killed again.
+    reconcileLive(snap({ savedAt: T0 + 30 * 60_000, remainingMs: 15 * 60_000, interactions: 4 }), T0 + 10 * 60 * 60_000);
+    const nights = loadNights();
+    expect(nights).toHaveLength(1);
+    expect(nights[0]).toMatchObject({ detector: "watch", sleptAtMs: 12 * 60_000, interactions: 4 });
+  });
+});
+
+describe("resumeTarget (a resume card tapped)", () => {
+  beforeEach(() => localStorage.clear());
+  it("revives the card's snapshot while it is the one stored", () => {
+    saveLive(snap());
+    expect(resumeTarget(snap(), T0 + 21 * 60_000)).toMatchObject({ revive: { savedAt: snap().savedAt } });
+  });
+  it("revives a newer snapshot of the same night", () => {
+    saveLive(snap({ savedAt: T0 + 22 * 60_000 }));
+    expect(resumeTarget(snap(), T0 + 23 * 60_000)).toMatchObject({ revive: { savedAt: T0 + 22 * 60_000 } });
+  });
+  it("doesn't revive one that can no longer be revived (its timer ran out): it is settled", () => {
+    saveLive(snap({ savedAt: T0 + 44 * 60_000, remainingMs: 40_000 }));
+    expect(resumeTarget(snap(), T0 + 8 * 60 * 60_000)).toEqual({ card: null });
+    expect(loadNights()).toHaveLength(1);
+  });
+  it("shows no card once the night is gone, another night's card when it's stored", () => {
+    expect(resumeTarget(snap(), T0 + 21 * 60_000)).toEqual({ card: null });
+    saveLive(snap({ savedAt: T0 + 22 * 60_000, nightStartedAt: T0 + 60_000 }));
+    expect(resumeTarget(snap(), T0 + 23 * 60_000)).toMatchObject({ card: { nightStartedAt: T0 + 60_000 } });
   });
 });
