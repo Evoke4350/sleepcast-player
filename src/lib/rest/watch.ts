@@ -530,25 +530,33 @@ export function payloadFromPaste(pasted: string): string {
   // A few at most (MAX_LINKS_TRIED). Failing that, the first plain one (a
   // Shortcut built before the window line is told so).
   const re = new RegExp(LINK_START);
-  const found: RegExpExecArray[] = [];
-  for (let m = re.exec(text); m && found.length <= MAX_LINKS_TRIED; m = re.exec(text)) found.push(m);
   let firstPlain: string | null = null;
-  for (let n = 0; n < Math.min(found.length, MAX_LINKS_TRIED); n++) {
-    const m = found[n];
-    const own = text.slice(m.index + m[0].length, found[n + 1]?.index ?? text.length);
+  let m = re.exec(text);
+  for (let tried = 0; m && tried < MAX_LINKS_TRIED; tried++) {
+    const at = m.index + m[0].length;
+    const next = re.exec(text);
+    // Its own text: up to the word the next link starts in (its address
+    // isn't this one's), found one link ahead as each is tried.
+    let stop = next?.index ?? text.length;
+    if (next) while (stop > at && !/\s/.test(text[stop - 1])) stop--;
+    const own = text.slice(at, stop);
     let payload: string;
     if (m[0] === WATCH_HASH) {
       payload = linkPayload(own);
       firstPlain ??= payload;
     } else {
-      // Encoded whole: decoded once from here (its #watch= on) to the
-      // whitespace after it, its size checked first, at twice the
-      // payload's, as encoding it again grows it; the words after it left
-      // as they were. A wrapped one isn't joined up: its later lines refuse it.
+      // Encoded whole: its token decoded once (its size checked first, at
+      // twice the payload's, as encoding it again grows it), then read as
+      // an opened link's payload is. A wrapped one isn't joined up: if the
+      // next word goes on with it (a "~" or an escape), it is read with its
+      // words as they are, and refuses.
       const end = own.search(/\s|$/);
-      payload = linkPayload(decodeWithin(own.slice(0, end), 2 * MAX_PAYLOAD_CHARS) + own.slice(end));
+      const link = decodeWithin(own.slice(0, end), 2 * MAX_PAYLOAD_CHARS);
+      const rest = own.slice(end);
+      payload = /^\s*\S*(~|%[0-9a-f]{2})/i.test(rest) ? link + rest : linkPayload(link);
     }
     if (opensWithWindow(payload)) return payload;
+    m = next;
   }
   if (firstPlain !== null) return firstPlain;
   return decodeWithin(text).trim();
@@ -568,8 +576,8 @@ function linkPayload(after: string): string {
   if (hasEscape(token) && !token.includes(":") && !(next.includes("~") || hasEscape(next))) {
     return decodeWithin(token).trim();
   }
-  // Otherwise (the url-encode step missed) the rest of the paste, decoded
-  // as the link would be.
+  // Otherwise (the url-encode step missed) the rest of its text (up to the
+  // next link), decoded as the link would be.
   return decodeWithin(unpunctuated(after)).trim();
 }
 
