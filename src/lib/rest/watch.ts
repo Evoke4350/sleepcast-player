@@ -66,6 +66,28 @@ const LINK_START = new RegExp(
 /** How many links in one paste are tried, each read up to the next. */
 const MAX_LINKS_TRIED = 8;
 
+/** Where the address of a link whose #watch= is at `hash` starts: its
+ *  "http" in the word it is in (no further back than `from`), or the
+ *  #watch= itself when it has none. */
+function addressStart(text: string, from: number, hash: number): number {
+  let word = hash;
+  while (word > from && !/\s/.test(text[word - 1])) word--;
+  const http = text.slice(word, hash).toLowerCase().lastIndexOf("http");
+  return http >= 0 ? word + http : hash;
+}
+
+/** Whether the parser refuses nothing in a payload for its content. */
+function refusalFree(payload: string): boolean {
+  const r = parseWatchPayload(payload);
+  return !r.tooLong && !r.badWindow && r.windowStart !== null && r.malformed === 0 && r.unrecognised === 0;
+}
+
+/** Whether the word after a link's token goes on with its payload (a "~"
+ *  or an escape: the link wrapped, or encoded in part). */
+function continuesLink(nextWord: string): boolean {
+  return nextWord.includes("~") || hasEscape(nextWord);
+}
+
 /** Whether a payload opens with its window line, as parseWatchPayload reads
  *  it: blank lines skipped, then WINDOW_LINE. */
 function opensWithWindow(payload: string): boolean {
@@ -522,24 +544,23 @@ export function payloadFromPaste(pasted: string): string {
   // without its own length checked first (MAX_PAYLOAD_CHARS).
   if (tooLongToRead(text.length, PASTE_MAX_CHARS)) return text;
   // Each link in it, plain or percent-encoded whole, in the order they
-  // come, until one reads (as it would be read: one rule) as a payload that
-  // opens with its window line, as the parser reads it: a mention of
-  // #watch= before the link, or a quoted broken attempt, doesn't hide it.
-  // Each read ends where the next link starts, so the reads don't overlap
-  // and the work stays linear in the paste, however many links it holds.
-  // A few at most (MAX_LINKS_TRIED). Failing that, the first plain one (a
-  // Shortcut built before the window line is told so).
+  // come, each read as it would be (one rule), until one reads cleanly (the
+  // parser refuses nothing in it): a mention of #watch= before the link, or
+  // a quoted broken attempt, doesn't hide it. Failing that, the first whose
+  // read opens with its window line, then the first plain one (a Shortcut
+  // built before the window line is told so). Each link's own text ends
+  // where the next link's address starts (its "http"), or at its #watch=
+  // when it has none, so the reads don't overlap and the work stays linear
+  // in the paste; found one link ahead as each is tried, a few at most
+  // (MAX_LINKS_TRIED).
   const re = new RegExp(LINK_START);
+  let opening: string | null = null;
   let firstPlain: string | null = null;
   let m = re.exec(text);
   for (let tried = 0; m && tried < MAX_LINKS_TRIED; tried++) {
     const at = m.index + m[0].length;
     const next = re.exec(text);
-    // Its own text: up to the word the next link starts in (its address
-    // isn't this one's), found one link ahead as each is tried.
-    let stop = next?.index ?? text.length;
-    if (next) while (stop > at && !/\s/.test(text[stop - 1])) stop--;
-    const own = text.slice(at, stop);
+    const own = text.slice(at, next ? addressStart(text, at, next.index) : text.length);
     let payload: string;
     if (m[0] === WATCH_HASH) {
       payload = linkPayload(own);
@@ -547,17 +568,17 @@ export function payloadFromPaste(pasted: string): string {
     } else {
       // Encoded whole: its token decoded once (its size checked first, at
       // twice the payload's, as encoding it again grows it), then read as
-      // an opened link's payload is. A wrapped one isn't joined up: if the
-      // next word goes on with it (a "~" or an escape), it is read with its
-      // words as they are, and refuses.
+      // an opened link's payload is, with the words after it.
       const end = own.search(/\s|$/);
-      const link = decodeWithin(own.slice(0, end), 2 * MAX_PAYLOAD_CHARS);
-      const rest = own.slice(end);
-      payload = /^\s*\S*(~|%[0-9a-f]{2})/i.test(rest) ? link + rest : linkPayload(link);
+      payload = linkPayload(decodeWithin(own.slice(0, end), 2 * MAX_PAYLOAD_CHARS) + own.slice(end));
     }
-    if (opensWithWindow(payload)) return payload;
+    if (opensWithWindow(payload)) {
+      if (refusalFree(payload)) return payload;
+      opening ??= payload;
+    }
     m = next;
   }
+  if (opening !== null) return opening;
   if (firstPlain !== null) return firstPlain;
   return decodeWithin(text).trim();
 }
@@ -573,11 +594,11 @@ function linkPayload(after: string): string {
   const [, first = "", next = ""] = after.match(/^\s*(\S*)(?:\s+(\S+))?/) ?? [];
   const token = unpunctuated(first);
   // (Each measured as it is read: the token alone, or all the rest.)
-  if (hasEscape(token) && !token.includes(":") && !(next.includes("~") || hasEscape(next))) {
+  if (hasEscape(token) && !token.includes(":") && !continuesLink(next)) {
     return decodeWithin(token).trim();
   }
   // Otherwise (the url-encode step missed) the rest of its text (up to the
-  // next link), decoded as the link would be.
+  // next link's address), decoded as the link would be.
   return decodeWithin(unpunctuated(after)).trim();
 }
 

@@ -991,6 +991,16 @@ describe("data already read, or from days ago", () => {
     expect(payloadFromPaste(`${good}\n${whole}`)).toBe(payload);
     expect(payloadFromPaste(`https://sleepcast.pro/#watch=${payload}\n\n${good}`)).toBe(payload);
   });
+  it("reads a good link after a wrapped one, and one joined to a #watch= mention", () => {
+    const s = "2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core";
+    const payload = `window~2026-10-04T09:00:00+01:00\n${s}`;
+    const good = `https://sleepcast.pro/#watch=${encodeURIComponent(payload)}`;
+    const whole = encodeURIComponent("https://sleepcast.pro/#watch=" + encodeURIComponent(payload));
+    const wrapped = `${whole.slice(0, -60)}\n${whole.slice(-60)}`;
+    expect(payloadFromPaste(`${wrapped}\n${good}`)).toBe(payload);
+    expect(parseWatchPayload(payloadFromPaste(wrapped)).malformed).toBeGreaterThan(0);
+    expect(payloadFromPaste(`${good}#watch=`)).toBe(payload);
+  });
   it("reads the encoded link after a plain #watch= in the same token", () => {
     const s = "2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core";
     const inner = encodeURIComponent("https://sleepcast.pro/#watch=" + encodeURIComponent(`window~2026-10-04T09:00:00+01:00\n${s}`));
