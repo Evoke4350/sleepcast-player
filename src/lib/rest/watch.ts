@@ -66,33 +66,36 @@ const LINK_START = new RegExp(
 /** How many links in one paste are tried, each read up to the next. */
 const MAX_LINKS_TRIED = 8;
 
-/** Where the address of a link whose #watch= is at `hash` starts: its
- *  "http" in the word it is in (no further back than `from`), or the
- *  #watch= itself when it has none. */
+/** Where the link whose #watch= is at `hash` starts, for the text before
+ *  it (from `from`) to end there: the start of the word it is in, all of
+ *  it its address; or, in the same word as that text (two links run
+ *  together), its "http", else its #watch= itself. */
 function addressStart(text: string, from: number, hash: number): number {
   let word = hash;
   while (word > from && !/\s/.test(text[word - 1])) word--;
-  const http = text.slice(word, hash).toLowerCase().lastIndexOf("http");
-  return http >= 0 ? word + http : hash;
+  if (word > from) return word;
+  const http = text.slice(from, hash).toLowerCase().lastIndexOf("http");
+  return http >= 0 ? from + http : hash;
 }
 
-/** Whether the parser refuses nothing in a payload for its content. */
-function refusalFree(payload: string): boolean {
-  const r = parseWatchPayload(payload);
-  return !r.tooLong && !r.badWindow && r.windowStart !== null && r.malformed === 0 && r.unrecognised === 0;
+/** How a candidate payload reads, at `now`: whether it has its window line,
+ *  and whether refusal() finds nothing in its content (the one list of
+ *  reasons; the reads before and after it, repeat or stale, aren't the
+ *  link's to decide). */
+function readsAs(payload: string, now: number): { hasWindow: boolean; clean: boolean } {
+  // Not parsed at all unless its first line (blank ones skipped, as the
+  // parser skips them) is a window line: the parser would find none.
+  if (!WINDOW_LINE.test((/^\s*([^\r\n]*)/.exec(payload)?.[1] ?? "").trim())) return { hasWindow: false, clean: false };
+  const p = parseWatchPayload(payload, now);
+  const noWindow = p.windowStart === null && !p.badWindow && !p.tooLong;
+  const why = refusal({ ...p, noWindow, repeat: false, stale: false, unsaved: false });
+  return { hasWindow: p.windowLine !== null, clean: why === null };
 }
 
 /** Whether the word after a link's token goes on with its payload (a "~"
  *  or an escape: the link wrapped, or encoded in part). */
 function continuesLink(nextWord: string): boolean {
   return nextWord.includes("~") || hasEscape(nextWord);
-}
-
-/** Whether a payload opens with its window line, as parseWatchPayload reads
- *  it: blank lines skipped, then WINDOW_LINE. */
-function opensWithWindow(payload: string): boolean {
-  const first = /^\s*([^\r\n]*)/.exec(payload)?.[1] ?? "";
-  return WINDOW_LINE.test(first.trim());
 }
 
 /** The most of a paste looked through for a link at all: room for any
@@ -535,7 +538,7 @@ function hasEscape(s: string): boolean {
  *  still encoded. Read by the payload's own grammar only: whatever else
  *  comes with it (a message's words, a quote marker) refuses the import,
  *  which changes nothing, rather than being guessed away. */
-export function payloadFromPaste(pasted: string): string {
+export function payloadFromPaste(pasted: string, now = Date.now()): string {
   // (Trimmed before anything is measured, so the measures and the parse
   // agree.)
   const text = pasted.trim();
@@ -544,13 +547,12 @@ export function payloadFromPaste(pasted: string): string {
   // without its own length checked first (MAX_PAYLOAD_CHARS).
   if (tooLongToRead(text.length, PASTE_MAX_CHARS)) return text;
   // Each link in it, plain or percent-encoded whole, in the order they
-  // come, each read as it would be (one rule), until one reads cleanly (the
-  // parser refuses nothing in it): a mention of #watch= before the link, or
+  // come, each read as it would be (one rule), until one reads cleanly
+  // (refusal() finds nothing in its content, at now): a mention of #watch= before the link, or
   // a quoted broken attempt, doesn't hide it. Failing that, the first whose
   // read opens with its window line, then the first plain one (a Shortcut
   // built before the window line is told so). Each link's own text ends
-  // where the next link's address starts (its "http"), or at its #watch=
-  // when it has none, so the reads don't overlap and the work stays linear
+  // where the next link starts (addressStart), so the reads don't overlap and the work stays linear
   // in the paste; found one link ahead as each is tried, a few at most
   // (MAX_LINKS_TRIED).
   const re = new RegExp(LINK_START);
@@ -572,10 +574,9 @@ export function payloadFromPaste(pasted: string): string {
       const end = own.search(/\s|$/);
       payload = linkPayload(decodeWithin(own.slice(0, end), 2 * MAX_PAYLOAD_CHARS) + own.slice(end));
     }
-    if (opensWithWindow(payload)) {
-      if (refusalFree(payload)) return payload;
-      opening ??= payload;
-    }
+    const read = readsAs(payload, now);
+    if (read.clean) return payload;
+    if (read.hasWindow) opening ??= payload;
     m = next;
   }
   if (opening !== null) return opening;
