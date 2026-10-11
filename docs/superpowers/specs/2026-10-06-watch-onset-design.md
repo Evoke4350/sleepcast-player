@@ -51,11 +51,8 @@ decoded, so a crafted link can't hold up the page.
 A home-screen copy of the site keeps its own storage, apart from Safari's, so
 the link can't reach it. For that, the Shortcut copies the lines instead, and
 the rest view has a "paste from your watch" box (it accepts the lines or the
-whole link, itself perhaps percent-encoded). A paste's links, plain or
-encoded whole, are tried in order (eight at most), and the first whose payload
-opens with its window line is read, so a mention of #watch= before the link
-doesn't hide it; failing that, the first plain one (a Shortcut built before the
-window line is told so). From a pasted link it takes, if
+whole link, itself perhaps percent-encoded: its first, if it holds more. From
+a pasted link it takes, if
 url-encoded whole, the link itself (up to the first space, less trailing
 punctuation, unless the next word goes on with the payload, a wrapped link,
 which is then read whole and refuses rather than being guessed together),
@@ -223,6 +220,10 @@ onset isn't counted, so the detector keeps learning as the watch takes over.
   data. Refusing by window order breaks fresh runs (one set to read further
   back, a payload past MAX_SAMPLES, a clock set wrong), as an earlier design
   found; it is a multi-tab race, and the next morning's run corrects it.
+
+- A paste holding more than one link, or a mention of #watch= before it: its
+  first is read. The paste box is for the home-screen variant's lines; choosing
+  among links bred edge cases (rounds 92–100) for a case no Shortcut makes.
 
 ## 7. Testing
 
