@@ -62,9 +62,6 @@ const LINK_START = new RegExp(
   `${escapeRegExp(WATCH_HASH)}|${escapeRegExp(encodeURIComponent(WATCH_HASH)).replace(/%([0-9A-F])([0-9A-F])/g, (_, a: string, b: string) => `%[${a}${a.toLowerCase()}][${b}${b.toLowerCase()}]`)}`,
 );
 
-
-
-
 /** Whether the word after a link's token goes on with its payload (a "~"
  *  or an escape: the link wrapped, or encoded in part). */
 function continuesLink(nextWord: string): boolean {
@@ -143,7 +140,6 @@ function parseTime(text: string): number | null {
 /** The payload's first line: where the Shortcut's window opens ("window~",
  *  any case, spaces around the "~" allowed). */
 const WINDOW_LINE = /^window\s*~\s*/i;
-
 
 /** One sample line, read: a sample, or why it isn't one. A bad end matters
  *  as much as a bad start: zero-length samples never join into a stretch,
@@ -347,7 +343,6 @@ function saveRead(read: readonly ReadRun[], line: string, now: number): void {
   }
 }
 
-
 export interface WatchTiming {
   startedAt: number;
   atMs: number;
@@ -452,7 +447,6 @@ export function refusal(
   return null;
 }
 
-
 /** Whether a refused paste is worth keeping in the box: for the reason its
  *  notice gives (refusal), one the listener can fix or retry; not data read
  *  before, days old or far too long, which no retry changes. */
@@ -549,8 +543,8 @@ function linkPayload(after: string): string {
   if (hasEscape(token) && !token.includes(":") && !continuesLink(next)) {
     return decodeWithin(token).trim();
   }
-  // Otherwise (the url-encode step missed) the rest of its text (up to the
-  // next link's address), decoded as the link would be.
+  // Otherwise (the url-encode step missed) the rest of the paste, decoded
+  // as the link would be.
   return decodeWithin(unpunctuated(after)).trim();
 }
 

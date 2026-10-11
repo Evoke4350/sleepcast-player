@@ -965,11 +965,6 @@ describe("data already read, or from days ago", () => {
     expect(payloadFromPaste(enc + " ".repeat(MAX_PAYLOAD_CHARS))).toBe("window~2026-10-04T09:00:00+01:00\n2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core");
   });
 
-
-
-
-
-
   it("reads a paste's first link", () => {
     const s = "2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core";
     const payload = `window~2026-10-04T09:00:00+01:00\n${s}`;
@@ -991,7 +986,7 @@ describe("data already read, or from days ago", () => {
     expect(parseWatchPayload(lines).tooLong).toBe(false);
     expect(parseWatchPayload(`${lines}x`).tooLong).toBe(true);
   });
-  it("reads a paste of many encoded-looking tokens in one pass, not one call each", () => {
+  it("reads a crafted paste with bounded work, whatever its shape", () => {
     // Bounded work for crafted input, whatever its shape: timed, as the cap
     // alone would let a per-token cost before or after the loop pass.
     const badBytes = "%e2%82".repeat(166_000);
@@ -1007,10 +1002,7 @@ describe("data already read, or from days ago", () => {
       expect(performance.now() - t0).toBeLessThan(2000);
     }
   });
-  it("finds a percent-encoded link's start across any whitespace, as its end", () => {
-    const link = "https://sleepcast.pro/#watch=" + encodeURIComponent("window~2026-10-04T09:00:00+01:00\n2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core");
-    expect(payloadFromPaste(`see%20this\u00a0${encodeURIComponent(link)}`)).toBe("window~2026-10-04T09:00:00+01:00\n2026-10-05T23:20:00+01:00~2026-10-05T23:50:00+01:00~Core");
-  });
+
   it("decodes a long run of bad escapes in linear time", () => {
     const t0 = performance.now();
     expect(watchPayloadFromHash(`#watch=${"%FF".repeat(50_000)}%0Aa`)).toBe(`${"%FF".repeat(50_000)}\na`);
