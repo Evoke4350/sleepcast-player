@@ -45,7 +45,8 @@ interface FeedStatus {
 export type SetupTab = "sleep" | "podcasts" | "settings";
 
 export interface SleepSetupProps {
-  tab: SetupTab;
+  /** null: kept mounted (its state, the open show) but not shown. */
+  tab: SetupTab | null;
   onStart: (
     pool: Episode[],
     timerMinutes: number,
@@ -217,17 +218,12 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
   }
 
   // Fetch / load feeds whenever enabled feeds change
+  // One pass: the shows that are on, and on the Podcasts tab every show (its
+  // artwork and count; the shuffle's pool still takes only those that are on).
   useEffect(() => {
-    fetchFeeds(appState.feeds, false);
+    fetchFeeds(tab === "podcasts" ? appState.feeds.map((f) => ({ ...f, enabled: true })) : appState.feeds, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [appState.feeds]);
-
-  // The Podcasts tab shows every show's artwork and count, those that are
-  // off too (the shuffle's pool still takes only those that are on).
-  useEffect(() => {
-    if (tab === "podcasts") fetchFeeds(appState.feeds.map((f) => ({ ...f, enabled: true })), false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, appState.feeds]);
+  }, [tab === "podcasts", appState.feeds]);
 
   // A load that succeeds after "couldn't reach your feeds" clears the message.
   useEffect(() => {
@@ -247,6 +243,7 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
     setGoldenPending(false);
     leadRef.current = null;
     rearmNightRef.current = null;
+    scopeRef.current = null;
     setFeedError("couldn't reach your feeds — check your connection and try again");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [goldenPending, feedStatuses, appState.feeds]);
@@ -394,7 +391,12 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
-  function startWith(chosen: Episode[], wasVaried = false) {
+  function startWith(picked: Episode[], wasVaried = false) {
+    // Read afresh: an episode marked "never again" during a night (this
+    // screen stays up through it) mustn't come back in the next.
+    const blockedNow = new Set(loadBlocked());
+    const chosen = picked.filter((e) => !blockedNow.has(e.id));
+    if (leadRef.current && blockedNow.has(leadRef.current.id)) leadRef.current = null;
     // No skip-intro: the setting is gone, so none is sent (stored ones are
     // cleared on load, web-cleanup.ts).
     const skipIntroByFeedId: Record<string, number> = {};
@@ -451,7 +453,10 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
   }
 
   function beginNight(lead: Episode | null, leadPosition = 0) {
-    if (goldenPending) return;
+    if (goldenPending) {
+      scopeRef.current = null;
+      return;
+    }
     // Nothing to play and nothing on its way means nothing to wait for:
     // pending would latch on forever, the moon reading "tucking you in…" and
     // disabled. That is only true once every enabled feed has finished. While
@@ -466,7 +471,9 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
       // they were only retried when the feed list changed, so tapping again
       // repeated this message forever.
       fetchFeeds(appState.feeds, true);
-      // A re-arm that couldn't start must not carry into the next ordinary one.
+      // A re-arm (or one show's shuffle) that couldn't start must not carry
+      // into the next ordinary one.
+      scopeRef.current = null;
       rearmNightRef.current = null;
       rearmStartRef.current = false;
       return;
@@ -591,7 +598,7 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
 
   return (
     // The page owns the background (globals.css tokens); this lays out inside it.
-    <div className="text-[var(--ink-2)]">
+    <div className="text-[var(--ink-2)]" hidden={tab === null}>
       <div className="mx-auto max-w-lg">
         {/* The field: one decision, in the thumb's arc. The moon IS the button —
             it's the same moon the Player veils the countdown behind, so the
@@ -728,11 +735,12 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
           const feed = appState.feeds.find((f) => f.id === openShow);
           if (!feed) return null;
           const positions = loadPositions();
+          const blockedNow = new Set(loadBlocked());
           const heard = new Set(getPlays().filter((p) => p.heardSec >= HEARD_SEC).map((p) => p.id));
           return (
             <ShowPage
               feed={feed}
-              status={feedStatuses[feed.id]}
+              status={feedStatuses[feed.id] && { ...feedStatuses[feed.id], episodes: feedStatuses[feed.id].episodes.filter((e) => !blockedNow.has(e.id)) }}
               heard={heard}
               positions={positions}
               onBack={() => setOpenShow(null)}

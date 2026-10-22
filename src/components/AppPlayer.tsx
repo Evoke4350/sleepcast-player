@@ -50,6 +50,13 @@ export function AppPlayer() {
   const [expanded, setExpanded] = useState(true);
   // A new night remounts the player: its state is the night's.
   const [nightKey, setNightKey] = useState(0);
+  // Setup stays up through a night (its tabs are browsed); when the night
+  // ends it is rebuilt, to read what the night wrote (the re-arm stamp, the
+  // last episode, episodes marked never again, the greeting).
+  const [setupKey, setSetupKey] = useState(0);
+  // Browsing during a night is being awake: reported to the night's rest
+  // session, set by the Player while it is mounted.
+  const noteActivityRef = useRef<(() => void) | null>(null);
   // Ends the playing night, set by the Player while it is mounted.
   const endPlayingRef = useRef<(() => void) | null>(null);
   // Quiet mode: the app has been told to stop nudging for a while.
@@ -215,6 +222,7 @@ export function AppPlayer() {
     setResume(null);
     setSession(null);
     setExpanded(false);
+    setSetupKey((k) => k + 1);
     // A re-anchor found while the night played is stale now: this night
     // wrote its own last night (the next visibility check decides afresh).
     setReanchor(null);
@@ -255,6 +263,7 @@ export function AppPlayer() {
         onExpand={() => setExpanded(true)}
         onCollapse={() => setExpanded(false)}
         endRef={endPlayingRef}
+        activityRef={noteActivityRef}
         pool={session.pool}
         timerMinutes={session.timerMinutes}
         skipIntroByFeedId={session.skipIntroByFeedId}
@@ -285,7 +294,7 @@ export function AppPlayer() {
 
   return (
     <main className={`flex-1 px-4 pt-8 text-[var(--ink-2)] ${session ? "pb-44" : "pb-28"}`}>
-      <div className="mx-auto max-w-xl">
+      <div className="mx-auto max-w-xl" onPointerDownCapture={() => noteActivityRef.current?.()}>
         {tab === "sleep" && (<>
         {live && (
           <div className="mb-6 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4">
@@ -317,7 +326,8 @@ export function AppPlayer() {
           </div>
         )}
         </>)}
-        {tab === "rest" ? (
+        <SleepSetup key={setupKey} onStart={handleStart} tab={tab === "rest" ? null : tab} />
+        {tab === "rest" && (
           <>
             <RestView key={restVisit} />
           {stepBack && (
@@ -345,11 +355,9 @@ export function AppPlayer() {
             </div>
           )}
             </>
-        ) : (
-          <SleepSetup onStart={handleStart} tab={tab} />
         )}
       </div>
-      <TabBar tab={tab} onTab={(t) => { if (t === "rest") setRestVisit((n) => n + 1); setTab(t); }} />
+      <TabBar tab={tab} onTab={(t) => { noteActivityRef.current?.(); if (t === "rest") setRestVisit((n) => n + 1); setTab(t); }} />
       {player}
     </main>
   );

@@ -96,6 +96,9 @@ export interface PlayerProps {
   /** Set to end this night ("ended"), for a night started elsewhere (a
    *  show's episode tapped while this one plays). */
   endRef?: { current: (() => void) | null };
+  /** Set to report the listener's activity outside the player (browsing the
+   *  tabs) to this night's rest session: awake, not quiet. */
+  activityRef?: { current: (() => void) | null };
 }
 
 /** How long a publish the platform rejected stands before the same one is
@@ -123,7 +126,7 @@ function NowArt({ src, big = false }: { src?: string; big?: boolean }) {
     : <div aria-hidden="true" className={`${cls} grid place-items-center bg-[var(--raised)] text-[var(--accent)]`}><span className={big ? "text-6xl" : "text-lg"}>☾</span></div>;
 }
 
-export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntroByFeedId, feedTitles, artworkByFeedId, onEnd, resume = null, leadEpisode = null, leadPosition = 0, quarterHourRule = false, wasVaried = false, favorWhatWorks = false, expanded, onExpand, onCollapse, endRef }: PlayerProps) {
+export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntroByFeedId, feedTitles, artworkByFeedId, onEnd, resume = null, leadEpisode = null, leadPosition = 0, quarterHourRule = false, wasVaried = false, favorWhatWorks = false, expanded, onExpand, onCollapse, endRef, activityRef }: PlayerProps) {
   const shuffle = useNightShuffle(favorWhatWorks, pool, resume);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -1326,6 +1329,14 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntro
     endRef.current = () => endSession("ended");
     return () => { endRef.current = null; };
   });
+  useEffect(() => {
+    if (!activityRef) return;
+    activityRef.current = () => restRef.current?.noteInteraction();
+    return () => { activityRef.current = null; };
+  });
+  // Opening or closing the player is a touch like any other.
+  const expandPlayer = () => { restRef.current?.noteInteraction(); onExpand(); };
+  const collapsePlayer = () => { restRef.current?.noteInteraction(); onCollapse(); };
 
   function dismissGettingUp() {
     restRef.current?.noteInteraction();
@@ -1365,8 +1376,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntro
       {!expanded && (
         <div className="fixed inset-x-0 bottom-[calc(4.4rem+env(safe-area-inset-bottom,0px))] z-40 px-2.5">
           <div className="mx-auto grid max-w-lg grid-cols-[44px_1fr_auto] items-center gap-2.5 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-2 shadow-[0_8px_24px_rgba(0,0,0,0.12)]">
-            <button onClick={onExpand} className="contents text-left" aria-label="Open the player">
-              <NowArt src={artworkByFeedId[nowPlaying?.feedId ?? ""]} />
+            <button onClick={expandPlayer} className="contents text-left" aria-label="Open the player">
+              <NowArt key={nowPlaying?.feedId} src={artworkByFeedId[nowPlaying?.feedId ?? ""]} />
               <span className="min-w-0">
                 <span className="block truncate text-[13.5px] font-semibold text-[var(--ink)]">{nowPlaying?.title ?? "loading…"}</span>
                 <span className="block truncate text-xs text-[var(--ink-3)]">
@@ -1391,11 +1402,11 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntro
       {expanded && (
         <div className="fixed inset-0 z-45 overflow-y-auto bg-[var(--ground)] [z-index:45]">
           <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-5 px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] pt-[calc(0.75rem+env(safe-area-inset-top,0px))] dream-sink" style={{ opacity: dim }}>
-            <button onClick={onCollapse} aria-label="Close the player, keep it playing" className="mx-auto grid h-8 w-16 place-items-center text-[var(--ink-3)]">
+            <button onClick={collapsePlayer} aria-label="Close the player, keep it playing" className="mx-auto grid h-8 w-16 place-items-center text-[var(--ink-3)]">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" className="h-6 w-6" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
             </button>
 
-            <div className="mx-auto w-full max-w-[320px]"><NowArt src={artworkByFeedId[nowPlaying?.feedId ?? ""]} big /></div>
+            <div className="mx-auto w-full max-w-[320px]"><NowArt key={nowPlaying?.feedId} src={artworkByFeedId[nowPlaying?.feedId ?? ""]} big /></div>
 
             <div className="space-y-1 text-center">
               <div className="line-clamp-2 text-lg font-bold leading-snug text-[var(--ink)]">{nowPlaying?.title ?? "loading…"}</div>
