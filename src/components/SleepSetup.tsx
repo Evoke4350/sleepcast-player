@@ -25,7 +25,8 @@ import { rankedFeeds, evidenceFor } from "../lib/rest/sleepscore";
 import type { RestNight } from "../lib/rest/types";
 import { TIMER_PRESETS } from "../lib/timer-presets";
 import { needsFetch } from "../lib/feed-status";
-import { pickNextEpisode } from "../lib/plays";
+import { pickNextEpisode, HEARD_SEC } from "../lib/plays";
+import { ShowGrid, ShowPage } from "./Shows";
 
 
 interface FeedStatus {
@@ -74,6 +75,12 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
   // doubles as the detector's self-label).
   const leadRef = useRef<Episode | null>(null);
   const leadPositionRef = useRef(0);
+  // A show whose episodes alone the next start shuffles (its page's
+  // "Shuffle show"); null for every show that's on.
+  const scopeRef = useRef<string | null>(null);
+  // The show open on the Podcasts tab, if any.
+  const [openShow, setOpenShow] = useState<string | null>(null);
+  const addShowRef = useRef<HTMLDivElement | null>(null);
   const [feedError, setFeedError] = useState("");
   const [lastEpisode] = useState(() => loadLastEpisode());
   const [greetNight, setGreetNight] = useState<RestNight | null>(() => {
@@ -98,7 +105,7 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
 
   // Pool = all episodes from enabled feeds that have loaded successfully
   // Blocked episodes are removed at the source, so they are absent from the
-  // shuffle, the spread list and the varied mix alike.
+  // shuffle and the spread list alike.
   const blockedIds = useMemo(() => new Set(loadBlocked()), []);
   const pool: Episode[] = enabledFeeds
     .flatMap((f) => {
@@ -175,6 +182,13 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appState.feeds]);
 
+  // The Podcasts tab shows every show's artwork and count, those that are
+  // off too (the shuffle's pool still takes only those that are on).
+  useEffect(() => {
+    if (tab === "podcasts") fetchFeeds(appState.feeds.map((f) => ({ ...f, enabled: true })), false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, appState.feeds]);
+
   // A load that succeeds after "couldn't reach your feeds" clears the message.
   useEffect(() => {
     if (pool.length > 0) setFeedError("");
@@ -200,6 +214,13 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
   function updateAndSave(next: AppState) {
     setAppState(next);
     saveState(next);
+  }
+
+  // A show opened while it's off still lists its episodes.
+  function openShowPage(id: string) {
+    setOpenShow(id);
+    const feed = appState.feeds.find((f) => f.id === id);
+    if (feed && !feed.enabled) fetchFeeds([{ ...feed, enabled: true }], false);
   }
 
   function toggleFeed(id: string) {
@@ -498,7 +519,11 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
   useEffect(() => {
     if (!goldenPending || !canStart) return;
     setGoldenPending(false);
-    startWith(pool);
+    // One show's shuffle (its page), or every show that's on (the moon).
+    const scope = scopeRef.current;
+    scopeRef.current = null;
+    const scoped = scope ? (feedStatuses[scope]?.episodes ?? []).filter((e) => !blockedIds.has(e.id)) : [];
+    startWith(scoped.length ? scoped : pool);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [goldenPending, canStart]);
 
@@ -696,58 +721,41 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
 
         </div>
         )}
-        {tab === "podcasts" && (
+        {tab === "podcasts" && openShow && (() => {
+          const feed = appState.feeds.find((f) => f.id === openShow);
+          if (!feed) return null;
+          const positions = loadPositions();
+          const heard = new Set(getPlays().filter((p) => p.heardSec >= HEARD_SEC).map((p) => p.id));
+          return (
+            <ShowPage
+              feed={feed}
+              status={feedStatuses[feed.id]}
+              heard={heard}
+              positions={positions}
+              onBack={() => setOpenShow(null)}
+              onPlay={(ep) => beginNight(ep, positions[ep.id] ?? 0)}
+              onShuffle={() => { scopeRef.current = feed.id; beginNight(null); }}
+              onToggleShuffle={() => toggleFeed(feed.id)}
+              onRemove={feed.builtin ? undefined : () => { handleRemoveFeed(feed.id); setOpenShow(null); }}
+            />
+          );
+        })()}
+        {tab === "podcasts" && !openShow && (
           <div className="space-y-8 pb-8">
         {/* Feeds */}
         <section className="space-y-3">
-          <h2 className="text-xs uppercase tracking-widest text-[var(--ink-4)]">Feeds</h2>
-          <div className="space-y-2">
-            {appState.feeds.map((feed) => {
-              const label = feedStatusLabel(feed);
-              const isError = feedStatuses[feed.id]?.error != null;
-              return (
-                <div
-                  key={feed.id}
-                  className="flex items-center gap-3 rounded-lg bg-[var(--surface)] border border-[var(--line)] px-4 py-3"
-                >
-                  <input
-                    type="checkbox"
-                    id={`feed-${feed.id}`}
-                    checked={feed.enabled}
-                    onChange={() => toggleFeed(feed.id)}
-                    className="h-5 w-5 rounded accent-[var(--ink-4)] cursor-pointer"
-                  />
-                  <label
-                    htmlFor={`feed-${feed.id}`}
-                    className="flex-1 cursor-pointer text-sm"
-                  >
-                    {feed.title}
-                  </label>
-                  {label && (
-                    <span
-                      className={`text-xs ${isError ? "text-red-400/70" : "text-[var(--ink-4)]"}`}
-                    >
-                      {label}
-                    </span>
-                  )}
-                  {!feed.builtin && (
-                    <button
-                      onClick={() => handleRemoveFeed(feed.id)}
-                      className="text-xs text-[var(--ink-4)] hover:text-red-400/70 ml-1"
-                      aria-label={`Remove ${feed.title}`}
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+          <h1 className="text-3xl font-extrabold tracking-tight text-[var(--ink)]">Podcasts</h1>
+          <ShowGrid
+            feeds={appState.feeds}
+            statuses={feedStatuses}
+            onOpen={openShowPage}
+            onAdd={() => addShowRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })}
+          />
 
           {/* Add custom feed */}
-          <div className="rounded-lg bg-[var(--surface)] border border-[var(--line)] px-4 py-3 space-y-2">
+          <div ref={addShowRef} className="rounded-lg bg-[var(--surface)] border border-[var(--line)] px-4 py-3 space-y-2">
             <p className="text-xs text-[var(--ink-4)] uppercase tracking-widest">
-              Add custom feed
+              Add a show
             </p>
 
             {/* In-app on-ramp for non-technical listeners: the hard part isn't
