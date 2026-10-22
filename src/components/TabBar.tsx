@@ -46,10 +46,11 @@ const TABS: { id: AppTab; label: string; icon: ReactNode }[] = [
   },
 ];
 
-export function TabBar({ tab, onTab }: { tab: AppTab; onTab: (t: AppTab) => void }) {
+export function TabBar({ tab, onTab, inert }: { tab: AppTab; onTab: (t: AppTab) => void; inert?: boolean }) {
   return (
     <nav
       aria-label="Sections"
+      inert={inert}
       className="fixed inset-x-0 bottom-0 z-40 border-t border-[var(--line)] bg-[var(--ground)] pb-[calc(0.5rem+env(safe-area-inset-bottom,0px))] pt-1.5"
     >
       <div className="mx-auto grid max-w-lg grid-cols-4">
@@ -59,7 +60,7 @@ export function TabBar({ tab, onTab }: { tab: AppTab; onTab: (t: AppTab) => void
             onClick={() => onTab(t.id)}
             aria-current={tab === t.id ? "page" : undefined}
             className={`grid justify-items-center gap-0.5 py-1.5 text-[11px] font-semibold transition-colors ${
-              tab === t.id ? "text-[var(--accent)]" : "text-[var(--ink-4)] hover:text-[var(--ink-3)]"
+              tab === t.id ? "text-[var(--accent-text)]" : "text-[var(--ink-4)] hover:text-[var(--ink-3)]"
             }`}
           >
             <span className="h-[22px] w-[22px]">{t.icon}</span>

@@ -140,7 +140,7 @@ export function RestView({ onClose }: { onClose?: () => void }) {
                   </span>
                 </div>
                 {driftedDuring?.id === p.id && (
-                  <div className="mt-0.5 text-xs font-semibold text-[var(--accent)]">you drifted off here</div>
+                  <div className="mt-0.5 text-xs font-semibold text-[var(--accent-text)]">you drifted off here</div>
                 )}
               </li>
             ))}

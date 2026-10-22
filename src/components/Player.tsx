@@ -232,6 +232,17 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntro
   // The quarter-hour rule has fired and playback is held. Once dismissed it
   // does not fire again for the rest of the night.
   const [gettingUp, setGettingUp] = useState(false);
+  const collapseBtnRef = useRef<HTMLButtonElement | null>(null);
+  const openBtnRef = useRef<HTMLButtonElement | null>(null);
+  const getUpBtnRef = useRef<HTMLButtonElement | null>(null);
+  // Focus follows the player: into Now Playing when it opens (the control
+  // that opened it is now underneath), back to the mini bar when it closes.
+  useEffect(() => {
+    (expanded ? collapseBtnRef : openBtnRef).current?.focus();
+  }, [expanded]);
+  useEffect(() => {
+    if (gettingUp) getUpBtnRef.current?.focus();
+  }, [gettingUp]);
   /** Set with the state, not after the render: the hold reads it at once. */
   const gettingUpRef = useRef(false);
   /** The latest askForSound(), for handlers registered once at mount. */
@@ -1286,6 +1297,15 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntro
     setHoldPct(0);
   }
 
+  // The scrubber by keyboard: arrows skip 30 seconds, Home is the start.
+  function seekByKey(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (e.key === "ArrowRight" || e.key === "ArrowUp") skipBy(30);
+    else if (e.key === "ArrowLeft" || e.key === "ArrowDown") skipBy(-30);
+    else if (e.key === "Home") { restRef.current?.noteInteraction(); listenerSeek(0); }
+    else return;
+    e.preventDefault();
+  }
+
   function seekToRatio(e: React.MouseEvent<HTMLDivElement>) {
     // A tap is a touch whether or not it can seek.
     restRef.current?.noteInteraction();
@@ -1319,7 +1339,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntro
 
   const countdownStr = formatTime(countdown);
   const timerLabel = mode.kind === "minutes" ? countdownStr : mode.kind === "one-episode" ? "one episode" : "all night";
-  // The room dims as the night wanes — controls stay findable, just quieter.
+  // The room dims as the night wanes: the artwork only, so the words and
+  // controls keep their contrast.
   const dim = Math.max(0.55, 1 - 0.45 * (1 - countdown / Math.max(1, totalSeconds)));
 
   // Ending this night from outside (another night started), always through
@@ -1346,17 +1367,20 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntro
   return (
     <>
       <audio ref={audioRef} preload="none" />
+      {/* Notes like "skipped the intro" read out, whichever view is up. */}
+      <div role="status" className="sr-only">{toast}</div>
 
       {/* Opt-in stimulus control. Playback is held, not ended — the listener
           asked for the nudge, not for the app to overrule them. */}
       {gettingUp && (
-        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-[var(--surface)] px-8 text-center">
-          <p className="text-lg text-[var(--ink-2)]">this one isn't working tonight.</p>
+        <div role="alertdialog" aria-modal="true" aria-labelledby="getting-up-title" className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-[var(--surface)] px-8 text-center">
+          <p id="getting-up-title" className="text-lg text-[var(--ink-2)]">this one isn't working tonight.</p>
           <p className="max-w-xs text-sm text-[var(--ink-3)]">
             get up for a bit. somewhere dim, something dull. come back when
             you're heavy — the bed keeps its meaning that way.
           </p>
           <button
+            ref={getUpBtnRef}
             onClick={() => { showGettingUp(false); endSession("ended"); }}
             className="mt-2 rounded-full border border-[var(--ink-4)] px-5 py-2 text-sm text-[var(--ink)] transition-colors hover:border-[var(--ink-3)]"
           >
@@ -1376,14 +1400,14 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntro
       {!expanded && (
         <div className="fixed inset-x-0 bottom-[calc(4.4rem+env(safe-area-inset-bottom,0px))] z-40 px-2.5">
           <div className="mx-auto grid max-w-lg grid-cols-[44px_1fr_auto] items-center gap-2.5 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-2 shadow-[0_8px_24px_rgba(0,0,0,0.12)]">
-            <button onClick={expandPlayer} className="contents text-left" aria-label="Open the player">
+            <button ref={openBtnRef} onClick={expandPlayer} className="col-span-2 grid min-w-0 grid-cols-[44px_1fr] items-center gap-2.5 rounded-xl text-left" aria-label={`Open the player: ${nowPlaying?.title ?? "loading"}, ${timerLabel}`}>
               <NowArt key={nowPlaying?.feedId} src={artworkByFeedId[nowPlaying?.feedId ?? ""]} />
               <span className="min-w-0">
                 <span className="block truncate text-[13.5px] font-semibold text-[var(--ink)]">{nowPlaying?.title ?? "loading…"}</span>
                 <span className="block truncate text-xs text-[var(--ink-3)]">
                   {nowPlaying ? (feedTitles[nowPlaying.feedId] ?? "") : ""}
                   {" · "}
-                  <b className="font-bold text-[var(--accent)]">{timerLabel}</b>
+                  <b className="font-bold text-[var(--accent-text)]">{timerLabel}</b>
                 </span>
               </span>
             </button>
@@ -1400,13 +1424,13 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntro
 
       {/* Expanded: Now Playing. */}
       {expanded && (
-        <div className="fixed inset-0 z-45 overflow-y-auto bg-[var(--ground)] [z-index:45]">
-          <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-5 px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] pt-[calc(0.75rem+env(safe-area-inset-top,0px))] dream-sink" style={{ opacity: dim }}>
-            <button onClick={collapsePlayer} aria-label="Close the player, keep it playing" className="mx-auto grid h-8 w-16 place-items-center text-[var(--ink-3)]">
+        <div role="dialog" aria-modal="true" aria-label="Now playing" inert={gettingUp} className="fixed inset-0 z-45 overflow-y-auto bg-[var(--ground)] [z-index:45] [scroll-padding-bottom:0]">
+          <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-5 px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] pt-[calc(0.75rem+env(safe-area-inset-top,0px))] dream-sink">
+            <button ref={collapseBtnRef} onClick={collapsePlayer} aria-label="Close the player, keep it playing" className="mx-auto grid h-8 w-16 place-items-center text-[var(--ink-3)]">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" className="h-6 w-6" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
             </button>
 
-            <div className="mx-auto w-full max-w-[320px]"><NowArt key={nowPlaying?.feedId} src={artworkByFeedId[nowPlaying?.feedId ?? ""]} big /></div>
+            <div className="mx-auto w-full max-w-[320px]" style={{ opacity: dim }}><NowArt key={nowPlaying?.feedId} src={artworkByFeedId[nowPlaying?.feedId ?? ""]} big /></div>
 
             <div className="space-y-1 text-center">
               <div className="line-clamp-2 text-lg font-bold leading-snug text-[var(--ink)]">{nowPlaying?.title ?? "loading…"}</div>
@@ -1414,7 +1438,18 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntro
             </div>
 
             <div>
-              <div className="ep-progress cursor-pointer" onClick={seekToRatio} role="slider" aria-label="Position in the episode" aria-valuemin={0} aria-valuemax={100} aria-valuenow={epPos ? Math.round((epPos.cur / epPos.dur) * 100) : 0}>
+              <div
+                className="ep-progress cursor-pointer"
+                onClick={seekToRatio}
+                onKeyDown={seekByKey}
+                tabIndex={0}
+                role="slider"
+                aria-label="Position in the episode"
+                aria-valuemin={0}
+                aria-valuemax={epPos ? Math.round(epPos.dur) : 0}
+                aria-valuenow={epPos ? Math.round(epPos.cur) : 0}
+                aria-valuetext={epPos ? `${formatTime(epPos.cur)} of ${formatTime(epPos.dur)}` : "not started"}
+              >
                 <span style={{ width: `${epPos ? Math.min(100, (epPos.cur / epPos.dur) * 100) : 0}%` }} />
               </div>
               <div className="mt-1.5 flex justify-between text-xs tabular-nums text-[var(--ink-3)]">
@@ -1443,7 +1478,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntro
                   used to be the only way to escape one jarring episode. */}
               <button onClick={handleBlock} className="rounded-full bg-[var(--raised)] px-4 py-2 font-semibold text-[var(--ink-2)]">Never again</button>
             </div>
-            <div className="h-4 text-center text-xs text-[var(--ink-3)]">
+            <div aria-hidden="true" className="min-h-4 text-center text-xs text-[var(--ink-3)]">
               {toast && <span className="player-toast inline-block">{toast}</span>}
             </div>
 
@@ -1473,37 +1508,52 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntro
                 onPointerDown={holdEndStart}
                 onPointerUp={holdEndCancel}
                 onPointerLeave={holdEndCancel}
+                // The same hold by keyboard: Space or Enter held down.
+                onKeyDown={(e) => {
+                  if (e.key !== " " && e.key !== "Enter") return;
+                  e.preventDefault();
+                  if (!e.repeat) holdEndStart();
+                }}
+                onKeyUp={(e) => { if (e.key === " " || e.key === "Enter") holdEndCancel(); }}
+                onBlur={holdEndCancel}
                 onContextMenu={(e) => e.preventDefault()}
-                className="w-full select-none touch-none rounded-xl bg-[var(--raised)] py-3 text-sm font-bold text-[var(--ink-2)]"
-                style={{ background: holdPct > 0 ? `linear-gradient(90deg, var(--accent-soft) ${holdPct}%, var(--raised) ${holdPct}%)` : undefined }}
+                className="relative w-full select-none touch-none overflow-hidden rounded-xl bg-[var(--raised)] py-3 text-sm font-bold text-[var(--ink-2)]"
                 aria-label="Hold to end the night"
+                aria-describedby="hold-end-hint"
               >
                 {holdPct > 0 ? "keep holding…" : "Hold to end the night"}
+                <span aria-hidden="true" className="absolute inset-x-0 bottom-0 h-1 origin-left bg-[var(--accent-text)]" style={{ transform: `scaleX(${holdPct / 100})` }} />
               </button>
+              <p id="hold-end-hint" className="sr-only">Press and hold, or hold Space, for about a second.</p>
             </div>
 
             {/* Tonight's spread: the curated lineup, current episode marked,
                 already-played ones settling back like turned pages. */}
             {pool.filter((e) => !blockedTonight.has(e.id)).length <= LINEUP_MAX && (
               <div className="space-y-1.5 text-left">
-                <div className="pb-1 text-[11px] font-bold uppercase tracking-widest text-[var(--ink-3)]">tonight&apos;s spread</div>
+                <h2 id="spread-title" className="pb-1 text-[11px] font-bold uppercase tracking-widest text-[var(--ink-3)]">tonight&apos;s spread</h2>
+                <ul aria-labelledby="spread-title" className="space-y-1.5">
                 {pool.filter((e) => !blockedTonight.has(e.id)).map((ep) => {
                   const isNow = nowPlaying?.id === ep.id;
                   const wasPlayed = playedIds.has(ep.id) && !isNow;
                   return (
+                    <li key={ep.id}>
                     <button
-                      key={ep.id}
+                      aria-current={isNow ? "true" : undefined}
                       onClick={() => { if (!isNow) { restRef.current?.noteInteraction(); playEpisode(ep); } }}
                       className={`flex w-full items-baseline gap-2 text-left text-sm leading-snug ${
                         isNow ? "font-semibold text-[var(--ink)]" : wasPlayed ? "text-[var(--ink-4)]" : "text-[var(--ink-2)]"
                       }`}
                     >
-                      <span className="w-3 shrink-0 text-xs">{isNow ? "♪" : wasPlayed ? "·" : ""}</span>
+                      <span aria-hidden="true" className="w-3 shrink-0 text-xs">{isNow ? "♪" : wasPlayed ? "·" : ""}</span>
+                      {(isNow || wasPlayed) && <span className="sr-only">{isNow ? "Now playing: " : "Played: "}</span>}
                       <span className="line-clamp-1 flex-1">{ep.title}</span>
                       <span className="shrink-0 text-[10px] text-[var(--ink-4)]">{feedTitles[ep.feedId] ?? ep.feedId}</span>
                     </button>
+                    </li>
                   );
                 })}
+                </ul>
               </div>
             )}
           </div>

@@ -77,9 +77,9 @@ function SettingRow({ id, title, checked, disabled = false, onChange, children }
         aria-checked={checked}
         disabled={disabled}
         onClick={() => onChange(!checked)}
-        className={`relative mt-0.5 h-7 w-12 shrink-0 rounded-full transition-colors disabled:opacity-40 ${checked ? "bg-[var(--accent)]" : "bg-[var(--line)]"}`}
+        className={`relative mt-0.5 h-7 w-12 shrink-0 rounded-full transition-colors disabled:opacity-40 ${checked ? "bg-[var(--accent)]" : "bg-[var(--raised)] ring-1 ring-inset ring-[var(--control)]"}`}
       >
-        <span className={`absolute left-[3px] top-[3px] h-[22px] w-[22px] rounded-full bg-white shadow transition-transform ${checked ? "translate-x-5" : ""}`} />
+        <span className={`absolute left-[3px] top-[3px] h-[22px] w-[22px] rounded-full shadow transition-transform ${checked ? "translate-x-5 bg-white" : "bg-[var(--control)]"}`} />
       </button>
     </div>
   );
@@ -108,6 +108,9 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
   const [customUrl, setCustomUrl] = useState("");
   const [customTitle, setCustomTitle] = useState("");
   const [customError, setCustomError] = useState<string | null>(null);
+  const addUrlRef = useRef<HTMLInputElement | null>(null);
+  // Back from a show, focus goes to its tile rather than the top of the page.
+  const returnToShowRef = useRef<string | null>(null);
   // A pasted @handle needs a server round trip before it is a feed.
   const [customMinutes, setCustomMinutes] = useState<string>("");
   const [goldenPending, setGoldenPending] = useState(false);
@@ -121,6 +124,11 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
   const scopeRef = useRef<string | null>(null);
   // The show open on the Podcasts tab, if any.
   const [openShow, setOpenShow] = useState<string | null>(null);
+  useEffect(() => {
+    if (openShow || !returnToShowRef.current) return;
+    document.querySelector<HTMLElement>(`[data-show-id="${CSS.escape(returnToShowRef.current)}"]`)?.focus();
+    returnToShowRef.current = null;
+  }, [openShow]);
   const addShowRef = useRef<HTMLDivElement | null>(null);
   const [feedError, setFeedError] = useState("");
   const [lastEpisode] = useState(() => loadLastEpisode());
@@ -642,7 +650,7 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
                   or from the start
                 </button>
               )}
-              {feedError && <p className="text-xs text-[var(--danger)]">{feedError}</p>}
+              {feedError && <p role="alert" className="text-xs text-[var(--danger)]">{feedError}</p>}
               <p className="text-xs text-[var(--ink-4)]">or the moon below — the same shows, on shuffle ↓</p>
             </div>
           )}
@@ -707,7 +715,7 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
             </span>
           </button>
 
-          <p className="font-serif-display -mt-4 text-2xl text-[var(--ink)]">
+          <p role="status" className="font-serif-display -mt-4 text-2xl text-[var(--ink)]">
             {goldenPending ? "tucking you in…" : "Sleep"}
           </p>
 
@@ -743,7 +751,7 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
               status={feedStatuses[feed.id] && { ...feedStatuses[feed.id], episodes: feedStatuses[feed.id].episodes.filter((e) => !blockedNow.has(e.id)) }}
               heard={heard}
               positions={positions}
-              onBack={() => setOpenShow(null)}
+              onBack={() => { returnToShowRef.current = feed.id; setOpenShow(null); }}
               onPlay={(ep) => beginNight(ep, positions[ep.id] ?? 0)}
               onShuffle={() => { scopeRef.current = feed.id; beginNight(null); }}
               onToggleShuffle={() => toggleFeed(feed.id)}
@@ -760,14 +768,17 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
             feeds={appState.feeds}
             statuses={feedStatuses}
             onOpen={openShowPage}
-            onAdd={() => addShowRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })}
+            onAdd={() => {
+              addShowRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+              addUrlRef.current?.focus({ preventScroll: true });
+            }}
           />
 
           {/* Add custom feed */}
           <div ref={addShowRef} className="rounded-lg bg-[var(--surface)] border border-[var(--line)] px-4 py-3 space-y-2">
-            <p className="text-xs text-[var(--ink-4)] uppercase tracking-widest">
+            <h2 className="text-xs text-[var(--ink-4)] uppercase tracking-widest">
               Add a show
-            </p>
+            </h2>
 
             {/* In-app on-ramp for non-technical listeners: the hard part isn't
                 sleepcast, it's finding the private RSS link the paid service
@@ -812,22 +823,27 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
               </div>
             </details>
 
+            <label htmlFor="add-show-url" className="block pt-1 text-xs font-semibold text-[var(--ink-2)]">Feed link</label>
             <input
+              id="add-show-url"
+              ref={addUrlRef}
               type="url"
               value={customUrl}
               onChange={(e) => setCustomUrl(e.target.value)}
-              placeholder="Paste a feed link"
-              className="w-full rounded bg-[var(--surface)] border border-[var(--line)] px-3 py-2 text-sm text-[var(--ink-2)] placeholder:text-[var(--ink-4)] focus:outline-none focus:border-[var(--ink-4)]"
+              placeholder="https://…"
+              className="w-full rounded bg-[var(--surface)] border border-[var(--line)] px-3 py-2 text-sm text-[var(--ink-2)] placeholder:text-[var(--ink-4)]"
             />
+            <label htmlFor="add-show-title" className="block text-xs font-semibold text-[var(--ink-2)]">Title (optional)</label>
             <input
+              id="add-show-title"
               type="text"
               value={customTitle}
               onChange={(e) => setCustomTitle(e.target.value)}
-              placeholder="Title (optional)"
-              className="w-full rounded bg-[var(--surface)] border border-[var(--line)] px-3 py-2 text-sm text-[var(--ink-2)] placeholder:text-[var(--ink-4)] focus:outline-none focus:border-[var(--ink-4)]"
+              placeholder="as it should appear"
+              className="w-full rounded bg-[var(--surface)] border border-[var(--line)] px-3 py-2 text-sm text-[var(--ink-2)] placeholder:text-[var(--ink-4)]"
             />
             {customError && (
-              <p className="text-xs text-red-400/70">{customError}</p>
+              <p role="alert" className="text-xs text-[var(--danger)]">{customError}</p>
             )}
             <button
               onClick={() => { void handleAddCustomFeed(); }}
@@ -837,12 +853,12 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
               Add feed
             </button>
             <div className="flex items-center justify-between pt-1 text-xs text-[var(--ink-4)]">
-              <label className="cursor-pointer underline decoration-[var(--line)] underline-offset-4 hover:text-[var(--ink-2)]">
+              <label className="cursor-pointer rounded underline decoration-[var(--line)] underline-offset-4 hover:text-[var(--ink-2)] has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[var(--accent-text)]">
                 import OPML
                 <input
                   type="file"
                   accept=".opml,.xml,text/xml,text/x-opml"
-                  className="hidden"
+                  className="sr-only"
                   onChange={(e) => {
                     const f = e.target.files?.[0];
                     if (f) handleOpmlImport(f);
@@ -857,7 +873,7 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
                 export OPML
               </button>
             </div>
-            {opmlNote && <p className="text-xs text-[var(--ink-4)]">{opmlNote}</p>}
+            <p role="status" className="text-xs text-[var(--ink-4)] empty:hidden">{opmlNote ?? ""}</p>
           </div>
         </section>
           </div>
@@ -919,7 +935,7 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
                   // typing, the box keeps what's typed so "3" can become "30";
                   // on leaving it, it shows what was actually saved.
                   onBlur={() => setCustomMinutes("")}
-                  className="w-20 rounded-lg border border-[var(--line)] bg-[var(--raised)] px-2 py-2 text-center text-base text-[var(--ink)] placeholder:text-[var(--ink-4)] focus:border-[var(--accent)] focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                  className="w-20 rounded-lg border border-[var(--line)] bg-[var(--raised)] px-2 py-2 text-center text-base text-[var(--ink)] placeholder:text-[var(--ink-4)] focus:border-[var(--accent)] [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                   aria-label="Custom timer minutes"
                 />
               </div>

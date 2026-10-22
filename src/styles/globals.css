@@ -9,10 +9,12 @@
   --line: #e2e2e8;
   --ink: #16161a;        /* titles, the thing to read */
   --ink-2: #33333b;      /* body */
-  --ink-3: #6b6b78;      /* secondary */
-  --ink-4: #9a9aa6;      /* faint: labels, hints */
-  --accent: #c47a12;     /* moon gold: the one action colour */
-  --accent-ink: #ffffff; /* text on the accent */
+  --ink-3: #5c5c68;      /* secondary */
+  --ink-4: #6a6a77;      /* faint: labels, hints (still 4.5:1 on every ground) */
+  --control: #85858f;    /* outlines of controls in their off state (3:1) */
+  --accent: #c47a12;     /* moon gold: the one action colour, as a fill */
+  --accent-text: #9a5a08; /* the gold as text or a thin mark (4.5:1) */
+  --accent-ink: #1a1306; /* text on the accent */
   --accent-soft: #fbefdc;
   --danger: #b3412f;
 }
@@ -26,8 +28,10 @@
     --ink: #f3f3f5;
     --ink-2: #d4d4da;
     --ink-3: #a0a0ac;
-    --ink-4: #6e6e7a;
+    --ink-4: #8a8a96;
+    --control: #6e6e7a;
     --accent: #f2b354;
+    --accent-text: #f2b354;
     --accent-ink: #1a1306;
     --accent-soft: #2b2112;
     --danger: #e08a7a;
@@ -158,7 +162,7 @@ body {
 .ep-progress > span {
   display: block;
   height: 100%;
-  background: var(--accent);
+  background: var(--accent-text);
   border-radius: 3px;
   transition: width 1s linear;
 }
@@ -246,3 +250,9 @@ body {
 .promise-box { background: linear-gradient(180deg, var(--surface), var(--ground));
   border: 1px solid var(--line); border-radius: 1.4rem; padding: 3rem; text-align: center; }
 @media (max-width: 640px) { .promise-box { padding: 2rem 1.4rem; } }
+
+/* Keyboard focus, everywhere, in the theme's gold. */
+:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
+/* The tab bar and the mini player are fixed over the bottom of the page: a
+   control tabbed to stops above them rather than behind. */
+html { scroll-padding-bottom: calc(10.5rem + env(safe-area-inset-bottom, 0px)); }
