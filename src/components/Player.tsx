@@ -799,7 +799,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       if (isOffline()) holdForNetwork();
       else if (!countFailure()) playNext();
       // Everything below concerns the episode just replaced (or the night just
-      // ended), as in YouTubeNight's watchdog.
+      // ended).
       return;
     }
 
@@ -935,7 +935,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       // One-episode mode means one episode: its fade was driven by this
       // episode's end, so the night is over. Playing on started the next
       // episode at full volume after the fade and the night never ended.
-      // Night.tsx and YouTubeNight.tsx already end here.
       if (modeRef.current.kind === "one-episode") {
         endSession("faded");
         return;

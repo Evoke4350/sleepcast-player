@@ -18,8 +18,7 @@ import {
   loadLastEpisode,
   getPlays,
 } from "../lib/store";
-import { diverseByMeta, formatTime } from "../lib/engine";
-import { parseFeedFor, youtubeFeedUrl } from "../lib/youtube";
+import { diverseByMeta, formatTime, parseFeedXml } from "../lib/engine";
 import { beacon } from "../lib/beacon";
 import type { Episode } from "../lib/engine";
 import { loadNights, setSelfLabel } from "../lib/rest/ledger";
@@ -67,7 +66,6 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
   const [customTitle, setCustomTitle] = useState("");
   const [customError, setCustomError] = useState<string | null>(null);
   // A pasted @handle needs a server round trip before it is a feed.
-  const [resolving, setResolving] = useState(false);
   const [customMinutes, setCustomMinutes] = useState<string>("");
   const [variedBusy, setVariedBusy] = useState(false);
   const [variedNote, setVariedNote] = useState<string | null>(null);
@@ -147,9 +145,7 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
           if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
           const xml = await resp.text();
           cacheFeedXml(feed.id, xml);
-          // Parser chosen by the feed's URL, not by whether the document is
-          // Atom or RSS — plenty of real podcasts publish Atom.
-          const parsed = parseFeedFor(xml, feed.id, feed.url);
+          const parsed = parseFeedXml(xml, feed.id);
           setFeedStatuses((prev) => ({
             ...prev,
             [feed.id]: {
@@ -164,7 +160,7 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
           // Try cache fallback
           const cached = getCachedFeedXml(feed.id);
           if (cached) {
-            const parsed = parseFeedFor(cached, feed.id, feed.url);
+            const parsed = parseFeedXml(cached, feed.id);
             setFeedStatuses((prev) => ({
               ...prev,
               [feed.id]: {
@@ -288,44 +284,7 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
 
   async function handleAddCustomFeed() {
     setCustomError(null);
-    const raw = customUrl.trim();
-    // A YouTube channel is not a feed URL, but it has one. Resolve what we can
-    // rather than handing the whole thing to addCustomFeed and letting it fail
-    // as "not a feed".
-    const yt = youtubeFeedUrl(raw);
-    if (yt?.kind === "unsupported") {
-      setCustomError("that's a single video. paste the channel or playlist it belongs to.");
-      return;
-    }
-    if (yt?.kind === "handle") {
-      // A handle carries no channel id — it only appears in the page's HTML.
-      // This used to say so and ask the listener to go and find the
-      // /channel/UC… address, which on a phone is asking for something
-      // YouTube's own UI mostly won't give them. The server looks it up.
-      setResolving(true);
-      try {
-        const resp = await fetch(`/api/youtube-channel?handle=${encodeURIComponent(yt.handle)}`);
-        const body = (await resp.json().catch(() => null)) as { channelId?: string } | null;
-        if (!resp.ok || !body?.channelId) {
-          setCustomError(
-            resp.status === 404
-              ? `couldn't find a channel at @${yt.handle} — check the spelling`
-              : "couldn't reach YouTube to look that channel up — try again in a moment",
-          );
-          return;
-        }
-        beacon("youtube_added");
-        addResolvedFeed(`https://www.youtube.com/feeds/videos.xml?channel_id=${body.channelId}`);
-      } catch {
-        setCustomError("couldn't reach YouTube to look that channel up — try again in a moment");
-      } finally {
-        setResolving(false);
-      }
-      return;
-    }
-    // A /channel/UC… or playlist link needs no lookup, but it is the same act.
-    if (yt?.kind === "feed") beacon("youtube_added");
-    addResolvedFeed(yt?.url ?? raw);
+    addResolvedFeed(customUrl.trim());
   }
 
   function handleRemoveFeed(id: string) {
@@ -1015,49 +974,11 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
               </div>
             </details>
 
-            {/* YouTube is a different animal from a podcast feed and the
-                differences all bite at 2am, so they are stated before you add
-                one rather than discovered while trying to sleep. */}
-            <details className="text-xs">
-              <summary className="cursor-pointer list-none text-[#8a7a5c] transition-colors hover:text-[#b59a76] [&::-webkit-details-marker]:hidden">
-                Can I use a YouTube channel? →
-              </summary>
-              <div className="mt-2 space-y-2 leading-relaxed text-[#8a7a5c]">
-                <p>
-                  Yes — paste the channel address, however YouTube gave it to you.
-                  An <code>@name</code> link, a <code>/channel/UC…</code> link and
-                  a playlist all work. A link to one video doesn&apos;t: paste the
-                  channel it came from.
-                </p>
-                <ul className="list-disc space-y-1.5 pl-4">
-                  <li>
-                    <span className="text-[#b59a76]">Ads can play.</span> It goes
-                    through Google&apos;s player and we can&apos;t mute or skip them.
-                  </li>
-                  <li>
-                    <span className="text-[#b59a76]">The screen must stay on.</span>{" "}
-                    Video stops when a phone locks. We hold the screen awake where
-                    the browser allows it.
-                  </li>
-                  <li>
-                    <span className="text-[#b59a76]">Fifteen videos, no archive.</span>{" "}
-                    That&apos;s all YouTube publishes. Fine for shows where one
-                    video runs hours.
-                  </li>
-                  <li>
-                    <span className="text-[#b59a76]">Mixed nights start on a video.</span>{" "}
-                    Your browser may want one tap before it will play one, and
-                    it is better to give it while you are awake.
-                  </li>
-                </ul>
-              </div>
-            </details>
-
             <input
               type="url"
               value={customUrl}
               onChange={(e) => setCustomUrl(e.target.value)}
-              placeholder="Paste a feed link, or a YouTube channel"
+              placeholder="Paste a feed link"
               className="w-full rounded bg-[#12101a] border border-[#241f30] px-3 py-2 text-sm text-[#b59a76] placeholder:text-[#6e5d44] focus:outline-none focus:border-[#6e5d44]"
             />
             <input
@@ -1072,10 +993,10 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
             )}
             <button
               onClick={() => { void handleAddCustomFeed(); }}
-              disabled={!customUrl.trim() || resolving}
+              disabled={!customUrl.trim()}
               className="w-full rounded bg-[#12101a] border border-[#241f30] py-2 text-sm text-[#b59a76] disabled:opacity-40 hover:border-[#6e5d44] transition-colors"
             >
-              {resolving ? "looking up that channel…" : "Add feed"}
+              Add feed
             </button>
             <div className="flex items-center justify-between pt-1 text-xs text-[#6e5d44]">
               <label className="cursor-pointer underline decoration-[#241f30] underline-offset-4 hover:text-[#b59a76]">
