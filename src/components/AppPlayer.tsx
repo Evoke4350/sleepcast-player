@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { cleanStoredWebData } from "../lib/web-cleanup";
 import type { Episode } from "../lib/engine";
 import { formatTime } from "../lib/engine";
 import { loadLive, clearLastNight, loadLastNight, type LiveSession, type LastNight, type ResumeDescriptor, resumeFrom, nightTimerMinutes, loadState, isRevivable, resumeMode, loadBlocked } from "../lib/store";
@@ -33,7 +34,11 @@ interface SessionState {
 // so a full reload — including iOS reclaiming the backgrounded tab — can offer
 // to resume it rather than waking you to silence.
 export function AppPlayer() {
-  const [session, setSession] = useState<SessionState | null>(null);
+  // Before anything below reads storage: what the removed features left.
+  const [session, setSession] = useState<SessionState | null>(() => {
+    cleanStoredWebData();
+    return null;
+  });
   const [resume, setResume] = useState<ResumeDescriptor | null>(null);
   const [view, setView] = useState<"player" | "rest">("player");
   // Quiet mode: the app has been told to stop nudging for a while.

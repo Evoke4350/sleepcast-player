@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { AppState, FeedRef } from "../lib/store";
 import { loadBlocked, loadPositions, clampTimerMinutes, TIMER_MIN, TIMER_MAX } from "../lib/store";
 import { parseOpml, buildOpml } from "../lib/opml";
+import { isYouTubeUrl } from "../lib/web-cleanup";
 import { rearmMinutes } from "../lib/engine";
 import type { PlayMode } from "../lib/engine";
 import {
@@ -253,7 +254,12 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
 
   async function handleAddCustomFeed() {
     setCustomError(null);
-    addResolvedFeed(customUrl.trim());
+    const url = customUrl.trim();
+    if (isYouTubeUrl(url)) {
+      setCustomError("youtube isn't supported: paste a podcast's feed link.");
+      return;
+    }
+    addResolvedFeed(url);
   }
 
   function handleRemoveFeed(id: string) {
@@ -322,8 +328,8 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
   }
 
   function startWith(chosen: Episode[], wasVaried = false) {
-    // No skip-intro: the setting is gone, so none is sent (a stored one
-    // from before is no longer applied).
+    // No skip-intro: the setting is gone, so none is sent (stored ones are
+    // cleared on load, web-cleanup.ts).
     const skipIntroByFeedId: Record<string, number> = {};
     const feedTitles: Record<string, string> = {};
     const artworkByFeedId: Record<string, string> = {};
