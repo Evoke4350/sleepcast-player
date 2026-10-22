@@ -527,15 +527,6 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [goldenPending, canStart]);
 
-  function feedStatusLabel(feed: FeedRef): string {
-    const s = feedStatuses[feed.id];
-    if (!feed.enabled) return "";
-    if (!s || s.loading) return "loading…";
-    if (s.error) return `error: ${s.error}`;
-    if (s.episodeCount !== null) return `${s.episodeCount} episodes`;
-    return "";
-  }
-
   // A natural fade-out inside the last six hours means someone may have woken
   // back up. Offer half the previous dose, one tap, no setup.
   const lastSession = appState.settings.lastSession;

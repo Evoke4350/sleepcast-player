@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { cleanStoredWebData } from "../lib/web-cleanup";
 import { TabBar, type AppTab } from "./TabBar";
 import type { Episode } from "../lib/engine";
@@ -46,6 +46,12 @@ export function AppPlayer() {
   const [tab, setTab] = useState<AppTab>("sleep");
   // Each visit to Rest reads the ledger afresh (a night may have ended since).
   const [restVisit, setRestVisit] = useState(0);
+  // Now Playing open (a night just started) or collapsed to the mini bar.
+  const [expanded, setExpanded] = useState(true);
+  // A new night remounts the player: its state is the night's.
+  const [nightKey, setNightKey] = useState(0);
+  // Ends the playing night, set by the Player while it is mounted.
+  const endPlayingRef = useRef<(() => void) | null>(null);
   // Quiet mode: the app has been told to stop nudging for a while.
   const [quiet, setQuiet] = useState(() => isQuiet(loadQuietUntil(), Date.now()));
   // Read when a night STARTS, not at island mount. AppPlayer mounts once per
@@ -175,8 +181,13 @@ export function AppPlayer() {
     leadPosition?: number,
     modeOverride?: PlayMode
   ) {
+    // A night already playing ends first, recorded as ended (an episode
+    // tapped on a show's page while it plays starts a new one).
+    endPlayingRef.current?.();
     setResume(null); // a fresh night, not a revival
     recordStoredNight(true);
+    setExpanded(true);
+    setNightKey((k) => k + 1);
     applyNightSettings(modeOverride ?? loadState().settings.mode);
     setSession({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artworkByFeedId, leadEpisode, wasVaried, leadPosition });
   }
@@ -185,6 +196,8 @@ export function AppPlayer() {
   // reload needs before audio can start again.
   function handleResume() {
     if (!live) return;
+    setExpanded(true);
+    setNightKey((k) => k + 1);
     applyNightSettings(resumeMode(live)); // (the lean comes with the snapshot)
     setResume(resumeFrom(live));
     setSession({
@@ -201,6 +214,7 @@ export function AppPlayer() {
   function handleEnd() {
     setResume(null);
     setSession(null);
+    setExpanded(false);
     // A re-anchor found while the night played is stale now: this night
     // wrote its own last night (the next visibility check decides afresh).
     setReanchor(null);
@@ -232,9 +246,15 @@ export function AppPlayer() {
     setReanchor(null);
   }
 
-  if (session) {
-    return (
+  // The night plays alongside the tabs: Now Playing over them, or a mini bar
+  // above them while the shows are browsed.
+  const player = session && (
       <Player
+        key={nightKey}
+        expanded={expanded}
+        onExpand={() => setExpanded(true)}
+        onCollapse={() => setExpanded(false)}
+        endRef={endPlayingRef}
         pool={session.pool}
         timerMinutes={session.timerMinutes}
         skipIntroByFeedId={session.skipIntroByFeedId}
@@ -251,10 +271,9 @@ export function AppPlayer() {
         wasVaried={session.wasVaried ?? false}
         favorWhatWorks={favorWhatWorks}
       />
-    );
-  }
+  );
 
-  if (reanchor) {
+  if (reanchor && !session) {
     return (
       <ReanchorView
         next={reanchor.next}
@@ -265,7 +284,7 @@ export function AppPlayer() {
   }
 
   return (
-    <main className="flex-1 px-4 pb-28 pt-8 text-[var(--ink-2)]">
+    <main className={`flex-1 px-4 pt-8 text-[var(--ink-2)] ${session ? "pb-44" : "pb-28"}`}>
       <div className="mx-auto max-w-xl">
         {tab === "sleep" && (<>
         {live && (
@@ -328,6 +347,7 @@ export function AppPlayer() {
         )}
       </div>
       <TabBar tab={tab} onTab={(t) => { if (t === "rest") setRestVisit((n) => n + 1); setTab(t); }} />
+      {player}
     </main>
   );
 }

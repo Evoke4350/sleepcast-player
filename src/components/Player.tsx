@@ -89,6 +89,13 @@ export interface PlayerProps {
    *  Read once, at the night's start (useNightShuffle); a later change does
    *  nothing to this night. */
   favorWhatWorks?: boolean;
+  /** Now Playing full screen, or the mini bar above the tabs. */
+  expanded: boolean;
+  onExpand: () => void;
+  onCollapse: () => void;
+  /** Set to end this night ("ended"), for a night started elsewhere (a
+   *  show's episode tapped while this one plays). */
+  endRef?: { current: (() => void) | null };
 }
 
 /** How long a publish the platform rejected stands before the same one is
@@ -101,7 +108,22 @@ const LOCK_RETRY_MS = 10_000;
  *  the last episode's scrubber until the new length is known). */
 const LOCK_SYNC_EVENTS = ["play", "pause", "playing", "waiting", "seeked", "loadedmetadata", "durationchange", "ratechange", "loadstart"] as const;
 
-export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntroByFeedId, feedTitles, artworkByFeedId, onEnd, resume = null, leadEpisode = null, leadPosition = 0, quarterHourRule = false, wasVaried = false, favorWhatWorks = false }: PlayerProps) {
+function PlayIcon({ big = false }: { big?: boolean }) {
+  return <svg viewBox="0 0 24 24" fill="currentColor" className={big ? "h-7 w-7" : "h-4 w-4"} aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>;
+}
+function PauseIcon({ big = false }: { big?: boolean }) {
+  return <svg viewBox="0 0 24 24" fill="currentColor" className={big ? "h-7 w-7" : "h-4 w-4"} aria-hidden="true"><path d="M7 5h4v14H7zM13 5h4v14h-4z" /></svg>;
+}
+/** The playing show's artwork, or a quiet square while there is none. */
+function NowArt({ src, big = false }: { src?: string; big?: boolean }) {
+  const [broken, setBroken] = useState(false);
+  const cls = big ? "aspect-square w-full rounded-[18px] shadow-[0_12px_40px_rgba(0,0,0,0.25)]" : "aspect-square w-11 rounded-lg";
+  return src && !broken
+    ? <img src={src} alt="" onError={() => setBroken(true)} className={`${cls} bg-[var(--raised)] object-cover`} />
+    : <div aria-hidden="true" className={`${cls} grid place-items-center bg-[var(--raised)] text-[var(--accent)]`}><span className={big ? "text-6xl" : "text-lg"}>☾</span></div>;
+}
+
+export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntroByFeedId, feedTitles, artworkByFeedId, onEnd, resume = null, leadEpisode = null, leadPosition = 0, quarterHourRule = false, wasVaried = false, favorWhatWorks = false, expanded, onExpand, onCollapse, endRef }: PlayerProps) {
   const shuffle = useNightShuffle(favorWhatWorks, pool, resume);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -193,10 +215,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntro
   // setter for both (the restore and each start).
   const [playedIds, playedIdsRef, setPlayed] = useStateRef<ReadonlySet<string>>(new Set());
   const [countdown, setCountdown] = useState(timerMinutes * 60);
-  // The time left stays veiled behind the moon — a running countdown
-  // invites doing arithmetic against your own sleep. Tap to peek.
-  const [peekUntil, setPeekUntil] = useState(0);
-  const peeking = Date.now() < peekUntil;
   const [paused, setPaused] = useState(false);
   // The night's total length: state for the ring, ref for snapshots, one setter.
   const [totalSeconds, totalSecondsRef, setTotalSeconds] = useStateRef(timerMinutes * 60);
@@ -1276,10 +1294,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntro
     const dur = audio ? episodeDuration(audio) : null;
     if (!epPos || dur === null || epPos.dur !== dur) return;
     const rect = e.currentTarget.getBoundingClientRect();
-    if (!listenerSeek(((e.clientX - rect.left) / rect.width) * dur)) return;
-    // Aiming at a position is the one moment the numbers earn their place —
-    // show where you landed, then let them go back under with the moon.
-    setPeekUntil(Date.now() + 4000);
+    listenerSeek(((e.clientX - rect.left) / rect.width) * dur);
   }
 
   function handleTogglePause() {
@@ -1300,8 +1315,17 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntro
   }
 
   const countdownStr = formatTime(countdown);
+  const timerLabel = mode.kind === "minutes" ? countdownStr : mode.kind === "one-episode" ? "one episode" : "all night";
   // The room dims as the night wanes — controls stay findable, just quieter.
   const dim = Math.max(0.55, 1 - 0.45 * (1 - countdown / Math.max(1, totalSeconds)));
+
+  // Ending this night from outside (another night started), always through
+  // this render's endSession.
+  useEffect(() => {
+    if (!endRef) return;
+    endRef.current = () => endSession("ended");
+    return () => { endRef.current = null; };
+  });
 
   function dismissGettingUp() {
     restRef.current?.noteInteraction();
@@ -1336,195 +1360,144 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntro
         </div>
       )}
 
-      <div className="relative min-h-dvh flex flex-col items-center justify-center px-6 py-12">
-      <div className="player-ambient" aria-hidden="true">
-        <div className="glow g1"></div>
-        <div className="glow g2"></div>
-        <div className="night-stars" style={{ opacity: 0.22 }}></div>
-      </div>
-      <div className="relative z-10 w-full max-w-sm space-y-10 text-center dream-sink" style={{ opacity: dim }}>
-        {/* Countdown — veiled until tapped */}
-        <div>
-          <div className="relative inline-block">
-            <div className="player-moon-halo" aria-hidden="true"></div>
-            <button
-              onClick={() => setPeekUntil(Date.now() + 4000)}
-              aria-label={
-                mode.kind === "minutes"
-                  ? `time left ${countdownStr} — tap to peek`
-                  : mode.kind === "one-episode"
-                    ? "playing one episode"
-                    : "playing all night"
-              }
-              className="relative font-mono font-light tabular-nums text-[var(--ink-2)] transition-opacity duration-500"
-            >
-              {/* Only minutes mode has a countdown to reveal. In the timerless
-                  modes the moon stays the moon, because a peek showing 0:00
-                  would read as "about to stop" — the opposite of the truth. */}
-              {mode.kind === "minutes" && peeking
-                ? <span className="text-6xl">{countdownStr}</span>
-                : <span className="player-moon text-5xl">☾</span>}
-            </button>
-          </div>
-          <div className="mt-2 flex items-center justify-center gap-3 text-xs text-[var(--ink-3)] uppercase tracking-widest">
-            <span>
-              {mode.kind === "one-episode"
-                ? "one episode"
-                : mode.kind === "all-night"
-                  ? "all night"
-                  : peeking
-                    ? "remaining"
-                    : "sleeping"}
-            </span>
-            {/* Only a timed night has a timer to stretch. In one-episode and
-                all-night modes extendTimer changes nothing, yet the button
-                still spent an extension and confirmed "a little longer". */}
-            {mode.kind !== "minutes" ? null : canExtendMore ? (
-              <button
-                onClick={() => extendTimer(15)}
-                className="rounded-full border border-[var(--line)] px-3 py-1 normal-case tracking-normal text-[var(--ink-3)] active:scale-95"
-              >
-                a little longer
-              </button>
-            ) : (
-              // Past the cap the offer is withdrawn rather than disabled — a
-              // greyed-out button is still an invitation to keep trying.
-              <span className="px-3 py-1 normal-case tracking-normal text-[var(--ink-4)]">
-                it isn't the timer
+      {/* Collapsed: a mini bar above the tabs, so the shows can be browsed
+          while the night plays. */}
+      {!expanded && (
+        <div className="fixed inset-x-0 bottom-[calc(4.4rem+env(safe-area-inset-bottom,0px))] z-40 px-2.5">
+          <div className="mx-auto grid max-w-lg grid-cols-[44px_1fr_auto] items-center gap-2.5 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-2 shadow-[0_8px_24px_rgba(0,0,0,0.12)]">
+            <button onClick={onExpand} className="contents text-left" aria-label="Open the player">
+              <NowArt src={artworkByFeedId[nowPlaying?.feedId ?? ""]} />
+              <span className="min-w-0">
+                <span className="block truncate text-[13.5px] font-semibold text-[var(--ink)]">{nowPlaying?.title ?? "loading…"}</span>
+                <span className="block truncate text-xs text-[var(--ink-3)]">
+                  {nowPlaying ? (feedTitles[nowPlaying.feedId] ?? "") : ""}
+                  {" · "}
+                  <b className="font-bold text-[var(--accent)]">{timerLabel}</b>
+                </span>
               </span>
-            )}
-            {/* The only per-episode negative control. Disabling a whole feed
-                used to be the only way to escape one jarring episode. */}
-            <button
-              onClick={handleBlock}
-              className="rounded-full border border-[var(--line)] px-3 py-1 normal-case tracking-normal text-[var(--ink-3)] active:scale-95"
-            >
-              never again
-            </button>
-          </div>
-          <div className="mt-2 h-4 text-xs text-[var(--ink-3)]">
-            {toast && <span className="player-toast inline-block">{toast}</span>}
-          </div>
-        </div>
-
-        {/* Now playing */}
-        <div className="space-y-1 min-h-[3rem]">
-          {nowPlaying ? (
-            <>
-              <div className="text-base text-[var(--ink-2)] leading-snug line-clamp-2">
-                {nowPlaying.title}
-              </div>
-              <div className="text-xs text-[var(--ink-4)]">
-                {feedTitles[nowPlaying.feedId] ?? nowPlaying.feedId}
-              </div>
-              {epPos && (
-                <div className="pt-2">
-                  <div className="ep-progress cursor-pointer" onClick={seekToRatio}>
-                    <span style={{ width: `${Math.min(100, (epPos.cur / epPos.dur) * 100)}%` }} />
-                  </div>
-                  {/* Veiled with the moon, and for the same reason. Elapsed
-                      episode time is the forbidden number wearing a different
-                      hat: "23:40" tells you you've been lying here awake for 23
-                      minutes — exactly the arithmetic the moon above exists to
-                      prevent. One peek reveals both. The bar stays: it's
-                      spatial, and you can scrub by feel without being told a
-                      number. Opacity, not conditional render, so the controls
-                      never jump when it fades in. */}
-                  <div
-                    aria-hidden={!peeking}
-                    className={`mt-1 flex justify-between text-[10px] tabular-nums text-[var(--ink-4)] transition-opacity duration-500 ${
-                      peeking ? "opacity-100" : "opacity-0"
-                    }`}
-                  >
-                    <span>{formatTime(epPos.cur)}</span>
-                    <span>{formatTime(epPos.dur)}</span>
-                  </div>
-                </div>
-              )}
-            </>
-          ) : (
-            <div className="text-sm text-[var(--ink-4)]">loading…</div>
-          )}
-        </div>
-
-        {/* Transport */}
-        <div className="space-y-4">
-          <div className="flex items-center justify-center gap-6">
-            <button
-              onClick={() => skipBy(-30)}
-              className="h-12 w-12 rounded-full bg-[var(--surface)] border border-[var(--line)] text-xs text-[var(--ink-3)] active:scale-95"
-              aria-label="Back 30 seconds"
-            >
-              -30s
             </button>
             <button
               onClick={handleTogglePause}
-              className="w-24 h-24 rounded-full bg-[var(--surface)] border border-[var(--line)] text-[var(--ink-2)] text-sm font-medium active:scale-95 transition-transform"
               aria-label={paused ? "Resume" : "Pause"}
+              className="grid h-10 w-10 place-items-center rounded-full bg-[var(--accent)] text-[var(--accent-ink)]"
             >
-              {paused ? "Resume" : "Pause"}
-            </button>
-            <button
-              onClick={() => skipBy(30)}
-              className="h-12 w-12 rounded-full bg-[var(--surface)] border border-[var(--line)] text-xs text-[var(--ink-3)] active:scale-95"
-              aria-label="Forward 30 seconds"
-            >
-              +30s
-            </button>
-          </div>
-
-          <div className="flex items-center justify-center gap-6">
-            <button
-              onClick={handleNext}
-              className="w-16 h-16 rounded-full bg-[var(--surface)] border border-[var(--line)] text-[var(--ink-2)] text-xs font-medium active:scale-95 transition-transform"
-              aria-label="Next episode"
-            >
-              Next
-            </button>
-            <button
-              onPointerDown={holdEndStart}
-              onPointerUp={holdEndCancel}
-              onPointerLeave={holdEndCancel}
-              onContextMenu={(e) => e.preventDefault()}
-              className="hold-ring w-16 h-16 rounded-full bg-[var(--surface)] border border-[var(--line)] text-[var(--ink-3)] text-xs font-medium select-none touch-none"
-              style={{ "--hold": holdPct } as React.CSSProperties}
-              aria-label="Hold to end session"
-            >
-              {holdPct > 0 ? "hold…" : "End"}
+              {paused ? <PlayIcon /> : <PauseIcon />}
             </button>
           </div>
         </div>
+      )}
 
-        {/* Tonight's spread: the curated lineup, current episode marked,
-            already-played ones settling back like turned pages. */}
-        {pool.filter((e) => !blockedTonight.has(e.id)).length <= LINEUP_MAX && (
-          <div className="space-y-1.5 text-left">
-            <div className="pb-1 text-center text-xs uppercase tracking-widest text-[var(--ink-4)]">
-              tonight&apos;s spread
+      {/* Expanded: Now Playing. */}
+      {expanded && (
+        <div className="fixed inset-0 z-45 overflow-y-auto bg-[var(--ground)] [z-index:45]">
+          <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-5 px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] pt-[calc(0.75rem+env(safe-area-inset-top,0px))] dream-sink" style={{ opacity: dim }}>
+            <button onClick={onCollapse} aria-label="Close the player, keep it playing" className="mx-auto grid h-8 w-16 place-items-center text-[var(--ink-3)]">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" className="h-6 w-6" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
+            </button>
+
+            <div className="mx-auto w-full max-w-[320px]"><NowArt src={artworkByFeedId[nowPlaying?.feedId ?? ""]} big /></div>
+
+            <div className="space-y-1 text-center">
+              <div className="line-clamp-2 text-lg font-bold leading-snug text-[var(--ink)]">{nowPlaying?.title ?? "loading…"}</div>
+              <div className="text-sm text-[var(--ink-3)]">{nowPlaying ? (feedTitles[nowPlaying.feedId] ?? "") : ""}</div>
             </div>
-            {pool.filter((e) => !blockedTonight.has(e.id)).map((ep) => {
-              const isNow = nowPlaying?.id === ep.id;
-              const wasPlayed = playedIds.has(ep.id) && !isNow;
-              return (
-                <div
-                  key={ep.id}
-                  onClick={() => { if (!isNow) { restRef.current?.noteInteraction(); playEpisode(ep); } }}
-                  className={`flex cursor-pointer items-baseline gap-2 text-sm leading-snug transition-opacity duration-700 ${
-                    isNow ? "text-[var(--ink-2)]" : wasPlayed ? "text-[var(--ink-4)] opacity-70" : "text-[var(--ink-3)]"
-                  }`}
-                >
-                  <span className="w-3 shrink-0 text-xs">{isNow ? "♪" : wasPlayed ? "·" : ""}</span>
-                  <span className="line-clamp-1 flex-1">{ep.title}</span>
-                  <span className="shrink-0 text-[10px] text-[var(--ink-4)]">
-                    {feedTitles[ep.feedId] ?? ep.feedId}
-                  </span>
-                </div>
-              );
-            })}
+
+            <div>
+              <div className="ep-progress cursor-pointer" onClick={seekToRatio} role="slider" aria-label="Position in the episode" aria-valuemin={0} aria-valuemax={100} aria-valuenow={epPos ? Math.round((epPos.cur / epPos.dur) * 100) : 0}>
+                <span style={{ width: `${epPos ? Math.min(100, (epPos.cur / epPos.dur) * 100) : 0}%` }} />
+              </div>
+              <div className="mt-1.5 flex justify-between text-xs tabular-nums text-[var(--ink-3)]">
+                <span>{epPos ? formatTime(epPos.cur) : "0:00"}</span>
+                <span>{epPos ? `-${formatTime(Math.max(0, epPos.dur - epPos.cur))}` : ""}</span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-center gap-8">
+              <button onClick={() => skipBy(-30)} aria-label="Back 30 seconds" className="relative grid h-12 w-12 place-items-center text-[var(--ink)]">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" className="h-9 w-9" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7" /><path d="M3 4v4h4" /></svg>
+                <span className="absolute pt-0.5 text-[10px] font-extrabold">30</span>
+              </button>
+              <button onClick={handleTogglePause} aria-label={paused ? "Resume" : "Pause"} className="grid h-[72px] w-[72px] place-items-center rounded-full bg-[var(--accent)] text-[var(--accent-ink)] active:scale-95">
+                {paused ? <PlayIcon big /> : <PauseIcon big />}
+              </button>
+              <button onClick={() => skipBy(30)} aria-label="Forward 30 seconds" className="relative grid h-12 w-12 place-items-center text-[var(--ink)]">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" className="h-9 w-9" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7" /><path d="M21 4v4h-4" /></svg>
+                <span className="absolute pt-0.5 text-[10px] font-extrabold">30</span>
+              </button>
+            </div>
+
+            <div className="flex justify-center gap-2 text-sm">
+              <button onClick={handleNext} className="rounded-full bg-[var(--raised)] px-4 py-2 font-semibold text-[var(--ink-2)]">Next episode</button>
+              {/* The only per-episode negative control. Disabling a whole feed
+                  used to be the only way to escape one jarring episode. */}
+              <button onClick={handleBlock} className="rounded-full bg-[var(--raised)] px-4 py-2 font-semibold text-[var(--ink-2)]">Never again</button>
+            </div>
+            <div className="h-4 text-center text-xs text-[var(--ink-3)]">
+              {toast && <span className="player-toast inline-block">{toast}</span>}
+            </div>
+
+            <div className="mt-auto space-y-3 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
+              <div className="flex items-baseline justify-between">
+                <span className="text-[11px] font-bold uppercase tracking-widest text-[var(--ink-3)]">sleep timer</span>
+                <b className="text-2xl font-extrabold tabular-nums tracking-tight text-[var(--ink)]">{timerLabel}</b>
+              </div>
+              {/* Only a timed night has a timer to stretch. Past the cap the
+                  offer is withdrawn rather than disabled: a greyed-out button
+                  is still an invitation to keep trying. */}
+              {mode.kind === "minutes" && (
+                canExtendMore ? (
+                  <button onClick={() => extendTimer(15)} className="rounded-full bg-[var(--raised)] px-4 py-2 text-sm font-semibold text-[var(--ink)]">+15 min</button>
+                ) : (
+                  <p className="text-xs text-[var(--ink-3)]">It isn&apos;t the timer: no more time tonight.</p>
+                )
+              )}
+              <p className="text-xs text-[var(--ink-3)]">
+                {mode.kind === "minutes"
+                  ? "The last stretch fades to silence. Add time up to three times a night."
+                  : mode.kind === "one-episode"
+                    ? "Fades at the end of this episode."
+                    : "Plays on until you end it."}
+              </p>
+              <button
+                onPointerDown={holdEndStart}
+                onPointerUp={holdEndCancel}
+                onPointerLeave={holdEndCancel}
+                onContextMenu={(e) => e.preventDefault()}
+                className="w-full select-none touch-none rounded-xl bg-[var(--raised)] py-3 text-sm font-bold text-[var(--ink-2)]"
+                style={{ background: holdPct > 0 ? `linear-gradient(90deg, var(--accent-soft) ${holdPct}%, var(--raised) ${holdPct}%)` : undefined }}
+                aria-label="Hold to end the night"
+              >
+                {holdPct > 0 ? "keep holding…" : "Hold to end the night"}
+              </button>
+            </div>
+
+            {/* Tonight's spread: the curated lineup, current episode marked,
+                already-played ones settling back like turned pages. */}
+            {pool.filter((e) => !blockedTonight.has(e.id)).length <= LINEUP_MAX && (
+              <div className="space-y-1.5 text-left">
+                <div className="pb-1 text-[11px] font-bold uppercase tracking-widest text-[var(--ink-3)]">tonight&apos;s spread</div>
+                {pool.filter((e) => !blockedTonight.has(e.id)).map((ep) => {
+                  const isNow = nowPlaying?.id === ep.id;
+                  const wasPlayed = playedIds.has(ep.id) && !isNow;
+                  return (
+                    <button
+                      key={ep.id}
+                      onClick={() => { if (!isNow) { restRef.current?.noteInteraction(); playEpisode(ep); } }}
+                      className={`flex w-full items-baseline gap-2 text-left text-sm leading-snug ${
+                        isNow ? "font-semibold text-[var(--ink)]" : wasPlayed ? "text-[var(--ink-4)]" : "text-[var(--ink-2)]"
+                      }`}
+                    >
+                      <span className="w-3 shrink-0 text-xs">{isNow ? "♪" : wasPlayed ? "·" : ""}</span>
+                      <span className="line-clamp-1 flex-1">{ep.title}</span>
+                      <span className="shrink-0 text-[10px] text-[var(--ink-4)]">{feedTitles[ep.feedId] ?? ep.feedId}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
-        )}
-      </div>
-      </div>
+        </div>
+      )}
     </>
   );
 }
