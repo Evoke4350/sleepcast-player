@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { cleanStoredWebData } from "../lib/web-cleanup";
 import { TabBar, type AppTab } from "./TabBar";
 import type { Episode } from "../lib/engine";
@@ -46,6 +46,19 @@ export function AppPlayer() {
   const [tab, setTab] = useState<AppTab>("sleep");
   // Each visit to Rest reads the ledger afresh (a night may have ended since).
   const [restVisit, setRestVisit] = useState(0);
+  // Now Playing open (a night just started) or collapsed to the mini bar.
+  const [expanded, setExpanded] = useState(true);
+  // A new night remounts the player: its state is the night's.
+  const [nightKey, setNightKey] = useState(0);
+  // Setup stays up through a night (its tabs are browsed); when the night
+  // ends it is rebuilt, to read what the night wrote (the re-arm stamp, the
+  // last episode, episodes marked never again, the greeting).
+  const [setupKey, setSetupKey] = useState(0);
+  // Browsing during a night is being awake: reported to the night's rest
+  // session, set by the Player while it is mounted.
+  const noteActivityRef = useRef<(() => void) | null>(null);
+  // Ends the playing night, set by the Player while it is mounted.
+  const endPlayingRef = useRef<(() => void) | null>(null);
   // Quiet mode: the app has been told to stop nudging for a while.
   const [quiet, setQuiet] = useState(() => isQuiet(loadQuietUntil(), Date.now()));
   // Read when a night STARTS, not at island mount. AppPlayer mounts once per
@@ -175,8 +188,13 @@ export function AppPlayer() {
     leadPosition?: number,
     modeOverride?: PlayMode
   ) {
+    // A night already playing ends first, recorded as ended (an episode
+    // tapped on a show's page while it plays starts a new one).
+    endPlayingRef.current?.();
     setResume(null); // a fresh night, not a revival
     recordStoredNight(true);
+    setExpanded(true);
+    setNightKey((k) => k + 1);
     applyNightSettings(modeOverride ?? loadState().settings.mode);
     setSession({ pool, timerMinutes, skipIntroByFeedId, feedTitles, artworkByFeedId, leadEpisode, wasVaried, leadPosition });
   }
@@ -185,6 +203,8 @@ export function AppPlayer() {
   // reload needs before audio can start again.
   function handleResume() {
     if (!live) return;
+    setExpanded(true);
+    setNightKey((k) => k + 1);
     applyNightSettings(resumeMode(live)); // (the lean comes with the snapshot)
     setResume(resumeFrom(live));
     setSession({
@@ -201,6 +221,8 @@ export function AppPlayer() {
   function handleEnd() {
     setResume(null);
     setSession(null);
+    setExpanded(false);
+    setSetupKey((k) => k + 1);
     // A re-anchor found while the night played is stale now: this night
     // wrote its own last night (the next visibility check decides afresh).
     setReanchor(null);
@@ -232,9 +254,16 @@ export function AppPlayer() {
     setReanchor(null);
   }
 
-  if (session) {
-    return (
+  // The night plays alongside the tabs: Now Playing over them, or a mini bar
+  // above them while the shows are browsed.
+  const player = session && (
       <Player
+        key={nightKey}
+        expanded={expanded}
+        onExpand={() => setExpanded(true)}
+        onCollapse={() => setExpanded(false)}
+        endRef={endPlayingRef}
+        activityRef={noteActivityRef}
         pool={session.pool}
         timerMinutes={session.timerMinutes}
         skipIntroByFeedId={session.skipIntroByFeedId}
@@ -251,10 +280,9 @@ export function AppPlayer() {
         wasVaried={session.wasVaried ?? false}
         favorWhatWorks={favorWhatWorks}
       />
-    );
-  }
+  );
 
-  if (reanchor) {
+  if (reanchor && !session) {
     return (
       <ReanchorView
         next={reanchor.next}
@@ -265,8 +293,8 @@ export function AppPlayer() {
   }
 
   return (
-    <main className="flex-1 px-4 pb-28 pt-8 text-[var(--ink-2)]">
-      <div className="mx-auto max-w-xl">
+    <main className={`flex-1 px-4 pt-8 text-[var(--ink-2)] ${session ? "pb-44" : "pb-28"}`}>
+      <div className="mx-auto max-w-xl" onPointerDownCapture={() => noteActivityRef.current?.()}>
         {tab === "sleep" && (<>
         {live && (
           <div className="mb-6 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4">
@@ -289,29 +317,6 @@ export function AppPlayer() {
             </button>
           </div>
         )}
-        {stepBack && (
-          <div className="mb-6 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4 text-center">
-            <p className="text-sm text-[var(--ink)]">you've been falling asleep quickly for a while.</p>
-            <p className="mt-1 text-xs text-[var(--ink-3)]">
-              you might not need us at the moment. we can stop nudging — no 3am
-              check-in, no morning note — and stay out of the way.
-            </p>
-            <div className="mt-3 flex justify-center gap-3 text-sm">
-              <button
-                onClick={goQuiet}
-                className="rounded-full border border-[var(--ink-4)] px-4 py-1.5 text-[var(--ink)] transition-colors hover:border-[var(--ink-3)]"
-              >
-                go quiet for a month
-              </button>
-              <button
-                onClick={stayOn}
-                className="rounded-full border border-[var(--line)] px-4 py-1.5 text-[var(--ink-3)] transition-colors hover:border-[var(--ink-4)]"
-              >
-                stay as you are
-              </button>
-            </div>
-          </div>
-        )}
         {goodbye && (
           <div className="mb-6 flex items-center justify-center gap-2 text-center text-xs text-[var(--ink-4)]">
             <span className="player-moon text-sm text-[var(--ink-3)]">☾</span>
@@ -321,13 +326,39 @@ export function AppPlayer() {
           </div>
         )}
         </>)}
-        {tab === "rest" ? (
-          <RestView key={restVisit} />
-        ) : (
-          <SleepSetup onStart={handleStart} tab={tab} />
+        <SleepSetup key={setupKey} onStart={handleStart} tab={tab === "rest" ? null : tab} />
+        {tab === "rest" && (
+          <>
+            <RestView key={restVisit} />
+          {stepBack && (
+            <div className="mt-4 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
+              <p className="text-[11px] font-bold uppercase tracking-widest text-[var(--ink-3)]">quick lately</p>
+              <p className="mt-1 font-semibold text-[var(--ink)]">You've been falling asleep quickly for a while.</p>
+              <p className="mt-1 text-xs text-[var(--ink-3)]">
+                you might not need us at the moment. we can stop nudging — no 3am
+                check-in, no morning note — and stay out of the way.
+              </p>
+              <div className="mt-3 flex gap-2 text-sm">
+                <button
+                  onClick={goQuiet}
+                  className="rounded-full border border-[var(--ink-4)] px-4 py-1.5 text-[var(--ink)] transition-colors hover:border-[var(--ink-3)]"
+                >
+                  go quiet for a month
+                </button>
+                <button
+                  onClick={stayOn}
+                  className="rounded-full border border-[var(--line)] px-4 py-1.5 text-[var(--ink-3)] transition-colors hover:border-[var(--ink-4)]"
+                >
+                  stay as you are
+                </button>
+              </div>
+            </div>
+          )}
+            </>
         )}
       </div>
-      <TabBar tab={tab} onTab={(t) => { if (t === "rest") setRestVisit((n) => n + 1); setTab(t); }} />
+      <TabBar tab={tab} onTab={(t) => { noteActivityRef.current?.(); if (t === "rest") setRestVisit((n) => n + 1); setTab(t); }} />
+      {player}
     </main>
   );
 }

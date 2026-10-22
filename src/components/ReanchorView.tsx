@@ -22,17 +22,23 @@ export function ReanchorView({ next, onKeepDrifting, onDismiss }: ReanchorViewPr
   useEffect(() => { beacon("reanchor_shown"); }, []);
 
   return (
-    <main className="flex min-h-dvh flex-col items-center justify-center gap-10 bg-[var(--ground)] px-8 text-center">
-      <p className="text-sm text-[var(--ink-4)]">still here?</p>
+    <main className="flex min-h-dvh flex-col items-center justify-center gap-6 bg-[var(--ground)] px-8 text-center">
+      <span className="player-moon text-6xl text-[var(--accent)]" aria-hidden="true">☾</span>
+      <div className="max-w-xs space-y-2">
+        <h1 className="text-2xl font-bold text-[var(--ink)]">Still here?</h1>
+        <p className="text-sm text-[var(--ink-3)]">
+          You woke within a few hours of last night's fade. Keep drifting picks up the same shows where they went quiet, on a fresh timer.
+        </p>
+      </div>
       <button
         onClick={() => { beacon("reanchor_tapped"); onKeepDrifting(); }}
-        className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] px-10 py-6 text-lg text-[var(--ink)] transition-transform active:scale-95"
+        className="rounded-full bg-[var(--accent)] px-8 py-3.5 text-base font-bold text-[var(--accent-ink)] transition-transform active:scale-95"
       >
-        keep drifting
+        Keep drifting
       </button>
       <button
         onClick={() => { beacon("reanchor_dismissed"); onDismiss(); }}
-        className="text-xs text-[var(--ink-4)] underline decoration-[var(--line)] underline-offset-4"
+        className="text-sm font-semibold text-[var(--ink-3)]"
       >
         I'm up
       </button>
