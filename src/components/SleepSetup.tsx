@@ -21,9 +21,10 @@ import { beacon } from "../lib/beacon";
 import type { Episode } from "../lib/engine";
 import { loadNights, setSelfLabel } from "../lib/rest/ledger";
 import { recordFalsePositive } from "../lib/rest/calibrate";
-import { rankedFeeds, evidenceFor } from "../lib/rest/sleepscore";
+import { rankedFeeds, evidenceFor, fmtOnsetMinutes } from "../lib/rest/sleepscore";
 import type { RestNight } from "../lib/rest/types";
 import { TIMER_PRESETS } from "../lib/timer-presets";
+import { learnedTimer, timedNights, handPickHolds, LEARN_MIN_NIGHTS } from "../lib/rest/learned-timer";
 import { needsFetch } from "../lib/feed-status";
 import { pickNextEpisode, HEARD_SEC } from "../lib/plays";
 import { ShowGrid, ShowPage } from "./Shows";
@@ -143,7 +144,16 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const timerMinutes = appState.settings.timerMinutes;
+  // The timer learned from the nights (this screen is rebuilt after each,
+  // so it reads the latest), and tonight's: the learned one, unless a timer
+  // was picked by hand for tonight or learning is off.
+  const [learned, timedSoFar] = useMemo(() => {
+    const nights = loadNights();
+    return [learnedTimer(nights), timedNights(nights)] as const;
+  }, []);
+  const learnOn = appState.settings.learnTimer !== false;
+  const usingLearned = learnOn && learned !== null && appState.settings.mode.kind === "minutes" && !handPickHolds(appState.settings.timerPickedAt, Date.now());
+  const timerMinutes = usingLearned && learned ? learned.minutes : appState.settings.timerMinutes;
   const quarterHourRule = appState.settings.quarterHourRule;
 
   /** An on/off setting, saved. */
@@ -284,6 +294,7 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
       settings: {
         ...appState.settings,
         timerMinutes: minutes,
+        timerPickedAt: Date.now(),
         // Picking a duration is picking minutes mode. Without this, choosing a
         // preset after "all night" would leave the mode timerless and the
         // number the listener just tapped would be quietly ignored.
@@ -306,6 +317,7 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
         settings: {
           ...appState.settings,
           timerMinutes: n,
+          timerPickedAt: Date.now(),
           mode: { kind: "minutes", minutes: n },
         },
       };
@@ -340,6 +352,13 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
   }
 
   const mode = appState.settings.mode;
+
+  // Back to the learned timer: the hand pick, if any, let go.
+  function selectLearned() {
+    const { timerPickedAt: _, ...settings } = appState.settings;
+    updateAndSave({ ...appState, settings: { ...settings, mode: { kind: "minutes", minutes: settings.timerMinutes } } });
+    setCustomMinutes("");
+  }
 
   function selectEpisodeMode(kind: "one-episode" | "all-night") {
     updateAndSave({
@@ -594,7 +613,7 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
   // Only a timed night has a duration to show as selected. In one-episode or
   // all-night mode the saved minutes still matched a preset, so it lit up
   // alongside the mode button and two choices looked active at once.
-  const isPreset = mode.kind === "minutes" && (TIMER_PRESETS as readonly number[]).includes(timerMinutes);
+  const isPreset = mode.kind === "minutes" && !usingLearned && (TIMER_PRESETS as readonly number[]).includes(timerMinutes);
   // Offered as a disabled control with a reason rather than hidden: someone
   // who has read about the feature should find out why it isn't here, not
   // wonder whether they imagined it.
@@ -727,6 +746,11 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
               <span className="text-[11px] font-bold uppercase tracking-widest text-[var(--ink-4)]">fades at the end</span>
             </div>
             <div className="flex flex-wrap gap-2">
+              {learnOn && learned && (
+                <Pill on={usingLearned} onClick={selectLearned} label={`Learned: ${learned.minutes} minutes`}>
+                  Learned · {learned.minutes} min
+                </Pill>
+              )}
               {TIMER_PRESETS.map((minutes) => (
                 <Pill key={minutes} on={timerMinutes === minutes && isPreset} onClick={() => selectTimer(minutes)} label={`${minutes} minutes`}>
                   {minutes} min
@@ -735,6 +759,17 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
               <Pill on={mode.kind === "one-episode"} onClick={() => selectEpisodeMode("one-episode")}>One episode</Pill>
               <Pill on={mode.kind === "all-night"} onClick={() => selectEpisodeMode("all-night")}>All night</Pill>
             </div>
+            {learnOn && (
+              <p className="text-xs leading-snug text-[var(--ink-3)]">
+                {!learned
+                  ? `After ${LEARN_MIN_NIGHTS} timed nights the timer learns how long you take to fall asleep (${Math.min(timedSoFar, LEARN_MIN_NIGHTS)} so far).`
+                  : usingLearned
+                    ? `You're usually under in about ${fmtOnsetMinutes(learned.usualMs)}, so ${learned.minutes} min leaves room. From your last ${learned.nights} nights.`
+                    : mode.kind === "minutes"
+                      ? `Your pick for tonight. Tomorrow it's back to ${learned.minutes} min, learned.`
+                      : `Learned from your nights: ${learned.minutes} min, when you want a timer.`}
+              </p>
+            )}
           </div>
 
         </div>
@@ -894,6 +929,14 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
               >
                 Shows you&apos;ve fallen asleep to come up a little more often, and ones you skip a little less. Each needs a few nights first, and nothing is ever ruled out.
               </SettingRow>
+              <SettingRow
+                id="learn-timer"
+                title="Learn my timer"
+                checked={learnOn}
+                onChange={(on) => updateAndSave({ ...appState, settings: { ...appState.settings, learnTimer: on } })}
+              >
+                Sets tonight&apos;s timer from how long you&apos;ve taken to fall asleep lately, with room to spare. A timer you pick by hand holds for that night.
+              </SettingRow>
               {/* Stimulus control, off unless asked for. It can stop a night
                   early, so it is never on by default and never inferred. */}
               <SettingRow
@@ -928,7 +971,7 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
                   type="number"
                   min={TIMER_MIN}
                   max={TIMER_MAX}
-                  value={customMinutes || (mode.kind === "minutes" && !isPreset ? timerMinutes : "")}
+                  value={customMinutes || (mode.kind === "minutes" && !isPreset && !usingLearned ? timerMinutes : "")}
                   placeholder="min"
                   onChange={(e) => handleCustomMinutes(e.target.value)}
                   // Saved values are clamped (3 saves 5, 600 saves 480). While

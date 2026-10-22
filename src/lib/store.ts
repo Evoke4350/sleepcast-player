@@ -39,6 +39,11 @@ export interface Settings {
   leveling: boolean; // opt-in auto-compressor probe (§1b) — off avoids the double load
   mode: PlayMode;
   lastSession: LastSession | null;
+  /** The timer learns from the nights (rest/learned-timer). Absent = on. */
+  learnTimer?: boolean;
+  /** When the timer was last picked by hand: that pick holds for the night
+   *  (handPickHolds), then the learned timer is back. */
+  timerPickedAt?: number;
 }
 
 export interface AppState {
@@ -251,6 +256,10 @@ export function loadState(): AppState {
     quarterHourRule: rawSettings.quarterHourRule === true,
     favorWhatWorks: rawSettings.favorWhatWorks === true,
   };
+  if (rawSettings.learnTimer === false) settings.learnTimer = false;
+  if (typeof rawSettings.timerPickedAt === "number" && Number.isFinite(rawSettings.timerPickedAt)) {
+    settings.timerPickedAt = rawSettings.timerPickedAt;
+  }
 
   return { feeds: mergedFeeds, settings };
 }
