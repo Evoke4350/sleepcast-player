@@ -50,7 +50,7 @@ describe("BUILTIN_FEEDS", () => {
 // loadState — default shape
 // ---------------------------------------------------------------------------
 describe("loadState defaults", () => {
-  it("returns timerMinutes:45 (the 'a while' feel default)", () => {
+  it("returns timerMinutes:45 (the default preset)", () => {
     expect(loadState().settings.timerMinutes).toBe(45);
   });
 

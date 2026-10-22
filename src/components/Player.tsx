@@ -1,12 +1,9 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLazyRef } from "../lib/use-lazy-ref";
 import { useNightShuffle } from "../lib/use-night-shuffle";
 import { useStateRef } from "../lib/use-state-ref";
 import { useNightExtensions } from "../lib/use-night-extensions";
 
-// The drift game (three.js) loads only when opened — the player's own
-// bundle stays featherweight.
-const DriftGame = lazy(() => import("./DriftGame"));
 import type { Episode, PlayMode } from "../lib/engine";
 import { fadeVolume, formatTime, effectiveVolume, fadeDriverSeconds } from "../lib/engine";
 import { getPlays, recordHeardPlay, saveLive, noteSounded, SNAPSHOT_EVERY_TICKS, counterAfterStartSnapshot, rememberPosition, forgetPosition, blockEpisode } from "../lib/store";
@@ -19,8 +16,7 @@ import { rearmsWatchdogOnTap } from "../lib/witness";
 import { clearLockScreen, mediaSession, publishLockScreen, publishLockScreenMetadata, setActionHandlers } from "../lib/lock-screen";
 import { decideSkip, skipMessage, stillAtStart } from "../lib/skip-intro";
 import { pickNextEpisode, HEARD_SEC } from "../lib/plays";
-import type { NoiseSettings, ResumeDescriptor } from "../lib/store";
-import { BrownNoise, noiseGain } from "../lib/noise";
+import type { ResumeDescriptor } from "../lib/store";
 import { Leveler } from "../lib/leveler";
 import { shouldTick } from "../lib/tick-gate";
 import { shouldSuggestGettingUp } from "../lib/rest/quarterhour";
@@ -61,7 +57,6 @@ function suspendsWebAudioOnLock(): boolean {
     (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
   return iOSLike;
 }
-const IS_TOUCH = typeof matchMedia !== "undefined" && matchMedia("(pointer: coarse)").matches;
 // A pool this small is a curated lineup (varied night), not a whole archive:
 // show it, so the night's spread is something you can see.
 const LINEUP_MAX = 12;
@@ -72,7 +67,6 @@ export interface PlayerProps {
   mode: PlayMode;
   /** feedId → 0.5..1.5 gain trim; absent means 1.0. */
   feedTrim: Record<string, number>;
-  noise: NoiseSettings;
   /** Opt-in loudness compressor. Ignored where Web Audio dies on lock. */
   leveling: boolean;
   skipIntroByFeedId: Record<string, number>;
@@ -107,7 +101,7 @@ const LOCK_RETRY_MS = 10_000;
  *  the last episode's scrubber until the new length is known). */
 const LOCK_SYNC_EVENTS = ["play", "pause", "playing", "waiting", "seeked", "loadedmetadata", "durationchange", "ratechange", "loadstart"] as const;
 
-export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, skipIntroByFeedId, feedTitles, artworkByFeedId, onEnd, resume = null, leadEpisode = null, leadPosition = 0, quarterHourRule = false, wasVaried = false, favorWhatWorks = false }: PlayerProps) {
+export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntroByFeedId, feedTitles, artworkByFeedId, onEnd, resume = null, leadEpisode = null, leadPosition = 0, quarterHourRule = false, wasVaried = false, favorWhatWorks = false }: PlayerProps) {
   const shuffle = useNightShuffle(favorWhatWorks, pool, resume);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -188,7 +182,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   const stopFadeRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const currentFeedRef = useRef<string | null>(null);
   const feedTrimRef = useRef<Record<string, number>>(feedTrim);
-  const brownRef = useRef<BrownNoise | null>(null);
   const levelerRef = useRef<Leveler | null>(null);
   // Whether the compressor has captured the element. Per-mount, unlike the
   // CORS sets: the AudioContext it guards doesn't survive a mount either.
@@ -210,7 +203,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   const [epPos, setEpPos] = useState<{ cur: number; dur: number } | null>(null);
   const [toast, setToast] = useState("");
   const [holdPct, setHoldPct] = useState(0);
-  const [drifting, setDrifting] = useState(false);
   // Stretches used this night (see useNightExtensions), kept across a revive.
   const { canExtendMore, extendTimer, extensionsRef } = useNightExtensions(resume?.extensions ?? 0, persistLive, {
     endTimeRef, pausedRemainingMsRef, totalSecondsRef, setTotalSeconds, restRef,
@@ -788,12 +780,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       // trim alone. A hard 1 here played turned-down feeds at full volume in
       // all-night mode (and one-episode, before the duration was known).
       audio.volume = effectiveVolume(driver, FADE_SECONDS, feedTrimRef.current[currentFeedRef.current ?? ""] ?? 1.0);
-      // The underlay rides the same driver, so voices and noise fade together
-      // rather than leaving a bed of noise behind after the words stop.
-      // Paused means silent: the voice stops, so the noise does too. Left at
-      // full level it played on indefinitely under a pause or the quarter-hour
-      // hold, with the clock frozen so no fade would ever reach it.
-      brownRef.current?.setGain(noiseGain(noise.on && !audio.paused ? noise.level : 0, driver, FADE_SECONDS));
     }
     setCountdown(kind === "minutes" ? remaining : 0);
     setEpPos((prev) => barPosition(prev, span));
@@ -804,7 +790,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       if (isOffline()) holdForNetwork();
       else if (!countFailure()) playNext();
       // Everything below concerns the episode just replaced (or the night just
-      // ended), as in YouTubeNight's watchdog.
+      // ended).
       return;
     }
 
@@ -862,7 +848,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       clearInterval(tickHandleRef.current);
       tickHandleRef.current = null;
     }
-    brownRef.current?.stop();
     endTimeRef.current = null;
     pausedRemainingMsRef.current = null;
 
@@ -940,7 +925,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       // One-episode mode means one episode: its fade was driven by this
       // episode's end, so the night is over. Playing on started the next
       // episode at full volume after the fade and the night never ended.
-      // Night.tsx and YouTubeNight.tsx already end here.
       if (modeRef.current.kind === "one-episode") {
         endSession("faded");
         return;
@@ -1066,11 +1050,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     else if (leadEpisode) playEpisode(leadEpisode, leadPosition); // "the exact one again"
     else playNext();
     tickHandleRef.current = setInterval(tickGuarded, 1000);
-    if (noise.on) {
-      const bn = new BrownNoise();
-      brownRef.current = bn;
-      void bn.start(); // resolves false on failure; setGain then no-ops
-    }
     tick(); // paint the first frame immediately; the gate would hold it back
 
     return () => {
@@ -1082,7 +1061,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       // A hold still counting at unmount would call endSession on a player
       // that is gone, and through onEnd end whatever night came next.
       if (holdTimerRef.current) clearInterval(holdTimerRef.current);
-      brownRef.current?.stop();
       levelerRef.current?.dispose();
       audio.removeEventListener("pause", onPause);
       audio.removeEventListener("play", onPlay);
@@ -1272,7 +1250,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
                 5,
                 feedTrimRef.current[currentFeedRef.current ?? ""] ?? 1.0
               );
-              brownRef.current?.setGain(noiseGain(noise.on ? noise.level : 0, left / 1000, 5));
             }, 100);
           } else {
             endSession("ended");
@@ -1517,23 +1494,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
             </button>
           </div>
         </div>
-
-        {/* drift: a 3D merge toy for hands that aren't sleepy yet.
-            Touch-only: on a desktop the mouse-and-monitor posture is wrong
-            for it, and the player stays quieter without it. */}
-        {IS_TOUCH && <div className="space-y-2">
-          <button
-            onClick={() => setDrifting((d) => !d)}
-            className="text-xs text-[#4a4540] underline decoration-[#2e2d3a] underline-offset-4"
-          >
-            {drifting ? "put the stars away" : "🌒 drift — a little game while you listen"}
-          </button>
-          {drifting && (
-            <Suspense fallback={<div className="py-10 text-xs text-[#4a4540]">gathering stardust…</div>}>
-              <DriftGame />
-            </Suspense>
-          )}
-        </div>}
 
         {/* Tonight's spread: the curated lineup, current episode marked,
             already-played ones settling back like turned pages. */}

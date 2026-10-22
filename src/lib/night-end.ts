@@ -1,9 +1,7 @@
 // Everything a night writes when it ends, in one place.
 //
-// Player, Night and YouTubeNight each carried their own copy of this, and the
-// copies drifted: a fix to one (a night that never played records nothing)
-// reached two of them and missed the third. The media teardown genuinely
-// differs per player; the bookkeeping does not.
+// Kept apart from Player: the bookkeeping (snapshot, last night, ledger)
+// is separate from the media teardown.
 import type { PlayMode } from "./engine";
 import { clearLive, loadLive, recordSessionEnd, saveLastNight, type LastNight } from "./store";
 import { appendNight } from "./rest/ledger";

@@ -15,17 +15,11 @@ export const EVENT_NAMES = [
   "welcome_shown",
   "ritual_same_shows",
   "ritual_exact_again",
-  "ritual_mix",
   "slept_yes",
   "slept_no",
   "reanchor_shown",
   "reanchor_tapped",
   "reanchor_dismissed",
-  // YouTube. Shipped 2026-08-04 with no instrumentation at all, so nobody
-  // could tell whether it had ever been used.
-  "youtube_added",     // a channel resolved and was added as a feed
-  "youtube_night",     // a night started on a YouTube lineup
-  "youtube_tap_start", // the embed refused to autoplay and asked for a tap
 ] as const;
 
 export type EventName = (typeof EVENT_NAMES)[number];

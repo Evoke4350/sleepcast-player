@@ -1,12 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AppState, FeedRef } from "../lib/store";
 import { loadBlocked, loadPositions, clampTimerMinutes, TIMER_MIN, TIMER_MAX } from "../lib/store";
-import { searchEpisodes } from "../lib/episode-search";
 import { parseOpml, buildOpml } from "../lib/opml";
+import { isYouTubeUrl } from "../lib/web-cleanup";
 import { rearmMinutes } from "../lib/engine";
 import type { PlayMode } from "../lib/engine";
-import { BrownNoise } from "../lib/noise";
-import type { NoiseSettings } from "../lib/store";
 import {
   loadState,
   REARM_WINDOW_MS,
@@ -18,21 +16,17 @@ import {
   loadLastEpisode,
   getPlays,
 } from "../lib/store";
-import { diverseByMeta, formatTime } from "../lib/engine";
-import { parseFeedFor, youtubeFeedUrl } from "../lib/youtube";
+import { formatTime, parseFeedXml } from "../lib/engine";
 import { beacon } from "../lib/beacon";
 import type { Episode } from "../lib/engine";
 import { loadNights, setSelfLabel } from "../lib/rest/ledger";
 import { recordFalsePositive } from "../lib/rest/calibrate";
 import { rankedFeeds, evidenceFor } from "../lib/rest/sleepscore";
 import type { RestNight } from "../lib/rest/types";
-import { diversePick } from "../lib/semantic-math";
-import { FEEL_PRESETS } from "../lib/timer-feel";
+import { TIMER_PRESETS } from "../lib/timer-presets";
 import { needsFetch } from "../lib/feed-status";
 import { pickNextEpisode } from "../lib/plays";
 
-const VARIED_N = 8;
-const EMBED_CAP = 96; // max titles to embed per varied-night run (~10s cold on a phone)
 
 interface FeedStatus {
   loading: boolean;
@@ -67,29 +61,13 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
   const [customTitle, setCustomTitle] = useState("");
   const [customError, setCustomError] = useState<string | null>(null);
   // A pasted @handle needs a server round trip before it is a feed.
-  const [resolving, setResolving] = useState(false);
   const [customMinutes, setCustomMinutes] = useState<string>("");
-  const [variedBusy, setVariedBusy] = useState(false);
-  const [variedNote, setVariedNote] = useState<string | null>(null);
   const [goldenPending, setGoldenPending] = useState(false);
   // Returning-listener warmth: the show they drifted off to (for "the exact one
   // again"), and last night's record (to greet + ask how they slept, which
   // doubles as the detector's self-label).
   const leadRef = useRef<Episode | null>(null);
-  // Whether this screen is still up: the varied mix's pick can resolve up to
-  // 25 s after its tap, when a night may already have started. Leaving also
-  // aborts the mix's embedding.
-  const mountedRef = useRef(true);
-  const mixAbortRef = useRef<AbortController | null>(null);
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-      mixAbortRef.current?.abort();
-    };
-  }, []);
   const leadPositionRef = useRef(0);
-  const [query, setQuery] = useState("");
   const [feedError, setFeedError] = useState("");
   const [lastEpisode] = useState(() => loadLastEpisode());
   const [greetNight, setGreetNight] = useState<RestNight | null>(() => {
@@ -147,9 +125,7 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
           if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
           const xml = await resp.text();
           cacheFeedXml(feed.id, xml);
-          // Parser chosen by the feed's URL, not by whether the document is
-          // Atom or RSS — plenty of real podcasts publish Atom.
-          const parsed = parseFeedFor(xml, feed.id, feed.url);
+          const parsed = parseFeedXml(xml, feed.id);
           setFeedStatuses((prev) => ({
             ...prev,
             [feed.id]: {
@@ -164,7 +140,7 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
           // Try cache fallback
           const cached = getCachedFeedXml(feed.id);
           if (cached) {
-            const parsed = parseFeedFor(cached, feed.id, feed.url);
+            const parsed = parseFeedXml(cached, feed.id);
             setFeedStatuses((prev) => ({
               ...prev,
               [feed.id]: {
@@ -230,16 +206,6 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
     updateAndSave(next);
   }
 
-  function setSkipIntro(id: string, minutes: number) {
-    const next: AppState = {
-      ...appState,
-      feeds: appState.feeds.map((f) =>
-        f.id === id ? { ...f, skipIntroMin: minutes } : f
-      ),
-    };
-    updateAndSave(next);
-  }
-
   function selectTimer(minutes: number) {
     const next: AppState = {
       ...appState,
@@ -288,44 +254,12 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
 
   async function handleAddCustomFeed() {
     setCustomError(null);
-    const raw = customUrl.trim();
-    // A YouTube channel is not a feed URL, but it has one. Resolve what we can
-    // rather than handing the whole thing to addCustomFeed and letting it fail
-    // as "not a feed".
-    const yt = youtubeFeedUrl(raw);
-    if (yt?.kind === "unsupported") {
-      setCustomError("that's a single video. paste the channel or playlist it belongs to.");
+    const url = customUrl.trim();
+    if (isYouTubeUrl(url)) {
+      setCustomError("youtube isn't supported: paste a podcast's feed link.");
       return;
     }
-    if (yt?.kind === "handle") {
-      // A handle carries no channel id — it only appears in the page's HTML.
-      // This used to say so and ask the listener to go and find the
-      // /channel/UC… address, which on a phone is asking for something
-      // YouTube's own UI mostly won't give them. The server looks it up.
-      setResolving(true);
-      try {
-        const resp = await fetch(`/api/youtube-channel?handle=${encodeURIComponent(yt.handle)}`);
-        const body = (await resp.json().catch(() => null)) as { channelId?: string } | null;
-        if (!resp.ok || !body?.channelId) {
-          setCustomError(
-            resp.status === 404
-              ? `couldn't find a channel at @${yt.handle} — check the spelling`
-              : "couldn't reach YouTube to look that channel up — try again in a moment",
-          );
-          return;
-        }
-        beacon("youtube_added");
-        addResolvedFeed(`https://www.youtube.com/feeds/videos.xml?channel_id=${body.channelId}`);
-      } catch {
-        setCustomError("couldn't reach YouTube to look that channel up — try again in a moment");
-      } finally {
-        setResolving(false);
-      }
-      return;
-    }
-    // A /channel/UC… or playlist link needs no lookup, but it is the same act.
-    if (yt?.kind === "feed") beacon("youtube_added");
-    addResolvedFeed(yt?.url ?? raw);
+    addResolvedFeed(url);
   }
 
   function handleRemoveFeed(id: string) {
@@ -341,16 +275,6 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
       settings: { ...appState.settings, mode: { kind } },
     });
     setCustomMinutes("");
-  }
-
-  function setNoise(patch: Partial<NoiseSettings>) {
-    updateAndSave({
-      ...appState,
-      settings: {
-        ...appState.settings,
-        noise: { ...appState.settings.noise, ...patch },
-      },
-    });
   }
 
   function handleOpmlImport(file: File) {
@@ -404,11 +328,12 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
   }
 
   function startWith(chosen: Episode[], wasVaried = false) {
+    // No skip-intro: the setting is gone, so none is sent (stored ones are
+    // cleared on load, web-cleanup.ts).
     const skipIntroByFeedId: Record<string, number> = {};
     const feedTitles: Record<string, string> = {};
     const artworkByFeedId: Record<string, string> = {};
     for (const f of appState.feeds) {
-      if (f.skipIntroMin > 0) skipIntroByFeedId[f.id] = f.skipIntroMin;
       feedTitles[f.id] = f.title;
       const artwork = feedStatuses[f.id]?.artwork;
       if (artwork) artworkByFeedId[f.id] = artwork;
@@ -522,21 +447,6 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
     [lastEpisode?.id],
   );
 
-  // Searching the pool means a result is always something we can actually
-  // start — the same episodes the moon would have shuffled.
-  // Component-scope feed titles. startWith() builds its own local `feedTitles`
-  // for the onStart payload; referencing that one from JSX was a ReferenceError
-  // that blanked the app as soon as a search returned a result.
-  const feedTitleById = useMemo(
-    () => Object.fromEntries(appState.feeds.map((f) => [f.id, f.title])),
-    [appState.feeds],
-  );
-
-  const results = useMemo(
-    () => (query.trim() ? searchEpisodes(pool, query, 8) : []),
-    [query, pool],
-  );
-
   // Read once. This screen is not live while a night runs, and re-ranking on
   // every render would let the suggestion change under the user's thumb.
   const suggestion = useMemo(() => {
@@ -556,13 +466,6 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
   const suggestionReady = suggestion
     ? pool.some((e) => e.feedId === suggestion.feed.id)
     : false;
-
-  function handleSearchPick(ep: Episode) {
-    // Resume where they drifted off in that episode, exactly as "the exact one
-    // again" does — finding a story you half-finished is the main reason to
-    // search for it.
-    beginNight(ep, loadPositions()[ep.id] ?? 0);
-  }
 
   function handleExactAgain() {                             // the exact one again
     beacon("ritual_exact_again");
@@ -593,62 +496,6 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [goldenPending, canStart]);
 
-  // Semantic "varied night": embed candidate titles (MiniLM in-browser,
-  // cached), pick VARIED_N spread across the embedding space, sleep on those.
-  async function handleVariedStart() {
-    if (!canStart || variedBusy) return;
-    beacon("ritual_mix");
-    setVariedBusy(true);
-    setVariedNote("warming up…");
-    // Bound the work before it starts: a full pool can be thousands of
-    // titles — minutes of serial embedding on a phone. Spread it down to
-    // EMBED_CAP candidates by feed×year first; the semantic pick then only
-    // has to sort the finalists.
-    const candidates = pool.length > EMBED_CAP ? diverseByMeta(pool, EMBED_CAP) : pool;
-    let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
-    // Aborted when the screen goes or the deadline wins: the embedding
-    // stops then (a model download under way goes on, to be cached).
-    const abort = new AbortController();
-    mixAbortRef.current = abort;
-    try {
-      // Armed before the model's code is even fetched: a stalled chunk
-      // must reach the fallback too.
-      const deadline = new Promise<never>((_, reject) => {
-        deadlineTimer = setTimeout(() => {
-          abort.abort();
-          reject(new Error("semantic deadline"));
-        }, 25_000);
-      });
-      const work = (async () => {
-        const { embedTexts } = await import("../lib/semantic-model");
-        const vecs = await embedTexts(
-          candidates.map((e) => e.title),
-          (done, total) => setVariedNote(`reading titles… ${done}/${total}`),
-          (pct) => setVariedNote(`fetching the mixer… ${pct}%`),
-          abort.signal,
-        );
-        // Abandoned meanwhile (all titles cached, or the last one embedding
-        // when the deadline hit): no pick for nobody.
-        if (abort.signal.aborted) throw new Error("mix abandoned");
-        return diversePick(vecs, VARIED_N).map((i) => candidates[i]);
-      })();
-      work.catch(() => {}); // raced below; a late loss must not surface as unhandled
-      // Slow devices still get their night: past the deadline we stop
-      // waiting and take the meta spread instead of hanging on "mixing…".
-      const picked = await Promise.race([work, deadline]);
-      if (mountedRef.current) startWith(picked, true);
-    } catch {
-      // Semantic model can't run on every device (iOS Lockdown Mode blocks
-      // WASM SIMD) — or didn't finish in time. Fall back to feed×year
-      // spread — still varied, just not meaning-aware — and start anyway.
-      if (mountedRef.current) startWith(diverseByMeta(pool, VARIED_N), true);
-    } finally {
-      clearTimeout(deadlineTimer);
-      if (mixAbortRef.current === abort) mixAbortRef.current = null;
-      setVariedBusy(false);
-    }
-  }
-
   function feedStatusLabel(feed: FeedRef): string {
     const s = feedStatuses[feed.id];
     if (!feed.enabled) return "";
@@ -670,7 +517,7 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
   // Only a timed night has a duration to show as selected. In one-episode or
   // all-night mode the saved minutes still matched a preset, so it lit up
   // alongside the mode button and two choices looked active at once.
-  const isPreset = mode.kind === "minutes" && FEEL_PRESETS.some((p) => p.minutes === timerMinutes);
+  const isPreset = mode.kind === "minutes" && (TIMER_PRESETS as readonly number[]).includes(timerMinutes);
   // Offered as a disabled control with a reason rather than hidden: someone
   // who has read about the feature should find out why it isn't here, not
   // wonder whether they imagined it.
@@ -727,39 +574,6 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
                 >
                   or from the start
                 </button>
-              )}
-              {pool.length > 0 && (
-                <div>
-                  <input
-                    type="search"
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    placeholder="or find one — “train”, “rain”…"
-                    aria-label="search your episodes"
-                    className="w-full rounded-xl border border-[#241f30] bg-[#12101a] px-4 py-3 text-sm text-[#b59a76] placeholder:text-[#4a4540] focus:border-[#6e5d44] focus:outline-none"
-                  />
-                  {query.trim() && (
-                    <div className="mt-2 space-y-1">
-                      {results.length === 0 ? (
-                        <p className="px-1 text-xs text-[#4a4540]">nothing by that name</p>
-                      ) : (
-                        results.map((ep) => (
-                          <button
-                            key={ep.id}
-                            onClick={() => handleSearchPick(ep)}
-                            disabled={goldenPending}
-                            className="block w-full truncate rounded-lg px-3 py-2 text-left text-sm text-[#b0a898] transition-colors hover:bg-[#171310] disabled:opacity-50"
-                          >
-                            {ep.title}
-                            <span className="ml-2 text-xs text-[#4a4540]">
-                              {feedTitleById[ep.feedId] ?? ""}
-                            </span>
-                          </button>
-                        ))
-                      )}
-                    </div>
-                  )}
-                </div>
               )}
               {feedError && <p className="text-xs text-[#b3746b]">{feedError}</p>}
               <p className="text-xs text-[#6e5d44]">or the moon below — the same shows, on shuffle ↓</p>
@@ -832,19 +646,19 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
 
           {/* The only other decision on this screen. */}
           <div className="flex gap-2">
-            {FEEL_PRESETS.map((preset) => (
+            {TIMER_PRESETS.map((minutes) => (
               <button
-                key={preset.minutes}
-                onClick={() => selectTimer(preset.minutes)}
-                aria-pressed={timerMinutes === preset.minutes && isPreset}
-                aria-label={`${preset.label} — ${preset.minutes} minutes`}
+                key={minutes}
+                onClick={() => selectTimer(minutes)}
+                aria-pressed={timerMinutes === minutes && isPreset}
+                aria-label={`${minutes} minutes`}
                 className={`min-h-[2.9rem] rounded-lg border px-3 py-2 text-sm transition-colors ${
-                  timerMinutes === preset.minutes && isPreset
+                  timerMinutes === minutes && isPreset
                     ? "border-[#241f30] bg-[#12101a] text-[#f0dcb8]"
                     : "border-transparent text-[#6e5d44] hover:text-[#b59a76]"
                 }`}
               >
-                {preset.label}
+                {minutes} min
               </button>
             ))}
           </div>
@@ -876,17 +690,6 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
             </button>
           </div>
 
-          {/* The mix: a clear second way to start, one step down from the moon.
-              A real button now, not a whispered link — people reach for it. */}
-          <button
-            onClick={handleVariedStart}
-            disabled={!canStart || variedBusy || pool.length <= VARIED_N}
-            title="Picks a mix of 8 episodes spread across different topics"
-            className="mt-1 inline-flex items-center gap-2 rounded-full border border-[#3a3325] bg-[#12101a] px-5 py-2.5 text-sm text-[#d9c9a8] transition-colors hover:border-[#6e5d44] active:scale-95 disabled:opacity-40"
-          >
-            <span aria-hidden="true">🎲</span>
-            {variedBusy ? (variedNote || "mixing your night…") : "a varied mix — 8 different shows"}
-          </button>
         </div>
 
         {/* Everything below is the active work — choosing feeds, pasting URLs,
@@ -932,26 +735,6 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
                       {label}
                     </span>
                   )}
-                  {/* Skip intro */}
-                  <div className="flex items-center gap-1 text-xs text-[#6e5d44]">
-                    <label htmlFor={`skip-${feed.id}`} className="sr-only">
-                      Skip intro minutes
-                    </label>
-                    <input
-                      id={`skip-${feed.id}`}
-                      type="number"
-                      min={0}
-                      max={60}
-                      value={feed.skipIntroMin || ""}
-                      placeholder="0"
-                      onChange={(e) =>
-                        setSkipIntro(feed.id, Math.max(0, Number(e.target.value) || 0))
-                      }
-                      className="w-12 rounded bg-[#12101a] border border-[#241f30] px-2 py-1 text-center text-[#b59a76] text-xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                      title="Skip intro (minutes)"
-                    />
-                    <span>min skip</span>
-                  </div>
                   {!feed.builtin && (
                     <button
                       onClick={() => handleRemoveFeed(feed.id)}
@@ -1015,49 +798,11 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
               </div>
             </details>
 
-            {/* YouTube is a different animal from a podcast feed and the
-                differences all bite at 2am, so they are stated before you add
-                one rather than discovered while trying to sleep. */}
-            <details className="text-xs">
-              <summary className="cursor-pointer list-none text-[#8a7a5c] transition-colors hover:text-[#b59a76] [&::-webkit-details-marker]:hidden">
-                Can I use a YouTube channel? →
-              </summary>
-              <div className="mt-2 space-y-2 leading-relaxed text-[#8a7a5c]">
-                <p>
-                  Yes — paste the channel address, however YouTube gave it to you.
-                  An <code>@name</code> link, a <code>/channel/UC…</code> link and
-                  a playlist all work. A link to one video doesn&apos;t: paste the
-                  channel it came from.
-                </p>
-                <ul className="list-disc space-y-1.5 pl-4">
-                  <li>
-                    <span className="text-[#b59a76]">Ads can play.</span> It goes
-                    through Google&apos;s player and we can&apos;t mute or skip them.
-                  </li>
-                  <li>
-                    <span className="text-[#b59a76]">The screen must stay on.</span>{" "}
-                    Video stops when a phone locks. We hold the screen awake where
-                    the browser allows it.
-                  </li>
-                  <li>
-                    <span className="text-[#b59a76]">Fifteen videos, no archive.</span>{" "}
-                    That&apos;s all YouTube publishes. Fine for shows where one
-                    video runs hours.
-                  </li>
-                  <li>
-                    <span className="text-[#b59a76]">Mixed nights start on a video.</span>{" "}
-                    Your browser may want one tap before it will play one, and
-                    it is better to give it while you are awake.
-                  </li>
-                </ul>
-              </div>
-            </details>
-
             <input
               type="url"
               value={customUrl}
               onChange={(e) => setCustomUrl(e.target.value)}
-              placeholder="Paste a feed link, or a YouTube channel"
+              placeholder="Paste a feed link"
               className="w-full rounded bg-[#12101a] border border-[#241f30] px-3 py-2 text-sm text-[#b59a76] placeholder:text-[#6e5d44] focus:outline-none focus:border-[#6e5d44]"
             />
             <input
@@ -1072,10 +817,10 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
             )}
             <button
               onClick={() => { void handleAddCustomFeed(); }}
-              disabled={!customUrl.trim() || resolving}
+              disabled={!customUrl.trim()}
               className="w-full rounded bg-[#12101a] border border-[#241f30] py-2 text-sm text-[#b59a76] disabled:opacity-40 hover:border-[#6e5d44] transition-colors"
             >
-              {resolving ? "looking up that channel…" : "Add feed"}
+              Add feed
             </button>
             <div className="flex items-center justify-between pt-1 text-xs text-[#6e5d44]">
               <label className="cursor-pointer underline decoration-[#241f30] underline-offset-4 hover:text-[#b59a76]">
@@ -1101,37 +846,6 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
             {opmlNote && <p className="text-xs text-[#6e5d44]">{opmlNote}</p>}
           </div>
         </section>
-
-        {/* Feature-detected rather than assumed: no AudioWorklet, no section,
-            because a dead toggle is worse than an absent one. */}
-        {BrownNoise.supported() && (
-          <section className="space-y-3">
-            <h2 className="text-xs uppercase tracking-widest text-[#6e5d44]">Noise bed</h2>
-            <div className="flex items-center gap-3">
-              <input
-                type="checkbox"
-                id="noise-on"
-                checked={appState.settings.noise.on}
-                onChange={(e) => setNoise({ on: e.target.checked })}
-                className="h-5 w-5 rounded accent-[#6e5d44] cursor-pointer"
-              />
-              <label htmlFor="noise-on" className="text-sm cursor-pointer">
-                brown noise under the voices
-              </label>
-              <input
-                type="range"
-                min={0}
-                max={0.3}
-                step={0.05}
-                value={appState.settings.noise.level}
-                disabled={!appState.settings.noise.on}
-                onChange={(e) => setNoise({ level: Number(e.target.value) })}
-                className="flex-1 accent-[#6e5d44] disabled:opacity-40"
-                aria-label="Noise level"
-              />
-            </div>
-          </section>
-        )}
 
         <section className="space-y-3">
           <h2 className="text-xs uppercase tracking-widest text-[#6e5d44]">Loudness</h2>

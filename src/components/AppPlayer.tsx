@@ -1,16 +1,13 @@
 import { useState, useEffect } from "react";
+import { cleanStoredWebData } from "../lib/web-cleanup";
 import type { Episode } from "../lib/engine";
 import { formatTime } from "../lib/engine";
 import { loadLive, clearLastNight, loadLastNight, type LiveSession, type LastNight, type ResumeDescriptor, resumeFrom, nightTimerMinutes, loadState, isRevivable, resumeMode, loadBlocked } from "../lib/store";
 import type { PlayMode } from "../lib/engine";
-import type { NoiseSettings } from "../lib/store";
 import { reanchorNext } from "../lib/rest/reanchor";
-import { DEFAULT_FEEL_MINUTES } from "../lib/timer-feel";
+import { DEFAULT_TIMER_MINUTES } from "../lib/timer-presets";
 import { SleepSetup } from "./SleepSetup";
 import { Player } from "./Player";
-import { YouTubeNight } from "./YouTubeNight";
-import { Night } from "./Night";
-import { isYouTubeLineup, isMixedLineup } from "../lib/youtube-night";
 import { RestView } from "./RestView";
 import { reconcileLive, settleLive } from "../lib/rest/reconcile";
 import { ReanchorView } from "./ReanchorView";
@@ -37,7 +34,11 @@ interface SessionState {
 // so a full reload — including iOS reclaiming the backgrounded tab — can offer
 // to resume it rather than waking you to silence.
 export function AppPlayer() {
-  const [session, setSession] = useState<SessionState | null>(null);
+  // Before anything below reads storage: what the removed features left.
+  const [session, setSession] = useState<SessionState | null>(() => {
+    cleanStoredWebData();
+    return null;
+  });
   const [resume, setResume] = useState<ResumeDescriptor | null>(null);
   const [view, setView] = useState<"player" | "rest">("player");
   // Quiet mode: the app has been told to stop nudging for a while.
@@ -53,7 +54,6 @@ export function AppPlayer() {
   // apply to the night about to begin.
   const [mode, setMode] = useState<PlayMode>({ kind: "minutes", minutes: 45 });
   const [feedTrim, setFeedTrim] = useState<Record<string, number>>({});
-  const [noise, setNoise] = useState<NoiseSettings>({ on: false, level: 0.15 });
   const [leveling, setLeveling] = useState(false);
 
   const [goodbye] = useState(() => (isQuiet(loadQuietUntil(), Date.now()) ? null : shouldGreetGoodbye(Date.now())));
@@ -132,14 +132,13 @@ export function AppPlayer() {
 
   // Settings the players take as props, read fresh when a night starts or is
   // revived. A revived night used to skip this and run on the mount defaults:
-  // no per-feed trim (a turned-down feed came back at full volume), no noise,
+  // no per-feed trim (a turned-down feed came back at full volume),
   // no leveling, no quarter-hour rule, and a 45-minute timed mode.
   function applyNightSettings(nightMode: PlayMode) {
     const settings = loadState().settings;
     setQuarterHourRule(settings.quarterHourRule);
     setMode(nightMode);
     setFeedTrim(settings.feedTrim);
-    setNoise(settings.noise);
     setLeveling(settings.leveling);
     setFavorWhatWorks(settings.favorWhatWorks);
   }
@@ -206,7 +205,7 @@ export function AppPlayer() {
   }
 
   // Continue the spread as a fresh clock-blind night, led by the next unplayed
-  // episode, at the default feel-timer. Routes through handleStart so it behaves
+  // episode, at the default timer. Routes through handleStart so it behaves
   // like any night (persists live, re-records lastnight, catches a 2nd wake).
   function handleKeepDrifting() {
     if (!reanchor) return;
@@ -214,7 +213,7 @@ export function AppPlayer() {
     setReanchor(null);
     handleStart(
       lastNight.pool,
-      DEFAULT_FEEL_MINUTES,
+      DEFAULT_TIMER_MINUTES,
       lastNight.skipIntroByFeedId,
       lastNight.feedTitles,
       lastNight.artworkByFeedId,
@@ -229,54 +228,6 @@ export function AppPlayer() {
   }
 
   if (session) {
-    // A lineup of videos goes to the embed, everything else to the audio
-    // element. Decided on the lineup rather than on a flag because a revived
-    // night arrives from localStorage with no flag to read — the episodes
-    // themselves are the only thing that survives a reload.
-    //
-    // Mixed goes to the new orchestrator; the two single-kind paths keep their
-    // existing components untouched. That split is the whole risk posture —
-    // Player.tsx works, has no tests, and is what gets slept to.
-    if (isMixedLineup(session.pool)) {
-      return (
-        <Night
-          pool={session.pool}
-          timerMinutes={session.timerMinutes}
-          skipIntroByFeedId={session.skipIntroByFeedId}
-          feedTitles={session.feedTitles}
-          artworkByFeedId={session.artworkByFeedId}
-          onEnd={handleEnd}
-          resume={resume}
-          leadEpisode={session.leadEpisode}
-          leadPosition={session.leadPosition ?? 0}
-          mode={mode}
-          feedTrim={feedTrim}
-          noise={noise}
-          wasVaried={session.wasVaried ?? false}
-          favorWhatWorks={favorWhatWorks}
-        />
-      );
-    }
-    if (isYouTubeLineup(session.pool)) {
-      return (
-        <YouTubeNight
-          pool={session.pool}
-          timerMinutes={session.timerMinutes}
-          skipIntroByFeedId={session.skipIntroByFeedId}
-          feedTitles={session.feedTitles}
-          artworkByFeedId={session.artworkByFeedId}
-          onEnd={handleEnd}
-          resume={resume}
-          leadEpisode={session.leadEpisode}
-          leadPosition={session.leadPosition ?? 0}
-          mode={mode}
-          feedTrim={feedTrim}
-          noise={noise}
-          wasVaried={session.wasVaried ?? false}
-          favorWhatWorks={favorWhatWorks}
-        />
-      );
-    }
     return (
       <Player
         pool={session.pool}
@@ -291,7 +242,6 @@ export function AppPlayer() {
         quarterHourRule={quarterHourRule}
         mode={mode}
         feedTrim={feedTrim}
-        noise={noise}
         leveling={leveling}
         wasVaried={session.wasVaried ?? false}
         favorWhatWorks={favorWhatWorks}
