@@ -60,6 +60,46 @@ export interface SleepSetupProps {
   ) => void;
 }
 
+/** One setting: a title, a line on what it does, and its switch. */
+function SettingRow({ id, title, checked, disabled = false, onChange, children }: {
+  id: string; title: string; checked: boolean; disabled?: boolean; onChange: (on: boolean) => void; children: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-4 py-3.5">
+      <label htmlFor={`setting-${id}`} className="space-y-0.5">
+        <span className="block font-semibold text-[var(--ink)]">{title}</span>
+        <span className="block text-[12.5px] leading-snug text-[var(--ink-3)]">{children}</span>
+      </label>
+      <button
+        id={`setting-${id}`}
+        role="switch"
+        aria-checked={checked}
+        disabled={disabled}
+        onClick={() => onChange(!checked)}
+        className={`relative mt-0.5 h-7 w-12 shrink-0 rounded-full transition-colors disabled:opacity-40 ${checked ? "bg-[var(--accent)]" : "bg-[var(--line)]"}`}
+      >
+        <span className={`absolute left-[3px] top-[3px] h-[22px] w-[22px] rounded-full bg-white shadow transition-transform ${checked ? "translate-x-5" : ""}`} />
+      </button>
+    </div>
+  );
+}
+
+/** A timer choice. */
+function Pill({ on, onClick, label, children }: { on: boolean; onClick: () => void; label?: string; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      aria-pressed={on}
+      aria-label={label}
+      className={`rounded-full px-3.5 py-2 text-sm font-semibold transition-colors ${
+        on ? "bg-[var(--accent)] text-[var(--accent-ink)]" : "bg-[var(--raised)] text-[var(--ink-2)] hover:text-[var(--ink)]"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
 export function SleepSetup({ onStart, tab }: SleepSetupProps) {
   const [appState, setAppState] = useState<AppState>(() => loadState());
   const [opmlNote, setOpmlNote] = useState<string | null>(null);
@@ -664,50 +704,22 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
             {goldenPending ? "tucking you in…" : "Sleep"}
           </p>
 
-          {/* The only other decision on this screen. */}
-          <div className="flex gap-2">
-            {TIMER_PRESETS.map((minutes) => (
-              <button
-                key={minutes}
-                onClick={() => selectTimer(minutes)}
-                aria-pressed={timerMinutes === minutes && isPreset}
-                aria-label={`${minutes} minutes`}
-                className={`min-h-[2.9rem] rounded-lg border px-3 py-2 text-sm transition-colors ${
-                  timerMinutes === minutes && isPreset
-                    ? "border-transparent bg-[var(--accent)] font-semibold text-[var(--accent-ink)]"
-                    : "border-transparent text-[var(--ink-4)] hover:text-[var(--ink-2)]"
-                }`}
-              >
-                {minutes} min
-              </button>
-            ))}
-          </div>
-
-          {/* Two ways to not set a timer at all. One episode fades when the
-              episode ends; all night never fades and is stopped by hand. */}
-          <div className="flex gap-4 text-xs">
-            <button
-              onClick={() => selectEpisodeMode("one-episode")}
-              aria-pressed={mode.kind === "one-episode"}
-              className={`underline-offset-4 transition-colors ${
-                mode.kind === "one-episode"
-                  ? "text-[var(--ink)] underline decoration-[var(--ink-4)]"
-                  : "text-[var(--ink-4)] underline decoration-[var(--line)] hover:text-[var(--ink-2)]"
-              }`}
-            >
-              one episode
-            </button>
-            <button
-              onClick={() => selectEpisodeMode("all-night")}
-              aria-pressed={mode.kind === "all-night"}
-              className={`underline-offset-4 transition-colors ${
-                mode.kind === "all-night"
-                  ? "text-[var(--ink)] underline decoration-[var(--ink-4)]"
-                  : "text-[var(--ink-4)] underline decoration-[var(--line)] hover:text-[var(--ink-2)]"
-              }`}
-            >
-              all night
-            </button>
+          {/* The only other decision on this screen: how long. Minutes, or
+              one episode (fades when it ends), or all night (stopped by hand). */}
+          <div className="w-full max-w-sm space-y-2.5 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
+            <div className="flex items-baseline justify-between">
+              <span className="font-semibold text-[var(--ink)]">Sleep timer</span>
+              <span className="text-[11px] font-bold uppercase tracking-widest text-[var(--ink-4)]">fades at the end</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {TIMER_PRESETS.map((minutes) => (
+                <Pill key={minutes} on={timerMinutes === minutes && isPreset} onClick={() => selectTimer(minutes)} label={`${minutes} minutes`}>
+                  {minutes} min
+                </Pill>
+              ))}
+              <Pill on={mode.kind === "one-episode"} onClick={() => selectEpisodeMode("one-episode")}>One episode</Pill>
+              <Pill on={mode.kind === "all-night"} onClick={() => selectEpisodeMode("all-night")}>All night</Pill>
+            </div>
           </div>
 
         </div>
@@ -843,99 +855,76 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
           </div>
         )}
         {tab === "settings" && (
-          <div className="space-y-8 pb-8">
-        <section className="space-y-3">
-          <h2 className="text-xs uppercase tracking-widest text-[var(--ink-4)]">Loudness</h2>
-          <div className="flex items-center gap-3">
-            <input
-              type="checkbox"
-              id="leveling-on"
-              checked={appState.settings.leveling}
-              disabled={levelingUnavailable}
-              onChange={(e) => setFlag("leveling", e.target.checked)}
-              className="h-5 w-5 rounded accent-[var(--ink-4)] cursor-pointer disabled:opacity-40"
-            />
-            <label htmlFor="leveling-on" className="text-sm cursor-pointer">
-              even out loudness between shows
-            </label>
-          </div>
-          <p className="text-xs text-[var(--ink-4)]">
-            {levelingUnavailable
-              ? "Not available on iPhone or iPad: the compressor routes audio through Web Audio, which this device suspends when the screen locks — the night would play in silence. Per-show volume trim works here and everywhere."
-              : "Costs an extra load on each show's first episode. Per-show volume trim works either way."}
-          </p>
-        </section>
-
-        {/* A custom timer is the long tail of the one decision the field
-            already offers, so it lives down here with the other fiddling. */}
-        <section className="space-y-3">
-          <h2 className="text-xs uppercase tracking-widest text-[var(--ink-4)]">Custom timer</h2>
-          <div className="flex items-center gap-3">
-            <input
-              type="number"
-              min={TIMER_MIN}
-              max={TIMER_MAX}
-              value={customMinutes || (mode.kind === "minutes" && !isPreset ? timerMinutes : "")}
-              placeholder="minutes"
-              onChange={(e) => handleCustomMinutes(e.target.value)}
-              // Saved values are clamped (3 saves 5, 600 saves 480). While
-              // typing, the box keeps what's typed so "3" can become "30";
-              // on leaving it, it shows what was actually saved.
-              onBlur={() => setCustomMinutes("")}
-              className="w-28 rounded-lg bg-[var(--surface)] border border-[var(--line)] px-3 py-3 text-base text-[var(--ink-2)] placeholder:text-[var(--ink-4)] text-center focus:outline-none focus:border-[var(--ink-4)] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-              aria-label="Custom timer minutes"
-            />
-            {mode.kind === "minutes" && (
-              <p className="text-xs text-[var(--ink-4)]">
-                now {timerMinutes} min — volume fades over the final 60 s
-              </p>
-            )}
-          </div>
-        </section>
-
-        {/* The shuffle leaning on the sleep scores, off unless asked for: a
-            pool that narrows on its own is hard to notice going wrong, so
-            the listener chooses it knowingly, and off is the plain shuffle
-            to compare against (the scoring spec, §8). */}
-        <section className="space-y-3">
-          <h2 className="text-xs uppercase tracking-widest text-[var(--ink-4)]">Favor what puts me under</h2>
-          <label className="flex items-start gap-3">
-            <input
-              type="checkbox"
-              checked={appState.settings.favorWhatWorks}
-              onChange={(e) => setFlag("favorWhatWorks", e.target.checked)}
-              className="mt-0.5 h-4 w-4 accent-[var(--ink-4)]"
-            />
-            <span className="text-xs text-[var(--ink-4)]">
-              Shows you've drifted off to come up more often; shows you tend
-              to skip come up less often. Each needs a few nights behind it
-              first, and nothing is ever ruled out. Off by default — off is a
-              plain shuffle.
-            </span>
-          </label>
-        </section>
-
-        {/* Stimulus control, off unless asked for. It can stop a night early,
-            so it is never on by default and never inferred. */}
-        <section className="space-y-3">
-          <h2 className="text-xs uppercase tracking-widest text-[var(--ink-4)]">The quarter-hour rule</h2>
-          <label className="flex items-start gap-3">
-            <input
-              type="checkbox"
-              checked={quarterHourRule}
-              onChange={(e) => setFlag("quarterHourRule", e.target.checked)}
-              className="mt-0.5 h-4 w-4 accent-[var(--ink-4)]"
-            />
-            <span className="text-xs text-[var(--ink-4)]">
-              If you're still restless after 25 minutes, stop and suggest getting
-              up for a while. Lying awake in bed teaches your bed to mean
-              lying awake. Off by default — it can end a night early.
-            </span>
-          </label>
-        </section>
-          <div className="pt-1 text-center">
-            <a href="/privacy" className="text-[10px] uppercase tracking-widest text-[var(--ink-4)] hover:text-[var(--ink-4)]">privacy &amp; analytics</a>
-          </div>
+          <div className="space-y-4 pb-8">
+            <h1 className="text-3xl font-extrabold tracking-tight text-[var(--ink)]">Settings</h1>
+            <div className="divide-y divide-[var(--line)] rounded-2xl border border-[var(--line)] bg-[var(--surface)] px-4">
+              {/* The shuffle leaning on the sleep scores, off unless asked
+                  for: a pool that narrows on its own is hard to notice going
+                  wrong, so the listener chooses it knowingly, and off is the
+                  plain shuffle to compare against (the scoring spec, §8). */}
+              <SettingRow
+                id="favor"
+                title="Favour what puts me under"
+                checked={appState.settings.favorWhatWorks}
+                onChange={(on) => setFlag("favorWhatWorks", on)}
+              >
+                Shows you&apos;ve fallen asleep to come up a little more often, and ones you skip a little less. Each needs a few nights first, and nothing is ever ruled out.
+              </SettingRow>
+              {/* Stimulus control, off unless asked for. It can stop a night
+                  early, so it is never on by default and never inferred. */}
+              <SettingRow
+                id="quarter-hour"
+                title="The quarter-hour rule"
+                checked={quarterHourRule}
+                onChange={(on) => setFlag("quarterHourRule", on)}
+              >
+                If you&apos;re still restless after 25 minutes, it stops and suggests getting up for a while (stimulus control, from CBT-I): lying awake in bed teaches the bed to mean lying awake. A suggestion, not treatment.
+              </SettingRow>
+              <SettingRow
+                id="leveling"
+                title="Even out loudness"
+                checked={appState.settings.leveling}
+                disabled={levelingUnavailable}
+                onChange={(on) => setFlag("leveling", on)}
+              >
+                {levelingUnavailable
+                  ? "Not on iPhone or iPad: it routes audio through Web Audio, which these suspend when the screen locks, and the night would go silent."
+                  : "Quiet and loud shows play at about the same level. Costs an extra load on each show's first episode."}
+              </SettingRow>
+              {/* A custom timer is the long tail of the timer presets. */}
+              <div className="flex items-center justify-between gap-4 py-3.5">
+                <label htmlFor="custom-minutes" className="space-y-0.5">
+                  <span className="block font-semibold text-[var(--ink)]">Custom timer</span>
+                  <span className="block text-[12.5px] text-[var(--ink-3)]">
+                    {mode.kind === "minutes" ? `Now ${timerMinutes} min. The last 60 s fade to silence.` : "Minutes, between the presets or past them."}
+                  </span>
+                </label>
+                <input
+                  id="custom-minutes"
+                  type="number"
+                  min={TIMER_MIN}
+                  max={TIMER_MAX}
+                  value={customMinutes || (mode.kind === "minutes" && !isPreset ? timerMinutes : "")}
+                  placeholder="min"
+                  onChange={(e) => handleCustomMinutes(e.target.value)}
+                  // Saved values are clamped (3 saves 5, 600 saves 480). While
+                  // typing, the box keeps what's typed so "3" can become "30";
+                  // on leaving it, it shows what was actually saved.
+                  onBlur={() => setCustomMinutes("")}
+                  className="w-20 rounded-lg border border-[var(--line)] bg-[var(--raised)] px-2 py-2 text-center text-base text-[var(--ink)] placeholder:text-[var(--ink-4)] focus:border-[var(--accent)] focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                  aria-label="Custom timer minutes"
+                />
+              </div>
+              <div className="flex items-center justify-between gap-4 py-3.5">
+                <span className="space-y-0.5">
+                  <span className="block font-semibold text-[var(--ink)]">Appearance</span>
+                  <span className="block text-[12.5px] text-[var(--ink-3)]">Light or dark, as your phone is set.</span>
+                </span>
+              </div>
+            </div>
+            <div className="pt-1 text-center">
+              <a href="/privacy" className="text-xs text-[var(--ink-4)] underline decoration-[var(--line)] underline-offset-4 hover:text-[var(--ink-3)]">Privacy and analytics</a>
+            </div>
           </div>
         )}
       </div>

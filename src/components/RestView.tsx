@@ -105,27 +105,32 @@ export function RestView({ onClose }: { onClose?: () => void }) {
   }
 
   return (
-    <div className="mx-auto max-w-sm space-y-8 px-6 py-16 text-center text-[var(--ink-3)]">
-      <div>
-        <div className="text-5xl text-[var(--ink-2)]">{r.nightsSlept}</div>
-        <div className="mt-1 text-xs uppercase tracking-widest">nights you drifted off</div>
+    <div className="space-y-4 pb-8 text-[var(--ink-3)]">
+      <h1 className="text-3xl font-extrabold tracking-tight text-[var(--ink)]">Rest</h1>
+
+      {last && last.sleptAtMs !== null && last.selfLabel === undefined && (
+        <div className="space-y-2.5 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
+          <p className="text-[11px] font-bold uppercase tracking-widest text-[var(--ink-3)]">last night</p>
+          <p className="font-semibold text-[var(--ink)]">Did you fall asleep to it?</p>
+          <p className="text-[13px]">Sleepcast guesses from when you stopped touching the screen.</p>
+          <div className="flex gap-2">
+            <button onClick={() => label("slept")} className="rounded-full bg-[var(--raised)] px-4 py-1.5 text-sm font-semibold text-[var(--ink)]">I fell asleep</button>
+            <button onClick={() => label("awake")} className="rounded-full bg-[var(--raised)] px-4 py-1.5 text-sm font-semibold text-[var(--ink)]">I was awake</button>
+          </div>
+          <p className="text-xs">Your answer tunes how quickly it decides you&apos;re asleep.</p>
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-2.5">
+        <Figure value={String(r.nightsSlept)} unit={r.nights ? `/ ${r.nights}` : ""} label="Nights you drifted off" how="Nights it saw you go quiet" wide />
+        <Figure value={r.medianTimeToSleepMs !== null ? fmtDuration(r.medianTimeToSleepMs) : "—"} label="Usual time to sleep" how="The middle of the nights it timed" />
+        <Figure value={r.bestTimeToSleepMs !== null ? fmtDuration(r.bestTimeToSleepMs) : "—"} label="Fastest" how="Your quickest night so far" />
       </div>
-      {r.bestTimeToSleepMs !== null && (
-        <div>
-          <div className="text-2xl text-[var(--ink-2)]">{fmtDuration(r.bestTimeToSleepMs)}</div>
-          <div className="mt-1 text-xs uppercase tracking-widest">fastest you left us</div>
-        </div>
-      )}
-      {r.medianTimeToSleepMs !== null && (
-        <div>
-          <div className="text-2xl text-[var(--ink-2)]">{fmtDuration(r.medianTimeToSleepMs)}</div>
-          <div className="mt-1 text-xs uppercase tracking-widest">how long you usually take</div>
-        </div>
-      )}
+
       {lastPlays.length > 0 && (
-        <div className="border-t border-[var(--line)] pt-6 text-left">
-          <div className="text-center text-xs uppercase tracking-widest">last night</div>
-          <ul className="mt-4 space-y-2 text-sm">
+        <div className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
+          <p className="text-[11px] font-bold uppercase tracking-widest text-[var(--ink-3)]">last night</p>
+          <ul className="mt-3 space-y-2 text-sm">
             {lastPlays.map((p) => (
               <li key={p.id}>
                 <div className="flex items-baseline justify-between gap-3">
@@ -135,27 +140,16 @@ export function RestView({ onClose }: { onClose?: () => void }) {
                   </span>
                 </div>
                 {driftedDuring?.id === p.id && (
-                  <div className="mt-0.5 text-xs text-[var(--ink-4)]">you drifted off here</div>
+                  <div className="mt-0.5 text-xs font-semibold text-[var(--accent)]">you drifted off here</div>
                 )}
               </li>
             ))}
           </ul>
         </div>
       )}
-      {last && last.sleptAtMs !== null && last.selfLabel === undefined && (
-        <div className="space-y-2 border-t border-[var(--line)] pt-6 text-sm">
-          <p>did you fall asleep to it last time?</p>
-          <div className="flex justify-center gap-3">
-            <button onClick={() => label("slept")} className="rounded-full border border-[var(--line)] px-4 py-1.5 hover:border-[var(--ink-4)]">yes</button>
-            <button onClick={() => label("awake")} className="rounded-full border border-[var(--line)] px-4 py-1.5 hover:border-[var(--ink-4)]">no</button>
-          </div>
-        </div>
-      )}
       {scored.length > 0 && (
-        <section className="mt-8">
-          <h2 className="text-xs uppercase tracking-widest text-[var(--ink-4)]">
-            what puts you under
-          </h2>
+        <section className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
+          <h2 className="font-semibold text-[var(--ink)]">What puts you under</h2>
           {/* counted first, so this list never names a different leader than
               the suggestion card just did — same predicate, same order. */}
           {counted.length > 0 && (
@@ -185,11 +179,25 @@ export function RestView({ onClose }: { onClose?: () => void }) {
           {`How long you usually take: ${orDash(compared.leaned.medianMs, fmtDuration)} on nights the shuffle leaned (${pluralNights(compared.leaned.timedNights, "timed")}), ${orDash(compared.plain.medianMs, fmtDuration)} on plain-shuffle nights (${pluralNights(compared.plain.timedNights, "timed")}). A rough guide: the two differ in more than the lean (which shows, which weeks).`}
         </p>
       )}
-      <p className="text-xs text-[var(--ink-4)]">
+      <p className="text-center text-xs text-[var(--ink-4)]">
         counted only on this device. no account, nothing sent anywhere. we're
         rooting for the nights you don't need us.
       </p>
       {onClose && <button onClick={onClose} className="text-xs underline decoration-[var(--line)] underline-offset-4 hover:text-[var(--ink-2)]">back</button>}
+    </div>
+  );
+}
+
+/** One figure on the Rest tab, with how it's worked out. */
+function Figure({ value, unit = "", label, how, wide = false }: { value: string; unit?: string; label: string; how: string; wide?: boolean }) {
+  return (
+    <div className={`grid gap-0.5 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-3.5 ${wide ? "col-span-2" : ""}`}>
+      <span className="text-2xl font-extrabold tabular-nums tracking-tight text-[var(--ink)]">
+        {value}
+        {unit && <small className="ml-1 text-sm font-semibold text-[var(--ink-3)]">{unit}</small>}
+      </span>
+      <span className="text-[13px] font-semibold text-[var(--ink-2)]">{label}</span>
+      <span className="text-[11.5px] text-[var(--ink-3)]">{how}</span>
     </div>
   );
 }
