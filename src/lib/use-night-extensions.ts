@@ -1,6 +1,6 @@
 import { type RefObject } from "react";
 import { useStateRef } from "./use-state-ref";
-import { canExtend } from "./timer-feel";
+import { canExtend } from "./timer-presets";
 
 /** The parts of a player's night a stretch moves. */
 export interface NightClock {

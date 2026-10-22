@@ -4,7 +4,7 @@ import { formatTime } from "../lib/engine";
 import { loadLive, clearLastNight, loadLastNight, type LiveSession, type LastNight, type ResumeDescriptor, resumeFrom, nightTimerMinutes, loadState, isRevivable, resumeMode, loadBlocked } from "../lib/store";
 import type { PlayMode } from "../lib/engine";
 import { reanchorNext } from "../lib/rest/reanchor";
-import { DEFAULT_FEEL_MINUTES } from "../lib/timer-feel";
+import { DEFAULT_TIMER_MINUTES } from "../lib/timer-presets";
 import { SleepSetup } from "./SleepSetup";
 import { Player } from "./Player";
 import { RestView } from "./RestView";
@@ -200,7 +200,7 @@ export function AppPlayer() {
   }
 
   // Continue the spread as a fresh clock-blind night, led by the next unplayed
-  // episode, at the default feel-timer. Routes through handleStart so it behaves
+  // episode, at the default timer. Routes through handleStart so it behaves
   // like any night (persists live, re-records lastnight, catches a 2nd wake).
   function handleKeepDrifting() {
     if (!reanchor) return;
@@ -208,7 +208,7 @@ export function AppPlayer() {
     setReanchor(null);
     handleStart(
       lastNight.pool,
-      DEFAULT_FEEL_MINUTES,
+      DEFAULT_TIMER_MINUTES,
       lastNight.skipIntroByFeedId,
       lastNight.feedTitles,
       lastNight.artworkByFeedId,

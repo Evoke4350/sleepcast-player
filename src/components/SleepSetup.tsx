@@ -22,7 +22,7 @@ import { loadNights, setSelfLabel } from "../lib/rest/ledger";
 import { recordFalsePositive } from "../lib/rest/calibrate";
 import { rankedFeeds, evidenceFor } from "../lib/rest/sleepscore";
 import type { RestNight } from "../lib/rest/types";
-import { FEEL_PRESETS } from "../lib/timer-feel";
+import { TIMER_PRESETS } from "../lib/timer-presets";
 import { needsFetch } from "../lib/feed-status";
 import { pickNextEpisode } from "../lib/plays";
 
@@ -520,7 +520,7 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
   // Only a timed night has a duration to show as selected. In one-episode or
   // all-night mode the saved minutes still matched a preset, so it lit up
   // alongside the mode button and two choices looked active at once.
-  const isPreset = mode.kind === "minutes" && FEEL_PRESETS.some((p) => p.minutes === timerMinutes);
+  const isPreset = mode.kind === "minutes" && (TIMER_PRESETS as readonly number[]).includes(timerMinutes);
   // Offered as a disabled control with a reason rather than hidden: someone
   // who has read about the feature should find out why it isn't here, not
   // wonder whether they imagined it.
@@ -649,19 +649,19 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
 
           {/* The only other decision on this screen. */}
           <div className="flex gap-2">
-            {FEEL_PRESETS.map((preset) => (
+            {TIMER_PRESETS.map((minutes) => (
               <button
-                key={preset.minutes}
-                onClick={() => selectTimer(preset.minutes)}
-                aria-pressed={timerMinutes === preset.minutes && isPreset}
-                aria-label={`${preset.label} — ${preset.minutes} minutes`}
+                key={minutes}
+                onClick={() => selectTimer(minutes)}
+                aria-pressed={timerMinutes === minutes && isPreset}
+                aria-label={`${minutes} minutes`}
                 className={`min-h-[2.9rem] rounded-lg border px-3 py-2 text-sm transition-colors ${
-                  timerMinutes === preset.minutes && isPreset
+                  timerMinutes === minutes && isPreset
                     ? "border-[#241f30] bg-[#12101a] text-[#f0dcb8]"
                     : "border-transparent text-[#6e5d44] hover:text-[#b59a76]"
                 }`}
               >
-                {preset.label}
+                {minutes} min
               </button>
             ))}
           </div>
