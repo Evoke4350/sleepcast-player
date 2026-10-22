@@ -15,28 +15,6 @@ npm run dev        # http://localhost:3000
 
 Node 22+ required (Astro 6). No env vars are needed to run it.
 
-## One optional feature downloads a model
-
-"Varied mix" picks episodes that are semantically unlike each other, which
-means embedding their titles. That runs **MiniLM-L6-v2 (~23MB, quantized) in
-your browser** via transformers.js, fetched from Hugging Face's CDN the first
-time you use it and cached by the browser afterwards. Title vectors are cached
-in `localStorage` so a feed is embedded once.
-
-Two things follow, and neither is hidden:
-
-- **It is the only request that leaves for a third party** other than your own
-  podcast hosts. If that matters to you, don't press varied mix — every other
-  path (shuffle, the spread, resume) is entirely local and the model is never
-  fetched. It is a dynamic `import()` behind a button, not part of the bundle.
-- **It is genuinely a model.** Nothing here *generates* audio or text, but
-  calling this app "no AI" would be false, so it doesn't.
-
-If the download fails, is blocked, or takes longer than 25 seconds, the app
-falls back to a feed-and-year spread and starts the night anyway
-(`SleepSetup.tsx`). iOS Lockdown Mode blocks the WASM it needs, so that
-fallback is a real path, not a theoretical one.
-
 ## Why it works this way
 
 The design premise is that **a podcast app is the wrong shape for falling

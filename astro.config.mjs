@@ -21,7 +21,7 @@ export default defineConfig({
         "upgrade-insecure-requests",
         "img-src 'self' https: data: blob:", // podcast artwork is arbitrary https
         "media-src 'self' https: blob:", // episode audio is arbitrary https
-        "connect-src 'self' https:", // feed relay + model weights
+        "connect-src 'self' https:", // feed relay
         "worker-src 'self' blob:",
         "font-src 'self' data:",
         "object-src 'none'",
@@ -29,8 +29,7 @@ export default defineConfig({
         "form-action 'self'",
       ],
       scriptDirective: {
-        // The in-browser MiniLM (transformers.js) compiles WASM.
-        resources: ["'self'", "'wasm-unsafe-eval'"],
+        resources: ["'self'"],
       },
     },
   },
