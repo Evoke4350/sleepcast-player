@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { cleanStoredWebData } from "../lib/web-cleanup";
+import { TabBar, type AppTab } from "./TabBar";
 import type { Episode } from "../lib/engine";
 import { formatTime } from "../lib/engine";
 import { loadLive, clearLastNight, loadLastNight, type LiveSession, type LastNight, type ResumeDescriptor, resumeFrom, nightTimerMinutes, loadState, isRevivable, resumeMode, loadBlocked } from "../lib/store";
@@ -40,7 +41,11 @@ export function AppPlayer() {
     return null;
   });
   const [resume, setResume] = useState<ResumeDescriptor | null>(null);
-  const [view, setView] = useState<"player" | "rest">("player");
+  // The section shown when no night plays. Sleep first: it's what the app is
+  // opened for, at night.
+  const [tab, setTab] = useState<AppTab>("sleep");
+  // Each visit to Rest reads the ledger afresh (a night may have ended since).
+  const [restVisit, setRestVisit] = useState(0);
   // Quiet mode: the app has been told to stop nudging for a while.
   const [quiet, setQuiet] = useState(() => isQuiet(loadQuietUntil(), Date.now()));
   // Read when a night STARTS, not at island mount. AppPlayer mounts once per
@@ -259,48 +264,48 @@ export function AppPlayer() {
     );
   }
 
-  if (view === "rest") return <RestView onClose={() => setView("player")} />;
   return (
-    <main className="flex-1 px-4 py-8 text-[#b59a76]">
+    <main className="flex-1 px-4 pb-28 pt-8 text-[var(--ink-2)]">
       <div className="mx-auto max-w-xl">
+        {tab === "sleep" && (<>
         {live && (
-          <div className="mb-6 rounded-xl border border-[#3a3325] bg-[#171310] p-4">
-            <p className="text-center text-[0.7rem] uppercase tracking-widest text-[#6e5d44]">still playing from before</p>
-            <p className="mt-1.5 truncate text-center text-sm text-[#d9c9a8]">{live.current.title}</p>
-            <p className="mt-0.5 text-center text-xs text-[#8a7a5c]">
+          <div className="mb-6 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4">
+            <p className="text-center text-[0.7rem] uppercase tracking-widest text-[var(--ink-4)]">still playing from before</p>
+            <p className="mt-1.5 truncate text-center text-sm text-[var(--ink)]">{live.current.title}</p>
+            <p className="mt-0.5 text-center text-xs text-[var(--ink-3)]">
               {formatTime(live.position)} in · {live.modeKind === "all-night" ? "playing all night" : live.modeKind === "one-episode" ? "to the end of this one" : `${Math.round(live.remainingMs / 60_000)} min left on the timer`}
             </p>
             <button
               onClick={handleResume}
-              className="mt-3 w-full rounded-lg border border-[#6e5d44] bg-[#1a1b26] py-2.5 text-sm font-medium text-[#f0dcb8] transition-transform hover:border-[#8a7a5c] active:scale-95"
+              className="mt-3 w-full rounded-lg border border-[var(--ink-4)] bg-[var(--surface)] py-2.5 text-sm font-medium text-[var(--ink)] transition-transform hover:border-[var(--ink-3)] active:scale-95"
             >
               ▶ keep going
             </button>
             <button
               onClick={() => recordStoredNight(false)}
-              className="mt-2 block w-full text-center text-xs text-[#4a4540] underline decoration-[#2a2620] underline-offset-4 transition-colors hover:text-[#8a7a5c]"
+              className="mt-2 block w-full text-center text-xs text-[var(--ink-4)] underline decoration-[var(--line)] underline-offset-4 transition-colors hover:text-[var(--ink-3)]"
             >
               or start fresh
             </button>
           </div>
         )}
         {stepBack && (
-          <div className="mb-6 rounded-xl border border-[#3a3325] bg-[#171310] p-4 text-center">
-            <p className="text-sm text-[#d9c9a8]">you've been falling asleep quickly for a while.</p>
-            <p className="mt-1 text-xs text-[#8a7a5c]">
+          <div className="mb-6 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4 text-center">
+            <p className="text-sm text-[var(--ink)]">you've been falling asleep quickly for a while.</p>
+            <p className="mt-1 text-xs text-[var(--ink-3)]">
               you might not need us at the moment. we can stop nudging — no 3am
               check-in, no morning note — and stay out of the way.
             </p>
             <div className="mt-3 flex justify-center gap-3 text-sm">
               <button
                 onClick={goQuiet}
-                className="rounded-full border border-[#6e5d44] px-4 py-1.5 text-[#f0dcb8] transition-colors hover:border-[#8a7a5c]"
+                className="rounded-full border border-[var(--ink-4)] px-4 py-1.5 text-[var(--ink)] transition-colors hover:border-[var(--ink-3)]"
               >
                 go quiet for a month
               </button>
               <button
                 onClick={stayOn}
-                className="rounded-full border border-[#3a3325] px-4 py-1.5 text-[#8a7a5c] transition-colors hover:border-[#6e5d44]"
+                className="rounded-full border border-[var(--line)] px-4 py-1.5 text-[var(--ink-3)] transition-colors hover:border-[var(--ink-4)]"
               >
                 stay as you are
               </button>
@@ -308,18 +313,21 @@ export function AppPlayer() {
           </div>
         )}
         {goodbye && (
-          <div className="mb-6 flex items-center justify-center gap-2 text-center text-xs text-[#6e5d44]">
-            <span className="player-moon text-sm text-[#8a7a5c]">☾</span>
+          <div className="mb-6 flex items-center justify-center gap-2 text-center text-xs text-[var(--ink-4)]">
+            <span className="player-moon text-sm text-[var(--ink-3)]">☾</span>
             <span>
               you slept{goodbye.timeToSleepMs !== null ? ` — gone in ${fmtDuration(goodbye.timeToSleepMs)}` : ""}.
             </span>
           </div>
         )}
-        <SleepSetup onStart={handleStart} />
-        <button onClick={() => setView("rest")} className="mt-8 block w-full text-center text-xs text-[#4a4540] underline decoration-[#2a2620] underline-offset-4 hover:text-[#8a7a5c]">
-          your rest
-        </button>
+        </>)}
+        {tab === "rest" ? (
+          <RestView key={restVisit} />
+        ) : (
+          <SleepSetup onStart={handleStart} tab={tab} />
+        )}
       </div>
+      <TabBar tab={tab} onTab={(t) => { if (t === "rest") setRestVisit((n) => n + 1); setTab(t); }} />
     </main>
   );
 }

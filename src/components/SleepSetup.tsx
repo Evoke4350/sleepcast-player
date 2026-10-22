@@ -38,7 +38,13 @@ interface FeedStatus {
   failedAt?: number;
 }
 
+/** Which of the app's tabs this renders: the night (moon, timer), the shows,
+ *  or the settings. One instance serves all three, so its state (feeds,
+ *  statuses) survives switching between them. */
+export type SetupTab = "sleep" | "podcasts" | "settings";
+
 export interface SleepSetupProps {
+  tab: SetupTab;
   onStart: (
     pool: Episode[],
     timerMinutes: number,
@@ -53,7 +59,7 @@ export interface SleepSetupProps {
   ) => void;
 }
 
-export function SleepSetup({ onStart }: SleepSetupProps) {
+export function SleepSetup({ onStart, tab }: SleepSetupProps) {
   const [appState, setAppState] = useState<AppState>(() => loadState());
   const [opmlNote, setOpmlNote] = useState<string | null>(null);
   const [feedStatuses, setFeedStatuses] = useState<Record<string, FeedStatus>>({});
@@ -528,26 +534,24 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
   const poolNote = pool.length > 0 ? `${pool.length} episodes ready` : "gathering episodes…";
 
   return (
-    // The bedside register: amber on near-black, the same palette as the moon
-    // screen the Player already uses. Not the marketing palette — this is read
-    // by a face in a dark room, where #e9e6df off-white is simply too blue.
-    // The page owns the background (app.astro); this just lays out inside it.
-    <div className="text-[#b59a76]">
+    // The page owns the background (globals.css tokens); this lays out inside it.
+    <div className="text-[var(--ink-2)]">
       <div className="mx-auto max-w-lg">
         {/* The field: one decision, in the thumb's arc. The moon IS the button —
             it's the same moon the Player veils the countdown behind, so the
             object you tap to fall asleep is the object holding the time you're
             not allowed to see. */}
+        {tab === "sleep" && (
         <div className="flex min-h-[82vh] flex-col items-center justify-center gap-6">
           {(lastEpisode || greetNight) && (
             <div className="w-full max-w-xs space-y-4 text-center">
-              <p className="text-lg text-[#f0dcb8]">welcome back.</p>
+              <p className="text-lg text-[var(--ink)]">welcome back.</p>
               {greetNight && (
-                <div className="text-sm text-[#8a7a5c]">
+                <div className="text-sm text-[var(--ink-3)]">
                   sleep well?
                   <span className="ml-3 inline-flex gap-2">
-                    <button onClick={() => handleSleepLabel("slept")} className="rounded-full border border-[#3a3325] px-3 py-1 transition-colors hover:border-[#6e5d44]">yes</button>
-                    <button onClick={() => handleSleepLabel("awake")} className="rounded-full border border-[#3a3325] px-3 py-1 transition-colors hover:border-[#6e5d44]">no</button>
+                    <button onClick={() => handleSleepLabel("slept")} className="rounded-full border border-[var(--line)] px-3 py-1 transition-colors hover:border-[var(--ink-4)]">yes</button>
+                    <button onClick={() => handleSleepLabel("awake")} className="rounded-full border border-[var(--line)] px-3 py-1 transition-colors hover:border-[var(--ink-4)]">no</button>
                   </span>
                 </div>
               )}
@@ -555,12 +559,12 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
                 <button
                   onClick={handleExactAgain}
                   disabled={goldenPending}
-                  className="w-full rounded-xl border border-[#3a3325] bg-[#171310] px-4 py-3 text-sm text-[#d9c9a8] transition-colors hover:border-[#6e5d44] disabled:opacity-50"
+                  className="w-full rounded-xl border border-[var(--line)] bg-[var(--surface)] px-4 py-3 text-sm text-[var(--ink)] transition-colors hover:border-[var(--ink-4)] disabled:opacity-50"
                 >
                   ↻ the exact one again
-                  <span className="mt-0.5 block truncate text-xs text-[#8a7a5c]">{lastEpisode.title}</span>
+                  <span className="mt-0.5 block truncate text-xs text-[var(--ink-3)]">{lastEpisode.title}</span>
                   {lastEpisodePosition > 0 && (
-                    <span className="mt-0.5 block text-xs text-[#6e5d44]">
+                    <span className="mt-0.5 block text-xs text-[var(--ink-4)]">
                       from where you drifted · {formatTime(lastEpisodePosition)} in
                     </span>
                   )}
@@ -570,21 +574,21 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
                 <button
                   onClick={handleExactAgainFromStart}
                   disabled={goldenPending}
-                  className="w-full text-center text-xs text-[#4a4540] underline decoration-[#2a2620] underline-offset-4 transition-colors hover:text-[#8a7a5c] disabled:opacity-50"
+                  className="w-full text-center text-xs text-[var(--ink-4)] underline decoration-[var(--line)] underline-offset-4 transition-colors hover:text-[var(--ink-3)] disabled:opacity-50"
                 >
                   or from the start
                 </button>
               )}
-              {feedError && <p className="text-xs text-[#b3746b]">{feedError}</p>}
-              <p className="text-xs text-[#6e5d44]">or the moon below — the same shows, on shuffle ↓</p>
+              {feedError && <p className="text-xs text-[var(--danger)]">{feedError}</p>}
+              <p className="text-xs text-[var(--ink-4)]">or the moon below — the same shows, on shuffle ↓</p>
             </div>
           )}
-          <p className="text-xs text-[#6e5d44] tracking-wide">{poolNote}</p>
+          <p className="text-xs text-[var(--ink-4)] tracking-wide">{poolNote}</p>
 
           {rearmable && !goldenPending && (
             <button
               onClick={handleRearm}
-              className="w-full max-w-xs rounded-xl border border-[#2a1d1a] bg-[#140f0e] px-4 py-3 text-sm text-[#8a6a55] transition-colors hover:text-[#b59a76]"
+              className="w-full max-w-xs rounded-xl border border-[var(--line)] bg-[var(--surface)] px-4 py-3 text-sm text-[var(--ink-3)] transition-colors hover:text-[var(--ink-2)]"
             >
               still awake?{" "}
               {rearmable.modeKind === "one-episode"
@@ -597,24 +601,24 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
               without the evidence beside it — and never without a one-tap
               refusal, since a suggestion that can't be waved off is a nag. */}
           {suggestion && (
-            <div className="w-full max-w-xs rounded-xl border border-[#3a3325] bg-[#171310] p-4 text-center">
-              <p className="text-sm text-[#d9c9a8]">
+            <div className="w-full max-w-xs rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4 text-center">
+              <p className="text-sm text-[var(--ink)]">
                 {suggestion.feed.title} leads tonight.
               </p>
-              <p className="mt-1 text-xs text-[#8a7a5c]">{suggestion.line}</p>
+              <p className="mt-1 text-xs text-[var(--ink-3)]">{suggestion.line}</p>
               <div className="mt-3 flex justify-center gap-3 text-sm">
                 <button
                   onClick={() => beginNight(leadFromFeed(suggestion.feed.id))}
                   disabled={goldenPending || !suggestionReady}
                   title={suggestionReady ? undefined : "still loading that feed's episodes…"}
-                  className="rounded-full border border-[#6e5d44] px-4 py-1.5 text-[#f0dcb8] transition-colors hover:border-[#8a7a5c] disabled:opacity-50"
+                  className="rounded-full border border-[var(--ink-4)] px-4 py-1.5 text-[var(--ink)] transition-colors hover:border-[var(--ink-3)] disabled:opacity-50"
                 >
                   start
                 </button>
                 <button
                   onClick={() => beginNight(null)}
                   disabled={goldenPending}
-                  className="rounded-full border border-[#3a3325] px-4 py-1.5 text-[#8a7a5c] transition-colors hover:border-[#6e5d44] disabled:opacity-50"
+                  className="rounded-full border border-[var(--line)] px-4 py-1.5 text-[var(--ink-3)] transition-colors hover:border-[var(--ink-4)] disabled:opacity-50"
                 >
                   something else
                 </button>
@@ -634,13 +638,13 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
             />
             <span
               aria-hidden="true"
-              className="setup-moon select-none text-[7.5rem] leading-none text-[#f0dcb8] [text-shadow:0_0_60px_rgba(240,220,184,0.35)] transition-transform group-active:scale-95"
+              className="setup-moon select-none text-[7.5rem] leading-none text-[var(--accent)] [text-shadow:0_0_60px_rgba(240,220,184,0.35)] transition-transform group-active:scale-95"
             >
               ☾
             </span>
           </button>
 
-          <p className="font-serif-display -mt-4 text-2xl text-[#f0dcb8]">
+          <p className="font-serif-display -mt-4 text-2xl text-[var(--ink)]">
             {goldenPending ? "tucking you in…" : "Sleep"}
           </p>
 
@@ -654,8 +658,8 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
                 aria-label={`${minutes} minutes`}
                 className={`min-h-[2.9rem] rounded-lg border px-3 py-2 text-sm transition-colors ${
                   timerMinutes === minutes && isPreset
-                    ? "border-[#241f30] bg-[#12101a] text-[#f0dcb8]"
-                    : "border-transparent text-[#6e5d44] hover:text-[#b59a76]"
+                    ? "border-transparent bg-[var(--accent)] font-semibold text-[var(--accent-ink)]"
+                    : "border-transparent text-[var(--ink-4)] hover:text-[var(--ink-2)]"
                 }`}
               >
                 {minutes} min
@@ -671,8 +675,8 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
               aria-pressed={mode.kind === "one-episode"}
               className={`underline-offset-4 transition-colors ${
                 mode.kind === "one-episode"
-                  ? "text-[#f0dcb8] underline decoration-[#6e5d44]"
-                  : "text-[#6e5d44] underline decoration-[#241f30] hover:text-[#b59a76]"
+                  ? "text-[var(--ink)] underline decoration-[var(--ink-4)]"
+                  : "text-[var(--ink-4)] underline decoration-[var(--line)] hover:text-[var(--ink-2)]"
               }`}
             >
               one episode
@@ -682,8 +686,8 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
               aria-pressed={mode.kind === "all-night"}
               className={`underline-offset-4 transition-colors ${
                 mode.kind === "all-night"
-                  ? "text-[#f0dcb8] underline decoration-[#6e5d44]"
-                  : "text-[#6e5d44] underline decoration-[#241f30] hover:text-[#b59a76]"
+                  ? "text-[var(--ink)] underline decoration-[var(--ink-4)]"
+                  : "text-[var(--ink-4)] underline decoration-[var(--line)] hover:text-[var(--ink-2)]"
               }`}
             >
               all night
@@ -691,21 +695,12 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
           </div>
 
         </div>
-
-        {/* Everything below is the active work — choosing feeds, pasting URLs,
-            fiddling with minutes. That's what asks you to think at 2am, so it
-            waits behind a pull. The old screen put three start buttons and a
-            feed editor in front of someone who just wanted to sleep. */}
-        <details className="group pb-16">
-          <summary className="mx-auto flex cursor-pointer list-none flex-col items-center gap-1.5 py-4 text-xs text-[#6e5d44] transition-colors hover:text-[#b59a76] [&::-webkit-details-marker]:hidden">
-            <span aria-hidden="true" className="h-[3px] w-9 rounded-full bg-[#241f30] group-open:bg-[#6e5d44]" />
-            <span>your feeds &amp; timer</span>
-          </summary>
-
-          <div className="space-y-8 pt-2">
+        )}
+        {tab === "podcasts" && (
+          <div className="space-y-8 pb-8">
         {/* Feeds */}
         <section className="space-y-3">
-          <h2 className="text-xs uppercase tracking-widest text-[#6e5d44]">Feeds</h2>
+          <h2 className="text-xs uppercase tracking-widest text-[var(--ink-4)]">Feeds</h2>
           <div className="space-y-2">
             {appState.feeds.map((feed) => {
               const label = feedStatusLabel(feed);
@@ -713,14 +708,14 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
               return (
                 <div
                   key={feed.id}
-                  className="flex items-center gap-3 rounded-lg bg-[#12101a] border border-[#241f30] px-4 py-3"
+                  className="flex items-center gap-3 rounded-lg bg-[var(--surface)] border border-[var(--line)] px-4 py-3"
                 >
                   <input
                     type="checkbox"
                     id={`feed-${feed.id}`}
                     checked={feed.enabled}
                     onChange={() => toggleFeed(feed.id)}
-                    className="h-5 w-5 rounded accent-[#6e5d44] cursor-pointer"
+                    className="h-5 w-5 rounded accent-[var(--ink-4)] cursor-pointer"
                   />
                   <label
                     htmlFor={`feed-${feed.id}`}
@@ -730,7 +725,7 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
                   </label>
                   {label && (
                     <span
-                      className={`text-xs ${isError ? "text-red-400/70" : "text-[#6e5d44]"}`}
+                      className={`text-xs ${isError ? "text-red-400/70" : "text-[var(--ink-4)]"}`}
                     >
                       {label}
                     </span>
@@ -738,7 +733,7 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
                   {!feed.builtin && (
                     <button
                       onClick={() => handleRemoveFeed(feed.id)}
-                      className="text-xs text-[#6e5d44] hover:text-red-400/70 ml-1"
+                      className="text-xs text-[var(--ink-4)] hover:text-red-400/70 ml-1"
                       aria-label={`Remove ${feed.title}`}
                     >
                       ✕
@@ -750,8 +745,8 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
           </div>
 
           {/* Add custom feed */}
-          <div className="rounded-lg bg-[#12101a] border border-[#241f30] px-4 py-3 space-y-2">
-            <p className="text-xs text-[#6e5d44] uppercase tracking-widest">
+          <div className="rounded-lg bg-[var(--surface)] border border-[var(--line)] px-4 py-3 space-y-2">
+            <p className="text-xs text-[var(--ink-4)] uppercase tracking-widest">
               Add custom feed
             </p>
 
@@ -759,10 +754,10 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
                 sleepcast, it's finding the private RSS link the paid service
                 hands its subscribers. Native <details> — no JS, accessible. */}
             <details className="text-xs">
-              <summary className="cursor-pointer list-none text-[#8a7a5c] transition-colors hover:text-[#b59a76] [&::-webkit-details-marker]:hidden">
+              <summary className="cursor-pointer list-none text-[var(--ink-3)] transition-colors hover:text-[var(--ink-2)] [&::-webkit-details-marker]:hidden">
                 How do I add a paid show? →
               </summary>
-              <div className="mt-2 space-y-2 leading-relaxed text-[#8a7a5c]">
+              <div className="mt-2 space-y-2 leading-relaxed text-[var(--ink-3)]">
                 <p>
                   Paid podcasts give subscribers a <strong>private RSS link</strong>.
                   Find it, copy it, paste it above — once. It's saved on this
@@ -770,16 +765,16 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
                 </p>
                 <ul className="list-disc space-y-1.5 pl-4">
                   <li>
-                    <span className="text-[#b59a76]">Sleep With Me Plus / Supercast:</span>{" "}
+                    <span className="text-[var(--ink-2)]">Sleep With Me Plus / Supercast:</span>{" "}
                     in Supercast, open “Listening links” or “Add to other apps”, then
                     <strong> Copy RSS feed</strong>.
                   </li>
                   <li>
-                    <span className="text-[#b59a76]">Patreon:</span> the creator's page →
+                    <span className="text-[var(--ink-2)]">Patreon:</span> the creator's page →
                     Membership → “Listen on other apps” / Get RSS link → <strong>Copy</strong>.
                   </li>
                   <li>
-                    <span className="text-[#b59a76]">Apple Podcasts subscriptions:</span>{" "}
+                    <span className="text-[var(--ink-2)]">Apple Podcasts subscriptions:</span>{" "}
                     usually locked to Apple and can't be exported — check if the show
                     also offers Patreon or Supercast.
                   </li>
@@ -791,7 +786,7 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
                 </p>
                 <a
                   href="/help/"
-                  className="inline-block underline decoration-[#3a3325] underline-offset-4 transition-colors hover:text-[#b59a76]"
+                  className="inline-block underline decoration-[var(--line)] underline-offset-4 transition-colors hover:text-[var(--ink-2)]"
                 >
                   Full guide →
                 </a>
@@ -803,14 +798,14 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
               value={customUrl}
               onChange={(e) => setCustomUrl(e.target.value)}
               placeholder="Paste a feed link"
-              className="w-full rounded bg-[#12101a] border border-[#241f30] px-3 py-2 text-sm text-[#b59a76] placeholder:text-[#6e5d44] focus:outline-none focus:border-[#6e5d44]"
+              className="w-full rounded bg-[var(--surface)] border border-[var(--line)] px-3 py-2 text-sm text-[var(--ink-2)] placeholder:text-[var(--ink-4)] focus:outline-none focus:border-[var(--ink-4)]"
             />
             <input
               type="text"
               value={customTitle}
               onChange={(e) => setCustomTitle(e.target.value)}
               placeholder="Title (optional)"
-              className="w-full rounded bg-[#12101a] border border-[#241f30] px-3 py-2 text-sm text-[#b59a76] placeholder:text-[#6e5d44] focus:outline-none focus:border-[#6e5d44]"
+              className="w-full rounded bg-[var(--surface)] border border-[var(--line)] px-3 py-2 text-sm text-[var(--ink-2)] placeholder:text-[var(--ink-4)] focus:outline-none focus:border-[var(--ink-4)]"
             />
             {customError && (
               <p className="text-xs text-red-400/70">{customError}</p>
@@ -818,12 +813,12 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
             <button
               onClick={() => { void handleAddCustomFeed(); }}
               disabled={!customUrl.trim()}
-              className="w-full rounded bg-[#12101a] border border-[#241f30] py-2 text-sm text-[#b59a76] disabled:opacity-40 hover:border-[#6e5d44] transition-colors"
+              className="w-full rounded bg-[var(--surface)] border border-[var(--line)] py-2 text-sm text-[var(--ink-2)] disabled:opacity-40 hover:border-[var(--ink-4)] transition-colors"
             >
               Add feed
             </button>
-            <div className="flex items-center justify-between pt-1 text-xs text-[#6e5d44]">
-              <label className="cursor-pointer underline decoration-[#241f30] underline-offset-4 hover:text-[#b59a76]">
+            <div className="flex items-center justify-between pt-1 text-xs text-[var(--ink-4)]">
+              <label className="cursor-pointer underline decoration-[var(--line)] underline-offset-4 hover:text-[var(--ink-2)]">
                 import OPML
                 <input
                   type="file"
@@ -838,17 +833,20 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
               </label>
               <button
                 onClick={handleOpmlExport}
-                className="underline decoration-[#241f30] underline-offset-4 hover:text-[#b59a76]"
+                className="underline decoration-[var(--line)] underline-offset-4 hover:text-[var(--ink-2)]"
               >
                 export OPML
               </button>
             </div>
-            {opmlNote && <p className="text-xs text-[#6e5d44]">{opmlNote}</p>}
+            {opmlNote && <p className="text-xs text-[var(--ink-4)]">{opmlNote}</p>}
           </div>
         </section>
-
+          </div>
+        )}
+        {tab === "settings" && (
+          <div className="space-y-8 pb-8">
         <section className="space-y-3">
-          <h2 className="text-xs uppercase tracking-widest text-[#6e5d44]">Loudness</h2>
+          <h2 className="text-xs uppercase tracking-widest text-[var(--ink-4)]">Loudness</h2>
           <div className="flex items-center gap-3">
             <input
               type="checkbox"
@@ -856,13 +854,13 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
               checked={appState.settings.leveling}
               disabled={levelingUnavailable}
               onChange={(e) => setFlag("leveling", e.target.checked)}
-              className="h-5 w-5 rounded accent-[#6e5d44] cursor-pointer disabled:opacity-40"
+              className="h-5 w-5 rounded accent-[var(--ink-4)] cursor-pointer disabled:opacity-40"
             />
             <label htmlFor="leveling-on" className="text-sm cursor-pointer">
               even out loudness between shows
             </label>
           </div>
-          <p className="text-xs text-[#6e5d44]">
+          <p className="text-xs text-[var(--ink-4)]">
             {levelingUnavailable
               ? "Not available on iPhone or iPad: the compressor routes audio through Web Audio, which this device suspends when the screen locks — the night would play in silence. Per-show volume trim works here and everywhere."
               : "Costs an extra load on each show's first episode. Per-show volume trim works either way."}
@@ -872,7 +870,7 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
         {/* A custom timer is the long tail of the one decision the field
             already offers, so it lives down here with the other fiddling. */}
         <section className="space-y-3">
-          <h2 className="text-xs uppercase tracking-widest text-[#6e5d44]">Custom timer</h2>
+          <h2 className="text-xs uppercase tracking-widest text-[var(--ink-4)]">Custom timer</h2>
           <div className="flex items-center gap-3">
             <input
               type="number"
@@ -885,11 +883,11 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
               // typing, the box keeps what's typed so "3" can become "30";
               // on leaving it, it shows what was actually saved.
               onBlur={() => setCustomMinutes("")}
-              className="w-28 rounded-lg bg-[#12101a] border border-[#241f30] px-3 py-3 text-base text-[#b59a76] placeholder:text-[#6e5d44] text-center focus:outline-none focus:border-[#6e5d44] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+              className="w-28 rounded-lg bg-[var(--surface)] border border-[var(--line)] px-3 py-3 text-base text-[var(--ink-2)] placeholder:text-[var(--ink-4)] text-center focus:outline-none focus:border-[var(--ink-4)] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
               aria-label="Custom timer minutes"
             />
             {mode.kind === "minutes" && (
-              <p className="text-xs text-[#6e5d44]">
+              <p className="text-xs text-[var(--ink-4)]">
                 now {timerMinutes} min — volume fades over the final 60 s
               </p>
             )}
@@ -901,15 +899,15 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
             the listener chooses it knowingly, and off is the plain shuffle
             to compare against (the scoring spec, §8). */}
         <section className="space-y-3">
-          <h2 className="text-xs uppercase tracking-widest text-[#6e5d44]">Favor what puts me under</h2>
+          <h2 className="text-xs uppercase tracking-widest text-[var(--ink-4)]">Favor what puts me under</h2>
           <label className="flex items-start gap-3">
             <input
               type="checkbox"
               checked={appState.settings.favorWhatWorks}
               onChange={(e) => setFlag("favorWhatWorks", e.target.checked)}
-              className="mt-0.5 h-4 w-4 accent-[#6e5d44]"
+              className="mt-0.5 h-4 w-4 accent-[var(--ink-4)]"
             />
-            <span className="text-xs text-[#6e5d44]">
+            <span className="text-xs text-[var(--ink-4)]">
               Shows you've drifted off to come up more often; shows you tend
               to skip come up less often. Each needs a few nights behind it
               first, and nothing is ever ruled out. Off by default — off is a
@@ -921,15 +919,15 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
         {/* Stimulus control, off unless asked for. It can stop a night early,
             so it is never on by default and never inferred. */}
         <section className="space-y-3">
-          <h2 className="text-xs uppercase tracking-widest text-[#6e5d44]">The quarter-hour rule</h2>
+          <h2 className="text-xs uppercase tracking-widest text-[var(--ink-4)]">The quarter-hour rule</h2>
           <label className="flex items-start gap-3">
             <input
               type="checkbox"
               checked={quarterHourRule}
               onChange={(e) => setFlag("quarterHourRule", e.target.checked)}
-              className="mt-0.5 h-4 w-4 accent-[#6e5d44]"
+              className="mt-0.5 h-4 w-4 accent-[var(--ink-4)]"
             />
-            <span className="text-xs text-[#6e5d44]">
+            <span className="text-xs text-[var(--ink-4)]">
               If you're still restless after 25 minutes, stop and suggest getting
               up for a while. Lying awake in bed teaches your bed to mean
               lying awake. Off by default — it can end a night early.
@@ -937,10 +935,10 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
           </label>
         </section>
           <div className="pt-1 text-center">
-            <a href="/privacy" className="text-[10px] uppercase tracking-widest text-[#4a4030] hover:text-[#6e5d44]">privacy &amp; analytics</a>
+            <a href="/privacy" className="text-[10px] uppercase tracking-widest text-[var(--ink-4)] hover:text-[var(--ink-4)]">privacy &amp; analytics</a>
           </div>
           </div>
-        </details>
+        )}
       </div>
     </div>
   );
