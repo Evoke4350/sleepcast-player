@@ -444,6 +444,16 @@ describe("favor what puts me under opt-in", () => {
     saveState({ ...s, settings: { ...s.settings, favorWhatWorks: true } });
     expect(loadState().settings.favorWhatWorks).toBe(true);
   });
+
+  it("keeps the learned-timer settings: off only when false, a pick time only when a number", () => {
+    localStorage.setItem("sleepcast2.state", JSON.stringify({ feeds: [], settings: { timerMinutes: 45, learnTimer: "no", timerPickedAt: "soon" } }));
+    expect(loadState().settings.learnTimer).toBeUndefined();
+    expect(loadState().settings.timerPickedAt).toBeUndefined();
+    const s = loadState();
+    saveState({ ...s, settings: { ...s.settings, learnTimer: false, timerPickedAt: 1234 } });
+    expect(loadState().settings.learnTimer).toBe(false);
+    expect(loadState().settings.timerPickedAt).toBe(1234);
+  });
 });
 
 describe("quarter-hour rule opt-in", () => {

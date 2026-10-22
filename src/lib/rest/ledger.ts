@@ -95,11 +95,17 @@ export function isSlept(n: RestNight): boolean {
   return n.sleptAtMs !== null && n.timeToSleepMs !== null && n.selfLabel !== "awake";
 }
 
+/** A night's believable time to sleep, or null: not slept, or an onset
+ *  below the plausible floor (see rollup). */
+export function believableOnsetMs(n: RestNight): number | null {
+  if (!isSlept(n)) return null;
+  const t = n.timeToSleepMs as number;
+  return t >= plausibleFloor(n) ? t : null;
+}
+
 /** Of slept nights, the believable times to sleep (see rollup). */
 function believableOnsets(slept: readonly RestNight[]): number[] {
-  return slept
-    .filter((n) => (n.timeToSleepMs as number) >= plausibleFloor(n))
-    .map((n) => n.timeToSleepMs as number);
+  return slept.map(believableOnsetMs).filter((t): t is number => t !== null);
 }
 
 export function rollup(nights: RestNight[]): RestRollup {
