@@ -15,20 +15,17 @@ import {
   loadLastEpisode,
   getPlays,
 } from "../lib/store";
-import { diverseByMeta, formatTime, parseFeedXml } from "../lib/engine";
+import { formatTime, parseFeedXml } from "../lib/engine";
 import { beacon } from "../lib/beacon";
 import type { Episode } from "../lib/engine";
 import { loadNights, setSelfLabel } from "../lib/rest/ledger";
 import { recordFalsePositive } from "../lib/rest/calibrate";
 import { rankedFeeds, evidenceFor } from "../lib/rest/sleepscore";
 import type { RestNight } from "../lib/rest/types";
-import { diversePick } from "../lib/semantic-math";
 import { FEEL_PRESETS } from "../lib/timer-feel";
 import { needsFetch } from "../lib/feed-status";
 import { pickNextEpisode } from "../lib/plays";
 
-const VARIED_N = 8;
-const EMBED_CAP = 96; // max titles to embed per varied-night run (~10s cold on a phone)
 
 interface FeedStatus {
   loading: boolean;
@@ -64,25 +61,11 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
   const [customError, setCustomError] = useState<string | null>(null);
   // A pasted @handle needs a server round trip before it is a feed.
   const [customMinutes, setCustomMinutes] = useState<string>("");
-  const [variedBusy, setVariedBusy] = useState(false);
-  const [variedNote, setVariedNote] = useState<string | null>(null);
   const [goldenPending, setGoldenPending] = useState(false);
   // Returning-listener warmth: the show they drifted off to (for "the exact one
   // again"), and last night's record (to greet + ask how they slept, which
   // doubles as the detector's self-label).
   const leadRef = useRef<Episode | null>(null);
-  // Whether this screen is still up: the varied mix's pick can resolve up to
-  // 25 s after its tap, when a night may already have started. Leaving also
-  // aborts the mix's embedding.
-  const mountedRef = useRef(true);
-  const mixAbortRef = useRef<AbortController | null>(null);
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-      mixAbortRef.current?.abort();
-    };
-  }, []);
   const leadPositionRef = useRef(0);
   const [feedError, setFeedError] = useState("");
   const [lastEpisode] = useState(() => loadLastEpisode());
@@ -516,62 +499,6 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [goldenPending, canStart]);
 
-  // Semantic "varied night": embed candidate titles (MiniLM in-browser,
-  // cached), pick VARIED_N spread across the embedding space, sleep on those.
-  async function handleVariedStart() {
-    if (!canStart || variedBusy) return;
-    beacon("ritual_mix");
-    setVariedBusy(true);
-    setVariedNote("warming up…");
-    // Bound the work before it starts: a full pool can be thousands of
-    // titles — minutes of serial embedding on a phone. Spread it down to
-    // EMBED_CAP candidates by feed×year first; the semantic pick then only
-    // has to sort the finalists.
-    const candidates = pool.length > EMBED_CAP ? diverseByMeta(pool, EMBED_CAP) : pool;
-    let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
-    // Aborted when the screen goes or the deadline wins: the embedding
-    // stops then (a model download under way goes on, to be cached).
-    const abort = new AbortController();
-    mixAbortRef.current = abort;
-    try {
-      // Armed before the model's code is even fetched: a stalled chunk
-      // must reach the fallback too.
-      const deadline = new Promise<never>((_, reject) => {
-        deadlineTimer = setTimeout(() => {
-          abort.abort();
-          reject(new Error("semantic deadline"));
-        }, 25_000);
-      });
-      const work = (async () => {
-        const { embedTexts } = await import("../lib/semantic-model");
-        const vecs = await embedTexts(
-          candidates.map((e) => e.title),
-          (done, total) => setVariedNote(`reading titles… ${done}/${total}`),
-          (pct) => setVariedNote(`fetching the mixer… ${pct}%`),
-          abort.signal,
-        );
-        // Abandoned meanwhile (all titles cached, or the last one embedding
-        // when the deadline hit): no pick for nobody.
-        if (abort.signal.aborted) throw new Error("mix abandoned");
-        return diversePick(vecs, VARIED_N).map((i) => candidates[i]);
-      })();
-      work.catch(() => {}); // raced below; a late loss must not surface as unhandled
-      // Slow devices still get their night: past the deadline we stop
-      // waiting and take the meta spread instead of hanging on "mixing…".
-      const picked = await Promise.race([work, deadline]);
-      if (mountedRef.current) startWith(picked, true);
-    } catch {
-      // Semantic model can't run on every device (iOS Lockdown Mode blocks
-      // WASM SIMD) — or didn't finish in time. Fall back to feed×year
-      // spread — still varied, just not meaning-aware — and start anyway.
-      if (mountedRef.current) startWith(diverseByMeta(pool, VARIED_N), true);
-    } finally {
-      clearTimeout(deadlineTimer);
-      if (mixAbortRef.current === abort) mixAbortRef.current = null;
-      setVariedBusy(false);
-    }
-  }
-
   function feedStatusLabel(feed: FeedRef): string {
     const s = feedStatuses[feed.id];
     if (!feed.enabled) return "";
@@ -766,17 +693,6 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
             </button>
           </div>
 
-          {/* The mix: a clear second way to start, one step down from the moon.
-              A real button now, not a whispered link — people reach for it. */}
-          <button
-            onClick={handleVariedStart}
-            disabled={!canStart || variedBusy || pool.length <= VARIED_N}
-            title="Picks a mix of 8 episodes spread across different topics"
-            className="mt-1 inline-flex items-center gap-2 rounded-full border border-[#3a3325] bg-[#12101a] px-5 py-2.5 text-sm text-[#d9c9a8] transition-colors hover:border-[#6e5d44] active:scale-95 disabled:opacity-40"
-          >
-            <span aria-hidden="true">🎲</span>
-            {variedBusy ? (variedNote || "mixing your night…") : "a varied mix — 8 different shows"}
-          </button>
         </div>
 
         {/* Everything below is the active work — choosing feeds, pasting URLs,

@@ -15,7 +15,6 @@ export const EVENT_NAMES = [
   "welcome_shown",
   "ritual_same_shows",
   "ritual_exact_again",
-  "ritual_mix",
   "slept_yes",
   "slept_no",
   "reanchor_shown",
