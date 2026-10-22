@@ -1,12 +1,9 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLazyRef } from "../lib/use-lazy-ref";
 import { useNightShuffle } from "../lib/use-night-shuffle";
 import { useStateRef } from "../lib/use-state-ref";
 import { useNightExtensions } from "../lib/use-night-extensions";
 
-// The drift game (three.js) loads only when opened — the player's own
-// bundle stays featherweight.
-const DriftGame = lazy(() => import("./DriftGame"));
 import type { Episode, PlayMode } from "../lib/engine";
 import { fadeVolume, formatTime, effectiveVolume, fadeDriverSeconds } from "../lib/engine";
 import { getPlays, recordHeardPlay, saveLive, noteSounded, SNAPSHOT_EVERY_TICKS, counterAfterStartSnapshot, rememberPosition, forgetPosition, blockEpisode } from "../lib/store";
@@ -61,7 +58,6 @@ function suspendsWebAudioOnLock(): boolean {
     (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
   return iOSLike;
 }
-const IS_TOUCH = typeof matchMedia !== "undefined" && matchMedia("(pointer: coarse)").matches;
 // A pool this small is a curated lineup (varied night), not a whole archive:
 // show it, so the night's spread is something you can see.
 const LINEUP_MAX = 12;
@@ -210,7 +206,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   const [epPos, setEpPos] = useState<{ cur: number; dur: number } | null>(null);
   const [toast, setToast] = useState("");
   const [holdPct, setHoldPct] = useState(0);
-  const [drifting, setDrifting] = useState(false);
   // Stretches used this night (see useNightExtensions), kept across a revive.
   const { canExtendMore, extendTimer, extensionsRef } = useNightExtensions(resume?.extensions ?? 0, persistLive, {
     endTimeRef, pausedRemainingMsRef, totalSecondsRef, setTotalSeconds, restRef,
@@ -1517,23 +1512,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
             </button>
           </div>
         </div>
-
-        {/* drift: a 3D merge toy for hands that aren't sleepy yet.
-            Touch-only: on a desktop the mouse-and-monitor posture is wrong
-            for it, and the player stays quieter without it. */}
-        {IS_TOUCH && <div className="space-y-2">
-          <button
-            onClick={() => setDrifting((d) => !d)}
-            className="text-xs text-[#4a4540] underline decoration-[#2e2d3a] underline-offset-4"
-          >
-            {drifting ? "put the stars away" : "🌒 drift — a little game while you listen"}
-          </button>
-          {drifting && (
-            <Suspense fallback={<div className="py-10 text-xs text-[#4a4540]">gathering stardust…</div>}>
-              <DriftGame />
-            </Suspense>
-          )}
-        </div>}
 
         {/* Tonight's spread: the curated lineup, current episode marked,
             already-played ones settling back like turned pages. */}
