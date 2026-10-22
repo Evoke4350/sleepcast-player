@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AppState, FeedRef } from "../lib/store";
 import { loadBlocked, loadPositions, clampTimerMinutes, TIMER_MIN, TIMER_MAX } from "../lib/store";
-import { searchEpisodes } from "../lib/episode-search";
 import { parseOpml, buildOpml } from "../lib/opml";
 import { rearmMinutes } from "../lib/engine";
 import type { PlayMode } from "../lib/engine";
@@ -85,7 +84,6 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
     };
   }, []);
   const leadPositionRef = useRef(0);
-  const [query, setQuery] = useState("");
   const [feedError, setFeedError] = useState("");
   const [lastEpisode] = useState(() => loadLastEpisode());
   const [greetNight, setGreetNight] = useState<RestNight | null>(() => {
@@ -469,21 +467,6 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
     [lastEpisode?.id],
   );
 
-  // Searching the pool means a result is always something we can actually
-  // start — the same episodes the moon would have shuffled.
-  // Component-scope feed titles. startWith() builds its own local `feedTitles`
-  // for the onStart payload; referencing that one from JSX was a ReferenceError
-  // that blanked the app as soon as a search returned a result.
-  const feedTitleById = useMemo(
-    () => Object.fromEntries(appState.feeds.map((f) => [f.id, f.title])),
-    [appState.feeds],
-  );
-
-  const results = useMemo(
-    () => (query.trim() ? searchEpisodes(pool, query, 8) : []),
-    [query, pool],
-  );
-
   // Read once. This screen is not live while a night runs, and re-ranking on
   // every render would let the suggestion change under the user's thumb.
   const suggestion = useMemo(() => {
@@ -503,13 +486,6 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
   const suggestionReady = suggestion
     ? pool.some((e) => e.feedId === suggestion.feed.id)
     : false;
-
-  function handleSearchPick(ep: Episode) {
-    // Resume where they drifted off in that episode, exactly as "the exact one
-    // again" does — finding a story you half-finished is the main reason to
-    // search for it.
-    beginNight(ep, loadPositions()[ep.id] ?? 0);
-  }
 
   function handleExactAgain() {                             // the exact one again
     beacon("ritual_exact_again");
@@ -674,39 +650,6 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
                 >
                   or from the start
                 </button>
-              )}
-              {pool.length > 0 && (
-                <div>
-                  <input
-                    type="search"
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    placeholder="or find one — “train”, “rain”…"
-                    aria-label="search your episodes"
-                    className="w-full rounded-xl border border-[#241f30] bg-[#12101a] px-4 py-3 text-sm text-[#b59a76] placeholder:text-[#4a4540] focus:border-[#6e5d44] focus:outline-none"
-                  />
-                  {query.trim() && (
-                    <div className="mt-2 space-y-1">
-                      {results.length === 0 ? (
-                        <p className="px-1 text-xs text-[#4a4540]">nothing by that name</p>
-                      ) : (
-                        results.map((ep) => (
-                          <button
-                            key={ep.id}
-                            onClick={() => handleSearchPick(ep)}
-                            disabled={goldenPending}
-                            className="block w-full truncate rounded-lg px-3 py-2 text-left text-sm text-[#b0a898] transition-colors hover:bg-[#171310] disabled:opacity-50"
-                          >
-                            {ep.title}
-                            <span className="ml-2 text-xs text-[#4a4540]">
-                              {feedTitleById[ep.feedId] ?? ""}
-                            </span>
-                          </button>
-                        ))
-                      )}
-                    </div>
-                  )}
-                </div>
               )}
               {feedError && <p className="text-xs text-[#b3746b]">{feedError}</p>}
               <p className="text-xs text-[#6e5d44]">or the moon below — the same shows, on shuffle ↓</p>
