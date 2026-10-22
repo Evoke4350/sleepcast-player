@@ -205,16 +205,6 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
     updateAndSave(next);
   }
 
-  function setSkipIntro(id: string, minutes: number) {
-    const next: AppState = {
-      ...appState,
-      feeds: appState.feeds.map((f) =>
-        f.id === id ? { ...f, skipIntroMin: minutes } : f
-      ),
-    };
-    updateAndSave(next);
-  }
-
   function selectTimer(minutes: number) {
     const next: AppState = {
       ...appState,
@@ -332,11 +322,12 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
   }
 
   function startWith(chosen: Episode[], wasVaried = false) {
+    // No skip-intro: the setting is gone, so none is sent (a stored one
+    // from before is no longer applied).
     const skipIntroByFeedId: Record<string, number> = {};
     const feedTitles: Record<string, string> = {};
     const artworkByFeedId: Record<string, string> = {};
     for (const f of appState.feeds) {
-      if (f.skipIntroMin > 0) skipIntroByFeedId[f.id] = f.skipIntroMin;
       feedTitles[f.id] = f.title;
       const artwork = feedStatuses[f.id]?.artwork;
       if (artwork) artworkByFeedId[f.id] = artwork;
@@ -738,26 +729,6 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
                       {label}
                     </span>
                   )}
-                  {/* Skip intro */}
-                  <div className="flex items-center gap-1 text-xs text-[#6e5d44]">
-                    <label htmlFor={`skip-${feed.id}`} className="sr-only">
-                      Skip intro minutes
-                    </label>
-                    <input
-                      id={`skip-${feed.id}`}
-                      type="number"
-                      min={0}
-                      max={60}
-                      value={feed.skipIntroMin || ""}
-                      placeholder="0"
-                      onChange={(e) =>
-                        setSkipIntro(feed.id, Math.max(0, Number(e.target.value) || 0))
-                      }
-                      className="w-12 rounded bg-[#12101a] border border-[#241f30] px-2 py-1 text-center text-[#b59a76] text-xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                      title="Skip intro (minutes)"
-                    />
-                    <span>min skip</span>
-                  </div>
                   {!feed.builtin && (
                     <button
                       onClick={() => handleRemoveFeed(feed.id)}
