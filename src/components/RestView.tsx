@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useReducer } from "react";
 import { loadNights, rollup, setSelfLabel, leanComparison } from "../lib/rest/ledger";
 import { recordFalsePositive } from "../lib/rest/calibrate";
 import { scoreFeeds, medianTimeToSleep, meetsSuggestionGate, shuffleWeights, pluralNights, fmtOnsetMinutes, MIN_NIGHTS } from "../lib/rest/sleepscore";
@@ -6,7 +6,10 @@ import { fmtDuration, lastNight } from "../lib/rest/surface";
 import { getPlays, loadState } from "../lib/store";
 import { playsSince, playAtMoment } from "../lib/plays";
 
-export function RestView({ onClose }: { onClose: () => void }) {
+/** `onClose` when shown as its own screen; in the Rest tab there is none,
+ *  and a label just redraws the view. */
+export function RestView({ onClose }: { onClose?: () => void }) {
+  const [, redraw] = useReducer((n: number) => n + 1, 0);
   const nights = useMemo(() => loadNights(), []);
   const r = useMemo(() => rollup(nights), [nights]);
   const last = lastNight();
@@ -66,25 +69,25 @@ export function RestView({ onClose }: { onClose: () => void }) {
     const lean = enabledFeeds.has(f.feedId) ? leanOf?.(f.feedId) : undefined;
     return (
       <li key={f.feedId} className="flex flex-wrap items-baseline gap-x-2 text-sm">
-        <span className="flex-1 truncate text-[#b0a898]">
+        <span className="flex-1 truncate text-[var(--ink-2)]">
           {/* Raw ids for builtins ("swm") are readable enough to ship;
               a removed custom feed's id ("custom-1699999999-ab3f2")
               is not, so a title-less feed gets a plain label instead
               of leaking that internal id into the UI. */}
           {feedTitles[f.feedId] ?? "a show you removed"}
         </span>
-        <span className="shrink-0 text-xs text-[#8a7a5c]">
+        <span className="shrink-0 text-xs text-[var(--ink-3)]">
           {/* Worded as the evidence sentence words it, so the two can be checked against each other. */}
           {orDash(median, fmtOnsetMinutes)}
         </span>
-        <span className="shrink-0 text-[10px] text-[#4a4540]">
+        <span className="shrink-0 text-[10px] text-[var(--ink-4)]">
           {pluralNights(f.nights)}
           {f.skipNights > 0 ? ` · ${f.skipNights} skipped` : ""}
         </span>
         {/* On its own line, so the title keeps its room at phone width.
             Relative: the shuffle weighs a night's lineup against itself. */}
         {lean !== undefined && lean !== 1 && (
-          <span className="w-full text-right text-[10px] text-[#4a4540]">{`weighs ×${lean.toFixed(2)}`}</span>
+          <span className="w-full text-right text-[10px] text-[var(--ink-4)]">{`weighs ×${lean.toFixed(2)}`}</span>
         )}
       </li>
     );
@@ -97,41 +100,42 @@ export function RestView({ onClose }: { onClose: () => void }) {
     if (kind === "awake" && last.sleptAtMs !== null) {
       recordFalsePositive();
     }
-    onClose();
+    if (onClose) onClose();
+    else redraw();
   }
 
   return (
-    <div className="mx-auto max-w-sm space-y-8 px-6 py-16 text-center text-[#8a7a5c]">
+    <div className="mx-auto max-w-sm space-y-8 px-6 py-16 text-center text-[var(--ink-3)]">
       <div>
-        <div className="text-5xl text-[#c8c0b0]">{r.nightsSlept}</div>
+        <div className="text-5xl text-[var(--ink-2)]">{r.nightsSlept}</div>
         <div className="mt-1 text-xs uppercase tracking-widest">nights you drifted off</div>
       </div>
       {r.bestTimeToSleepMs !== null && (
         <div>
-          <div className="text-2xl text-[#b0a898]">{fmtDuration(r.bestTimeToSleepMs)}</div>
+          <div className="text-2xl text-[var(--ink-2)]">{fmtDuration(r.bestTimeToSleepMs)}</div>
           <div className="mt-1 text-xs uppercase tracking-widest">fastest you left us</div>
         </div>
       )}
       {r.medianTimeToSleepMs !== null && (
         <div>
-          <div className="text-2xl text-[#b0a898]">{fmtDuration(r.medianTimeToSleepMs)}</div>
+          <div className="text-2xl text-[var(--ink-2)]">{fmtDuration(r.medianTimeToSleepMs)}</div>
           <div className="mt-1 text-xs uppercase tracking-widest">how long you usually take</div>
         </div>
       )}
       {lastPlays.length > 0 && (
-        <div className="border-t border-[#241f30] pt-6 text-left">
+        <div className="border-t border-[var(--line)] pt-6 text-left">
           <div className="text-center text-xs uppercase tracking-widest">last night</div>
           <ul className="mt-4 space-y-2 text-sm">
             {lastPlays.map((p) => (
               <li key={p.id}>
                 <div className="flex items-baseline justify-between gap-3">
-                  <span className="text-[#b0a898]">{p.title || "an episode"}</span>
-                  <span className="shrink-0 text-xs text-[#6b6255]">
+                  <span className="text-[var(--ink-2)]">{p.title || "an episode"}</span>
+                  <span className="shrink-0 text-xs text-[var(--ink-3)]">
                     {Math.max(1, Math.round(p.heardSec / 60))} min
                   </span>
                 </div>
                 {driftedDuring?.id === p.id && (
-                  <div className="mt-0.5 text-xs text-[#6e5d44]">you drifted off here</div>
+                  <div className="mt-0.5 text-xs text-[var(--ink-4)]">you drifted off here</div>
                 )}
               </li>
             ))}
@@ -139,17 +143,17 @@ export function RestView({ onClose }: { onClose: () => void }) {
         </div>
       )}
       {last && last.sleptAtMs !== null && last.selfLabel === undefined && (
-        <div className="space-y-2 border-t border-[#241f30] pt-6 text-sm">
+        <div className="space-y-2 border-t border-[var(--line)] pt-6 text-sm">
           <p>did you fall asleep to it last time?</p>
           <div className="flex justify-center gap-3">
-            <button onClick={() => label("slept")} className="rounded-full border border-[#241f30] px-4 py-1.5 hover:border-[#6e5d44]">yes</button>
-            <button onClick={() => label("awake")} className="rounded-full border border-[#241f30] px-4 py-1.5 hover:border-[#6e5d44]">no</button>
+            <button onClick={() => label("slept")} className="rounded-full border border-[var(--line)] px-4 py-1.5 hover:border-[var(--ink-4)]">yes</button>
+            <button onClick={() => label("awake")} className="rounded-full border border-[var(--line)] px-4 py-1.5 hover:border-[var(--ink-4)]">no</button>
           </div>
         </div>
       )}
       {scored.length > 0 && (
         <section className="mt-8">
-          <h2 className="text-xs uppercase tracking-widest text-[#4a4540]">
+          <h2 className="text-xs uppercase tracking-widest text-[var(--ink-4)]">
             what puts you under
           </h2>
           {/* counted first, so this list never names a different leader than
@@ -159,13 +163,13 @@ export function RestView({ onClose }: { onClose: () => void }) {
           )}
           {notYetCounted.length > 0 && (
             <div className={counted.length > 0 ? "mt-4" : "mt-2"}>
-              <p className="text-[10px] uppercase tracking-widest text-[#4a4540]">
+              <p className="text-[10px] uppercase tracking-widest text-[var(--ink-4)]">
                 not counted for the suggestion yet
               </p>
               <ul className="mt-2 space-y-1.5">{notYetCounted.map(feedRow)}</ul>
             </div>
           )}
-          <p className="mt-2 text-[11px] leading-snug text-[#4a4540]">
+          <p className="mt-2 text-[11px] leading-snug text-[var(--ink-4)]">
             {`Ranked by what was playing when you went under. Shows with fewer than ${MIN_NIGHTS} nights, that have never led, or that net negative aren't counted yet.`}
             {favorWhatWorks
               ? ` "Favor what puts me under" is on: a show with ${MIN_NIGHTS} or more nights, counted or not, weighs by its record against the other shows in a night's lineup; a show with fewer nights weighs ×1, and shows that weigh the same lean nothing between them. A weight applies to each fresh episode, so a show with more of them still comes up more. Weights other than ×1 are listed for shows that are switched on.`
@@ -177,15 +181,15 @@ export function RestView({ onClose }: { onClose: () => void }) {
           no feed has scored nights (slept nights with no feed attributed). */}
       {/* The headline's measure split by lean, so formatted like it (fmtDuration). */}
       {compared && (
-        <p className="text-[11px] leading-snug text-[#8a7a5c]">
+        <p className="text-[11px] leading-snug text-[var(--ink-3)]">
           {`How long you usually take: ${orDash(compared.leaned.medianMs, fmtDuration)} on nights the shuffle leaned (${pluralNights(compared.leaned.timedNights, "timed")}), ${orDash(compared.plain.medianMs, fmtDuration)} on plain-shuffle nights (${pluralNights(compared.plain.timedNights, "timed")}). A rough guide: the two differ in more than the lean (which shows, which weeks).`}
         </p>
       )}
-      <p className="text-xs text-[#4a4540]">
+      <p className="text-xs text-[var(--ink-4)]">
         counted only on this device. no account, nothing sent anywhere. we're
         rooting for the nights you don't need us.
       </p>
-      <button onClick={onClose} className="text-xs underline decoration-[#3a3325] underline-offset-4 hover:text-[#b59a76]">back</button>
+      {onClose && <button onClick={onClose} className="text-xs underline decoration-[var(--line)] underline-offset-4 hover:text-[var(--ink-2)]">back</button>}
     </div>
   );
 }

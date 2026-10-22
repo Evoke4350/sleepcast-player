@@ -1315,21 +1315,21 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntro
       {/* Opt-in stimulus control. Playback is held, not ended — the listener
           asked for the nudge, not for the app to overrule them. */}
       {gettingUp && (
-        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-[#0d0b12] px-8 text-center">
-          <p className="text-lg text-[#b0a898]">this one isn't working tonight.</p>
-          <p className="max-w-xs text-sm text-[#8a7a5c]">
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-[var(--surface)] px-8 text-center">
+          <p className="text-lg text-[var(--ink-2)]">this one isn't working tonight.</p>
+          <p className="max-w-xs text-sm text-[var(--ink-3)]">
             get up for a bit. somewhere dim, something dull. come back when
             you're heavy — the bed keeps its meaning that way.
           </p>
           <button
             onClick={() => { showGettingUp(false); endSession("ended"); }}
-            className="mt-2 rounded-full border border-[#6e5d44] px-5 py-2 text-sm text-[#f0dcb8] transition-colors hover:border-[#8a7a5c]"
+            className="mt-2 rounded-full border border-[var(--ink-4)] px-5 py-2 text-sm text-[var(--ink)] transition-colors hover:border-[var(--ink-3)]"
           >
             alright, I'll get up
           </button>
           <button
             onClick={dismissGettingUp}
-            className="text-xs text-[#4a4540] underline decoration-[#2a2620] underline-offset-4 transition-colors hover:text-[#8a7a5c]"
+            className="text-xs text-[var(--ink-4)] underline decoration-[var(--line)] underline-offset-4 transition-colors hover:text-[var(--ink-3)]"
           >
             keep playing anyway
           </button>
@@ -1356,7 +1356,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntro
                     ? "playing one episode"
                     : "playing all night"
               }
-              className="relative font-mono font-light tabular-nums text-[#c8c0b0] transition-opacity duration-500"
+              className="relative font-mono font-light tabular-nums text-[var(--ink-2)] transition-opacity duration-500"
             >
               {/* Only minutes mode has a countdown to reveal. In the timerless
                   modes the moon stays the moon, because a peek showing 0:00
@@ -1366,7 +1366,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntro
                 : <span className="player-moon text-5xl">☾</span>}
             </button>
           </div>
-          <div className="mt-2 flex items-center justify-center gap-3 text-xs text-[#6b6558] uppercase tracking-widest">
+          <div className="mt-2 flex items-center justify-center gap-3 text-xs text-[var(--ink-3)] uppercase tracking-widest">
             <span>
               {mode.kind === "one-episode"
                 ? "one episode"
@@ -1382,14 +1382,14 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntro
             {mode.kind !== "minutes" ? null : canExtendMore ? (
               <button
                 onClick={() => extendTimer(15)}
-                className="rounded-full border border-[#2e2d3a] px-3 py-1 normal-case tracking-normal text-[#7a7264] active:scale-95"
+                className="rounded-full border border-[var(--line)] px-3 py-1 normal-case tracking-normal text-[var(--ink-3)] active:scale-95"
               >
                 a little longer
               </button>
             ) : (
               // Past the cap the offer is withdrawn rather than disabled — a
               // greyed-out button is still an invitation to keep trying.
-              <span className="px-3 py-1 normal-case tracking-normal text-[#4a4540]">
+              <span className="px-3 py-1 normal-case tracking-normal text-[var(--ink-4)]">
                 it isn't the timer
               </span>
             )}
@@ -1397,12 +1397,12 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntro
                 used to be the only way to escape one jarring episode. */}
             <button
               onClick={handleBlock}
-              className="rounded-full border border-[#2e2d3a] px-3 py-1 normal-case tracking-normal text-[#6b6255] active:scale-95"
+              className="rounded-full border border-[var(--line)] px-3 py-1 normal-case tracking-normal text-[var(--ink-3)] active:scale-95"
             >
               never again
             </button>
           </div>
-          <div className="mt-2 h-4 text-xs text-[#7a7264]">
+          <div className="mt-2 h-4 text-xs text-[var(--ink-3)]">
             {toast && <span className="player-toast inline-block">{toast}</span>}
           </div>
         </div>
@@ -1411,10 +1411,10 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntro
         <div className="space-y-1 min-h-[3rem]">
           {nowPlaying ? (
             <>
-              <div className="text-base text-[#b0a898] leading-snug line-clamp-2">
+              <div className="text-base text-[var(--ink-2)] leading-snug line-clamp-2">
                 {nowPlaying.title}
               </div>
-              <div className="text-xs text-[#4a4540]">
+              <div className="text-xs text-[var(--ink-4)]">
                 {feedTitles[nowPlaying.feedId] ?? nowPlaying.feedId}
               </div>
               {epPos && (
@@ -1432,7 +1432,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntro
                       never jump when it fades in. */}
                   <div
                     aria-hidden={!peeking}
-                    className={`mt-1 flex justify-between text-[10px] tabular-nums text-[#4a4540] transition-opacity duration-500 ${
+                    className={`mt-1 flex justify-between text-[10px] tabular-nums text-[var(--ink-4)] transition-opacity duration-500 ${
                       peeking ? "opacity-100" : "opacity-0"
                     }`}
                   >
@@ -1443,7 +1443,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntro
               )}
             </>
           ) : (
-            <div className="text-sm text-[#4a4540]">loading…</div>
+            <div className="text-sm text-[var(--ink-4)]">loading…</div>
           )}
         </div>
 
@@ -1452,21 +1452,21 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntro
           <div className="flex items-center justify-center gap-6">
             <button
               onClick={() => skipBy(-30)}
-              className="h-12 w-12 rounded-full bg-[#12131d] border border-[#232230] text-xs text-[#7a7264] active:scale-95"
+              className="h-12 w-12 rounded-full bg-[var(--surface)] border border-[var(--line)] text-xs text-[var(--ink-3)] active:scale-95"
               aria-label="Back 30 seconds"
             >
               -30s
             </button>
             <button
               onClick={handleTogglePause}
-              className="w-24 h-24 rounded-full bg-[#1a1b26] border border-[#2e2d3a] text-[#c8c0b0] text-sm font-medium active:scale-95 transition-transform"
+              className="w-24 h-24 rounded-full bg-[var(--surface)] border border-[var(--line)] text-[var(--ink-2)] text-sm font-medium active:scale-95 transition-transform"
               aria-label={paused ? "Resume" : "Pause"}
             >
               {paused ? "Resume" : "Pause"}
             </button>
             <button
               onClick={() => skipBy(30)}
-              className="h-12 w-12 rounded-full bg-[#12131d] border border-[#232230] text-xs text-[#7a7264] active:scale-95"
+              className="h-12 w-12 rounded-full bg-[var(--surface)] border border-[var(--line)] text-xs text-[var(--ink-3)] active:scale-95"
               aria-label="Forward 30 seconds"
             >
               +30s
@@ -1476,7 +1476,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntro
           <div className="flex items-center justify-center gap-6">
             <button
               onClick={handleNext}
-              className="w-16 h-16 rounded-full bg-[#1a1b26] border border-[#2e2d3a] text-[#c8c0b0] text-xs font-medium active:scale-95 transition-transform"
+              className="w-16 h-16 rounded-full bg-[var(--surface)] border border-[var(--line)] text-[var(--ink-2)] text-xs font-medium active:scale-95 transition-transform"
               aria-label="Next episode"
             >
               Next
@@ -1486,7 +1486,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntro
               onPointerUp={holdEndCancel}
               onPointerLeave={holdEndCancel}
               onContextMenu={(e) => e.preventDefault()}
-              className="hold-ring w-16 h-16 rounded-full bg-[#1a1b26] border border-[#2e2d3a] text-[#6b6558] text-xs font-medium select-none touch-none"
+              className="hold-ring w-16 h-16 rounded-full bg-[var(--surface)] border border-[var(--line)] text-[var(--ink-3)] text-xs font-medium select-none touch-none"
               style={{ "--hold": holdPct } as React.CSSProperties}
               aria-label="Hold to end session"
             >
@@ -1499,7 +1499,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntro
             already-played ones settling back like turned pages. */}
         {pool.filter((e) => !blockedTonight.has(e.id)).length <= LINEUP_MAX && (
           <div className="space-y-1.5 text-left">
-            <div className="pb-1 text-center text-xs uppercase tracking-widest text-[#4a4540]">
+            <div className="pb-1 text-center text-xs uppercase tracking-widest text-[var(--ink-4)]">
               tonight&apos;s spread
             </div>
             {pool.filter((e) => !blockedTonight.has(e.id)).map((ep) => {
@@ -1510,12 +1510,12 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntro
                   key={ep.id}
                   onClick={() => { if (!isNow) { restRef.current?.noteInteraction(); playEpisode(ep); } }}
                   className={`flex cursor-pointer items-baseline gap-2 text-sm leading-snug transition-opacity duration-700 ${
-                    isNow ? "text-[#c8c0b0]" : wasPlayed ? "text-[#4a4540] opacity-70" : "text-[#7a7264]"
+                    isNow ? "text-[var(--ink-2)]" : wasPlayed ? "text-[var(--ink-4)] opacity-70" : "text-[var(--ink-3)]"
                   }`}
                 >
                   <span className="w-3 shrink-0 text-xs">{isNow ? "♪" : wasPlayed ? "·" : ""}</span>
                   <span className="line-clamp-1 flex-1">{ep.title}</span>
-                  <span className="shrink-0 text-[10px] text-[#4a4540]">
+                  <span className="shrink-0 text-[10px] text-[var(--ink-4)]">
                     {feedTitles[ep.feedId] ?? ep.feedId}
                   </span>
                 </div>

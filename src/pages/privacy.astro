@@ -3,18 +3,18 @@ import PlayerLayout from "../layouts/PlayerLayout.astro";
 ---
 
 <style is:global>
-  body { background: #050508; }
+  body { background: var(--ground); }
 </style>
 
 <PlayerLayout title="sleepcast — privacy">
-  <main class="mx-auto w-full max-w-2xl px-6 py-16 text-[#b59a76]">
-    <a href="/" class="text-xs uppercase tracking-widest text-[#6e5d44] hover:text-[#b59a76]">&larr; back to sleepcast</a>
+  <main class="mx-auto w-full max-w-2xl px-6 py-16 text-[var(--ink-2)]">
+    <a href="/" class="text-xs uppercase tracking-widest text-[var(--ink-4)] hover:text-[var(--ink-2)]">&larr; back to sleepcast</a>
 
-    <h1 class="mt-8 text-2xl text-[#d9c3a0]">privacy</h1>
-    <p class="mt-2 text-xs uppercase tracking-widest text-[#6e5d44]">how sleepcast handles your data</p>
+    <h1 class="mt-8 text-2xl text-[var(--ink)]">privacy</h1>
+    <p class="mt-2 text-xs uppercase tracking-widest text-[var(--ink-4)]">how sleepcast handles your data</p>
 
     <section class="mt-10 space-y-4 text-sm leading-relaxed">
-      <h2 class="text-base text-[#d9c3a0]">analytics</h2>
+      <h2 class="text-base text-[var(--ink)]">analytics</h2>
       <p>
         sleepcast uses google analytics to understand how the site is used, to keep it running well, and to get a rough
         picture of the userbase, how many people visit, which features they reach, what devices and browsers they use, and
@@ -25,35 +25,35 @@ import PlayerLayout from "../layouts/PlayerLayout.astro";
         analytics is off until you accept the consent banner (it is denied by default, and you can decline). if you
         accept, google analytics sets cookies and collects usage and approximate-location data on google's behalf. that data is
         handled under
-        <a href="https://policies.google.com/privacy" class="underline text-[#c8a978] hover:text-[#e4c79a]">google's privacy policy</a>.
+        <a href="https://policies.google.com/privacy" class="underline text-[var(--ink)] hover:text-[var(--ink)]">google's privacy policy</a>.
         you can opt out across all sites with the
-        <a href="https://tools.google.com/dlpage/gaoptout" class="underline text-[#c8a978] hover:text-[#e4c79a]">google analytics opt-out browser add-on</a>,
+        <a href="https://tools.google.com/dlpage/gaoptout" class="underline text-[var(--ink)] hover:text-[var(--ink)]">google analytics opt-out browser add-on</a>,
         or by blocking cookies for this site. sleepcast still works fully with analytics blocked.
       </p>
 
-      <h2 class="mt-8 text-base text-[#d9c3a0]">what stays on your device</h2>
+      <h2 class="mt-8 text-base text-[var(--ink)]">what stays on your device</h2>
       <p>
         your feed choices, timer preferences, listening positions, and play history live in your browser's local storage on
         your own device. they are not uploaded to a sleepcast account, because there is no account.
       </p>
 
-      <h2 class="mt-8 text-base text-[#d9c3a0]">audio and feeds</h2>
+      <h2 class="mt-8 text-base text-[var(--ink)]">audio and feeds</h2>
       <p>
         episodes are fetched from their original podcast feeds. when a request needs to pass through sleepcast's relay, the
         specific episode url is not logged.
       </p>
 
-      <h2 class="mt-8 text-base text-[#d9c3a0]">no ads, no selling data</h2>
+      <h2 class="mt-8 text-base text-[var(--ink)]">no ads, no selling data</h2>
       <p>
         sleepcast does not run advertising and does not sell your data. analytics exists to run and improve the site.
       </p>
 
-      <h2 class="mt-8 text-base text-[#d9c3a0]">contact</h2>
+      <h2 class="mt-8 text-base text-[var(--ink)]">contact</h2>
       <p>
-        questions: <a href="mailto:nathanib@pm.me" class="underline text-[#c8a978] hover:text-[#e4c79a]">nathanib@pm.me</a>.
+        questions: <a href="mailto:nathanib@pm.me" class="underline text-[var(--ink)] hover:text-[var(--ink)]">nathanib@pm.me</a>.
       </p>
     </section>
 
-    <p class="mt-12 text-xs text-[#6e5d44]">last updated august 2026</p>
+    <p class="mt-12 text-xs text-[var(--ink-4)]">last updated august 2026</p>
   </main>
 </PlayerLayout>
