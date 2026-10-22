@@ -1,7 +1,7 @@
 // The Podcasts tab's two views: your shows as an artwork grid, and one show
 // with its episodes. Presentational: SleepSetup owns the feeds, their
 // statuses and starting a night.
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Episode } from "../lib/engine";
 import { formatTime } from "../lib/engine";
 import type { FeedRef } from "../lib/store";
@@ -65,7 +65,7 @@ export function ShowGrid({
               ? `${st.episodes.length} episodes`
               : "not in shuffle";
         return (
-          <button key={feed.id} onClick={() => onOpen(feed.id)} className="grid gap-1.5 text-left">
+          <button key={feed.id} data-show-id={feed.id} onClick={() => onOpen(feed.id)} className="grid gap-1.5 rounded-[10px] text-left">
             <ShowArt feed={feed} artwork={st?.artwork} className={feed.enabled ? "" : "opacity-45"} />
             <span className="text-[13px] font-semibold leading-tight text-[var(--ink)]">{feed.title}</span>
             <span className={`text-xs ${st?.error && feed.enabled ? "text-[var(--danger)]" : "text-[var(--ink-3)]"}`}>{note}</span>
@@ -114,6 +114,9 @@ export function ShowPage({
 }) {
   const episodes = status?.episodes ?? [];
   const [shown, setShown] = useState(40);
+  // Opening a show replaces the grid: focus lands on its title, not the top.
+  const titleRef = useRef<HTMLHeadingElement | null>(null);
+  useEffect(() => { titleRef.current?.focus({ preventScroll: true }); }, []);
   return (
     <div className="space-y-4">
       <button onClick={onBack} className="inline-flex items-center gap-1 text-sm font-semibold text-[var(--ink-3)] hover:text-[var(--ink-2)]">
@@ -126,8 +129,8 @@ export function ShowPage({
       <div className="grid grid-cols-[112px_1fr] items-end gap-4">
         <ShowArt feed={feed} artwork={status?.artwork} />
         <div className="space-y-1">
-          <h2 className="text-xl font-bold leading-tight tracking-tight text-[var(--ink)]">{feed.title}</h2>
-          <p className="text-[13px] text-[var(--ink-3)]">
+          <h2 ref={titleRef} tabIndex={-1} className="outline-none text-xl font-bold leading-tight tracking-tight text-[var(--ink)]">{feed.title}</h2>
+          <p role="status" className="text-[13px] text-[var(--ink-3)]">
             {status?.loading ? "loading episodes…" : status?.error ? "couldn't load this show" : `${episodes.length} episodes`}
           </p>
         </div>

@@ -223,6 +223,8 @@ export function AppPlayer() {
     setSession(null);
     setExpanded(false);
     setSetupKey((k) => k + 1);
+    // The player that held focus is gone: land on the tab you are in.
+    requestAnimationFrame(() => document.querySelector<HTMLElement>('nav [aria-current="page"]')?.focus());
     // A re-anchor found while the night played is stale now: this night
     // wrote its own last night (the next visibility check decides afresh).
     setReanchor(null);
@@ -294,7 +296,7 @@ export function AppPlayer() {
 
   return (
     <main className={`flex-1 px-4 pt-8 text-[var(--ink-2)] ${session ? "pb-44" : "pb-28"}`}>
-      <div className="mx-auto max-w-xl" onPointerDownCapture={() => noteActivityRef.current?.()}>
+      <div className="mx-auto max-w-xl" inert={Boolean(session) && expanded} onPointerDownCapture={() => noteActivityRef.current?.()}>
         {tab === "sleep" && (<>
         {live && (
           <div className="mb-6 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4">
@@ -357,7 +359,7 @@ export function AppPlayer() {
             </>
         )}
       </div>
-      <TabBar tab={tab} onTab={(t) => { noteActivityRef.current?.(); if (t === "rest") setRestVisit((n) => n + 1); setTab(t); }} />
+      <TabBar inert={Boolean(session) && expanded} tab={tab} onTab={(t) => { noteActivityRef.current?.(); if (t === "rest") setRestVisit((n) => n + 1); setTab(t); }} />
       {player}
     </main>
   );
