@@ -16,8 +16,7 @@ import { rearmsWatchdogOnTap } from "../lib/witness";
 import { clearLockScreen, mediaSession, publishLockScreen, publishLockScreenMetadata, setActionHandlers } from "../lib/lock-screen";
 import { decideSkip, skipMessage, stillAtStart } from "../lib/skip-intro";
 import { pickNextEpisode, HEARD_SEC } from "../lib/plays";
-import type { NoiseSettings, ResumeDescriptor } from "../lib/store";
-import { BrownNoise, noiseGain } from "../lib/noise";
+import type { ResumeDescriptor } from "../lib/store";
 import { Leveler } from "../lib/leveler";
 import { shouldTick } from "../lib/tick-gate";
 import { shouldSuggestGettingUp } from "../lib/rest/quarterhour";
@@ -68,7 +67,6 @@ export interface PlayerProps {
   mode: PlayMode;
   /** feedId → 0.5..1.5 gain trim; absent means 1.0. */
   feedTrim: Record<string, number>;
-  noise: NoiseSettings;
   /** Opt-in loudness compressor. Ignored where Web Audio dies on lock. */
   leveling: boolean;
   skipIntroByFeedId: Record<string, number>;
@@ -103,7 +101,7 @@ const LOCK_RETRY_MS = 10_000;
  *  the last episode's scrubber until the new length is known). */
 const LOCK_SYNC_EVENTS = ["play", "pause", "playing", "waiting", "seeked", "loadedmetadata", "durationchange", "ratechange", "loadstart"] as const;
 
-export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, skipIntroByFeedId, feedTitles, artworkByFeedId, onEnd, resume = null, leadEpisode = null, leadPosition = 0, quarterHourRule = false, wasVaried = false, favorWhatWorks = false }: PlayerProps) {
+export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntroByFeedId, feedTitles, artworkByFeedId, onEnd, resume = null, leadEpisode = null, leadPosition = 0, quarterHourRule = false, wasVaried = false, favorWhatWorks = false }: PlayerProps) {
   const shuffle = useNightShuffle(favorWhatWorks, pool, resume);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -184,7 +182,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
   const stopFadeRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const currentFeedRef = useRef<string | null>(null);
   const feedTrimRef = useRef<Record<string, number>>(feedTrim);
-  const brownRef = useRef<BrownNoise | null>(null);
   const levelerRef = useRef<Leveler | null>(null);
   // Whether the compressor has captured the element. Per-mount, unlike the
   // CORS sets: the AudioContext it guards doesn't survive a mount either.
@@ -783,12 +780,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       // trim alone. A hard 1 here played turned-down feeds at full volume in
       // all-night mode (and one-episode, before the duration was known).
       audio.volume = effectiveVolume(driver, FADE_SECONDS, feedTrimRef.current[currentFeedRef.current ?? ""] ?? 1.0);
-      // The underlay rides the same driver, so voices and noise fade together
-      // rather than leaving a bed of noise behind after the words stop.
-      // Paused means silent: the voice stops, so the noise does too. Left at
-      // full level it played on indefinitely under a pause or the quarter-hour
-      // hold, with the clock frozen so no fade would ever reach it.
-      brownRef.current?.setGain(noiseGain(noise.on && !audio.paused ? noise.level : 0, driver, FADE_SECONDS));
     }
     setCountdown(kind === "minutes" ? remaining : 0);
     setEpPos((prev) => barPosition(prev, span));
@@ -857,7 +848,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       clearInterval(tickHandleRef.current);
       tickHandleRef.current = null;
     }
-    brownRef.current?.stop();
     endTimeRef.current = null;
     pausedRemainingMsRef.current = null;
 
@@ -1060,11 +1050,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
     else if (leadEpisode) playEpisode(leadEpisode, leadPosition); // "the exact one again"
     else playNext();
     tickHandleRef.current = setInterval(tickGuarded, 1000);
-    if (noise.on) {
-      const bn = new BrownNoise();
-      brownRef.current = bn;
-      void bn.start(); // resolves false on failure; setGain then no-ops
-    }
     tick(); // paint the first frame immediately; the gate would hold it back
 
     return () => {
@@ -1076,7 +1061,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
       // A hold still counting at unmount would call endSession on a player
       // that is gone, and through onEnd end whatever night came next.
       if (holdTimerRef.current) clearInterval(holdTimerRef.current);
-      brownRef.current?.stop();
       levelerRef.current?.dispose();
       audio.removeEventListener("pause", onPause);
       audio.removeEventListener("play", onPlay);
@@ -1266,7 +1250,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, noise, leveling, sk
                 5,
                 feedTrimRef.current[currentFeedRef.current ?? ""] ?? 1.0
               );
-              brownRef.current?.setGain(noiseGain(noise.on ? noise.level : 0, left / 1000, 5));
             }, 100);
           } else {
             endSession("ended");

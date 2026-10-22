@@ -5,8 +5,6 @@ import { searchEpisodes } from "../lib/episode-search";
 import { parseOpml, buildOpml } from "../lib/opml";
 import { rearmMinutes } from "../lib/engine";
 import type { PlayMode } from "../lib/engine";
-import { BrownNoise } from "../lib/noise";
-import type { NoiseSettings } from "../lib/store";
 import {
   loadState,
   REARM_WINDOW_MS,
@@ -300,16 +298,6 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
       settings: { ...appState.settings, mode: { kind } },
     });
     setCustomMinutes("");
-  }
-
-  function setNoise(patch: Partial<NoiseSettings>) {
-    updateAndSave({
-      ...appState,
-      settings: {
-        ...appState.settings,
-        noise: { ...appState.settings.noise, ...patch },
-      },
-    });
   }
 
   function handleOpmlImport(file: File) {
@@ -1022,37 +1010,6 @@ export function SleepSetup({ onStart }: SleepSetupProps) {
             {opmlNote && <p className="text-xs text-[#6e5d44]">{opmlNote}</p>}
           </div>
         </section>
-
-        {/* Feature-detected rather than assumed: no AudioWorklet, no section,
-            because a dead toggle is worse than an absent one. */}
-        {BrownNoise.supported() && (
-          <section className="space-y-3">
-            <h2 className="text-xs uppercase tracking-widest text-[#6e5d44]">Noise bed</h2>
-            <div className="flex items-center gap-3">
-              <input
-                type="checkbox"
-                id="noise-on"
-                checked={appState.settings.noise.on}
-                onChange={(e) => setNoise({ on: e.target.checked })}
-                className="h-5 w-5 rounded accent-[#6e5d44] cursor-pointer"
-              />
-              <label htmlFor="noise-on" className="text-sm cursor-pointer">
-                brown noise under the voices
-              </label>
-              <input
-                type="range"
-                min={0}
-                max={0.3}
-                step={0.05}
-                value={appState.settings.noise.level}
-                disabled={!appState.settings.noise.on}
-                onChange={(e) => setNoise({ level: Number(e.target.value) })}
-                className="flex-1 accent-[#6e5d44] disabled:opacity-40"
-                aria-label="Noise level"
-              />
-            </div>
-          </section>
-        )}
 
         <section className="space-y-3">
           <h2 className="text-xs uppercase tracking-widest text-[#6e5d44]">Loudness</h2>
