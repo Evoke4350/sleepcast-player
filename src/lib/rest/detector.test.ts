@@ -126,6 +126,19 @@ describe("reported onset time", () => {
     expect(onset!.atMs).toBeGreaterThan(6 * 60_000); // ~7.25 min, a believable figure
   });
 
+  it("never reports sleep from before a touch, however much quiet came first", () => {
+    // 25 quiet minutes, one touch, then quiet into the fade of a 45-minute timer.
+    const d = new SleepDetector();
+    const touchAt = 25 * 60_000;
+    const fadeAt = 44 * 60_000;
+    let onset = null;
+    for (let t = 0; t <= 45 * 60_000 && !onset; t += TICK) {
+      onset = d.observe({ t, interacted: t === touchAt, hidden: true, fadingOrDone: t >= fadeAt });
+    }
+    expect(onset).not.toBeNull();
+    expect(onset!.atMs).toBeGreaterThan(touchAt);
+  });
+
   it("restarts the clock when sustained interaction resets the hypothesis", () => {
     // Someone awake and fiddling for the first ten minutes, then settling,
     // should be credited from when they settled — not from the very start.

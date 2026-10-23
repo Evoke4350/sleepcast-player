@@ -25,6 +25,96 @@ describe("RestSession", () => {
   });
 });
 
+describe("a verdict stands only if the night fades out untouched", () => {
+  beforeEach(() => localStorage.clear());
+
+  /** Quiet from the start, into the fade at tick 34: the detector has its
+   *  verdict by tick 35. */
+  function quietIntoFade(s: RestSession, start: number, ticks = 36) {
+    for (let i = 0; i < ticks; i++) s.tick({ hidden: true, fadingOrDone: i >= 34, now: start + i * 15_000 });
+  }
+
+  it("a stretch in the fade overturns it: the listener heard it and was awake", () => {
+    const start = 1_000_000;
+    const s = new RestSession(start, 10);
+    quietIntoFade(s, start);
+    s.noteInteraction(start + 36 * 15_000);
+    const night = s.finish("faded", start + 40 * 15_000);
+    expect(night.sleptAtMs).toBeNull();
+    expect(night.detector).toBe("none");
+  });
+
+  it("after a stretch, a later fade can still decide, from fresh quiet", () => {
+    const start = 1_000_000;
+    const s = new RestSession(start, 10);
+    quietIntoFade(s, start);
+    const touch = start + 36 * 15_000;
+    s.noteInteraction(touch);
+    for (let i = 1; i <= 50; i++) s.tick({ hidden: true, fadingOrDone: i >= 46, now: touch + i * 15_000 });
+    const night = s.finish("faded", touch + 51 * 15_000);
+    expect(night.sleptAtMs).not.toBeNull();
+    expect(night.sleptAtMs!).toBeGreaterThan(touch - start);
+  });
+
+  it("a night ended by hand during the fade isn't slept", () => {
+    const start = 1_000_000;
+    const s = new RestSession(start, 10);
+    quietIntoFade(s, start);
+    expect(s.finish("ended", start + 36 * 15_000).sleptAtMs).toBeNull();
+  });
+
+  it("an untouched fade keeps it", () => {
+    const start = 1_000_000;
+    const s = new RestSession(start, 10);
+    quietIntoFade(s, start);
+    expect(s.finish("faded", start + 38 * 15_000).detector).toBe("inference");
+  });
+});
+
+// Simulated nights through the whole session, the way the player drives it:
+// the detector's own simulation (detector.sim.test.ts) can't see what
+// happens after its verdict.
+describe("session — simulated awake listeners who react to the fade", () => {
+  beforeEach(() => localStorage.clear());
+  const TICK = 15_000;
+
+  function rng(seed: number) {
+    return () => {
+      seed |= 0; seed = (seed + 0x6d2b79f5) | 0;
+      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  // Lying still with the phone down for a 30-minute timer, then, on hearing
+  // the fade, a stretch (or, half the time, ending the night) within the
+  // fade's four ticks.
+  function awakeHearsTheFade(seed: number) {
+    const r = rng(seed);
+    const start = 1_000_000;
+    const s = new RestSession(start, 30);
+    const ticks = 120;
+    const reactAt = ticks - 4 + Math.floor(r() * 4);
+    const stretch = r() < 0.5;
+    for (let i = 0; i < ticks; i++) {
+      const now = start + i * TICK;
+      if (i === reactAt) {
+        s.noteInteraction(now);
+        if (!stretch) return s.finish("ended", now);
+      }
+      s.tick({ hidden: true, fadingOrDone: i >= ticks - 4, now });
+    }
+    return s.finish("faded", start + ticks * TICK);
+  }
+
+  it("none of them is logged as slept", () => {
+    let fp = 0;
+    for (let seed = 0; seed < 500; seed++) if (awakeHearsTheFade(seed).sleptAtMs !== null) fp++;
+    expect(fp).toBe(0);
+  });
+});
+
 describe("attributing sleep onset to what was playing", () => {
   beforeEach(() => localStorage.clear());
 

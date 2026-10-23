@@ -56,7 +56,16 @@ export class SleepDetector {
 
   observe(s: SleepSignal): SleepOnset | null {
     if (this.decided) return null;
-    const prev = this.S;
+    // A touch is someone awake at that moment, so sleep began after it, never
+    // before. Subtracting its log-ratio was not enough: S has no ceiling, and
+    // after half an hour of quiet one touch left it far above the bound with
+    // the old crossing time intact, so a night touched at minute 25 could
+    // still report sleep from minute 8.
+    if (s.interacted) {
+      this.S = 0;
+      this.crossedAt = null;
+      return null;
+    }
     this.S = Math.max(0, this.S + tickLogLR(s, this.p));
     if (this.S === 0) {
       this.crossedAt = null; // back to the floor: no live sleep hypothesis
