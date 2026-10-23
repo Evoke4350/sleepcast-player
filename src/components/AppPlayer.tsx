@@ -15,6 +15,7 @@ import { ReanchorView } from "./ReanchorView";
 import { shouldGreetGoodbye, markGoodbyeSeen, fmtDuration } from "../lib/rest/surface";
 import { loadNights, loadQuietUntil, saveQuietUntil, loadStepBackAsked, markStepBackAsked } from "../lib/rest/ledger";
 import { qualifiesForStepBack, isQuiet, quietUntilFrom } from "../lib/rest/stepback";
+import { importWatchSleep, watchPayloadFromHash, describeImport } from "../lib/rest/watch";
 
 interface SessionState {
   pool: Episode[];
@@ -46,6 +47,8 @@ export function AppPlayer() {
   const [tab, setTab] = useState<AppTab>("sleep");
   // Each visit to Rest reads the ledger afresh (a night may have ended since).
   const [restVisit, setRestVisit] = useState(0);
+  // What the watch's sleep did, when the page was opened by the Shortcut.
+  const [watchNote, setWatchNote] = useState<string | null>(null);
   // Now Playing open (a night just started) or collapsed to the mini bar.
   const [expanded, setExpanded] = useState(true);
   // A new night remounts the player: its state is the night's.
@@ -99,6 +102,26 @@ export function AppPlayer() {
     markStepBackAsked(Date.now());
     setStepBack(false);
   }
+
+  // Opened by the watch Shortcut (#watch=…): match its sleep to the nights,
+  // take the data out of the address bar, and show what it did on Rest.
+  // After settleLive above, so a night whose tab was killed is in the ledger
+  // to be matched.
+  // Also on hashchange: with Sleepcast already open in the tab the link
+  // lands in, only the hash changes and nothing reloads.
+  useEffect(() => {
+    const take = () => {
+      const payload = watchPayloadFromHash(window.location.hash);
+      if (payload === null) return;
+      history.replaceState(null, "", window.location.pathname + window.location.search);
+      setWatchNote(describeImport(importWatchSleep(payload), { brief: true }));
+      setRestVisit((n) => n + 1);
+      setTab("rest");
+    };
+    take();
+    window.addEventListener("hashchange", take);
+    return () => window.removeEventListener("hashchange", take);
+  }, []);
 
   // Acknowledge it as soon as it is shown. It used to be a full-screen gate
   // with a "start tonight" button that did the marking, which meant an extra
@@ -331,7 +354,7 @@ export function AppPlayer() {
         <SleepSetup key={setupKey} onStart={handleStart} tab={tab === "rest" ? null : tab} />
         {tab === "rest" && (
           <>
-            <RestView key={restVisit} />
+            <RestView key={restVisit} note={watchNote} />
           {stepBack && (
             <div className="mt-4 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
               <p className="text-[11px] font-bold uppercase tracking-widest text-[var(--ink-3)]">quick lately</p>

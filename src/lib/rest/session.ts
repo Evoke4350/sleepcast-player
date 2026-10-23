@@ -1,4 +1,4 @@
-import type { SleepSignal, SleepOnset, RestNight } from "./types";
+import type { SleepSignal, SleepOnset, RestNight, NightEpisode } from "./types";
 import { SleepDetector } from "./detector";
 import { loadNights, loadParams } from "./ledger";
 import { currentParams } from "./calibrate";
@@ -24,7 +24,7 @@ export class RestSession {
    *  SleepOnset.atMs. This is why attribution is a comparison and not a join
    *  against the play ledger, which de-duplicates by episode id and so cannot
    *  answer "what was playing then" for any night but the most recent. */
-  private timeline: { t: number; feedId: string; episodeId: string }[] = [];
+  private timeline: NightEpisode[] = [];
   private skipped = new Set<string>();
 
   /** `shuffleLeaned`: the night's shuffle leaned on the scores (the
@@ -120,14 +120,7 @@ export class RestSession {
     // fade was ended by someone awake.
     const onset = endedVia === "faded" ? this.onset : null;
     const atMs = onset ? onset.atMs : null;
-    // noteEpisode takes an explicit `now`, so a clock adjustment or a resumed
-    // night can append an earlier t after a later one. .at(-1) means "latest
-    // by time" only if entries arrived in time order, so sort a copy — this
-    // must not mutate state a caller might still read — before trusting it.
-    const sorted = [...this.timeline].sort((a, b) => a.t - b.t);
-    const at = atMs === null ? null : sorted.filter((e) => e.t <= atMs).at(-1);
-    const after = atMs === null ? [] : sorted.filter((e) => e.t > atMs);
-    const sleptThrough = [...new Set(after.map((e) => e.feedId))];
+    const episodes = [...this.timeline].sort((a, b) => a.t - b.t).slice(-MAX_EPISODES);
 
     return {
       startedAt: this.startedAt,
@@ -138,18 +131,42 @@ export class RestSession {
       interactions: this.interactions,
       detector: onset ? "inference" : "none",
       ...(this.shuffleLeaned ? { shuffle: "leaned" as const } : {}),
-      // Spread rather than assign: an absent field and an empty array must not
-      // become two shapes in a ledger that already holds 90 nights without them.
-      // at.t is when the credited feed itself started, so atMs - at.t is how
-      // long *it* had been playing — not the timeToSleepMs above, which is
-      // measured from night start regardless of how much got skipped first.
-      ...(at
-        ? { onsetFeedId: at.feedId, onsetEpisodeId: at.episodeId, onsetAfterMs: (atMs as number) - at.t }
-        : {}),
-      ...(sleptThrough.length ? { sleptThrough } : {}),
+      ...attributeOnset(episodes, atMs),
       ...(this.skipped.size ? { skipped: [...this.skipped] } : {}),
+      playedMs: Math.max(0, now - this.startedAt),
+      ...(episodes.length ? { episodes } : {}),
     };
   }
+}
+
+/** Episode starts kept on a night's record: plenty for any real night, and
+ *  bounded so a night of skipping can't bloat the 90-night ledger. */
+const MAX_EPISODES = 40;
+
+/** What was playing at an onset `atMs` ms into the night, and what played on
+ *  after it, from the night's episode starts. Empty when there's no onset.
+ *  Spread into a RestNight rather than assigned: an absent field and an empty
+ *  array must not become two shapes in a ledger that already holds 90 nights
+ *  without them. */
+export function attributeOnset(
+  timeline: readonly NightEpisode[],
+  atMs: number | null,
+): Pick<RestNight, "onsetFeedId" | "onsetEpisodeId" | "onsetAfterMs" | "sleptThrough"> {
+  if (atMs === null) return {};
+  // noteEpisode takes an explicit `now`, so a clock adjustment or a resumed
+  // night can append an earlier t after a later one. .at(-1) means "latest
+  // by time" only if entries arrived in time order, so sort a copy before
+  // trusting it.
+  const sorted = [...timeline].sort((a, b) => a.t - b.t);
+  const at = sorted.filter((e) => e.t <= atMs).at(-1);
+  const sleptThrough = [...new Set(sorted.filter((e) => e.t > atMs).map((e) => e.feedId))];
+  return {
+    // at.t is when the credited feed itself started, so atMs - at.t is how
+    // long *it* had been playing — not timeToSleepMs, which is measured from
+    // night start regardless of how much got skipped first.
+    ...(at ? { onsetFeedId: at.feedId, onsetEpisodeId: at.episodeId, onsetAfterMs: atMs - at.t } : {}),
+    ...(sleptThrough.length ? { sleptThrough } : {}),
+  };
 }
 
 /** When a revived night's session should say it began: the snapshot's real

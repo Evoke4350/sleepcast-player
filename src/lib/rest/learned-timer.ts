@@ -35,6 +35,10 @@ export interface LearnedTimer {
  * or abandoned with no onset say nothing about the timer.
  */
 function evidenceMs(n: RestNight): number | null {
+  // The watch's time to sleep, even past the end of the audio: the night that
+  // took longer than its timer is exactly what the timer should learn from.
+  // A watched night with no sleep in the window says nothing usable.
+  if (n.detector === "hr") return n.watchSleptAfterMs ?? null;
   const onset = believableOnsetMs(n);
   if (onset !== null) return onset;
   if (n.endedVia === "faded" && n.sleptAtMs === null && n.selfLabel !== "slept" && n.timerMinutes > 0) {
@@ -52,7 +56,12 @@ function quantile(sorted: readonly number[], q: number): number {
 
 /** Timed nights so far, toward LEARN_MIN_NIGHTS (for "learns after 5"). */
 export function timedNights(nights: readonly RestNight[]): number {
-  return nights.filter((n) => believableOnsetMs(n) !== null).length;
+  return nights.filter(isTimed).length;
+}
+
+/** A night with a measured time to sleep: the detector's, or the watch's. */
+function isTimed(n: RestNight): boolean {
+  return n.detector === "hr" ? n.watchSleptAfterMs != null : believableOnsetMs(n) !== null;
 }
 
 /**
@@ -67,7 +76,7 @@ export function learnedTimer(nights: readonly RestNight[]): LearnedTimer | null 
   const recent: { ms: number; timed: boolean }[] = [];
   for (let i = nights.length - 1; i >= 0 && recent.length < LEARN_WINDOW; i--) {
     const ms = evidenceMs(nights[i]);
-    if (ms !== null) recent.push({ ms, timed: believableOnsetMs(nights[i]) !== null });
+    if (ms !== null) recent.push({ ms, timed: isTimed(nights[i]) });
   }
   const timed = recent.filter((r) => r.timed).map((r) => r.ms).sort((a, b) => a - b);
   if (timed.length < LEARN_MIN_NIGHTS) return null;

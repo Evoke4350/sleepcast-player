@@ -37,6 +37,12 @@ So:
   has logged, and restores it on another browser (`src/lib/backup.ts`).
   Nothing else keeps a copy, so this is the only way it survives a cleared
   browser or a new phone.
+- **Your watch can say when you actually fell asleep.** An iPhone Shortcut
+  reads Apple Watch sleep from Health and opens `/#watch=…` (or copies it
+  for "Add from clipboard"). The watch's onset replaces the detector's guess
+  for the night it falls in, keeping the guess to grade the detector by
+  (`src/lib/rest/watch.ts`). The data rides after the `#`, so it never
+  reaches the server. Setup steps are in Settings.
 - **It resumes the night, not the episode.** Fall asleep 20 minutes into a
   90-minute episode and the app remembers where you went under, so the next
   night doesn't restart the same thing from 0:00 (`src/lib/positions.ts`).
