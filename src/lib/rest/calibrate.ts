@@ -37,7 +37,24 @@ export function tightenAfterFalsePositive(p: DetectorParams): DetectorParams {
  *  never freezes the history estimate at the moment of the first save. */
 export function currentParams(saved: DetectorParams | null, nights: RestNight[]): DetectorParams {
   const fromHistory = paramsFromHistory(nights);
-  return saved ? { ...fromHistory, alpha: saved.alpha } : fromHistory;
+  const alpha = Math.min(saved ? saved.alpha : fromHistory.alpha, alphaFromWatch(nights));
+  return { ...fromHistory, alpha };
+}
+
+/** Recent nights the detector called slept and the watch didn't. */
+const WATCH_RECENT = 14;
+export function watchCaughtFalsePositives(nights: readonly RestNight[]): number {
+  return nights
+    .slice(-WATCH_RECENT)
+    .filter((n) => n.detector === "hr" && n.appSleptAtMs != null && n.sleptAtMs === null).length;
+}
+
+/** The watch grading the detector: each recent night it called slept that the
+ *  watch says wasn't halves alpha, as an "I was awake" does. Worked out from
+ *  the ledger every night, not saved, so matching the same watch data twice
+ *  can't tighten it twice, and it eases off as those nights age out. */
+function alphaFromWatch(nights: readonly RestNight[]): number {
+  return Math.max(0.001, DEFAULT_PARAMS.alpha / 2 ** watchCaughtFalsePositives(nights));
 }
 
 /** The listener confirmed a false positive ("I was awake" on a night the

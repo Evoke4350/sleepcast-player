@@ -23,6 +23,11 @@ function save(nights: RestNight[]): void {
   }
 }
 
+/** Replace the whole ledger (the watch rewriting nights it matched). */
+export function saveNights(nights: RestNight[]): void {
+  save(nights);
+}
+
 export function appendNight(n: RestNight): void {
   save([...loadNights(), n]);
 }
@@ -100,6 +105,8 @@ export function isSlept(n: RestNight): boolean {
 export function believableOnsetMs(n: RestNight): number | null {
   if (!isSlept(n)) return null;
   const t = n.timeToSleepMs as number;
+  // The watch measured it: no detector floor applies.
+  if (n.detector === "hr") return t;
   return t >= plausibleFloor(n) ? t : null;
 }
 

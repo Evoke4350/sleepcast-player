@@ -31,10 +31,26 @@ export interface RestNight {
   sleptThrough?: string[];
   /** Feeds you manually skipped or blocked during the night. */
   skipped?: string[];
+  /** How long the night played, start to end. Absent on nights recorded
+   *  before it was kept. */
+  playedMs?: number;
+  /** Each episode start, ms from night start: lets an onset that arrives
+   *  later (from the watch) credit what was playing then. Absent on nights
+   *  recorded before it was kept. */
+  episodes?: NightEpisode[];
+  /** Set when the watch's sleep was matched to this night (detector "hr"):
+   *  when it says you fell asleep, ms from night start, even after the audio
+   *  ended; null when it saw no sleep within WATCH_WINDOW_MS. sleptAtMs and
+   *  timeToSleepMs then hold the watch's onset if it came while the night
+   *  played, else null. */
+  watchSleptAfterMs?: number | null;
+  /** Sleepcast's own guess (sleptAtMs) from before the watch replaced it. */
+  appSleptAtMs?: number | null;
   /** "leaned": the night's shuffle leaned on the scores (favorWhatWorks).
    *  Absent: a plain shuffle, the baseline to compare against. */
   shuffle?: "leaned";
 }
+export interface NightEpisode { t: number; feedId: string; episodeId: string }
 export interface RestRollup {
   nights: number;
   nightsSlept: number;

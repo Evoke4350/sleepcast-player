@@ -3,12 +3,13 @@ import { loadNights, rollup, setSelfLabel, leanComparison } from "../lib/rest/le
 import { recordFalsePositive } from "../lib/rest/calibrate";
 import { scoreFeeds, medianTimeToSleep, meetsSuggestionGate, shuffleWeights, pluralNights, fmtOnsetMinutes, MIN_NIGHTS } from "../lib/rest/sleepscore";
 import { fmtDuration, lastNight } from "../lib/rest/surface";
+import { describeWatchNight } from "../lib/rest/watch";
 import { getPlays, loadState } from "../lib/store";
 import { playsSince, playAtMoment } from "../lib/plays";
 
 /** `onClose` when shown as its own screen; in the Rest tab there is none,
  *  and a label just redraws the view. */
-export function RestView({ onClose }: { onClose?: () => void }) {
+export function RestView({ onClose, note = null }: { onClose?: () => void; note?: string | null }) {
   const [, redraw] = useReducer((n: number) => n + 1, 0);
   const nights = useMemo(() => loadNights(), []);
   const r = useMemo(() => rollup(nights), [nights]);
@@ -108,7 +109,24 @@ export function RestView({ onClose }: { onClose?: () => void }) {
     <div className="space-y-4 pb-8 text-[var(--ink-3)]">
       <h1 className="text-3xl font-extrabold tracking-tight text-[var(--ink)]">Rest</h1>
 
-      {last && last.sleptAtMs !== null && last.selfLabel === undefined && (
+      <p role="status" className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4 text-[13px] text-[var(--ink-2)] empty:hidden">{note ?? ""}</p>
+
+      {/* The watch measured last night: nothing to ask, only to show. */}
+      {last && last.detector === "hr" && (
+        <div className="space-y-1.5 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
+          <p className="text-[11px] font-bold uppercase tracking-widest text-[var(--ink-3)]">last night · from your watch</p>
+          <p className="text-[13px] text-[var(--ink-2)]">
+            {describeWatchNight({
+              watchSleptAfterMs: last.watchSleptAfterMs ?? null,
+              sleptAtMs: last.sleptAtMs,
+              appSleptAtMs: last.appSleptAtMs ?? null,
+              playedMs: last.playedMs ?? null,
+            })}
+          </p>
+        </div>
+      )}
+
+      {last && last.sleptAtMs !== null && last.selfLabel === undefined && last.detector !== "hr" && (
         <div className="space-y-2.5 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
           <p className="text-[11px] font-bold uppercase tracking-widest text-[var(--ink-3)]">last night</p>
           <p className="font-semibold text-[var(--ink)]">Did you fall asleep to it?</p>

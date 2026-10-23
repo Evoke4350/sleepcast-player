@@ -27,6 +27,7 @@ import { rankedFeeds, evidenceFor, fmtOnsetMinutes } from "../lib/rest/sleepscor
 import type { RestNight } from "../lib/rest/types";
 import { TIMER_PRESETS } from "../lib/timer-presets";
 import { learnedTimer, timedNights, handPickHolds, LEARN_MIN_NIGHTS } from "../lib/rest/learned-timer";
+import { importWatchSleep, describeImport } from "../lib/rest/watch";
 import { needsFetch } from "../lib/feed-status";
 import { pickNextEpisode, HEARD_SEC } from "../lib/plays";
 import { ShowGrid, ShowPage } from "./Shows";
@@ -115,6 +116,7 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
   const [backupError, setBackupError] = useState<string | null>(null);
   const [pendingRestore, setPendingRestore] = useState<{ backup: Backup; summary: BackupSummary } | null>(null);
   const replaceBtnRef = useRef<HTMLButtonElement>(null);
+  const [watchNote, setWatchNote] = useState<{ text: string; error: boolean } | null>(null);
   const [feedStatuses, setFeedStatuses] = useState<Record<string, FeedStatus>>({});
   const [customUrl, setCustomUrl] = useState("");
   const [customTitle, setCustomTitle] = useState("");
@@ -145,7 +147,8 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
   const [lastEpisode] = useState(() => loadLastEpisode());
   const [greetNight, setGreetNight] = useState<RestNight | null>(() => {
     const last = loadNights().at(-1) ?? null;
-    return last && last.sleptAtMs !== null && last.selfLabel === undefined ? last : null;
+    // A night the watch measured needs no asking.
+    return last && last.sleptAtMs !== null && last.selfLabel === undefined && last.detector !== "hr" ? last : null;
   });
 
   // A returning listener saw the welcome — fire once. (Aggregate, no PII.)
@@ -467,6 +470,21 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
     // Every part of the player reads storage on load: start it again on the
     // restored data rather than patching each piece of state in place.
     window.location.reload();
+  }
+
+  // For Sleepcast on the Home Screen: the Shortcut's link opens Safari, whose
+  // storage is separate, so the Shortcut also copies its data to paste here.
+  async function handleWatchPaste() {
+    setWatchNote(null);
+    let text: string;
+    try {
+      text = await navigator.clipboard.readText();
+    } catch {
+      setWatchNote({ text: "Couldn't read the clipboard. Tap Paste when your phone asks, or open the Shortcut's link instead.", error: true });
+      return;
+    }
+    const r = importWatchSleep(text);
+    setWatchNote({ text: describeImport(r), error: !r.ok });
   }
 
   function startWith(picked: Episode[], wasVaried = false) {
@@ -1040,6 +1058,35 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
                 </span>
               </div>
             </div>
+            <section aria-labelledby="watch-title" className="space-y-3 rounded-2xl border border-[var(--line)] bg-[var(--surface)] px-4 py-3.5">
+              <div className="space-y-0.5">
+                <h2 id="watch-title" className="font-semibold text-[var(--ink)]">Sleep from your watch</h2>
+                <p className="text-[12.5px] leading-snug text-[var(--ink-3)]">
+                  With sleep tracking on, Apple Watch records when you fell asleep. A Shortcut can bring that here each morning, in place of Sleepcast&apos;s guess from when you stopped touching the screen. It goes straight from your phone to this browser.
+                </p>
+              </div>
+              <details className="group text-[12.5px] leading-snug text-[var(--ink-2)]">
+                <summary className="cursor-pointer rounded font-semibold text-[var(--ink)]">Set up the Shortcut</summary>
+                <ol className="mt-2 list-decimal space-y-1.5 pl-5">
+                  <li>In Shortcuts, make a new shortcut and add <b>Find Health Samples</b>. Set Type to Sleep Analysis, add the filter Start Date is in the last 2 days, and sort by Start Date.</li>
+                  <li>Add <b>Repeat with Each</b> on the Health Samples.</li>
+                  <li>Inside it, add <b>Text</b>: Repeat Item&apos;s Start Date, then <code>|</code>, then its End Date, then <code>|</code>, then its Value. Set both dates&apos; format to ISO 8601 with the time included.</li>
+                  <li>After the repeat, add <b>Combine Text</b> on Repeat Results, separated by Custom <code>;</code>.</li>
+                  <li>Add <b>Copy to Clipboard</b> with the combined text.</li>
+                  <li>Add <b>URL Encode</b> on the combined text, then <b>Open URLs</b> with <code className="break-all">{typeof window !== "undefined" ? window.location.origin : "https://sleepcast.pro"}/#watch=</code> followed by the encoded text.</li>
+                  <li>To run it every morning, add an Automation in Shortcuts, such as when your wake-up alarm is stopped.</li>
+                </ol>
+                <p className="mt-2 text-[var(--ink-3)]">Using Sleepcast from your Home Screen? The link opens Safari, which keeps its own copy of your nights, so open Sleepcast after the Shortcut runs and tap Add from clipboard.</p>
+              </details>
+              <button
+                onClick={() => { void handleWatchPaste(); }}
+                className="w-full rounded-lg bg-[var(--raised)] py-2 text-sm font-semibold text-[var(--ink-2)] hover:text-[var(--ink)]"
+              >
+                Add from clipboard
+              </button>
+              <p role="alert" className="text-xs text-[var(--danger)] empty:hidden">{watchNote?.error ? watchNote.text : ""}</p>
+              <p role="status" className="text-xs text-[var(--ink-3)] empty:hidden">{watchNote && !watchNote.error ? watchNote.text : ""}</p>
+            </section>
             {/* Everything here lives only in this browser's storage. */}
             <section aria-labelledby="backup-title" className="space-y-3 rounded-2xl border border-[var(--line)] bg-[var(--surface)] px-4 py-3.5">
               <div className="space-y-0.5">
