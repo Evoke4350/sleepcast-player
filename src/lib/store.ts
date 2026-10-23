@@ -41,6 +41,9 @@ export interface Settings {
   lastSession: LastSession | null;
   /** The timer learns from the nights (rest/learned-timer). Absent = on. */
   learnTimer?: boolean;
+  /** Save tonight's episodes on the device as they play (offline-audio).
+   *  Absent = on. */
+  saveAhead?: boolean;
   /** When the timer was last picked by hand: that pick holds for the night
    *  (handPickHolds), then the learned timer is back. */
   timerPickedAt?: number;
@@ -257,6 +260,7 @@ export function loadState(): AppState {
     favorWhatWorks: rawSettings.favorWhatWorks === true,
   };
   if (rawSettings.learnTimer === false) settings.learnTimer = false;
+  if (rawSettings.saveAhead === false) settings.saveAhead = false;
   if (typeof rawSettings.timerPickedAt === "number" && Number.isFinite(rawSettings.timerPickedAt)) {
     settings.timerPickedAt = rawSettings.timerPickedAt;
   }

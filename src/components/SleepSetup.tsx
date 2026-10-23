@@ -1032,6 +1032,14 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
                   ? "Not on iPhone or iPad: it routes audio through Web Audio, which these suspend when the screen locks, and the night would go silent."
                   : "Quiet and loud shows play at about the same level. Costs an extra load on each show's first episode."}
               </SettingRow>
+              <SettingRow
+                id="save-ahead"
+                title="Keep playing without internet"
+                checked={appState.settings.saveAhead !== false}
+                onChange={(on) => updateAndSave({ ...appState, settings: { ...appState.settings, saveAhead: on } })}
+              >
+                Saves the episode playing and the next one on this device as they play, so a dropped connection doesn&apos;t stop the night. Each episode downloads whole, so off Wi-Fi it uses more data than streaming.
+              </SettingRow>
               {/* A custom timer is the long tail of the timer presets. */}
               <div className="flex items-center justify-between gap-4 py-3.5">
                 <label htmlFor="custom-minutes" className="space-y-0.5">

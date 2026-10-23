@@ -77,6 +77,7 @@ export function AppPlayer() {
   const [mode, setMode] = useState<PlayMode>({ kind: "minutes", minutes: 45 });
   const [feedTrim, setFeedTrim] = useState<Record<string, number>>({});
   const [leveling, setLeveling] = useState(false);
+  const [saveAhead, setSaveAhead] = useState(true);
 
   const [goodbye] = useState(() => (isQuiet(loadQuietUntil(), Date.now()) ? null : shouldGreetGoodbye(Date.now())));
 
@@ -189,6 +190,7 @@ export function AppPlayer() {
     setMode(nightMode);
     setFeedTrim(settings.feedTrim);
     setLeveling(settings.leveling);
+    setSaveAhead(settings.saveAhead !== false);
     setFavorWhatWorks(settings.favorWhatWorks);
   }
 
@@ -310,6 +312,7 @@ export function AppPlayer() {
         mode={mode}
         feedTrim={feedTrim}
         leveling={leveling}
+        saveAhead={saveAhead}
         wasVaried={session.wasVaried ?? false}
         favorWhatWorks={favorWhatWorks}
       />
