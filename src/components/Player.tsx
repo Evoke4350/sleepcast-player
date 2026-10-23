@@ -1355,6 +1355,15 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntro
     activityRef.current = () => restRef.current?.noteInteraction();
     return () => { activityRef.current = null; };
   });
+  // Coming back to the page mid-night is a touch too: a locked phone keeps it
+  // hidden, so seeing it again means someone unlocked the phone and opened
+  // Sleepcast, which nobody does asleep. Without this, checking the time in
+  // the app left the night looking untouched.
+  useEffect(() => {
+    const onVis = () => { if (!document.hidden) restRef.current?.noteInteraction(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, []);
   // Opening or closing the player is a touch like any other.
   const expandPlayer = () => { restRef.current?.noteInteraction(); onExpand(); };
   const collapsePlayer = () => { restRef.current?.noteInteraction(); onCollapse(); };

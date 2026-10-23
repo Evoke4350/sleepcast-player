@@ -9,6 +9,11 @@ export const INTERACTION_MERGE_MS = 3000;
 
 export class RestSession {
   private detector: SleepDetector;
+  /** The detector's verdict, held until the night ends. The detector decides
+   *  on the first tick inside the fade, which is the very moment an awake
+   *  listener hears the volume drop and reaches for the phone: a stretch or a
+   *  hold-to-end in the remaining seconds says they were awake after all. So
+   *  a verdict only stands if no touch follows it and the night fades out. */
   private onset: SleepOnset | null = null;
   private interactions = 0;
   /** Every touch, unmerged: the live wakefulness signal, where a long
@@ -45,6 +50,12 @@ export class RestSession {
     if (gap < 0 || gap >= INTERACTION_MERGE_MS) this.interactions++;
     this.touches++;
     this.pendingInteraction = true;
+    // A touch after the verdict overturns it. The night may go on (a stretch)
+    // and reach another fade, so the evidence starts again from nothing.
+    if (this.onset) {
+      this.onset = null;
+      this.detector.reset();
+    }
     this.lastInteractionAt = now;
   }
 
@@ -105,7 +116,10 @@ export class RestSession {
   }
 
   finish(endedVia: RestNight["endedVia"], now: number): RestNight {
-    const atMs = this.onset ? this.onset.atMs : null;
+    // Only a night that faded out stands as slept: one ended by hand in the
+    // fade was ended by someone awake.
+    const onset = endedVia === "faded" ? this.onset : null;
+    const atMs = onset ? onset.atMs : null;
     // noteEpisode takes an explicit `now`, so a clock adjustment or a resumed
     // night can append an earlier t after a later one. .at(-1) means "latest
     // by time" only if entries arrived in time order, so sort a copy — this
@@ -122,7 +136,7 @@ export class RestSession {
       sleptAtMs: atMs,
       timeToSleepMs: atMs,
       interactions: this.interactions,
-      detector: this.onset ? "inference" : "none",
+      detector: onset ? "inference" : "none",
       ...(this.shuffleLeaned ? { shuffle: "leaned" as const } : {}),
       // Spread rather than assign: an absent field and an empty array must not
       // become two shapes in a ledger that already holds 90 nights without them.
