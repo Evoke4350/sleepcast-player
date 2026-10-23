@@ -10,6 +10,7 @@ import { DEFAULT_TIMER_MINUTES } from "../lib/timer-presets";
 import { SleepSetup } from "./SleepSetup";
 import { Player } from "./Player";
 import { RestView } from "./RestView";
+import { keepStorage } from "../lib/keep";
 import { reconcileLive, settleLive } from "../lib/rest/reconcile";
 import { ReanchorView } from "./ReanchorView";
 import { shouldGreetGoodbye, markGoodbyeSeen, fmtDuration } from "../lib/rest/surface";
@@ -102,6 +103,13 @@ export function AppPlayer() {
     markStepBackAsked(Date.now());
     setStepBack(false);
   }
+
+  // Ask the browser to keep this site's storage (keep.ts), once there's a
+  // night in it to keep: Firefox asks the listener, and a prompt on the very
+  // first visit, before anything is worth keeping, would make no sense.
+  useEffect(() => {
+    if (loadNights().length > 0) void keepStorage();
+  }, []);
 
   // Opened by the watch Shortcut (#watch=…): match its sleep to the nights,
   // take the data out of the address bar, and show what it did on Rest.

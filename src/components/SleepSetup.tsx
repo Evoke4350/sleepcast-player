@@ -2,7 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { AppState, FeedRef } from "../lib/store";
 import { loadBlocked, loadPositions, clampTimerMinutes, TIMER_MIN, TIMER_MAX } from "../lib/store";
 import { parseOpml, buildOpml } from "../lib/opml";
-import { buildBackup, backupFilename, parseBackup, restoreBackup, summarizeStored } from "../lib/backup";
+import { downloadBackup, parseBackup, restoreBackup, summarizeStored } from "../lib/backup";
+import { downloadFile } from "../lib/download";
+import { keepStorage, lastBackedUpAt, storageKept } from "../lib/keep";
 import type { Backup, BackupSummary } from "../lib/backup";
 import { isYouTubeUrl } from "../lib/web-cleanup";
 import { rearmMinutes } from "../lib/engine";
@@ -89,6 +91,10 @@ function SettingRow({ id, title, checked, disabled = false, onChange, children }
   );
 }
 
+function fmtBackupDate(ms: number): string {
+  return new Date(ms).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+}
+
 function describeSummary({ feeds, nights }: BackupSummary): string {
   return `${feeds} ${feeds === 1 ? "feed" : "feeds"}, ${nights} ${nights === 1 ? "night" : "nights"}`;
 }
@@ -115,6 +121,15 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
   const [backupNote, setBackupNote] = useState<string | null>(null);
   const [backupError, setBackupError] = useState<string | null>(null);
   const [pendingRestore, setPendingRestore] = useState<{ backup: Backup; summary: BackupSummary } | null>(null);
+  const [backedUpAt, setBackedUpAt] = useState<number | null>(() => lastBackedUpAt());
+  const [kept, setKept] = useState(false);
+  // Setup stays mounted across tabs, and the Rest tab can save a backup:
+  // read both afresh each time Settings opens.
+  useEffect(() => {
+    if (tab !== "settings") return;
+    setBackedUpAt(lastBackedUpAt());
+    void storageKept().then(setKept);
+  }, [tab]);
   const replaceBtnRef = useRef<HTMLButtonElement>(null);
   const [watchNote, setWatchNote] = useState<{ text: string; error: boolean } | null>(null);
   const [feedStatuses, setFeedStatuses] = useState<Record<string, FeedStatus>>({});
@@ -423,23 +438,13 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
     downloadFile(new Blob([xml], { type: "text/x-opml" }), "sleepcast-feeds.opml");
   }
 
-  function downloadFile(blob: Blob, name: string) {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = name;
-    a.click();
-    // Revoking in the same tick as click() can race the browser's own
-    // download handoff and cancel it — hold the URL alive a beat longer.
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }
-
   function handleBackup() {
     setBackupError(null);
     setPendingRestore(null);
-    const json = JSON.stringify(buildBackup());
-    downloadFile(new Blob([json], { type: "application/json" }), backupFilename());
-    const { feeds, nights } = summarizeStored();
+    const { feeds, nights } = downloadBackup();
+    setBackedUpAt(lastBackedUpAt());
+    // A deliberate act of keeping: the moment to ask, where the browser asks.
+    void keepStorage().then(setKept);
     setBackupNote(`Saved ${feeds} ${feeds === 1 ? "feed" : "feeds"} and ${nights} ${nights === 1 ? "night" : "nights"}. Keep the file somewhere other than this browser.`);
   }
 
@@ -1094,6 +1099,10 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
                 <p className="text-[12.5px] leading-snug text-[var(--ink-3)]">
                   Your feeds, settings and nights are kept only in this browser. Clearing site data or switching phones loses them, so save a backup now and then.
                 </p>
+                <p className="text-[12.5px] leading-snug text-[var(--ink-3)]">
+                  {backedUpAt ? `Last backed up ${fmtBackupDate(backedUpAt)}.` : "Not backed up yet."}
+                  {kept ? " This browser has agreed not to clear it on its own." : ""}
+                </p>
               </div>
               <div className="flex gap-2">
                 <button
@@ -1121,7 +1130,7 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
                 <div role="group" aria-labelledby="restore-question" className="space-y-2 rounded-lg border border-[var(--line)] p-3">
                   <p id="restore-question" className="text-[12.5px] leading-snug text-[var(--ink-2)]">
                     Replace what&apos;s here ({describeSummary(summarizeStored())}) with the backup
-                    {pendingRestore.backup.exportedAt ? ` from ${new Date(pendingRestore.backup.exportedAt).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}` : ""} ({describeSummary(pendingRestore.summary)})? The page reloads afterwards.
+                    {pendingRestore.backup.exportedAt ? ` from ${fmtBackupDate(Date.parse(pendingRestore.backup.exportedAt))}` : ""} ({describeSummary(pendingRestore.summary)})? The page reloads afterwards.
                   </p>
                   <div className="flex gap-2">
                     <button
