@@ -11,6 +11,8 @@
 // on the device they were played on), and the one-off cleanup marker.
 
 import { evictOneFeedCache, loadState } from "./store";
+import { downloadFile } from "./download";
+import { noteBackedUp } from "./keep";
 
 export const BACKUP_KEYS = [
   "sleepcast2.state",
@@ -59,6 +61,13 @@ export function buildBackup(now = new Date()): Backup {
     if (v !== null) data[k] = v;
   }
   return { app: APP, version: VERSION, exportedAt: now.toISOString(), data };
+}
+
+/** Save a backup file and remember when, for the reminder (keep.ts). */
+export function downloadBackup(now = new Date()): BackupSummary {
+  downloadFile(new Blob([JSON.stringify(buildBackup(now))], { type: "application/json" }), backupFilename(now));
+  noteBackedUp(now.getTime());
+  return summarizeStored();
 }
 
 /** sleepcast-backup-2026-10-22.json, in local time. */
@@ -157,4 +166,7 @@ export function restoreBackup(backup: Backup): void {
     throw e;
   }
   try { localStorage.removeItem(CLEANUP_KEY); } catch { /* ignore */ }
+  // What's here now is that backup: nights after it are the ones at risk.
+  const at = Date.parse(backup.exportedAt);
+  noteBackedUp(Number.isFinite(at) ? at : Date.now());
 }

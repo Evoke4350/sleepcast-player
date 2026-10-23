@@ -1,10 +1,12 @@
-import { useMemo, useReducer } from "react";
+import { useMemo, useReducer, useRef, useState } from "react";
 import { loadNights, rollup, setSelfLabel, leanComparison } from "../lib/rest/ledger";
 import { recordFalsePositive } from "../lib/rest/calibrate";
 import { scoreFeeds, medianTimeToSleep, meetsSuggestionGate, shuffleWeights, pluralNights, fmtOnsetMinutes, MIN_NIGHTS } from "../lib/rest/sleepscore";
 import { fmtDuration, lastNight } from "../lib/rest/surface";
 import { describeWatchNight } from "../lib/rest/watch";
 import { getPlays, loadState } from "../lib/store";
+import { backupReminder, keepStorage, snoozeBackupReminder } from "../lib/keep";
+import { downloadBackup } from "../lib/backup";
 import { playsSince, playAtMoment } from "../lib/plays";
 
 /** `onClose` when shown as its own screen; in the Rest tab there is none,
@@ -14,6 +16,17 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
   const nights = useMemo(() => loadNights(), []);
   const r = useMemo(() => rollup(nights), [nights]);
   const last = lastNight();
+  // Shown the morning after, here, never on the bedtime screen: a reminder
+  // at bedtime is the kind of nudge the app exists not to make.
+  const [reminder] = useState(() => backupReminder(nights));
+  const [reminderDone, setReminderDone] = useState<string | null>(null);
+  const reminderDoneRef = useRef<HTMLParagraphElement>(null);
+
+  // The buttons go when pressed: focus moves to what took their place.
+  function closeReminder(text: string) {
+    setReminderDone(text);
+    requestAnimationFrame(() => reminderDoneRef.current?.focus());
+  }
 
   // Only custom feeds can go missing from here — loadState always re-merges
   // every BUILTIN_FEEDS entry regardless of what's saved, and removeCustomFeed
@@ -110,6 +123,44 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
       <h1 className="text-3xl font-extrabold tracking-tight text-[var(--ink)]">Rest</h1>
 
       <p role="status" className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4 text-[13px] text-[var(--ink-2)] empty:hidden">{note ?? ""}</p>
+
+      {reminder && (
+        <section aria-labelledby="backup-reminder-title" className="space-y-2.5 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
+          <h2 id="backup-reminder-title" className="text-[11px] font-bold uppercase tracking-widest text-[var(--ink-3)]">back up your nights</h2>
+          {reminderDone === null ? (
+            <>
+              <p className="text-[13px] text-[var(--ink-2)]">
+                {reminder.everBackedUp
+                  ? `${pluralNights(reminder.nights)} since your last backup are kept only in this browser. Save a new backup to keep them if it clears its storage.`
+                  : `Your ${pluralNights(reminder.nights)}, feeds and settings are kept only in this browser. Save a backup to keep them if it clears its storage.`}
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    const { nights: saved } = downloadBackup();
+                    void keepStorage();
+                    closeReminder(`Saved ${pluralNights(saved)}. Keep the file somewhere other than this browser.`);
+                  }}
+                  className="flex-1 rounded-lg bg-[var(--accent)] py-2 text-sm font-semibold text-[var(--accent-ink)]"
+                >
+                  Back up
+                </button>
+                <button
+                  onClick={() => {
+                    snoozeBackupReminder();
+                    closeReminder("Hidden for a week. You can back up anytime in Settings.");
+                  }}
+                  className="flex-1 rounded-lg bg-[var(--raised)] py-2 text-sm font-semibold text-[var(--ink-2)] hover:text-[var(--ink)]"
+                >
+                  Not now
+                </button>
+              </div>
+            </>
+          ) : (
+            <p ref={reminderDoneRef} tabIndex={-1} role="status" className="text-[13px] text-[var(--ink-2)] outline-none">{reminderDone}</p>
+          )}
+        </section>
+      )}
 
       {/* The watch measured last night: nothing to ask, only to show. */}
       {last && last.detector === "hr" && (

@@ -36,7 +36,9 @@ So:
   file with the feeds, settings, play ledger and every night the rest engine
   has logged, and restores it on another browser (`src/lib/backup.ts`).
   Nothing else keeps a copy, so this is the only way it survives a cleared
-  browser or a new phone.
+  browser or a new phone. Sleepcast asks the browser to keep its storage once
+  there's a night in it, and the Rest tab reminds you to back up after 5
+  nights with no backup, then after every 14 new ones (`src/lib/keep.ts`).
 - **Your watch can say when you actually fell asleep.** An iPhone Shortcut
   reads Apple Watch sleep from Health and opens `/#watch=…` (or copies it
   for "Add from clipboard"). The watch's onset replaces the detector's guess
