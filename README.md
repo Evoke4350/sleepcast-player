@@ -32,6 +32,11 @@ So:
   `src/lib/rest/sleepscore.ts`).
 - **The timer fades, it doesn't cut.** A hard stop wakes people. The fade is a
   volume ramp over the last stretch (`fadeVolume` in `src/lib/engine.ts`).
+- **Your history is yours to carry.** Settings → Your history saves one JSON
+  file with the feeds, settings, play ledger and every night the rest engine
+  has logged, and restores it on another browser (`src/lib/backup.ts`).
+  Nothing else keeps a copy, so this is the only way it survives a cleared
+  browser or a new phone.
 - **It resumes the night, not the episode.** Fall asleep 20 minutes into a
   90-minute episode and the app remembers where you went under, so the next
   night doesn't restart the same thing from 0:00 (`src/lib/positions.ts`).
