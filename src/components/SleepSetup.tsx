@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { AppState, FeedRef } from "../lib/store";
 import { loadBlocked, loadPositions, clampTimerMinutes, TIMER_MIN, TIMER_MAX } from "../lib/store";
 import { parseOpml, buildOpml } from "../lib/opml";
+import { buildBackup, backupFilename, parseBackup, restoreBackup, summarizeStored } from "../lib/backup";
+import type { Backup, BackupSummary } from "../lib/backup";
 import { isYouTubeUrl } from "../lib/web-cleanup";
 import { rearmMinutes } from "../lib/engine";
 import type { PlayMode } from "../lib/engine";
@@ -86,6 +88,10 @@ function SettingRow({ id, title, checked, disabled = false, onChange, children }
   );
 }
 
+function describeSummary({ feeds, nights }: BackupSummary): string {
+  return `${feeds} ${feeds === 1 ? "feed" : "feeds"}, ${nights} ${nights === 1 ? "night" : "nights"}`;
+}
+
 /** A timer choice. */
 function Pill({ on, onClick, label, children }: { on: boolean; onClick: () => void; label?: string; children: React.ReactNode }) {
   return (
@@ -105,6 +111,10 @@ function Pill({ on, onClick, label, children }: { on: boolean; onClick: () => vo
 export function SleepSetup({ onStart, tab }: SleepSetupProps) {
   const [appState, setAppState] = useState<AppState>(() => loadState());
   const [opmlNote, setOpmlNote] = useState<string | null>(null);
+  const [backupNote, setBackupNote] = useState<string | null>(null);
+  const [backupError, setBackupError] = useState<string | null>(null);
+  const [pendingRestore, setPendingRestore] = useState<{ backup: Backup; summary: BackupSummary } | null>(null);
+  const replaceBtnRef = useRef<HTMLButtonElement>(null);
   const [feedStatuses, setFeedStatuses] = useState<Record<string, FeedStatus>>({});
   const [customUrl, setCustomUrl] = useState("");
   const [customTitle, setCustomTitle] = useState("");
@@ -407,15 +417,56 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
 
   function handleOpmlExport() {
     const xml = buildOpml(appState.feeds.map((f) => ({ url: f.url, title: f.title })));
-    const blob = new Blob([xml], { type: "text/x-opml" });
+    downloadFile(new Blob([xml], { type: "text/x-opml" }), "sleepcast-feeds.opml");
+  }
+
+  function downloadFile(blob: Blob, name: string) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "sleepcast-feeds.opml";
+    a.download = name;
     a.click();
     // Revoking in the same tick as click() can race the browser's own
     // download handoff and cancel it — hold the URL alive a beat longer.
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function handleBackup() {
+    setBackupError(null);
+    setPendingRestore(null);
+    const json = JSON.stringify(buildBackup());
+    downloadFile(new Blob([json], { type: "application/json" }), backupFilename());
+    const { feeds, nights } = summarizeStored();
+    setBackupNote(`Saved ${feeds} ${feeds === 1 ? "feed" : "feeds"} and ${nights} ${nights === 1 ? "night" : "nights"}. Keep the file somewhere other than this browser.`);
+  }
+
+  function handleRestoreFile(file: File) {
+    setBackupNote(null);
+    setBackupError(null);
+    file.text().then((text) => {
+      const parsed = parseBackup(text);
+      if (!parsed.ok) {
+        setPendingRestore(null);
+        setBackupError(parsed.error);
+        return;
+      }
+      setPendingRestore({ backup: parsed.backup, summary: parsed.summary });
+      requestAnimationFrame(() => replaceBtnRef.current?.focus());
+    }, () => setBackupError("That file couldn't be read. Try picking it again."));
+  }
+
+  function confirmRestore() {
+    if (!pendingRestore) return;
+    try {
+      restoreBackup(pendingRestore.backup);
+    } catch {
+      setPendingRestore(null);
+      setBackupError("This browser ran out of storage space, so nothing was changed. Free some space and try again.");
+      return;
+    }
+    // Every part of the player reads storage on load: start it again on the
+    // restored data rather than patching each piece of state in place.
+    window.location.reload();
   }
 
   function startWith(picked: Episode[], wasVaried = false) {
@@ -989,6 +1040,62 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
                 </span>
               </div>
             </div>
+            {/* Everything here lives only in this browser's storage. */}
+            <section aria-labelledby="backup-title" className="space-y-3 rounded-2xl border border-[var(--line)] bg-[var(--surface)] px-4 py-3.5">
+              <div className="space-y-0.5">
+                <h2 id="backup-title" className="font-semibold text-[var(--ink)]">Your history</h2>
+                <p className="text-[12.5px] leading-snug text-[var(--ink-3)]">
+                  Your feeds, settings and nights are kept only in this browser. Clearing site data or switching phones loses them, so save a backup now and then.
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleBackup}
+                  className="flex-1 rounded-lg bg-[var(--raised)] py-2 text-sm font-semibold text-[var(--ink-2)] hover:text-[var(--ink)]"
+                >
+                  Back up
+                </button>
+                <label className="flex-1 cursor-pointer rounded-lg bg-[var(--raised)] py-2 text-center text-sm font-semibold text-[var(--ink-2)] hover:text-[var(--ink)] has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[var(--accent-text)]">
+                  Restore…
+                  <input
+                    id="restore-file"
+                    type="file"
+                    accept=".json,application/json"
+                    className="sr-only"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) handleRestoreFile(f);
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+              </div>
+              {pendingRestore && (
+                <div role="group" aria-labelledby="restore-question" className="space-y-2 rounded-lg border border-[var(--line)] p-3">
+                  <p id="restore-question" className="text-[12.5px] leading-snug text-[var(--ink-2)]">
+                    Replace what&apos;s here ({describeSummary(summarizeStored())}) with the backup
+                    {pendingRestore.backup.exportedAt ? ` from ${new Date(pendingRestore.backup.exportedAt).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}` : ""} ({describeSummary(pendingRestore.summary)})? The page reloads afterwards.
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      ref={replaceBtnRef}
+                      onClick={confirmRestore}
+                      className="flex-1 rounded-lg bg-[var(--accent)] py-2 text-sm font-semibold text-[var(--accent-ink)]"
+                    >
+                      Replace
+                    </button>
+                    <button
+                      onClick={() => setPendingRestore(null)}
+                      className="flex-1 rounded-lg bg-[var(--raised)] py-2 text-sm font-semibold text-[var(--ink-2)] hover:text-[var(--ink)]"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+              <p role="alert" className="text-xs text-[var(--danger)] empty:hidden">{backupError ?? ""}</p>
+              <p role="status" className="text-xs text-[var(--ink-4)] empty:hidden">{backupNote ?? ""}</p>
+            </section>
             <div className="pt-1 text-center">
               <a href="/privacy" className="text-xs text-[var(--ink-4)] underline decoration-[var(--line)] underline-offset-4 hover:text-[var(--ink-3)]">Privacy and analytics</a>
             </div>
