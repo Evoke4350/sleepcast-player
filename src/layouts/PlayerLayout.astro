@@ -65,7 +65,9 @@ const { title = "sleepcast" } = Astro.props;
         document.getElementById('sc-decline').addEventListener('click', function () { choose('denied'); });
       })();
     </script>
-    <script is:inline>
+    <!-- Not is:inline: Astro's CSP hashes only the scripts it processes, and
+         an is:inline one is blocked, so the worker never registered. -->
+    <script>
       // Registered late and failure-tolerant: the player works without it, so
       // a service worker that won't install must never block a night.
       if ("serviceWorker" in navigator) {

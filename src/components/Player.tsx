@@ -24,6 +24,7 @@ import { RestSession, revivedNightStart } from "../lib/rest/session";
 import { recordNightEnd } from "../lib/night-end";
 import type { RestNight } from "../lib/rest/types";
 import { MAX_FAILS } from "../lib/episode-end";
+import { OfflineAudio } from "../lib/offline-audio";
 
 const FADE_SECONDS = 60;
 // Just under a second, so a jittery 1s interval isn't swallowed by the gate it
@@ -69,6 +70,9 @@ export interface PlayerProps {
   feedTrim: Record<string, number>;
   /** Opt-in loudness compressor. Ignored where Web Audio dies on lock. */
   leveling: boolean;
+  /** Save the episode playing and the next one on the device, so a dropped
+   *  network doesn't stop the night (lib/offline-audio). */
+  saveAhead?: boolean;
   skipIntroByFeedId: Record<string, number>;
   feedTitles: Record<string, string>;
   artworkByFeedId: Record<string, string>;
@@ -126,7 +130,7 @@ function NowArt({ src, big = false }: { src?: string; big?: boolean }) {
     : <div aria-hidden="true" className={`${cls} grid place-items-center bg-[var(--raised)] text-[var(--accent)]`}><span className={big ? "text-6xl" : "text-lg"}>☾</span></div>;
 }
 
-export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntroByFeedId, feedTitles, artworkByFeedId, onEnd, resume = null, leadEpisode = null, leadPosition = 0, quarterHourRule = false, wasVaried = false, favorWhatWorks = false, expanded, onExpand, onCollapse, endRef, activityRef }: PlayerProps) {
+export function Player({ pool, timerMinutes, mode, feedTrim, leveling, saveAhead = true, skipIntroByFeedId, feedTitles, artworkByFeedId, onEnd, resume = null, leadEpisode = null, leadPosition = 0, quarterHourRule = false, wasVaried = false, favorWhatWorks = false, expanded, onExpand, onCollapse, endRef, activityRef }: PlayerProps) {
   const shuffle = useNightShuffle(favorWhatWorks, pool, resume);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -154,6 +158,12 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntro
   const watchRef = useRef<{ src: string; at: number } | null>(null);
   /** Waiting out a dropped network (see holdForNetwork). */
   const netHoldRef = useLazyRef(() => new NetworkHold());
+  /** Tonight's episodes saved on the device (see planAhead). */
+  const offlineRef = useLazyRef(() => new OfflineAudio());
+  /** The episode picked to follow this one, picked early so it can be
+   *  saved before it is needed. playNext takes it while it is still a
+   *  valid pick. */
+  const plannedNextRef = useRef<Episode | null>(null);
   /** Where the episode is, as far as anyone can tell (see resumePosition),
    *  when no seek is pending: the element's own trustworthy reading (see
    *  notePosition), or the target a seek left behind when it ended without
@@ -283,7 +293,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntro
     } else {
       audio.removeAttribute("crossorigin");
     }
-    audio.src = ep.url;
+    audio.src = offlineRef.current.sourceFor(ep);
     currentEpRef.current = ep;
     // A new episode: the last one's length means nothing now (before the
     // start seek below reads it).
@@ -315,6 +325,39 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntro
     publishLockScreenMetadata(ep.title, feedTitlesRef.current[ep.feedId], artworkRef.current[ep.feedId]);
     // And a snapshot now, at its start (see counterAfterStartSnapshot).
     persistCounterRef.current = counterAfterStartSnapshot(persistLive());
+    planAhead();
+  }
+
+  /** Name what the night needs saved: the episode playing, and the next
+   *  one once it is likely to play (its length known, and the timer, if
+   *  there is one, outlasting it). Every tick; a no-op unless it changes. */
+  function planAhead() {
+    const ep = currentEpRef.current;
+    const audio = audioRef.current;
+    if (!saveAhead || !ep || !audio) return;
+    const kind = modeRef.current.kind;
+    let next: Episode | null = null;
+    if (kind !== "one-episode") {
+      const epLeft = remainingOf(episodeSpan(audio));
+      const timerLeft = kind === "minutes" ? (pausedRemainingMsRef.current ?? (endTimeRef.current ?? 0) - Date.now()) / 1000 : Infinity;
+      if (epLeft !== null && timerLeft > epLeft) {
+        const choices = nextChoices();
+        const planned = plannedNextRef.current;
+        next = planned && choices?.some((e) => e.id === planned.id) ? planned : choices ? pickFrom(choices) : null;
+        plannedNextRef.current = next;
+      }
+    }
+    offlineRef.current.keep(next ? [ep, next] : [ep]);
+  }
+
+  /** The night has lost the network while this episode streams: play the
+   *  saved copy from where it is, if there is one. Returns whether it did. */
+  function switchToSaved(ep: Episode): boolean {
+    const audio = audioRef.current;
+    if (!audio || !offlineRef.current.has(ep)) return false;
+    if (audio.getAttribute("src") === offlineRef.current.sourceFor(ep)) return false;
+    notePosition(audio);
+    return reloadCurrent(ep);
   }
 
   /** Count one more consecutive failure (a stuck track, a source error). Past
@@ -339,6 +382,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntro
     const audio = audioRef.current;
     const ep = currentEpRef.current;
     if (!audio || !ep) return;
+    // Saved on the device: no need to wait for anything.
+    if (!audio.paused && switchToSaved(ep)) return;
     // Read before pausing: paused already means by the listener (a paused
     // element's buffering can fail too; see NetworkHold).
     const paused = audio.paused;
@@ -496,7 +541,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntro
     // resume point or periodic snapshot (see epPlayedRef).
     epPlayedRef.current = false;
     const at = resumePosition();
-    audio.src = ep.url;
+    audio.src = offlineRef.current.sourceFor(ep);
     // A fresh enforcer (the old one's state belongs to the load that failed),
     // with the skip's announcement if it is the skip's seek being reloaded:
     // skipSeekRef is set only while that seek is the pending one.
@@ -557,7 +602,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntro
     setGettingUp(on);
   }
 
-  function playNext() {
+  /** What the next episode can be, or null when nothing can play. */
+  function nextChoices(): Episode[] | null {
     // Exclude what is playing now. The ledger only records an episode after
     // HEARD_SEC, so on a fresh varied mix every episode is still a candidate
     // and Next had a real chance of restarting the same story from 0:00.
@@ -566,21 +612,31 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntro
       // Past the one-way door: an episode from a feed that turned out CORS-bad
       // plays silent through the captured element and reports nothing. Skip
       // the whole feed, and end rather than fake-play silence all night.
-      const playable = available.filter((e) => !corsBadFeeds.has(e.feedId));
-      if (playable.length === 0) {
-        // Not a give-up: attachment only happens after something has played.
-        endSession("ended");
-        return;
-      }
-      available = playable;
+      available = available.filter((e) => !corsBadFeeds.has(e.feedId));
+      if (available.length === 0) return null;
     }
     const current = currentEpRef.current;
     const choices = current
       ? available.filter((e) => e.id !== current.id)
       : available;
-    const ep = pickNextEpisode(choices.length ? choices : available, getPlays(), Math.random, shuffle.weightOf);
-    // Nothing left (the last episode was just blocked): end rather than keep
-    // playing the one the listener said "never again" to.
+    return choices.length ? choices : available.length ? available : null;
+  }
+
+  function pickFrom(choices: Episode[]): Episode | null {
+    return pickNextEpisode(choices, getPlays(), Math.random, shuffle.weightOf);
+  }
+
+  function playNext() {
+    const choices = nextChoices();
+    // The one picked ahead (and maybe saved), while it is still a valid pick:
+    // not blocked since, nor the one playing.
+    const planned = plannedNextRef.current;
+    plannedNextRef.current = null;
+    const ep = !choices ? null : planned && choices.some((e) => e.id === planned.id) ? planned : pickFrom(choices);
+    // Nothing left (the last episode was just blocked, or past the one-way
+    // door no feed is playable): end rather than keep playing the one the
+    // listener said "never again" to, or fake-play silence. Not a give-up:
+    // attachment only happens after something has played.
     if (ep) playEpisode(ep);
     else endSession("ended");
   }
@@ -816,6 +872,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntro
     setCountdown(kind === "minutes" ? remaining : 0);
     setEpPos((prev) => barPosition(prev, span));
 
+    planAhead();
+
     const w = watchRef.current;
     if (w && Date.now() - w.at > 25_000) {
       watchRef.current = null;
@@ -855,6 +913,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntro
     // gives up), or, for a revived one, the night it continues.
     clearStopFade();
     netHoldRef.current.cancel();
+    offlineRef.current.stop();
+    plannedNextRef.current = null;
     pendingSeekRef.current?.cancel(); // nothing may act on the stopped element
     recordNightEnd({
       reason,
@@ -994,6 +1054,10 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntro
         holdForNetwork();
         return;
       }
+      // Saved on the device and still streaming: the saved copy, from where
+      // it was, before anything else is concluded about this episode.
+      const failed = currentEpRef.current;
+      if (failed && tickHandleRef.current !== null && switchToSaved(failed)) return;
       // A crossOrigin element failing may only mean "this enclosure serves no
       // CORS headers" — retry the same source plain before skipping the track.
       const feedId = currentFeedRef.current;
@@ -1048,6 +1112,16 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntro
     audio.addEventListener("playing", onPlaying);
     audio.addEventListener("ended", onEnded);
     audio.addEventListener("error", onError);
+    // The network gone while an episode saved in full still streams: move to
+    // the saved copy now, while the buffer still plays, rather than waiting
+    // for the stall or the error (which can take minutes) and a gap after.
+    const onOffline = () => {
+      const ep = currentEpRef.current;
+      if (ep && tickHandleRef.current !== null && !audio.paused) switchToSaved(ep);
+    };
+    window.addEventListener("offline", onOffline);
+    // Turned off: nothing saved stays.
+    if (!saveAhead) offlineRef.current.keep([]);
     for (const ev of LOCK_SYNC_EVENTS) audio.addEventListener(ev, lockSync);
 
     const clearHandlers = setActionHandlers({
@@ -1106,6 +1180,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, skipIntro
       audio.removeEventListener("playing", onPlaying);
       audio.removeEventListener("ended", onEnded);
       audio.removeEventListener("error", onError);
+      window.removeEventListener("offline", onOffline);
+      offlineRef.current.stop();
       clearHandlers();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

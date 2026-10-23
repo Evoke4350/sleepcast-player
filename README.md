@@ -32,6 +32,11 @@ So:
   `src/lib/rest/sleepscore.ts`).
 - **The timer fades, it doesn't cut.** A hard stop wakes people. The fade is a
   volume ramp over the last stretch (`fadeVolume` in `src/lib/engine.ts`).
+- **A dropped connection doesn't stop the night.** While an episode plays, it
+  and the one picked to follow it download whole into the browser's cache,
+  and the service worker plays them from there (`src/lib/offline-audio.ts`,
+  `public/sw.js`). The next pick is made early but never shown: still no
+  next-up. Settings → Keep playing without internet turns it off.
 - **Your history is yours to carry.** Settings → Your history saves one JSON
   file with the feeds, settings, play ledger and every night the rest engine
   has logged, and restores it on another browser (`src/lib/backup.ts`).
