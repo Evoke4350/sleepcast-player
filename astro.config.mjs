@@ -29,7 +29,8 @@ export default defineConfig({
         "form-action 'self'",
       ],
       scriptDirective: {
-        resources: ["'self'"],
+        // gtag.js, loaded only after the visitor accepts (lib/analytics.ts).
+        resources: ["'self'", "https://www.googletagmanager.com"],
       },
     },
   },
