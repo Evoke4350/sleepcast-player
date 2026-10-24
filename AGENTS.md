@@ -18,8 +18,10 @@ normal podcast app would have.
   localStorage snapshot of the night. Don't assume it is stateless across
   reloads.
 - **No accounts, no database.** Google Analytics is the only third-party
-  analytics, gated behind a consent banner (Consent Mode v2, `analytics_storage`
-  denied by default) so it sets cookies only after the visitor accepts. Feed
+  analytics, and nothing of Google's loads until the visitor accepts the
+  consent banner (`src/lib/analytics.ts`). Scripts in layouts must not be
+  `is:inline`: Astro's CSP hashes only the scripts it processes, so an inline
+  one is silently blocked. Feed
   data, settings, and history stay in `localStorage`.
 - **The sleep detector must stay conservative.** A false positive ends someone's
   night early. When changing `src/lib/rest/detector.ts`, run

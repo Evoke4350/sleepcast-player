@@ -30,6 +30,11 @@ import PlayerLayout from "../layouts/PlayerLayout.astro";
         <a href="https://tools.google.com/dlpage/gaoptout" class="underline text-[var(--ink)] hover:text-[var(--ink)]">google analytics opt-out browser add-on</a>,
         or by blocking cookies for this site. sleepcast still works fully with analytics blocked.
       </p>
+      <p>
+        <span id="sc-consent-status"></span>
+        <button id="sc-consent-reset" type="button" class="ml-1 underline text-[var(--ink)] hover:text-[var(--ink)]">change your choice</button>
+        <span class="text-[var(--ink-4)]">(asks again, and removes google analytics' cookies)</span>
+      </p>
 
       <h2 class="mt-8 text-base text-[var(--ink)]">what stays on your device</h2>
       <p>
@@ -54,6 +59,6 @@ import PlayerLayout from "../layouts/PlayerLayout.astro";
       </p>
     </section>
 
-    <p class="mt-12 text-xs text-[var(--ink-4)]">last updated august 2026</p>
+    <p class="mt-12 text-xs text-[var(--ink-4)]">last updated october 2026</p>
   </main>
 </PlayerLayout>
