@@ -14,19 +14,20 @@ load-bearing:
 
 - **`isAllowedFeedUrl`** rejects non-HTTP(S) schemes, credentials in the URL,
   and non-public hosts before any request is made.
-- **`resolvePublicIps` + address pinning** resolve the hostname, check that
-  *every* returned address is public, and then pin that address for the actual
-  connection. Without the pin there is a window between the check and the fetch
-  where DNS can change the answer — that's the rebinding attack, and it is why
-  a plain `fetch()` after a hostname check is not sufficient.
-- **Per-IP rate limiting**, in-memory and per-process. Two instances behind a
-  load balancer means double the effective limit. It bounds abuse; it is not a
-  quota.
+- **Cloudflare Workers itself**: a Worker cannot reach private networks, so a
+  public hostname whose DNS answers with a private address (the rebinding
+  attack) goes nowhere. This replaces the DNS pinning the Node relay needed.
+  **If you move the relay to a host that can reach a private network, pin DNS
+  answers again** (git history has `resolvePublicIps` and the pinned fetch).
+- **Per-IP rate limiting** through the Workers rate limiting binding, keyed on
+  `CF-Connecting-IP`, which Cloudflare sets and a caller can't. It bounds
+  abuse; it is not a quota.
 - **A response sniff** that rejects bodies which aren't feeds, and a size cap.
 
 If you fork this and drop any of that, you have published an open proxy that
 can reach `169.254.169.254` and your internal network. The tests in
-`src/lib/relay-guard.test.ts` cover these cases; they should stay green.
+`src/lib/relay-guard.test.ts` and `worker/relay.test.ts` cover these cases;
+they should stay green.
 
 ## What this app does not do
 
@@ -45,16 +46,5 @@ makes other than to your own podcast hosts. See the README.
 
 ## Scope
 
-Self-hosters own their own deployment, and one detail needs your attention.
-`clientIp` (`src/lib/ratelimit.ts`) reads, in order:
-
-```
-fly-client-ip  →  x-forwarded-for (first entry)  →  x-real-ip  →  "unknown"
-```
-
-`fly-client-ip` is there because sleepcast.pro runs on Fly. **If you deploy
-somewhere that sets none of these, every caller buckets together under
-`"unknown"`** — one shared rate limit for the whole internet, which is a denial
-of service against your own users rather than protection from anyone. Make sure
-your proxy sets `x-forwarded-for`, and make sure the app is not directly
-reachable around it, or a caller can simply send the header themselves.
+Self-hosters own their own deployment. The relay's protections assume it runs
+on Cloudflare Workers; see above for what changes elsewhere.

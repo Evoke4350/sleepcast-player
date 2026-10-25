@@ -46,3 +46,6 @@ __pycache__/
 /public/audio/*
 !/public/audio/stories/
 .superpowers/
+
+# wrangler dev state
+.wrangler/

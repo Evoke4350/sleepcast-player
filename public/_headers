@@ -1,0 +1,12 @@
+# Headers for the static pages (Workers Static Assets reads this file).
+# The page's own CSP is a <meta> tag Astro writes with its script hashes;
+# frame-ancestors only works as a header, so it is here.
+/*
+  Content-Security-Policy: frame-ancestors 'none'
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+
+# A new service worker has to reach phones on their next visit.
+/sw.js
+  Cache-Control: no-cache
