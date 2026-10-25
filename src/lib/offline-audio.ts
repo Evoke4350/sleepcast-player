@@ -16,6 +16,11 @@ import type { Episode } from "./engine";
 export const AUDIO_CACHE = "sleepcast-offline-audio";
 export const AUDIO_PATH = "/offline-audio";
 
+/** Larger episodes stream instead: a twelve-hour sound machine runs to
+ *  hundreds of megabytes, too much to download overnight, perhaps on a phone
+ *  plan, and to keep on the device. A typical spoken episode is 30 to 70 MB. */
+export const MAX_SAVE_BYTES = 250 * 1024 * 1024;
+
 /** Where a saved episode is served from (same origin, so through the SW). */
 export function offlineUrl(remote: string): string {
   return `${AUDIO_PATH}?u=${encodeURIComponent(remote)}`;
@@ -143,7 +148,8 @@ export class OfflineAudio {
       }
     } catch {
       // A download cut off by the network going is tried again when it's
-      // back; anything else (no CORS, a 404, no room) isn't, tonight.
+      // back; anything else (no CORS, a 404, no room, too large) isn't,
+      // tonight.
       if (!abort.signal.aborted && !offline()) this.failed.add(url);
     } finally {
       if (this.downloading?.abort === abort) this.downloading = null;
@@ -161,6 +167,10 @@ async function download(url: string, signal: AbortSignal): Promise<void> {
   if (/text\/html|xml|json/i.test(type)) throw new Error(`not audio: ${type}`);
   const headers = new Headers({ "Content-Type": type || "audio/mpeg" });
   const len = res.headers.get("content-length");
+  if (len && Number(len) > MAX_SAVE_BYTES) {
+    void res.body.cancel();
+    throw new Error("too large to save");
+  }
   if (len) headers.set("Content-Length", len);
   const cache = await caches.open(AUDIO_CACHE);
   await cache.put(offlineUrl(url), new Response(res.body, { headers }));
