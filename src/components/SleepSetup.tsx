@@ -33,6 +33,8 @@ import { importWatchSleep, describeImport } from "../lib/rest/watch";
 import { needsFetch } from "../lib/feed-status";
 import { pickNextEpisode, HEARD_SEC } from "../lib/plays";
 import { ShowGrid, ShowPage } from "./Shows";
+import { ShowCatalog } from "./Catalog";
+import type { CatalogShow } from "../lib/catalog";
 
 
 interface FeedStatus {
@@ -158,6 +160,7 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
     returnToShowRef.current = null;
   }, [openShow]);
   const addShowRef = useRef<HTMLDivElement | null>(null);
+  const catalogRef = useRef<HTMLHeadingElement | null>(null);
   const [feedError, setFeedError] = useState("");
   const [lastEpisode] = useState(() => loadLastEpisode());
   const [greetNight, setGreetNight] = useState<RestNight | null>(() => {
@@ -372,6 +375,10 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
       return;
     }
     addResolvedFeed(url);
+  }
+
+  function addFromCatalog(show: CatalogShow) {
+    updateAndSave(addCustomFeed(appState, show.url, show.title));
   }
 
   function handleRemoveFeed(id: string) {
@@ -878,10 +885,12 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
             statuses={feedStatuses}
             onOpen={openShowPage}
             onAdd={() => {
-              addShowRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-              addUrlRef.current?.focus({ preventScroll: true });
+              catalogRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+              catalogRef.current?.focus({ preventScroll: true });
             }}
           />
+
+          <ShowCatalog feeds={appState.feeds} onAdd={addFromCatalog} onOpen={openShowPage} headingRef={catalogRef} />
 
           {/* Add custom feed */}
           <div ref={addShowRef} className="rounded-lg bg-[var(--surface)] border border-[var(--line)] px-4 py-3 space-y-2">

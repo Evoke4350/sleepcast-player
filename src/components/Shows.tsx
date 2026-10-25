@@ -77,7 +77,7 @@ export function ShowGrid({
           +
         </span>
         <span className="text-[13px] font-semibold leading-tight text-[var(--ink)]">Add a show</span>
-        <span className="text-xs text-[var(--ink-3)]">paste a feed</span>
+        <span className="text-xs text-[var(--ink-3)]">browse or paste</span>
       </button>
     </div>
   );

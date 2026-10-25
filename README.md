@@ -36,7 +36,13 @@ So:
   and the one picked to follow it download whole into the browser's cache,
   and the service worker plays them from there (`src/lib/offline-audio.ts`,
   `public/sw.js`). The next pick is made early but never shown: still no
-  next-up. Settings → Keep playing without internet turns it off.
+  next-up. Settings → Keep playing without internet turns it off. Episodes
+  over 250 MB (twelve-hour sound machines) stream instead.
+- **A short list, not a search box.** Podcasts → More sleep podcasts offers
+  shows picked by hand and checked for long episodes, recent activity and
+  audio that can be saved offline (`src/lib/catalog.ts`, which records the
+  checks). A directory search mostly turns up generated loops and ten-minute
+  clips.
 - **Your history is yours to carry.** Settings → Your history saves one JSON
   file with the feeds, settings, play ledger and every night the rest engine
   has logged, and restores it on another browser (`src/lib/backup.ts`).

@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { OfflineAudio, offlineUrl, AUDIO_CACHE, canSave } from "./offline-audio";
+import { OfflineAudio, offlineUrl, AUDIO_CACHE, canSave, MAX_SAVE_BYTES } from "./offline-audio";
 
 /** The Cache API, in memory: enough of it for the manager. */
 function fakeCaches() {
@@ -136,6 +136,23 @@ describe("OfflineAudio", () => {
     await settle();
     expect([1, 2, 3].map((n) => o.has(ep(n)))).toEqual([false, false, false]);
     expect(saved()).toEqual([]);
+  });
+
+  it("streams an episode too large to save, without downloading it", async () => {
+    let pulls = 0;
+    let cancelled = false;
+    const body = new ReadableStream({ pull: () => { pulls++; }, cancel: () => { cancelled = true; } }, { highWaterMark: 0 });
+    fetchMock.mockImplementationOnce(async () =>
+      new Response(body, { headers: { "content-type": "audio/mpeg", "content-length": String(MAX_SAVE_BYTES + 1) } }),
+    );
+    const o = new OfflineAudio();
+    o.keep([ep(1), ep(2)]);
+    await settle();
+    expect(o.has(ep(1))).toBe(false);
+    expect(o.has(ep(2))).toBe(true);
+    expect(saved()).toEqual([ep(2).url]);
+    expect(pulls).toBe(0);
+    expect(cancelled).toBe(true);
   });
 
   it("stops a download no longer needed", async () => {
