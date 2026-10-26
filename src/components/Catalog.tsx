@@ -38,6 +38,8 @@ export function ShowCatalog({
                 const added = isAdded(show, feeds);
                 return (
                   <li key={show.url} className="flex items-start gap-3 py-2.5">
+                    {/* Decorative: the title beside it names the show. */}
+                    <img src={show.art} alt="" width={48} height={48} loading="lazy" decoding="async" className="h-12 w-12 shrink-0 rounded-md bg-[var(--raised)] object-cover" />
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-semibold leading-snug text-[var(--ink)]">
                         {show.title} <span className="text-xs font-normal text-[var(--ink-4)]">{show.by}</span>

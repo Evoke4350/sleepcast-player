@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import { readdirSync } from "node:fs";
+import { join } from "node:path";
 import { CATALOG, CATALOG_STYLES, isAdded } from "./catalog";
 import { BUILTIN_FEEDS, addCustomFeed, type AppState } from "./store";
 
@@ -29,5 +31,12 @@ describe("catalog", () => {
     expect(next.feeds[0]).toMatchObject({ url: show.url, title: show.title, enabled: true, builtin: false });
     // Adding again changes nothing.
     expect(addCustomFeed(next, show.url, show.title).feeds).toHaveLength(1);
+  });
+});
+
+describe("catalog covers", () => {
+  it("every show's cover is in public/catalog, and only those", () => {
+    const files = readdirSync(join(__dirname, "../../public/catalog")).sort();
+    expect(CATALOG.map((s) => s.art.replace("/catalog/", "")).sort()).toEqual(files);
   });
 });
