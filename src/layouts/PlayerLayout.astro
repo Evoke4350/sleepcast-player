@@ -31,8 +31,10 @@ const { title = "sleepcast" } = Astro.props;
   </head>
   <body class="min-h-full flex flex-col">
     <slot />
+    <!-- At the top: the tab bar holds the bottom, and a banner over it left
+         no way to switch tabs until you chose. -->
     <div id="sc-consent" hidden role="dialog" aria-label="analytics consent"
-      class="fixed inset-x-0 bottom-0 z-50 border-t border-[var(--line)] bg-[var(--surface)]/95 px-4 py-3 text-xs text-[var(--ink-3)] backdrop-blur">
+      class="fixed inset-x-0 top-0 z-50 border-b border-[var(--line)] bg-[var(--surface)]/95 px-4 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top,0px))] text-xs text-[var(--ink-3)] backdrop-blur">
       <div class="mx-auto flex max-w-2xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <span>sleepcast uses google analytics to understand usage. <a href="/privacy" class="underline text-[var(--ink)]">learn more</a>.</span>
         <span class="flex gap-2">

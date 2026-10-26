@@ -15,5 +15,10 @@
   "ratelimits": [
     { "name": "RELAY_LIMIT", "namespace_id": "1001", "simple": { "limit": 60, "period": 60 } }
   ],
+  // Custom domains: Cloudflare makes their DNS records and certificates.
+  "routes": [
+    { "pattern": "sleepcast.pro", "custom_domain": true },
+    { "pattern": "www.sleepcast.pro", "custom_domain": true }
+  ],
   "observability": { "enabled": false }
 }
