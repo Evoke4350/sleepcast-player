@@ -8,22 +8,20 @@
   "scripts": {
     "dev": "astro dev",
     "build": "astro build",
-    "preview": "astro preview",
-    "start": "node ./dist/server/entry.mjs",
+    "preview": "npm run build && wrangler dev",
     "astro": "astro",
     "typecheck": "astro check",
-    "test": "vitest run --environment jsdom"
+    "test": "vitest run --environment jsdom",
+    "deploy": "npm run build && wrangler deploy"
   },
   "dependencies": {
-    "@astrojs/node": "^10.0.6",
     "@astrojs/react": "^5.0.4",
     "@tailwindcss/vite": "^4.2.4",
     "astro": "^6.1.9",
     "clsx": "^2.1.1",
     "react": "19.2.4",
     "react-dom": "19.2.4",
-    "tailwind-merge": "^3.5.0",
-    "undici": "^7.29.0"
+    "tailwind-merge": "^3.5.0"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.8",
@@ -34,9 +32,15 @@
     "jsdom": "^29.1.1",
     "tailwindcss": "^4",
     "typescript": "^5",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.8",
+    "wrangler": "^4.152.0"
   },
   "engines": {
     "node": ">=22"
+  },
+  "overrides": {
+    "@tailwindcss/vite": {
+      "vite": "^7.3.2"
+    }
   }
 }

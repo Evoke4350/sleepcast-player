@@ -1,7 +1,10 @@
 # sleepcast-player
 
-**Astro 6, not Next.js.** SSR via the Node standalone adapter, React only as
-islands. Node 22 required, managed by mise: `mise exec node@22 -- npm run build`.
+**Astro 6, not Next.js.** Static pages (`output: "static"`), React only as
+islands, served from Cloudflare Workers Static Assets; the one server route,
+`/api/relay`, is the Worker in `worker/` (`wrangler.jsonc`). Node 22 required,
+managed by mise: `mise exec node@22 -- npm run build`. `npm run preview` runs
+the Worker locally; `npm run deploy` builds and deploys.
 
 Read `README.md` first — it explains why the player refuses features that a
 normal podcast app would have.
@@ -9,11 +12,13 @@ normal podcast app would have.
 ## Things that will bite you
 
 - **`/api/relay` fetches on behalf of anyone who asks.** It exists because
-  browsers cannot fetch podcast feeds cross-origin. Keep the SSRF guard, the
-  address pinning, the per-IP rate limit and the feed sniff. It is not a
-  general proxy, and without those checks it reaches your metadata endpoint.
-- **Rate limits are per-machine and in-memory.** Two instances behind a load
-  balancer means double the effective limit. It bounds abuse; it is not a quota.
+  browsers cannot fetch podcast feeds cross-origin. Keep the URL check, the
+  per-IP rate limit (the `RELAY_LIMIT` binding), the feed sniff and the size
+  cap. It is not a general proxy. It relies on Workers being unable to reach
+  private networks; moved to a host that can, it needs DNS pinning back.
+- **Tailwind's Vite plugin is pinned to Astro's Vite** (`overrides` in
+  package.json). Vitest brings Vite 8; the plugin picking that up breaks the
+  static build with "Missing field `tsconfigPaths`".
 - **The player survives a full reload** via `store.saveLive`/`loadLive`, a
   localStorage snapshot of the night. Don't assume it is stateless across
   reloads.

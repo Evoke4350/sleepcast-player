@@ -88,39 +88,38 @@ them on the caller's behalf. **That makes it a proxy, and an unguarded proxy on
 the public internet is somebody else's tool.** The guard is not optional
 decoration:
 
-- `relay-guard.ts` resolves the hostname, verifies every resolved address is
-  public, and then **pins that address for the actual connection** — closing
-  the DNS-rebinding window between the check and the fetch.
-- `ratelimit.ts` caps requests per IP. Note it is **in-memory and per-machine**:
-  run two instances behind a load balancer and the effective limit doubles. It
-  bounds abuse; it is not an exact quota.
+- `relay-guard.ts` allows only https URLs to named public hosts, on every
+  redirect hop. The relay runs on Cloudflare Workers (`worker/relay.ts`),
+  which cannot reach private networks, so a public name that resolves to a
+  private address goes nowhere. **Move it to a host that can, and you must
+  add DNS pinning back** (git history has the Node version that did).
+- Workers rate limiting (`RELAY_LIMIT` in `wrangler.jsonc`) caps requests per
+  IP. It bounds abuse; it is not an exact quota.
 - The response body is sniffed and rejected if it is not a feed.
 - There is a size cap (32MB — some real sleep podcast feeds are over 20MB).
 
 If you fork this and remove those checks, you have built an open SSRF relay
 that can reach your cloud metadata endpoint. Don't.
 
+Feeds are cached at the edge for 30 minutes, and served from an older copy
+when the feed's host is down. (The Cache API does nothing on a `workers.dev`
+address, only on a custom domain.)
+
 ## Deploying
 
-Any host that runs a Node process works. The build emits a standalone server:
+It runs on Cloudflare Workers, which is free at a personal app's traffic: the
+pages are static files, and `/api/relay` is a small Worker.
 
 ```bash
-npm run build
-node ./dist/server/entry.mjs      # honours PORT and HOST
+npx wrangler login
+npm run preview   # build, then run the Worker locally
+npm run deploy    # build, then deploy
 ```
 
-Or with the included Dockerfile:
+To serve it on your own domain, add it in the Cloudflare dashboard under the
+Worker's Settings → Domains & Routes.
 
-```bash
-docker build -t sleepcast-player .
-docker run -p 3000:3000 sleepcast-player
-```
-
-Set `PUBLIC_SITE_URL` to your own origin so the canonical URL is right.
-
-**Read `SECURITY.md` before putting this on the public internet.** The rate
-limiter identifies callers by proxy headers, and on a host that sets none of
-them every visitor shares one bucket.
+**Read `SECURITY.md` before putting this on the public internet.**
 
 ## Tests
 
