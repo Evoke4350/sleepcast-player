@@ -46,11 +46,22 @@ export interface RestNight {
   watchSleptAfterMs?: number | null;
   /** Sleepcast's own guess (sleptAtMs) from before the watch replaced it. */
   appSleptAtMs?: number | null;
+  /** The night's sleep stages from the watch, set with watchSleptAfterMs
+   *  (watch.ts nightStages). Absent on nights matched before it was kept. */
+  watchSleep?: SleepStretch[];
+  /** Each burst of touches (RestSession.noteInteraction), ms from night
+   *  start. Absent on nights recorded before it was kept; a night revived
+   *  after a reload keeps only those since. */
+  touchedAt?: number[];
   /** "leaned": the night's shuffle leaned on the scores (favorWhatWorks).
    *  Absent: a plain shuffle, the baseline to compare against. */
   shuffle?: "leaned";
 }
 export interface NightEpisode { t: number; feedId: string; episodeId: string }
+/** Health's sleep stages; "asleep" is a watch that doesn't tell them apart. */
+export type SleepStage = "awake" | "rem" | "core" | "deep" | "asleep" | "inbed";
+/** One stretch of one stage, ms from night start. */
+export interface SleepStretch { from: number; to: number; stage: SleepStage }
 export interface RestRollup {
   nights: number;
   nightsSlept: number;

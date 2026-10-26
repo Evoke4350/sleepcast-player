@@ -55,7 +55,10 @@ So:
   for "Add from clipboard"). The watch's onset replaces the detector's guess
   for the night it falls in, keeping the guess to grade the detector by
   (`src/lib/rest/watch.ts`). The data rides after the `#`, so it never
-  reaches the server. Setup steps are in Settings.
+  reaches the server. Setup steps are in Settings. The night's stages are
+  kept too, and the Rest tab draws them: asleep, woke, awake in the night,
+  REM, Core and Deep, with what played, when you touched the phone and
+  Sleepcast's own guess on the same clock (`src/components/NightChart.tsx`).
 - **It resumes the night, not the episode.** Fall asleep 20 minutes into a
   90-minute episode and the app remembers where you went under, so the next
   night doesn't restart the same thing from 0:00 (`src/lib/positions.ts`).
