@@ -17,6 +17,11 @@
   --accent-ink: #1a1306; /* text on the accent */
   --accent-soft: #fbefdc;
   --danger: #b3412f;
+  /* Sleep stages on the night chart, Health's hues (3:1 on --surface). */
+  --stage-awake: #cf5a34;
+  --stage-rem: #1d91b3;
+  --stage-core: #2c5fc4;
+  --stage-deep: #312f8c;
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -35,6 +40,10 @@
     --accent-ink: #1a1306;
     --accent-soft: #2b2112;
     --danger: #e08a7a;
+    --stage-awake: #ef8a68;
+    --stage-rem: #7cc6f6;
+    --stage-core: #5a8ff0;
+    --stage-deep: #9a8ef2;
   }
 }
 

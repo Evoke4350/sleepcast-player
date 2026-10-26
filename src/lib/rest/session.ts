@@ -25,6 +25,8 @@ export class RestSession {
    *  against the play ledger, which de-duplicates by episode id and so cannot
    *  answer "what was playing then" for any night but the most recent. */
   private timeline: NightEpisode[] = [];
+  /** When each burst of touches began, for the night's chart. */
+  private touchedAt: number[] = [];
   private skipped = new Set<string>();
 
   /** `shuffleLeaned`: the night's shuffle leaned on the scores (the
@@ -47,7 +49,10 @@ export class RestSession {
     // Closer than the window merges; a gap of exactly the window, or a
     // clock stepped back (a negative gap), starts a new burst.
     const gap = this.lastInteractionAt === null ? Infinity : now - this.lastInteractionAt;
-    if (gap < 0 || gap >= INTERACTION_MERGE_MS) this.interactions++;
+    if (gap < 0 || gap >= INTERACTION_MERGE_MS) {
+      this.interactions++;
+      if (this.touchedAt.length < MAX_TOUCHES) this.touchedAt.push(Math.max(0, now - this.startedAt));
+    }
     this.touches++;
     this.pendingInteraction = true;
     // A touch after the verdict overturns it. The night may go on (a stretch)
@@ -135,6 +140,7 @@ export class RestSession {
       ...(this.skipped.size ? { skipped: [...this.skipped] } : {}),
       playedMs: Math.max(0, now - this.startedAt),
       ...(episodes.length ? { episodes } : {}),
+      ...(this.touchedAt.length ? { touchedAt: [...this.touchedAt] } : {}),
     };
   }
 }
@@ -142,6 +148,8 @@ export class RestSession {
 /** Episode starts kept on a night's record: plenty for any real night, and
  *  bounded so a night of skipping can't bloat the 90-night ledger. */
 const MAX_EPISODES = 40;
+/** Touch bursts kept, likewise: a restless night still draws, bounded. */
+const MAX_TOUCHES = 80;
 
 /** What was playing at an onset `atMs` ms into the night, and what played on
  *  after it, from the night's episode starts. Empty when there's no onset.

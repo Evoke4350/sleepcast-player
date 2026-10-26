@@ -15,6 +15,15 @@ describe("RestSession", () => {
     expect(night.detector).toBe("inference");
   });
 
+  it("keeps when each burst of touches began, for the night's chart", () => {
+    const s = new RestSession(1000, 60);
+    s.noteInteraction(61_000);
+    s.noteInteraction(62_000); // the same burst
+    s.noteInteraction(61_000 + INTERACTION_MERGE_MS + 5000);
+    expect(s.finish("faded", 120_000).touchedAt).toEqual([60_000, 60_000 + INTERACTION_MERGE_MS + 5000]);
+    expect(new RestSession(1000, 60).finish("faded", 2000)).not.toHaveProperty("touchedAt");
+  });
+
   it("no onset on a fully-interactive night → sleptAtMs null, detector none", () => {
     const s = new RestSession(1000, 60);
     for (let i = 0; i < 60; i++) { s.noteInteraction(1000 + i * 15000); s.tick({ interacted: true, hidden: false, fadingOrDone: false, now: 1000 + i * 15000 }); }

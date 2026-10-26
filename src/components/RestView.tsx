@@ -4,6 +4,7 @@ import { recordFalsePositive } from "../lib/rest/calibrate";
 import { scoreFeeds, medianTimeToSleep, meetsSuggestionGate, shuffleWeights, pluralNights, fmtOnsetMinutes, MIN_NIGHTS } from "../lib/rest/sleepscore";
 import { fmtDuration, lastNight } from "../lib/rest/surface";
 import { describeWatchNight } from "../lib/rest/watch";
+import { NightChart } from "./NightChart";
 import { getPlays, loadState } from "../lib/store";
 import { backupReminder, keepStorage, snoozeBackupReminder } from "../lib/keep";
 import { downloadBackup } from "../lib/backup";
@@ -15,6 +16,7 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
   const [, redraw] = useReducer((n: number) => n + 1, 0);
   const nights = useMemo(() => loadNights(), []);
   const r = useMemo(() => rollup(nights), [nights]);
+  const watched = useMemo(() => nights.filter((n) => n.watchSleep?.length), [nights]);
   const last = lastNight();
   // Shown the morning after, here, never on the bedtime screen: a reminder
   // at bedtime is the kind of nudge the app exists not to make.
@@ -162,8 +164,10 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
         </section>
       )}
 
-      {/* The watch measured last night: nothing to ask, only to show. */}
-      {last && last.detector === "hr" && (
+      {/* The watch measured last night: nothing to ask, only to show. With
+          its stages kept, the chart says it, for any night the watch saw. */}
+      {watched.length > 0 && <NightChart nights={watched} feedTitles={feedTitles} />}
+      {last && last.detector === "hr" && !last.watchSleep && (
         <div className="space-y-1.5 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
           <p className="text-[11px] font-bold uppercase tracking-widest text-[var(--ink-3)]">last night · from your watch</p>
           <p className="text-[13px] text-[var(--ink-2)]">

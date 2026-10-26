@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import type { RestNight } from "./types";
+import type { RestNight, SleepStage } from "./types";
 import {
   parseWatchSamples, watchOnsetMs, withWatchOnset, applyWatchSamples, importWatchSleep,
-  watchPayloadFromHash, describeImport, WATCH_WINDOW_MS,
+  watchPayloadFromHash, describeImport, WATCH_WINDOW_MS, NIGHT_SPAN_MS, nightStages, summarizeStages,
 } from "./watch";
 import { appendNight, loadNights, isSlept, believableOnsetMs } from "./ledger";
 import { learnedTimer } from "./learned-timer";
@@ -26,6 +26,10 @@ describe("parseWatchSamples", () => {
     const s = parseWatchSamples([sample(0, 20, "In Bed"), sample(20, 50, "Core")].join(";") + "\n" + sample(50, 60, "Awake"));
     expect(s.map((x) => x.kind)).toEqual(["inbed", "asleep", "awake"]);
     expect(s[1].start).toBe(START + 20 * MIN);
+  });
+  it("keeps the stage itself", () => {
+    const stages = ["In Bed", "Awake", "Core", "Deep", "REM", "Asleep (Unspecified)", "asleepREM"].map((v) => parseWatchSamples(sample(0, 1, v))[0].stage);
+    expect(stages).toEqual(["inbed", "awake", "core", "deep", "rem", "asleep", "rem"]);
   });
   it("reads every asleep stage as asleep", () => {
     const kinds = ["Asleep", "Core", "Deep", "REM", "Asleep (Unspecified)", "asleepCore"].map((v) => parseWatchSamples(sample(0, 1, v))[0].kind);
@@ -147,5 +151,68 @@ describe("watchPayloadFromHash", () => {
     expect(watchPayloadFromHash("#watch=a|b|Core")).toBe("a|b|Core");
     expect(watchPayloadFromHash("#other")).toBeNull();
     expect(watchPayloadFromHash("")).toBeNull();
+  });
+});
+
+describe("nightStages", () => {
+  const s = (...xs: string[]) => parseWatchSamples(xs.join(";"));
+  it("keeps the stages, from night start, and leaves In Bed out", () => {
+    expect(nightStages(night(), s(sample(-10, 480, "In Bed"), sample(5, 20, "Awake"), sample(20, 60, "Core"), sample(60, 90, "Deep"), sample(90, 110, "REM")))).toEqual([
+      { from: 5 * MIN, to: 20 * MIN, stage: "awake" },
+      { from: 20 * MIN, to: 60 * MIN, stage: "core" },
+      { from: 60 * MIN, to: 90 * MIN, stage: "deep" },
+      { from: 90 * MIN, to: 110 * MIN, stage: "rem" },
+    ]);
+  });
+  it("clips to the night, and stops at the next night's start", () => {
+    expect(nightStages(night(), s(sample(-30, 30, "Core"), sample(30, 200, "Core")), START + 100 * MIN)).toEqual([
+      { from: 0, to: 100 * MIN, stage: "core" },
+    ]);
+    expect(nightStages(night(), s(sample(NIGHT_SPAN_MS / MIN + 10, NIGHT_SPAN_MS / MIN + 60, "Core")))).toEqual([]);
+  });
+  it("where sources overlap, the more specific stage shows", () => {
+    expect(nightStages(night(), s(sample(0, 120, "Asleep"), sample(30, 60, "Deep"), sample(40, 45, "Awake")))).toEqual([
+      { from: 0, to: 30 * MIN, stage: "asleep" },
+      { from: 30 * MIN, to: 40 * MIN, stage: "deep" },
+      { from: 40 * MIN, to: 45 * MIN, stage: "awake" },
+      { from: 45 * MIN, to: 60 * MIN, stage: "deep" },
+      { from: 60 * MIN, to: 120 * MIN, stage: "asleep" },
+    ]);
+  });
+});
+
+describe("summarizeStages", () => {
+  const st = (from: number, to: number, stage: SleepStage) => ({ from: from * MIN, to: to * MIN, stage });
+  it("asleep time by stage, and the wakings between falling asleep and waking", () => {
+    const sum = summarizeStages([st(0, 15, "awake"), st(15, 60, "core"), st(60, 70, "awake"), st(70, 100, "deep"), st(100, 105, "awake"), st(105, 140, "rem"), st(140, 150, "awake")]);
+    expect(sum).toEqual({
+      asleepMs: 110 * MIN,
+      byStage: { core: 45 * MIN, deep: 30 * MIN, rem: 35 * MIN },
+      fellAsleepMs: 15 * MIN,
+      wokeMs: 140 * MIN,
+      awakeMs: 15 * MIN,
+      wakings: 2,
+      staged: true,
+    });
+  });
+  it("unstaged from an older watch; null with no sleep", () => {
+    expect(summarizeStages([st(0, 60, "asleep")])?.staged).toBe(false);
+    expect(summarizeStages([st(0, 60, "awake")])).toBeNull();
+  });
+});
+
+describe("applyWatchSamples keeps the night's stages", () => {
+  it("stores them, and a second import replaces them", () => {
+    const text = [sample(0, 20, "Awake"), sample(20, 300, "Core")].join(";");
+    const once = applyWatchSamples([night()], parseWatchSamples(text)).nights;
+    expect(once[0].watchSleep).toEqual([{ from: 0, to: 20 * MIN, stage: "awake" }, { from: 20 * MIN, to: 300 * MIN, stage: "core" }]);
+    const twice = applyWatchSamples(once, parseWatchSamples(sample(0, 30, "Deep"))).nights;
+    expect(twice[0].watchSleep).toEqual([{ from: 0, to: 30 * MIN, stage: "deep" }]);
+  });
+  it("a re-anchored night takes what's after its start; the one before stops there", () => {
+    const later = night({ startedAt: START + 240 * MIN });
+    const out = applyWatchSamples([night(), later], parseWatchSamples([sample(10, 230, "Core"), sample(235, 260, "Awake"), sample(260, 400, "Core")].join(";"))).nights;
+    expect(out[0].watchSleep?.at(-1)).toEqual({ from: 235 * MIN, to: 240 * MIN, stage: "awake" });
+    expect(out[1].watchSleep?.[0]).toEqual({ from: 0, to: 20 * MIN, stage: "awake" });
   });
 });
