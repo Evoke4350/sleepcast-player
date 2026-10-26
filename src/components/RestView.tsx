@@ -3,7 +3,7 @@ import { loadNights, rollup, setSelfLabel, leanComparison } from "../lib/rest/le
 import { recordFalsePositive } from "../lib/rest/calibrate";
 import { scoreFeeds, medianTimeToSleep, meetsSuggestionGate, shuffleWeights, pluralNights, fmtOnsetMinutes, MIN_NIGHTS } from "../lib/rest/sleepscore";
 import { fmtDuration, lastNight } from "../lib/rest/surface";
-import { describeWatchNight } from "../lib/rest/watch";
+import { describeImport, describeWatchNight, importWatchSleep } from "../lib/rest/watch";
 import { NightChart } from "./NightChart";
 import { getPlays, loadState } from "../lib/store";
 import { backupReminder, keepStorage, snoozeBackupReminder } from "../lib/keep";
@@ -14,7 +14,9 @@ import { playsSince, playAtMoment } from "../lib/plays";
  *  and a label just redraws the view. */
 export function RestView({ onClose, note = null }: { onClose?: () => void; note?: string | null }) {
   const [, redraw] = useReducer((n: number) => n + 1, 0);
-  const nights = useMemo(() => loadNights(), []);
+  // Read again after the watch's sleep is added from here.
+  const [imports, reloadNights] = useReducer((n: number) => n + 1, 0);
+  const nights = useMemo(() => loadNights(), [imports]);
   const r = useMemo(() => rollup(nights), [nights]);
   const watched = useMemo(() => nights.filter((n) => n.watchSleep?.length), [nights]);
   const last = lastNight();
@@ -23,6 +25,23 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
   const [reminder] = useState(() => backupReminder(nights));
   const [reminderDone, setReminderDone] = useState<string | null>(null);
   const reminderDoneRef = useRef<HTMLParagraphElement>(null);
+
+  const [watchNote, setWatchNote] = useState<{ text: string; error: boolean } | null>(null);
+  // As in Settings: from the Home Screen, the Shortcut's link opens Safari,
+  // whose storage is separate, so its data comes in by the clipboard.
+  async function addWatchFromClipboard() {
+    setWatchNote(null);
+    let text: string;
+    try {
+      text = await navigator.clipboard.readText();
+    } catch {
+      setWatchNote({ text: "Couldn't read the clipboard. Tap Paste when your phone asks, or open the Shortcut's link instead.", error: true });
+      return;
+    }
+    const r = importWatchSleep(text);
+    setWatchNote({ text: describeImport(r, { brief: true }), error: !r.ok });
+    if (r.ok && r.matched.length) reloadNights();
+  }
 
   // The buttons go when pressed: focus moves to what took their place.
   function closeReminder(text: string) {
@@ -166,7 +185,28 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
 
       {/* The watch measured last night: nothing to ask, only to show. With
           its stages kept, the chart says it, for any night the watch saw. */}
-      {watched.length > 0 && <NightChart nights={watched} feedTitles={feedTitles} />}
+      {watched.length > 0 ? (
+        <NightChart key={imports} nights={watched} feedTitles={feedTitles} />
+      ) : nights.length > 0 && (
+        // Nothing to chart yet: say why, and take the watch's sleep here.
+        <section aria-labelledby="chart-empty-title" className="space-y-2.5 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
+          <h2 id="chart-empty-title" className="text-[11px] font-bold uppercase tracking-widest text-[var(--ink-3)]">your nights, charted</h2>
+          <p className="text-[13px] text-[var(--ink-2)]">
+            {nights.some((n) => n.detector === "hr")
+              ? "Your watch's sleep came in before Sleepcast kept the stages, so those nights have no chart. Run the watch Shortcut again: it charts the nights it covers."
+              : "With your watch's sleep, each night is charted here: when you fell asleep and woke, REM, Core and Deep, against what played. Set up the Shortcut in Settings, under Sleep from your watch."}
+          </p>
+          <p className="text-xs text-[var(--ink-3)]">Using Sleepcast from your Home Screen? Run the Shortcut, then come back here and add what it copied.</p>
+          <button
+            onClick={() => { void addWatchFromClipboard(); }}
+            className="w-full rounded-lg bg-[var(--raised)] py-2 text-sm font-semibold text-[var(--ink-2)] hover:text-[var(--ink)]"
+          >
+            Add from clipboard
+          </button>
+          <p role="alert" className="text-xs text-[var(--danger)] empty:hidden">{watchNote?.error ? watchNote.text : ""}</p>
+          <p role="status" className="text-xs text-[var(--ink-3)] empty:hidden">{watchNote && !watchNote.error ? watchNote.text : ""}</p>
+        </section>
+      )}
       {last && last.detector === "hr" && !last.watchSleep && (
         <div className="space-y-1.5 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
           <p className="text-[11px] font-bold uppercase tracking-widest text-[var(--ink-3)]">last night · from your watch</p>
