@@ -24,7 +24,7 @@ const GAP = 4;
 const HOUR = 60 * 60_000;
 
 /** A watch that doesn't tell the stages apart draws its sleep in Core's hue. */
-const stageColor = (s: SleepStage) => `var(--stage-${s === "asleep" ? "core" : s})`;
+export const stageColor = (s: SleepStage) => `var(--stage-${s === "asleep" ? "core" : s})`;
 
 const clock = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 const hourLabel = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: "numeric" });

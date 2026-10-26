@@ -5,6 +5,7 @@ import { scoreFeeds, medianTimeToSleep, meetsSuggestionGate, shuffleWeights, plu
 import { fmtDuration, lastNight } from "../lib/rest/surface";
 import { describeImport, describeWatchNight, importWatchSleep } from "../lib/rest/watch";
 import { NightChart } from "./NightChart";
+import { NightsTrend } from "./NightsTrend";
 import { getPlays, loadState } from "../lib/store";
 import { backupReminder, keepStorage, snoozeBackupReminder } from "../lib/keep";
 import { downloadBackup } from "../lib/backup";
@@ -186,7 +187,10 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
       {/* The watch measured last night: nothing to ask, only to show. With
           its stages kept, the chart says it, for any night the watch saw. */}
       {watched.length > 0 ? (
-        <NightChart key={imports} nights={watched} feedTitles={feedTitles} />
+        <>
+          <NightChart key={imports} nights={watched} feedTitles={feedTitles} />
+          <NightsTrend nights={watched} feedTitles={feedTitles} />
+        </>
       ) : nights.length > 0 && (
         // Nothing to chart yet: say why, and take the watch's sleep here.
         <section aria-labelledby="chart-empty-title" className="space-y-2.5 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
