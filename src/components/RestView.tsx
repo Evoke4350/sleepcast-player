@@ -6,6 +6,7 @@ import { fmtDuration, lastNight } from "../lib/rest/surface";
 import { describeImport, describeWatchNight, importWatchSleep } from "../lib/rest/watch";
 import { NightChart } from "./NightChart";
 import { NightsTrend } from "./NightsTrend";
+import { WakeAudit } from "./WakeAudit";
 import { getPlays, loadState } from "../lib/store";
 import { backupReminder, keepStorage, snoozeBackupReminder } from "../lib/keep";
 import { downloadBackup } from "../lib/backup";
@@ -190,6 +191,7 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
         <>
           <NightChart key={imports} nights={watched} feedTitles={feedTitles} />
           <NightsTrend nights={watched} feedTitles={feedTitles} />
+          <WakeAudit nights={watched} />
         </>
       ) : nights.length > 0 && (
         // Nothing to chart yet: say why, and take the watch's sleep here.

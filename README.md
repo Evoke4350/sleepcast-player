@@ -61,7 +61,9 @@ So:
   Sleepcast's own guess on the same clock (`src/components/NightChart.tsx`).
   Over the nights, it shows your typical night, the last two weeks on one
   clock, and how the shows you fell asleep to compare
-  (`src/lib/rest/trends.ts`).
+  (`src/lib/rest/trends.ts`). And it checks what wakes you: whether the
+  watch sees you wake soon after a new episode starts, or after the sound
+  stops, more often than chance would explain (`src/lib/rest/wakes.ts`).
 - **It resumes the night, not the episode.** Fall asleep 20 minutes into a
   90-minute episode and the app remembers where you went under, so the next
   night doesn't restart the same thing from 0:00 (`src/lib/positions.ts`).
