@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { paramsFromHistory, tightenAfterFalsePositive, currentParams, recordFalsePositive } from "./calibrate";
+import { paramsFromHistory, tightenAfterFalsePositive, currentParams, recordFalsePositive, guessAccuracy, guessCorrectionMs } from "./calibrate";
 import { loadParams, loadNights } from "./ledger";
 import { DEFAULT_PARAMS, quietTicksToDecide, TICK_MS } from "./detector";
 import type { RestNight } from "./types";
@@ -87,5 +87,41 @@ describe("paramsFromHistory keeps the detector able to decide", () => {
     const quiet = [night(0, 450_000), night(0, 450_000), night(0, 450_000)];
     const ticks = quietTicksToDecide(paramsFromHistory(quiet));
     expect(ticks * TICK_MS).toBeLessThan(25 * 60_000 - 60_000); // before the fade window
+  });
+});
+
+describe("tuning the guess to the watch", () => {
+  const MIN = 60_000;
+  /** A night the watch timed: the detector guessed `app` min, the watch `watch` min. */
+  const timed = (app: number, watch: number, over: Partial<RestNight> = {}): RestNight => ({
+    startedAt: Math.random(), timerMinutes: 60, endedVia: "faded", sleptAtMs: watch * MIN, timeToSleepMs: watch * MIN,
+    interactions: 0, detector: "hr", appSleptAtMs: app * MIN, watchSleptAfterMs: watch * MIN, ...over,
+  });
+
+  it("nothing below 3 nights", () => {
+    expect(guessAccuracy([timed(10, 20), timed(12, 22)])).toBeNull();
+    expect(guessCorrectionMs([timed(10, 20), timed(12, 22)])).toBe(0);
+  });
+  it("moves the guess by the middle difference when that misses by less", () => {
+    const a = guessAccuracy([timed(10, 22), timed(12, 23), timed(8, 21), timed(15, 26)])!;
+    expect(a.correctionMs).toBe(11.5 * MIN);
+    expect(a).toMatchObject({ nights: 4, applied: true });
+    expect(a.beforeMs).toBeGreaterThan(10 * MIN);
+    expect(a.afterMs).toBeLessThan(2 * MIN);
+    expect(guessCorrectionMs([timed(10, 22), timed(12, 23), timed(8, 21), timed(15, 26)])).toBe(11.5 * MIN);
+  });
+  it("leaves the guess alone when moving it wouldn't help", () => {
+    const ns = [timed(20, 10), timed(10, 20), timed(20, 21), timed(15, 15)];
+    expect(guessAccuracy(ns)!.applied).toBe(false);
+    expect(guessCorrectionMs(ns)).toBe(0);
+  });
+  it("learns from the untuned guess, so a tuned night doesn't shrink the tuning", () => {
+    // Already tuned by 12: the shown guess (appSleptAtMs) matched the watch.
+    const ns = [10, 11, 9].map((raw) => timed(raw + 12, raw + 12, { detectorAtMs: raw * MIN }));
+    expect(guessCorrectionMs(ns)).toBe(12 * MIN);
+  });
+  it("only nights both timed", () => {
+    const ns = [timed(10, 20), timed(10, 20), timed(10, 20, { appSleptAtMs: null }), timed(10, 20, { watchSleptAfterMs: null })];
+    expect(guessAccuracy(ns)).toBeNull();
   });
 });

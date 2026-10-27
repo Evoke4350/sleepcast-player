@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { INTERACTION_MERGE_MS, RestSession, revivedNightStart } from "./session";
+import { saveNights } from "./ledger";
+import type { RestNight } from "./types";
 
 describe("RestSession", () => {
   beforeEach(() => localStorage.clear());
@@ -13,6 +15,40 @@ describe("RestSession", () => {
     expect(night.interactions).toBe(2);
     expect(night.sleptAtMs).not.toBeNull();
     expect(night.detector).toBe("inference");
+  });
+
+  it("moves its onset by the watch's tuning, keeping the detector's own", () => {
+    const MIN = 60_000;
+    const watched = (app: number, watch: number): RestNight => ({
+      startedAt: Math.random(), timerMinutes: 60, endedVia: "faded", sleptAtMs: watch * MIN, timeToSleepMs: watch * MIN,
+      interactions: 0, detector: "hr", appSleptAtMs: app * MIN, watchSleptAfterMs: watch * MIN,
+    });
+    saveNights([watched(10, 20), watched(10, 20), watched(10, 20)]);
+    const quietNight = (s: RestSession) => {
+      for (let i = 0; i < 240; i++) s.tick({ hidden: true, fadingOrDone: i >= 230, now: 1000 + i * 15000 });
+      return s.finish("faded", 1000 + 240 * 15000);
+    };
+    const plain = quietNight(new RestSession(1000, 60));
+    expect(plain.detectorAtMs).toBeDefined();
+    expect(plain.sleptAtMs).toBe(plain.detectorAtMs! + 10 * MIN);
+    expect(plain.timeToSleepMs).toBe(plain.sleptAtMs);
+    localStorage.clear();
+    const untuned = quietNight(new RestSession(1000, 60));
+    expect(untuned).not.toHaveProperty("detectorAtMs");
+    expect(untuned.sleptAtMs).toBe(plain.detectorAtMs);
+  });
+
+  it("never moves its onset before the last touch or past the night's end", () => {
+    const MIN = 60_000;
+    const early = (app: number, watch: number): RestNight => ({
+      startedAt: Math.random(), timerMinutes: 60, endedVia: "faded", sleptAtMs: watch * MIN, timeToSleepMs: watch * MIN,
+      interactions: 0, detector: "hr", appSleptAtMs: app * MIN, watchSleptAfterMs: watch * MIN,
+    });
+    saveNights([early(50, 0), early(50, 0), early(50, 0)]); // a 50-minute pull earlier
+    const s = new RestSession(1000, 60);
+    s.noteInteraction(1000 + 20 * MIN);
+    for (let i = 0; i < 240; i++) s.tick({ hidden: true, fadingOrDone: i >= 230, now: 1000 + i * 15000 });
+    expect(s.finish("faded", 1000 + 240 * 15000).sleptAtMs).toBe(20 * MIN);
   });
 
   it("keeps when each burst of touches began, for the night's chart", () => {

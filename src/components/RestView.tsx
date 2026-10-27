@@ -1,6 +1,6 @@
 import { useMemo, useReducer, useRef, useState } from "react";
 import { loadNights, rollup, setSelfLabel, leanComparison } from "../lib/rest/ledger";
-import { recordFalsePositive } from "../lib/rest/calibrate";
+import { recordFalsePositive, guessAccuracy } from "../lib/rest/calibrate";
 import { scoreFeeds, medianTimeToSleep, meetsSuggestionGate, shuffleWeights, pluralNights, fmtOnsetMinutes, MIN_NIGHTS } from "../lib/rest/sleepscore";
 import { fmtDuration, lastNight } from "../lib/rest/surface";
 import { describeImport, describeWatchNight, importWatchSleep } from "../lib/rest/watch";
@@ -21,6 +21,7 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
   const nights = useMemo(() => loadNights(), [imports]);
   const r = useMemo(() => rollup(nights), [nights]);
   const watched = useMemo(() => nights.filter((n) => n.watchSleep?.length), [nights]);
+  const accuracy = useMemo(() => guessAccuracy(nights), [nights]);
   const last = lastNight();
   // Shown the morning after, here, never on the bedtime screen: a reminder
   // at bedtime is the kind of nudge the app exists not to make.
@@ -211,6 +212,22 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
           </button>
           <p role="alert" className="text-xs text-[var(--danger)] empty:hidden">{watchNote?.error ? watchNote.text : ""}</p>
           <p role="status" className="text-xs text-[var(--ink-3)] empty:hidden">{watchNote && !watchNote.error ? watchNote.text : ""}</p>
+        </section>
+      )}
+      {/* The guess for nights without the watch, tuned on nights with it. */}
+      {accuracy && (
+        <section aria-labelledby="guess-title" className="space-y-1.5 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
+          <h2 id="guess-title" className="text-[11px] font-bold uppercase tracking-widest text-[var(--ink-3)]">sleepcast&apos;s own guess</h2>
+          <p className="text-[13px] text-[var(--ink-2)]">
+            {accuracy.applied
+              ? `Tuned to your watch over ${pluralNights(accuracy.nights)}: you fall asleep about ${fmtDuration(Math.abs(accuracy.correctionMs))} ${accuracy.correctionMs >= 0 ? "after" : "before"} it would have guessed, so its guess now moves ${accuracy.correctionMs >= 0 ? "later" : "earlier"} by that.`
+              : `Checked against your watch over ${pluralNights(accuracy.nights)}: moving its guess wouldn't make it closer, so it's left as it is.`}
+          </p>
+          <p className="text-xs text-[var(--ink-3)]">
+            {accuracy.applied
+              ? `It was off by about ${fmtDuration(accuracy.beforeMs)} a night; tuned, about ${fmtDuration(accuracy.afterMs)}. It's what you'll see on nights you don't wear the watch.`
+              : `It's off by about ${fmtDuration(accuracy.beforeMs)} a night.`}
+          </p>
         </section>
       )}
       {last && last.detector === "hr" && !last.watchSleep && (

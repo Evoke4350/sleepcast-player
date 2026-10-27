@@ -1,6 +1,6 @@
 import type { RestNight, DetectorParams } from "./types";
 import { DEFAULT_PARAMS, LAMBDA_MAX, TICK_MS } from "./detector";
-import { loadNights, loadParams, saveParams } from "./ledger";
+import { loadNights, loadParams, saveParams, median } from "./ledger";
 
 /** Re-estimate lambdaAwake from the user's own nights: interactions per awake
  *  tick, where "awake ticks" ≈ time-to-sleep / tick. Falls back to defaults
@@ -63,4 +63,63 @@ function alphaFromWatch(nights: readonly RestNight[]): number {
  *  false positive, so requiring one meant the tightening never happened. */
 export function recordFalsePositive(): void {
   saveParams(tightenAfterFalsePositive(currentParams(loadParams(), loadNights())));
+}
+
+// ---------------------------------------------------------------------------
+// Tuning the guess to the watch. The detector decides you're asleep a fixed
+// stretch of quiet after your last touch; how long you really take after
+// putting the phone down is your own. Each night the watch timed is a
+// measure of that: the watch's onset against the detector's. The middle of
+// those differences moves later guesses, when it would have moved the past
+// ones closer (checked night by night, each against the others).
+// ---------------------------------------------------------------------------
+
+/** Nights needed before the guess is tuned, and how many recent ones count. */
+export const MIN_PAIRS = 3;
+const PAIRS_KEPT = 30;
+const MAX_CORRECTION_MS = 60 * 60_000;
+
+interface Pair { raw: number; watch: number }
+
+/** The detector's own onset against the watch's, on recent nights with both. */
+function pairs(nights: readonly RestNight[]): Pair[] {
+  return nights
+    .filter((n) => n.detector === "hr" && n.appSleptAtMs != null && n.watchSleptAfterMs != null)
+    .slice(-PAIRS_KEPT)
+    // detectorAtMs: a night whose guess was already tuned keeps the untuned one.
+    .map((n) => ({ raw: n.detectorAtMs ?? (n.appSleptAtMs as number), watch: n.watchSleptAfterMs as number }));
+}
+
+function shiftOf(ps: readonly Pair[]): number {
+  const m = median(ps.map((p) => p.watch - p.raw)) ?? 0;
+  return Math.max(-MAX_CORRECTION_MS, Math.min(MAX_CORRECTION_MS, Math.round(m)));
+}
+
+export interface GuessAccuracy {
+  /** Nights the watch and the detector both timed. */
+  nights: number;
+  /** How much later (negative: earlier) the guess moves. */
+  correctionMs: number;
+  /** Typical miss, untuned and tuned (each night tuned on the others). */
+  beforeMs: number;
+  afterMs: number;
+  /** Whether the tuning is used: only when it misses by less. */
+  applied: boolean;
+}
+
+export function guessAccuracy(nights: readonly RestNight[]): GuessAccuracy | null {
+  const ps = pairs(nights);
+  if (ps.length < MIN_PAIRS) return null;
+  const beforeMs = median(ps.map((p) => Math.abs(p.watch - p.raw)))!;
+  const afterMs = median(ps.map((p, i) => {
+    const shift = shiftOf(ps.filter((_, j) => j !== i));
+    return Math.abs(p.watch - Math.max(0, p.raw + shift));
+  }))!;
+  return { nights: ps.length, correctionMs: shiftOf(ps), beforeMs, afterMs, applied: afterMs < beforeMs };
+}
+
+/** How far to move tonight's guess. */
+export function guessCorrectionMs(nights: readonly RestNight[]): number {
+  const a = guessAccuracy(nights);
+  return a?.applied ? a.correctionMs : 0;
 }

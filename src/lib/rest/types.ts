@@ -44,6 +44,9 @@ export interface RestNight {
    *  timeToSleepMs then hold the watch's onset if it came while the night
    *  played, else null. */
   watchSleptAfterMs?: number | null;
+  /** The detector's own onset, kept when the guess was tuned to the watch
+   *  (calibrate.ts guessCorrectionMs) and so differs from sleptAtMs. */
+  detectorAtMs?: number;
   /** Sleepcast's own guess (sleptAtMs) from before the watch replaced it. */
   appSleptAtMs?: number | null;
   /** The night's sleep stages from the watch, set with watchSleptAfterMs

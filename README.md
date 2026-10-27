@@ -64,6 +64,10 @@ So:
   (`src/lib/rest/trends.ts`). And it checks what wakes you: whether the
   watch sees you wake soon after a new episode starts, or after the sound
   stops, more often than chance would explain (`src/lib/rest/wakes.ts`).
+  The watch also tunes Sleepcast's own guess, for nights you don't wear
+  it: the middle difference between the two moves later guesses, when
+  that would have brought past ones closer (`guessAccuracy` in
+  `src/lib/rest/calibrate.ts`).
 - **It resumes the night, not the episode.** Fall asleep 20 minutes into a
   90-minute episode and the app remembers where you went under, so the next
   night doesn't restart the same thing from 0:00 (`src/lib/positions.ts`).
