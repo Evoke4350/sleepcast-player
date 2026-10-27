@@ -59,6 +59,9 @@ So:
   kept too, and the Rest tab draws them: asleep, woke, awake in the night,
   REM, Core and Deep, with what played, when you touched the phone and
   Sleepcast's own guess on the same clock (`src/components/NightChart.tsx`).
+  Over the nights, it shows your typical night, the last two weeks on one
+  clock, and how the shows you fell asleep to compare
+  (`src/lib/rest/trends.ts`).
 - **It resumes the night, not the episode.** Fall asleep 20 minutes into a
   90-minute episode and the app remembers where you went under, so the next
   night doesn't restart the same thing from 0:00 (`src/lib/positions.ts`).
