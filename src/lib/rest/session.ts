@@ -1,7 +1,7 @@
 import type { SleepSignal, SleepOnset, RestNight, NightEpisode } from "./types";
 import { SleepDetector } from "./detector";
 import { loadNights, loadParams } from "./ledger";
-import { currentParams } from "./calibrate";
+import { currentParams, guessCorrectionMs } from "./calibrate";
 
 /** Touches closer together than this are one interaction for the night's
  *  record (see noteInteraction). */
@@ -9,6 +9,8 @@ export const INTERACTION_MERGE_MS = 3000;
 
 export class RestSession {
   private detector: SleepDetector;
+  /** How far the watch says to move the detector's onset (calibrate.ts). */
+  private correction: number;
   /** The detector's verdict, held until the night ends. The detector decides
    *  on the first tick inside the fade, which is the very moment an awake
    *  listener hears the volume drop and reaches for the phone: a stretch or a
@@ -35,8 +37,9 @@ export class RestSession {
    *  latter is decided by the night itself (a restless night reaches more
    *  picks), which would bias the leaned-vs-other comparison. */
   constructor(readonly startedAt: number, readonly timerMinutes: number, readonly shuffleLeaned = false) {
-    const params = currentParams(loadParams(), loadNights());
-    this.detector = new SleepDetector(params);
+    const nights = loadNights();
+    this.detector = new SleepDetector(currentParams(loadParams(), nights));
+    this.correction = guessCorrectionMs(nights);
   }
 
   private lastInteractionAt: number | null = null;
@@ -124,7 +127,13 @@ export class RestSession {
     // Only a night that faded out stands as slept: one ended by hand in the
     // fade was ended by someone awake.
     const onset = endedVia === "faded" ? this.onset : null;
-    const atMs = onset ? onset.atMs : null;
+    const playedMs = Math.max(0, now - this.startedAt);
+    // Tuned to the watch, but never before the last touch (you were awake
+    // for it) or after the night ended.
+    const lastTouch = this.lastInteractionAt === null ? 0 : this.lastInteractionAt - this.startedAt;
+    const atMs = onset
+      ? Math.round(Math.min(playedMs, Math.max(lastTouch, 0, onset.atMs + this.correction)))
+      : null;
     const episodes = [...this.timeline].sort((a, b) => a.t - b.t).slice(-MAX_EPISODES);
 
     return {
@@ -138,7 +147,8 @@ export class RestSession {
       ...(this.shuffleLeaned ? { shuffle: "leaned" as const } : {}),
       ...attributeOnset(episodes, atMs),
       ...(this.skipped.size ? { skipped: [...this.skipped] } : {}),
-      playedMs: Math.max(0, now - this.startedAt),
+      playedMs,
+      ...(onset && atMs !== onset.atMs ? { detectorAtMs: onset.atMs } : {}),
       ...(episodes.length ? { episodes } : {}),
       ...(this.touchedAt.length ? { touchedAt: [...this.touchedAt] } : {}),
     };
