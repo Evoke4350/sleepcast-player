@@ -4,6 +4,7 @@
 import { useState } from "react";
 import type { RestNight, SleepStage } from "../lib/rest/types";
 import { describeWatchNight, summarizeStages } from "../lib/rest/watch";
+import { eventsWhileAsleep } from "../lib/rest/wakes";
 
 const STAGES: { stage: SleepStage; label: string }[] = [
   { stage: "awake", label: "Awake" },
@@ -82,6 +83,8 @@ export function NightChart({ nights, feedTitles }: { nights: RestNight[]; feedTi
     ? eps.map((e, k) => ({ from: e.t, to: Math.min(eps[k + 1]?.t ?? played, played), title: feedTitles[e.feedId] ?? "a show you removed" }))
     : played > 0 ? [{ from: 0, to: played, title: "" }] : [];
 
+  // What Sleepcast did while you slept that you woke soon after (wakes.ts).
+  const wokeAfter = eventsWhileAsleep(n).filter((e) => e.woke);
   const date = new Date(n.startedAt).toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" });
 
   const summary = sum
@@ -141,6 +144,14 @@ export function NightChart({ nights, feedTitles }: { nights: RestNight[]; feedTi
           </rect>
         ))}
 
+        {wokeAfter.filter((e) => e.t <= span).map((e) => (
+          <path key={e.t} d={`M ${x(e.t)} ${playY - 1} l -4 -6 h 8 z`} fill="var(--danger)">
+            <title>{`You woke soon after ${e.cause === "episode" ? "a new episode started" : "the sound stopped"}, at ${clock(n.startedAt + e.t)}`}</title>
+          </path>
+        ))}
+        {wokeAfter.length > 0 && (
+          <li className="flex items-center gap-1"><svg aria-hidden width="8" height="6" className="inline-block"><path d="M 4 6 L 0 0 H 8 Z" fill="var(--danger)" /></svg>Woke soon after this</li>
+        )}
         {guess !== null && (
           <line x1={x(guess)} x2={x(guess)} y1={0} y2={playY + 10} stroke="var(--accent-text)" strokeWidth={1.5} strokeDasharray="3 2" />
         )}
@@ -175,6 +186,9 @@ export function NightChart({ nights, feedTitles }: { nights: RestNight[]; feedTi
         ))}
         {onset !== null && (
           <li className="flex items-center gap-1"><span aria-hidden className="inline-block h-3 w-0.5 bg-[var(--ink)]" />Asleep, by your watch</li>
+        )}
+        {wokeAfter.length > 0 && (
+          <li className="flex items-center gap-1"><svg aria-hidden width="8" height="6" className="inline-block"><path d="M 4 6 L 0 0 H 8 Z" fill="var(--danger)" /></svg>Woke soon after this</li>
         )}
         {guess !== null && (
           <li className="flex items-center gap-1"><span aria-hidden className="inline-block h-3 w-0 border-l-2 border-dashed border-[var(--accent-text)]" />Sleepcast&apos;s guess</li>
