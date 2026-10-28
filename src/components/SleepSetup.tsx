@@ -30,6 +30,7 @@ import type { RestNight } from "../lib/rest/types";
 import { TIMER_PRESETS } from "../lib/timer-presets";
 import { learnedTimer, timedNights, handPickHolds, LEARN_MIN_NIGHTS } from "../lib/rest/learned-timer";
 import { importWatchSleep, describeImport } from "../lib/rest/watch";
+import { currentExperiment, assignTonight, experimentResult } from "../lib/rest/experiment";
 import { needsFetch } from "../lib/feed-status";
 import { pickNextEpisode, HEARD_SEC } from "../lib/plays";
 import { ShowGrid, ShowPage } from "./Shows";
@@ -186,6 +187,16 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
   const usingLearned = learnOn && learned !== null && appState.settings.mode.kind === "minutes" && !handPickHolds(appState.settings.timerPickedAt, Date.now());
   const timerMinutes = usingLearned && learned ? learned.minutes : appState.settings.timerMinutes;
   const quarterHourRule = appState.settings.quarterHourRule;
+  // A running experiment gives the next ordinary night (the moon) one of its
+  // two sides (lib/rest/experiment.ts). Read again on coming to this tab (an
+  // experiment is started from Rest) and after each start.
+  const experimentNight = useRef<PlayMode | null>(null);
+  const experimentTonight = useMemo(() => {
+    const e = currentExperiment();
+    if (!e || experimentResult(e, loadNights()).done) return null;
+    return e.arms[e.next];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [goldenPending, tab]);
 
   /** An on/off setting, saved. */
   function setFlag(key: "quarterHourRule" | "favorWhatWorks" | "leveling", on: boolean) {
@@ -515,8 +526,9 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
       const artwork = feedStatuses[f.id]?.artwork;
       if (artwork) artworkByFeedId[f.id] = artwork;
     }
-    const rearm = rearmNightRef.current;
+    const rearm = rearmNightRef.current ?? experimentNight.current;
     rearmNightRef.current = null;
+    experimentNight.current = null;
     onStart(
       chosen,
       rearm?.kind === "minutes" ? rearm.minutes : timerMinutes,
@@ -678,7 +690,21 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
     const scope = scopeRef.current;
     scopeRef.current = null;
     const scoped = scope ? (feedStatuses[scope]?.episodes ?? []).filter((e) => !blockedIds.has(e.id)) : [];
-    startWith(scoped.length ? scoped : pool);
+    let picked = scoped.length ? scoped : pool;
+    // An experiment night, only for an ordinary start: one that picked a
+    // show, an episode or a re-arm chose for itself. A show that isn't on
+    // (or hasn't loaded) can't be played, so that night isn't counted.
+    const e = scope || leadRef.current || rearmNightRef.current ? null : currentExperiment();
+    if (e && !experimentResult(e, loadNights()).done) {
+      const arm = e.arms[e.next];
+      const fromShow = arm.kind === "show" ? pool.filter((ep) => ep.feedId === arm.feedId) : [];
+      if (arm.kind === "timer" || fromShow.length) {
+        assignTonight();
+        if (arm.kind === "show") picked = fromShow;
+        else experimentNight.current = { kind: "minutes", minutes: arm.minutes };
+      }
+    }
+    startWith(picked);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [goldenPending, canStart]);
 
@@ -755,6 +781,16 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
             </div>
           )}
           <p className="text-xs text-[var(--ink-4)] tracking-wide">{poolNote}</p>
+          {experimentTonight && (
+            <p className="max-w-xs text-center text-xs text-[var(--ink-3)]">
+              {experimentTonight.kind === "show"
+                ? `Experiment night: only ${appState.feeds.find((f) => f.id === experimentTonight.feedId)?.title ?? "a show you removed"} tonight, from the moon.`
+                : `Experiment night: a ${experimentTonight.minutes}-minute timer tonight, from the moon.`}
+              {experimentTonight.kind === "show" && !enabledFeeds.some((f) => f.id === experimentTonight.feedId)
+                ? " Turn it on in Podcasts for tonight to count."
+                : ""}
+            </p>
+          )}
 
           {rearmable && !goldenPending && (
             <button
@@ -771,7 +807,8 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
           {/* Names one feed and the reason, so the pick is never asserted
               without the evidence beside it — and never without a one-tap
               refusal, since a suggestion that can't be waved off is a nag. */}
-          {suggestion && (
+          {/* Not during an experiment: a suggested show would tilt it. */}
+          {suggestion && !experimentTonight && (
             <div className="w-full max-w-xs rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4 text-center">
               <p className="text-sm text-[var(--ink)]">
                 {suggestion.feed.title} leads tonight.

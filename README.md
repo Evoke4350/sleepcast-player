@@ -68,6 +68,11 @@ So:
   it: the middle difference between the two moves later guesses, when
   that would have brought past ones closer (`guessAccuracy` in
   `src/lib/rest/calibrate.ts`).
+- **Experiments settle which show or timer works.** Pick two shows or two
+  timer lengths; each night started from the moon gets one at random, kept
+  even, and once both have their nights a rank-sum test says whether the
+  faster one is faster beyond chance. Times stay hidden until then
+  (`src/lib/rest/experiment.ts`).
 - **It resumes the night, not the episode.** Fall asleep 20 minutes into a
   90-minute episode and the app remembers where you went under, so the next
   night doesn't restart the same thing from 0:00 (`src/lib/positions.ts`).

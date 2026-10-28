@@ -7,6 +7,7 @@ import { describeImport, describeWatchNight, importWatchSleep } from "../lib/res
 import { NightChart } from "./NightChart";
 import { NightsTrend } from "./NightsTrend";
 import { WakeAudit } from "./WakeAudit";
+import { Experiments } from "./Experiments";
 import { getPlays, loadState } from "../lib/store";
 import { backupReminder, keepStorage, snoozeBackupReminder } from "../lib/keep";
 import { downloadBackup } from "../lib/backup";
@@ -60,9 +61,10 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
   // setup builds no lineup from a removed or switched-off one. A 3am
   // re-anchor carries the faded night's lineup, so a feed switched off since
   // can still lean that one night, unlisted.)
-  const { feedTitles, enabledFeeds, favorWhatWorks } = useMemo(() => {
+  const { feedTitles, enabledFeeds, favorWhatWorks, feeds } = useMemo(() => {
     const s = loadState();
     return {
+      feeds: s.feeds.map((f) => ({ id: f.id, title: f.title, enabled: f.enabled })),
       feedTitles: Object.fromEntries(s.feeds.map((f) => [f.id, f.title])),
       enabledFeeds: new Set(s.feeds.filter((f) => f.enabled).map((f) => f.id)),
       favorWhatWorks: s.settings.favorWhatWorks,
@@ -214,6 +216,7 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
           <p role="status" className="text-xs text-[var(--ink-3)] empty:hidden">{watchNote && !watchNote.error ? watchNote.text : ""}</p>
         </section>
       )}
+      {nights.length > 0 && <Experiments nights={nights} feeds={feeds} />}
       {/* The guess for nights without the watch, tuned on nights with it. */}
       {accuracy && (
         <section aria-labelledby="guess-title" className="space-y-1.5 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
