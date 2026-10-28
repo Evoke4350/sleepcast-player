@@ -1127,7 +1127,8 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
               <details className="group text-[12.5px] leading-snug text-[var(--ink-2)]">
                 <summary className="cursor-pointer rounded font-semibold text-[var(--ink)]">Set up the Shortcut</summary>
                 <ol className="mt-2 list-decimal space-y-1.5 pl-5">
-                  <li>In Shortcuts, make a new shortcut and add <b>Find Health Samples</b>. Set Type to Sleep Analysis, add the filter Start Date is in the last 2 days, and sort by Start Date.</li>
+                  <li>In Shortcuts, make a new shortcut and add <b>Find Health Samples</b>. Set Type to Sleep Analysis, and add two filters: Start Date is in the last 1 day, and Value is not In Bed. Sort by Start Date, Latest First, and turn on Limit at 200. With sleep stages, one night alone can be a hundred samples, and more than that makes the Shortcut give up.</li>
+                  <li>If another sleep app also writes to Health, add the filter Source is your Apple Watch, so each night comes through once.</li>
                   <li>Add <b>Repeat with Each</b> on the Health Samples.</li>
                   <li>Inside it, add <b>Text</b>: Repeat Item&apos;s Start Date, then <code>|</code>, then its End Date, then <code>|</code>, then its Value. Set both dates&apos; format to ISO 8601 with the time included.</li>
                   <li>After the repeat, add <b>Combine Text</b> on Repeat Results, separated by Custom <code>;</code>.</li>
