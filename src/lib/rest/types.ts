@@ -59,7 +59,11 @@ export interface RestNight {
   /** "leaned": the night's shuffle leaned on the scores (favorWhatWorks).
    *  Absent: a plain shuffle, the baseline to compare against. */
   shuffle?: "leaned";
+  /** How rested you felt the morning after, 1 (exhausted) to 5 (very
+   *  rested), kept on the first night of the sleep (rested.ts). */
+  rested?: Rested;
 }
+export type Rested = 1 | 2 | 3 | 4 | 5;
 export interface NightEpisode { t: number; feedId: string; episodeId: string }
 /** Health's sleep stages; "asleep" is a watch that doesn't tell them apart. */
 export type SleepStage = "awake" | "rem" | "core" | "deep" | "asleep" | "inbed";

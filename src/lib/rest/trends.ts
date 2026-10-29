@@ -11,7 +11,7 @@ import { summarizeStages } from "./watch";
 import { median } from "./ledger";
 
 /** A night that starts this soon after the one before is the same sleep. */
-const SAME_SLEEP_MS = 10 * 60 * 60 * 1000;
+export const SAME_SLEEP_MS = 10 * 60 * 60 * 1000;
 
 export interface SleepRecord {
   /** When you pressed play. */

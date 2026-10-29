@@ -17,7 +17,7 @@ export function armName(arm: Arm, titles: Record<string, string>): string {
 }
 
 /** "less than 1 time in 100", "4 times in 100". */
-function inHundred(p: number): string {
+export function inHundred(p: number): string {
   const n = Math.round(p * 100);
   return n < 1 ? "less than 1 time in 100" : n === 1 ? "about 1 time in 100" : `about ${n} times in 100`;
 }
