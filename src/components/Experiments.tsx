@@ -24,7 +24,7 @@ export function inHundred(p: number): string {
 
 const fmtTime = (ms: number | null) => (ms === null ? "—" : ms === Infinity ? "no sleep" : fmtLong(ms));
 
-export function Experiments({ nights, feeds }: { nights: RestNight[]; feeds: { id: string; title: string; enabled: boolean }[] }) {
+export function Experiments({ nights, feeds, favoring = false }: { nights: RestNight[]; feeds: { id: string; title: string; enabled: boolean }[]; favoring?: boolean }) {
   const [, redraw] = useReducer((n: number) => n + 1, 0);
   const titles = Object.fromEntries(feeds.map((f) => [f.id, f.title]));
   const e = currentExperiment();
@@ -33,7 +33,7 @@ export function Experiments({ nights, feeds }: { nights: RestNight[]; feeds: { i
   return (
     <section aria-labelledby="experiment-title" className="space-y-3 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
       <h2 id="experiment-title" className="text-[11px] font-bold uppercase tracking-widest text-[var(--ink-3)]">experiment</h2>
-      {e ? <Running e={e} nights={nights} titles={titles} onChange={redraw} /> : <Start feeds={feeds} onStart={redraw} />}
+      {e ? <Running e={e} nights={nights} titles={titles} favoring={favoring} onChange={redraw} /> : <Start feeds={feeds} onStart={redraw} />}
       {past.length > 0 && (
         <details className="text-xs text-[var(--ink-3)]">
           <summary className="cursor-pointer rounded font-semibold text-[var(--ink-2)]">Past experiments</summary>
@@ -51,13 +51,17 @@ export function Experiments({ nights, feeds }: { nights: RestNight[]; feeds: { i
 function pastLine(p: Experiment, nights: RestNight[], titles: Record<string, string>): string {
   const r = experimentResult(p, nights);
   const names = `${armName(p.arms[0], titles)} vs ${armName(p.arms[1], titles)}`;
+  // Its nights have left the ledger (it keeps 90), but its result was kept.
+  if (!r.done && p.winner !== undefined) {
+    return p.winner === null ? `${names}: no clear difference.` : `${names}: ${armName(p.arms[p.winner], titles)} was faster.`;
+  }
   if (!r.done) return `${names}: ended after ${r.sides[0].nights + r.sides[1].nights} nights, before a result.`;
   return r.winner === null
     ? `${names}: no clear difference (${fmtTime(r.sides[0].medianMs)} vs ${fmtTime(r.sides[1].medianMs)}).`
     : `${names}: ${armName(p.arms[r.winner], titles)} was faster (${fmtTime(r.sides[0].medianMs)} vs ${fmtTime(r.sides[1].medianMs)}).`;
 }
 
-function Running({ e, nights, titles, onChange }: { e: Experiment; nights: RestNight[]; titles: Record<string, string>; onChange: () => void }) {
+function Running({ e, nights, titles, favoring, onChange }: { e: Experiment; nights: RestNight[]; titles: Record<string, string>; favoring: boolean; onChange: () => void }) {
   const r = experimentResult(e, nights);
   const [a, b] = e.arms.map((arm) => armName(arm, titles));
   const [confirmEnd, setConfirmEnd] = useState(false);
@@ -99,6 +103,13 @@ function Running({ e, nights, titles, onChange }: { e: Experiment; nights: RestN
               ? `${r.winner === 0 ? a : b} put you to sleep faster. A difference this clear would come up by chance ${inHundred(r.pValue!)}.`
               : `No clear difference: one this size comes up by chance ${inHundred(r.pValue!)}. More nights could tell them apart, or they may just be as good as each other.`}
           </p>
+          {r.winner !== null && e.arms[0].kind === "show" && (
+            <p className="text-xs text-[var(--ink-3)]">
+              {favoring
+                ? `"Favour what puts me under" now leans your shuffle toward ${r.winner === 0 ? a : b} as strongly as it leans toward any show, and not toward ${r.winner === 0 ? b : a}.`
+                : `Turn on "Favour what puts me under" in Settings and your shuffle will lean toward ${r.winner === 0 ? a : b}.`}
+            </p>
+          )}
           <div className="flex flex-wrap gap-2">
             {r.winner === null && (
               <button onClick={() => { extendExperiment(5); onChange(); }} className="rounded-lg bg-[var(--raised)] px-3 py-2 text-sm font-semibold text-[var(--ink-2)] hover:text-[var(--ink)]">

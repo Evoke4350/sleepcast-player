@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import type { RestNight } from "./types";
 import {
   startExperiment, assignTonight, currentExperiment, endExperiment, extendExperiment, pastExperiments,
-  experimentResult, outcomeMs, rankSumPValue, nightOf, type Arm,
+  experimentResult, outcomeMs, rankSumPValue, nightOf, provenShows, type Arm,
 } from "./experiment";
 
 const MIN = 60_000;
@@ -88,5 +88,58 @@ describe("rankSumPValue", () => {
     expect(p).toBeGreaterThan(0.03);
     expect(p).toBeLessThan(0.07);
     expect(rankSumPValue(a, b)).toBe(p); // the same each time
+  });
+});
+
+describe("provenShows", () => {
+  beforeEach(() => localStorage.clear());
+  const DAY = 86_400_000;
+  /** A finished A-vs-B experiment, A fast (`fast`) and B slow, 5 nights each. */
+  function run(fast: Arm, slow: Arm, from: number, perArm = 5) {
+    startExperiment([fast, slow], perArm, from, () => 0.1, []);
+    const nights: RestNight[] = [];
+    for (let i = 0; i < perArm * 2; i++) {
+      const at = from + (i + 1) * DAY;
+      const arm = assignTonight(at, () => 0.1)!;
+      nights.push(night(at, { timeToSleepMs: (JSON.stringify(arm) === JSON.stringify(fast) ? 12 + i : 40 + i) * MIN, sleptAtMs: 1 }));
+    }
+    return nights;
+  }
+
+  it("names the winner and the show it beat, once it has its result", () => {
+    const nights = run(A, B, 0);
+    expect([...provenShows(nights)]).toEqual([["a", "won"], ["b", "lost"]]);
+    expect(provenShows(nights.slice(0, 4)).size).toBe(0); // still running
+  });
+
+  it("keeps the result when it ends, after its nights have left the ledger", () => {
+    const nights = run(A, B, 0);
+    endExperiment(20 * DAY, nights);
+    expect(pastExperiments()[0].winner).toBe(0);
+    expect(provenShows([]).get("a")).toBe("won");
+  });
+
+  it("the latest experiment with a show decides", () => {
+    const first = run(A, B, 0);
+    endExperiment(20 * DAY, first);
+    const second = run(B, A, 30 * DAY);
+    endExperiment(50 * DAY, second);
+    expect(provenShows([]).get("b")).toBe("won");
+    expect(provenShows([]).get("a")).toBe("lost");
+  });
+
+  it("nothing from timers, or from no clear difference", () => {
+    run({ kind: "timer", minutes: 25 }, { kind: "timer", minutes: 45 }, 0);
+    expect(provenShows([]).size).toBe(0);
+    startExperiment([A, B], 5, 100 * DAY, () => 0.1, []);
+    const nights: RestNight[] = [];
+    for (let i = 0; i < 10; i++) {
+      const at = 100 * DAY + (i + 1) * DAY;
+      assignTonight(at, () => 0.1);
+      nights.push(night(at)); // every night the same
+    }
+    endExperiment(200 * DAY, nights);
+    expect(pastExperiments().at(-1)!.winner).toBeNull();
+    expect(provenShows(nights).size).toBe(0);
   });
 });
