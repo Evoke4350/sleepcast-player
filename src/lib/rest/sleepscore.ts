@@ -12,6 +12,7 @@
 // never converge on anything. Feeds accumulate dozens of nights.
 
 import type { FeedWeight, RestNight } from "./types";
+import { provenShows } from "./experiment";
 
 export const CREDIT_ONSET = 2;
 export const CREDIT_SLEPT = 1;
@@ -158,11 +159,17 @@ function leanRecord(entries: Iterable<[string, number]>): Record<string, number>
  *  is the other half of the point. Takes feeds already scored (scoreFeeds);
  *  weights go through clampWeight (WEIGHT_FLOOR..WEIGHT_MAX), which also
  *  rounds them to hundredths: a difference below that changes no pick that
- *  matters, so it neither makes a night "leaned" nor shows as a weight. */
-export function shuffleWeights(scored: readonly FeedScore[]): FeedWeight {
+ *  matters, so it neither makes a night "leaned" nor shows as a weight.
+ *
+ *  An experiment (experiment.ts provenShows) is better evidence than the
+ *  record: its nights were given at random, so a show that won one weighs
+ *  WEIGHT_MAX, the most any show can, and the show it beat no more than 1,
+ *  whatever their records say. */
+export function shuffleWeights(scored: readonly FeedScore[], proven: ReadonlyMap<string, "won" | "lost"> = new Map()): FeedWeight {
   const w = new Map(
     scored.filter((f) => f.nights >= MIN_NIGHTS).map((f) => [f.feedId, clampWeight(f.weight)]),
   );
+  for (const [feedId, how] of proven) w.set(feedId, how === "won" ? WEIGHT_MAX : Math.min(w.get(feedId) ?? 1, 1));
   return (feedId) => w.get(feedId) ?? 1;
 }
 
@@ -203,6 +210,7 @@ export function nightLean(
   resume: { shuffleLean?: unknown } | null | undefined,
   nights: () => readonly RestNight[],
   blocked: () => readonly string[],
+  proven: (nights: readonly RestNight[]) => ReadonlyMap<string, "won" | "lost"> = provenShows,
 ): Record<string, number> | undefined {
   // A revived night is the same night: it keeps its lean as it began, so
   // it's recorded as it was (leaned by what was in effect), even when the
@@ -215,7 +223,8 @@ export function nightLean(
   // night is labelled by what was in effect as it began.)
   const out = new Set(blocked());
   const lineup = pool.filter((e) => !out.has(e.id));
-  return lineupLean(shuffleWeights(scoreFeeds(nights())), lineup);
+  const all = nights();
+  return lineupLean(shuffleWeights(scoreFeeds(all), proven(all)), lineup);
 }
 
 /** Scored feeds with enough evidence to say anything about. */

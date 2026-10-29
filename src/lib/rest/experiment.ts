@@ -17,7 +17,7 @@
 // the night's own record changes (see nightOf).
 
 import type { RestNight } from "./types";
-import { believableOnsetMs, median } from "./ledger";
+import { believableOnsetMs, loadNights, median } from "./ledger";
 import { writeMakingRoom } from "../store";
 import { ranks, seeded } from "./stats";
 
@@ -35,6 +35,11 @@ export interface Experiment {
   /** The side the next night gets, decided ahead so the Sleep screen can say. */
   next: Side;
   endedAt?: number;
+  /** Its result when it ended, kept so it outlasts its nights in the
+   *  ledger (which keeps 90): the faster side, null for no clear
+   *  difference. Absent when it ended before a result, or on one ended
+   *  before this was kept (read from the ledger then). */
+  winner?: Side | null;
 }
 
 interface Saved {
@@ -75,23 +80,52 @@ export function pastExperiments(): Experiment[] {
 
 const coin = (rand: () => number): Side => (rand() < 0.5 ? 0 : 1);
 
-export function startExperiment(arms: [Arm, Arm], perArm: number, now = Date.now(), rand = Math.random): Experiment {
+export function startExperiment(arms: [Arm, Arm], perArm: number, now = Date.now(), rand = Math.random, nights = loadNights()): Experiment {
   const e: Experiment = { id: `x-${now}`, startedAt: now, arms, perArm, assignments: [], next: coin(rand) };
   const s = load();
   // One at a time: a running one is ended, kept with the past ones.
-  save({ current: e, past: withEnded(s, now) });
+  save({ current: e, past: withEnded(s, now, nights) });
   return e;
 }
 
-export function endExperiment(now = Date.now()): void {
+export function endExperiment(now = Date.now(), nights = loadNights()): void {
   const s = load();
   if (!s.current) return;
-  save({ current: null, past: withEnded(s, now) });
+  save({ current: null, past: withEnded(s, now, nights) });
 }
 
-/** The past ones, with the running one ended, unless it never had a night. */
-function withEnded(s: Saved, now: number): Experiment[] {
-  return s.current?.assignments.length ? [...s.past, { ...s.current, endedAt: now }] : s.past;
+/** The past ones, with the running one ended (and its result kept),
+ *  unless it never had a night. */
+function withEnded(s: Saved, now: number, nights: readonly RestNight[]): Experiment[] {
+  if (!s.current?.assignments.length) return s.past;
+  const r = experimentResult(s.current, nights);
+  return [...s.past, { ...s.current, endedAt: now, ...(r.done ? { winner: r.winner } : {}) }];
+}
+
+/** Shows that won or lost an experiment, for the shuffle's lean
+ *  (shuffleWeights): the latest result for each show, from the past ones
+ *  and a running one that has its result. Timer experiments and ones with
+ *  no clear difference say nothing about a show. */
+export function provenShows(nights: readonly RestNight[]): Map<string, "won" | "lost"> {
+  const s = load();
+  const out = new Map<string, "won" | "lost">();
+  const all = [...s.past, ...(s.current ? [s.current] : [])];
+  for (const e of all) {
+    const [a, b] = e.arms;
+    if (a?.kind !== "show" || b?.kind !== "show") continue;
+    // A past one's kept result; else (running, or ended before results
+    // were kept) what its nights in the ledger say.
+    const winner = e.winner !== undefined ? e.winner : (() => {
+      const r = experimentResult(e, nights);
+      return r.done ? r.winner : null;
+    })();
+    if (winner === null || winner === undefined) continue;
+    const won = winner === 0 ? a : b;
+    const lost = winner === 0 ? b : a;
+    out.set(won.feedId, "won");
+    out.set(lost.feedId, "lost");
+  }
+  return out;
 }
 
 /** Ask for more nights each, after a result that wasn't clear. */

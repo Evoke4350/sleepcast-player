@@ -408,6 +408,18 @@ describe("medianTimeToSleep and self-labels", () => {
 });
 
 describe("shuffleWeights (favor what puts me under)", () => {
+  it("an experiment's winner weighs the most, and the show it beat no more than 1", () => {
+    const loser = Array.from({ length: MIN_NIGHTS }, () => onset("loser"));
+    const w = shuffleWeights(scoreFeeds(loser), new Map([["winner", "won"], ["loser", "lost"]] as const));
+    expect(w("winner")).toBe(WEIGHT_MAX);
+    expect(scoreFeeds(loser)[0].weight).toBeGreaterThan(1);
+    expect(w("loser")).toBe(1);
+    // A loser already leaning away keeps that lean.
+    const skipped = Array.from({ length: MIN_NIGHTS }, () => night({ skipped: ["meh"] }));
+    expect(shuffleWeights(scoreFeeds(skipped), new Map([["meh", "lost"]] as const))("meh")).toBeLessThan(1);
+  });
+
+
   it("leans a feed with enough nights by its weight, toward and away", () => {
     const good = Array.from({ length: MIN_NIGHTS }, () => onset("good"));
     const bad = Array.from({ length: MIN_NIGHTS }, () => night({ skipped: ["bad"] }));

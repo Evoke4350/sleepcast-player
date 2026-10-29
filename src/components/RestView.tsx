@@ -1,7 +1,7 @@
 import { useMemo, useReducer, useRef, useState } from "react";
 import { loadNights, rollup, setSelfLabel, leanComparison } from "../lib/rest/ledger";
 import { recordFalsePositive, guessAccuracy } from "../lib/rest/calibrate";
-import { scoreFeeds, medianTimeToSleep, meetsSuggestionGate, shuffleWeights, pluralNights, fmtOnsetMinutes, MIN_NIGHTS } from "../lib/rest/sleepscore";
+import { scoreFeeds, medianTimeToSleep, meetsSuggestionGate, shuffleWeights, pluralNights, fmtOnsetMinutes, MIN_NIGHTS, WEIGHT_MAX } from "../lib/rest/sleepscore";
 import { fmtDuration, lastNight } from "../lib/rest/surface";
 import { describeImport, describeWatchNight, importWatchSleep } from "../lib/rest/watch";
 import { NightChart } from "./NightChart";
@@ -10,6 +10,7 @@ import { WakeAudit } from "./WakeAudit";
 import { Experiments } from "./Experiments";
 import { RateMorning, RestedLinks } from "./MorningRating";
 import { nightToRate } from "../lib/rest/rested";
+import { provenShows } from "../lib/rest/experiment";
 import { getPlays, loadState } from "../lib/store";
 import { backupReminder, keepStorage, snoozeBackupReminder } from "../lib/keep";
 import { downloadBackup } from "../lib/backup";
@@ -85,7 +86,9 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
   const scored = useMemo(() => scoreFeeds(nights), [nights]);
   const counted = useMemo(() => scored.filter(meetsSuggestionGate), [scored]);
   const notYetCounted = useMemo(() => scored.filter((f) => !meetsSuggestionGate(f)), [scored]);
-  const leanOf = useMemo(() => (favorWhatWorks ? shuffleWeights(scored) : null), [scored, favorWhatWorks]);
+  // Experiment results lean it too, ahead of the record (shuffleWeights).
+  const proven = useMemo(() => provenShows(nights), [nights]);
+  const leanOf = useMemo(() => (favorWhatWorks ? shuffleWeights(scored, proven) : null), [scored, proven, favorWhatWorks]);
   // Leaned nights against plain ones, once there are leaned nights and
   // either side has a timed one (leanComparison): the baseline the setting
   // keeps is only worth keeping if it is compared.
@@ -131,8 +134,10 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
         </span>
         {/* On its own line, so the title keeps its room at phone width.
             Relative: the shuffle weighs a night's lineup against itself. */}
-        {lean !== undefined && lean !== 1 && (
-          <span className="w-full text-right text-[10px] text-[var(--ink-4)]">{`weighs ×${lean.toFixed(2)}`}</span>
+        {lean !== undefined && (lean !== 1 || proven.has(f.feedId)) && (
+          <span className="w-full text-right text-[10px] text-[var(--ink-4)]">
+            {[`weighs ×${lean.toFixed(2)}`, proven.has(f.feedId) ? `${proven.get(f.feedId)} an experiment` : ""].filter(Boolean).join(" · ")}
+          </span>
         )}
       </li>
     );
@@ -224,7 +229,7 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
         </section>
       )}
       <RestedLinks nights={nights} />
-      {nights.length > 0 && <Experiments nights={nights} feeds={feeds} />}
+      {nights.length > 0 && <Experiments nights={nights} feeds={feeds} favoring={favorWhatWorks} />}
       {/* The guess for nights without the watch, tuned on nights with it. */}
       {accuracy && (
         <section aria-labelledby="guess-title" className="space-y-1.5 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
@@ -313,7 +318,7 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
           <p className="mt-2 text-[11px] leading-snug text-[var(--ink-4)]">
             {`Ranked by what was playing when you went under. Shows with fewer than ${MIN_NIGHTS} nights, that have never led, or that net negative aren't counted yet.`}
             {favorWhatWorks
-              ? ` "Favor what puts me under" is on: a show with ${MIN_NIGHTS} or more nights, counted or not, weighs by its record against the other shows in a night's lineup; a show with fewer nights weighs ×1, and shows that weigh the same lean nothing between them. A weight applies to each fresh episode, so a show with more of them still comes up more. Weights other than ×1 are listed for shows that are switched on.`
+              ? ` "Favour what puts me under" is on: a show with ${MIN_NIGHTS} or more nights, counted or not, weighs by its record against the other shows in a night's lineup; a show with fewer nights weighs ×1, and shows that weigh the same lean nothing between them. A weight applies to each fresh episode, so a show with more of them still comes up more. A show that won an experiment weighs ×${WEIGHT_MAX.toFixed(2)}, the most a show can, and the show it beat no more than ×1, whatever their records: an experiment's nights were given at random, so it's the better evidence. Weights other than ×1 are listed for shows that are switched on.`
               : ""}
           </p>
         </section>
