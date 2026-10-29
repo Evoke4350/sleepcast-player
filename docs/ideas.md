@@ -2,9 +2,6 @@
 
 Tabled on 2026-10-27, after "what wakes you" was built.
 
-## Morning rating
-A one-tap "How rested do you feel?" from 1 to 5, the morning after. The watch measures sleep, not how it felt; pairing the two would show which nights felt good.
-
 ## Sync between Safari and the Home Screen app
 They keep separate storage, which is why the watch Shortcut needs the clipboard step. The only fix is syncing through a server (Cloudflare's free tier would do), but nights would then leave the phone for the first time. That's a privacy decision to make first.
 

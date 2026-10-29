@@ -8,6 +8,8 @@ import { NightChart } from "./NightChart";
 import { NightsTrend } from "./NightsTrend";
 import { WakeAudit } from "./WakeAudit";
 import { Experiments } from "./Experiments";
+import { RateMorning, RestedLinks } from "./MorningRating";
+import { nightToRate } from "../lib/rest/rested";
 import { getPlays, loadState } from "../lib/store";
 import { backupReminder, keepStorage, snoozeBackupReminder } from "../lib/keep";
 import { downloadBackup } from "../lib/backup";
@@ -24,6 +26,9 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
   const watched = useMemo(() => nights.filter((n) => n.watchSleep?.length), [nights]);
   const accuracy = useMemo(() => guessAccuracy(nights), [nights]);
   const last = lastNight();
+  // Asked the morning after only (rested.ts): read once, so a rating made
+  // here doesn't move the question while you're looking at it.
+  const [toRate] = useState(() => nightToRate(nights, Date.now()));
   // Shown the morning after, here, never on the bedtime screen: a reminder
   // at bedtime is the kind of nudge the app exists not to make.
   const [reminder] = useState(() => backupReminder(nights));
@@ -150,6 +155,8 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
 
       <p role="status" className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4 text-[13px] text-[var(--ink-2)] empty:hidden">{note ?? ""}</p>
 
+      {toRate && <RateMorning night={toRate} onRated={reloadNights} />}
+
       {reminder && (
         <section aria-labelledby="backup-reminder-title" className="space-y-2.5 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
           <h2 id="backup-reminder-title" className="text-[11px] font-bold uppercase tracking-widest text-[var(--ink-3)]">back up your nights</h2>
@@ -216,6 +223,7 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
           <p role="status" className="text-xs text-[var(--ink-3)] empty:hidden">{watchNote && !watchNote.error ? watchNote.text : ""}</p>
         </section>
       )}
+      <RestedLinks nights={nights} />
       {nights.length > 0 && <Experiments nights={nights} feeds={feeds} />}
       {/* The guess for nights without the watch, tuned on nights with it. */}
       {accuracy && (

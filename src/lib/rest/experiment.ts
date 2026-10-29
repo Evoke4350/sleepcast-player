@@ -19,6 +19,7 @@
 import type { RestNight } from "./types";
 import { believableOnsetMs, median } from "./ledger";
 import { writeMakingRoom } from "../store";
+import { ranks, seeded } from "./stats";
 
 export type Arm = { kind: "show"; feedId: string } | { kind: "timer"; minutes: number };
 export type Side = 0 | 1;
@@ -163,19 +164,6 @@ export function experimentResult(e: Experiment, nights: readonly RestNight[]): E
   return { sides, done, pValue, winner };
 }
 
-/** Midranks of all values together (ties share their average rank). */
-function ranks(all: readonly number[]): number[] {
-  const order = all.map((v, i) => [v, i] as const).sort((a, b) => a[0] - b[0]);
-  const r = new Array<number>(all.length);
-  for (let i = 0; i < order.length; ) {
-    let j = i;
-    while (j + 1 < order.length && order[j + 1][0] === order[i][0]) j++;
-    for (let k = i; k <= j; k++) r[order[k][1]] = (i + j) / 2 + 1;
-    i = j + 1;
-  }
-  return r;
-}
-
 /** Above this many ways to split the nights, sample splits instead. */
 const EXACT_LIMIT = 200_000;
 
@@ -217,13 +205,4 @@ function choose(n: number, k: number): number {
   let c = 1;
   for (let i = 1; i <= k; i++) c = (c * (n - k + i)) / i;
   return c;
-}
-
-/** A repeatable random stream, so a result reads the same each visit. */
-function seeded(seed: number): () => number {
-  let s = seed >>> 0;
-  return () => {
-    s = (s * 1664525 + 1013904223) >>> 0;
-    return s / 2 ** 32;
-  };
 }

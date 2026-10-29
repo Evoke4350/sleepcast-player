@@ -73,6 +73,11 @@ So:
   even, and once both have their nights a rank-sum test says whether the
   faster one is faster beyond chance. Times stay hidden until then
   (`src/lib/rest/experiment.ts`).
+- **It asks how rested you feel.** One tap from 1 to 5 on the Rest tab, the
+  morning after only. After 7 rated mornings it shows what goes with the
+  rested ones (sleep, Deep, REM, wakings, bedtime and more), by rank
+  correlation, calling a link clear only after a correction for testing
+  several at once (`src/lib/rest/rested.ts`).
 - **It resumes the night, not the episode.** Fall asleep 20 minutes into a
   90-minute episode and the app remembers where you went under, so the next
   night doesn't restart the same thing from 0:00 (`src/lib/positions.ts`).

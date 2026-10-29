@@ -5,6 +5,7 @@ import { useState } from "react";
 import type { RestNight, SleepStage } from "../lib/rest/types";
 import { describeWatchNight, summarizeStages } from "../lib/rest/watch";
 import { eventsWhileAsleep } from "../lib/rest/wakes";
+import { RESTED_LABEL } from "../lib/rest/rested";
 
 const STAGES: { stage: SleepStage; label: string }[] = [
   { stage: "awake", label: "Awake" },
@@ -97,6 +98,7 @@ export function NightChart({ nights, feedTitles }: { nights: RestNight[]; feedTi
         <div>
           <h2 id="night-chart-title" className="text-[11px] font-bold uppercase tracking-widest text-[var(--ink-3)]">from your watch</h2>
           <p className="font-semibold text-[var(--ink)]">{date}</p>
+          {n.rested && <p className="text-xs text-[var(--ink-3)]">{`The morning after: ${RESTED_LABEL[n.rested].toLowerCase()}`}</p>}
         </div>
         {nights.length > 1 && (
           <div className="flex shrink-0 gap-1">
