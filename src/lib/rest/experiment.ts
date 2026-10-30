@@ -129,19 +129,6 @@ export function provenShows(nights: readonly RestNight[]): Map<string, "won" | "
   return out;
 }
 
-/** The timer that won the latest timer experiment with a clear result, and
- *  the one it beat, for the timer the Sleep screen sets (ahead of the
- *  learned one); null when none has. */
-export function provenTimer(nights: readonly RestNight[]): { minutes: number; beat: number } | null {
-  let out: { minutes: number; beat: number } | null = null;
-  for (const { e, winner } of decided(nights)) {
-    const [a, b] = e.arms;
-    if (winner === null || a?.kind !== "timer" || b?.kind !== "timer") continue;
-    out = winner === 0 ? { minutes: a.minutes, beat: b.minutes } : { minutes: b.minutes, beat: a.minutes };
-  }
-  return out;
-}
-
 /** Ask for more nights each, after a result that wasn't clear. */
 export function extendExperiment(more: number): void {
   const s = load();

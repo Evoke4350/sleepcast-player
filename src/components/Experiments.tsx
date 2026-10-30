@@ -5,10 +5,18 @@ import { useReducer, useState } from "react";
 import type { RestNight } from "../lib/rest/types";
 import {
   currentExperiment, endExperiment, experimentResult, extendExperiment, pastExperiments, startExperiment,
-  type Arm, type Experiment,
+  type Arm, type Experiment, type Side,
 } from "../lib/rest/experiment";
 import { TIMER_PRESETS } from "../lib/timer-presets";
 import { fmtLong } from "./NightChart";
+import { keepTimer } from "../lib/rest/kept-timer";
+
+/** A timer that won is saved as your timer (kept-timer.ts) when you're done. */
+function keepWinner(e: Experiment, winner: Side | null): void {
+  if (winner === null) return;
+  const [won, beat] = winner === 0 ? e.arms : [e.arms[1], e.arms[0]];
+  if (won.kind === "timer" && beat.kind === "timer") keepTimer({ minutes: won.minutes, beat: beat.minutes });
+}
 
 const NIGHTS_EACH = [5, 7, 10];
 
@@ -112,9 +120,7 @@ function Running({ e, nights, titles, favoring, learning, onChange }: { e: Exper
           )}
           {r.winner !== null && e.arms[0].kind === "timer" && (
             <p className="text-xs text-[var(--ink-3)]">
-              {learning
-                ? `It's your timer now: the Sleep screen sets the ${r.winner === 0 ? a : b} each night, in place of the learned one. A timer you pick by hand still holds for that night.`
-                : `Turn on "Learn my timer" in Settings and the Sleep screen will set the ${r.winner === 0 ? a : b} each night.`}
+              {`Done saves the ${r.winner === 0 ? a : b} as your timer: the Sleep screen sets it each night${learning ? " in place of the learned one" : ""}, until you change it there.`}
             </p>
           )}
           <div className="flex flex-wrap gap-2">
@@ -123,7 +129,7 @@ function Running({ e, nights, titles, favoring, learning, onChange }: { e: Exper
                 5 more nights each
               </button>
             )}
-            <button onClick={() => { endExperiment(); onChange(); }} className="rounded-lg bg-[var(--raised)] px-3 py-2 text-sm font-semibold text-[var(--ink-2)] hover:text-[var(--ink)]">
+            <button onClick={() => { keepWinner(e, r.winner); endExperiment(); onChange(); }} className="rounded-lg bg-[var(--raised)] px-3 py-2 text-sm font-semibold text-[var(--ink-2)] hover:text-[var(--ink)]">
               Done
             </button>
           </div>
