@@ -74,7 +74,9 @@ So:
   faster one is faster beyond chance. Times stay hidden until then
   (`src/lib/rest/experiment.ts`). With "Favour what puts me under" on, a
   show that won leans the shuffle as much as any show can, and the show it
-  beat no more than ×1 (`provenShows`).
+  beat no more than ×1 (`provenShows`). A timer that won becomes the
+  timer the Sleep screen sets each night, ahead of the learned one, while
+  "Learn my timer" is on (`provenTimer`).
 - **It asks how rested you feel.** One tap from 1 to 5 on the Rest tab, the
   morning after only. After 7 rated mornings it shows what goes with the
   rested ones (sleep, Deep, REM, wakings, bedtime and more), by rank

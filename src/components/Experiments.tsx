@@ -24,7 +24,7 @@ export function inHundred(p: number): string {
 
 const fmtTime = (ms: number | null) => (ms === null ? "—" : ms === Infinity ? "no sleep" : fmtLong(ms));
 
-export function Experiments({ nights, feeds, favoring = false }: { nights: RestNight[]; feeds: { id: string; title: string; enabled: boolean }[]; favoring?: boolean }) {
+export function Experiments({ nights, feeds, favoring = false, learning = true }: { nights: RestNight[]; feeds: { id: string; title: string; enabled: boolean }[]; favoring?: boolean; learning?: boolean }) {
   const [, redraw] = useReducer((n: number) => n + 1, 0);
   const titles = Object.fromEntries(feeds.map((f) => [f.id, f.title]));
   const e = currentExperiment();
@@ -33,7 +33,7 @@ export function Experiments({ nights, feeds, favoring = false }: { nights: RestN
   return (
     <section aria-labelledby="experiment-title" className="space-y-3 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
       <h2 id="experiment-title" className="text-[11px] font-bold uppercase tracking-widest text-[var(--ink-3)]">experiment</h2>
-      {e ? <Running e={e} nights={nights} titles={titles} favoring={favoring} onChange={redraw} /> : <Start feeds={feeds} onStart={redraw} />}
+      {e ? <Running e={e} nights={nights} titles={titles} favoring={favoring} learning={learning} onChange={redraw} /> : <Start feeds={feeds} onStart={redraw} />}
       {past.length > 0 && (
         <details className="text-xs text-[var(--ink-3)]">
           <summary className="cursor-pointer rounded font-semibold text-[var(--ink-2)]">Past experiments</summary>
@@ -61,7 +61,7 @@ function pastLine(p: Experiment, nights: RestNight[], titles: Record<string, str
     : `${names}: ${armName(p.arms[r.winner], titles)} was faster (${fmtTime(r.sides[0].medianMs)} vs ${fmtTime(r.sides[1].medianMs)}).`;
 }
 
-function Running({ e, nights, titles, favoring, onChange }: { e: Experiment; nights: RestNight[]; titles: Record<string, string>; favoring: boolean; onChange: () => void }) {
+function Running({ e, nights, titles, favoring, learning, onChange }: { e: Experiment; nights: RestNight[]; titles: Record<string, string>; favoring: boolean; learning: boolean; onChange: () => void }) {
   const r = experimentResult(e, nights);
   const [a, b] = e.arms.map((arm) => armName(arm, titles));
   const [confirmEnd, setConfirmEnd] = useState(false);
@@ -108,6 +108,13 @@ function Running({ e, nights, titles, favoring, onChange }: { e: Experiment; nig
               {favoring
                 ? `"Favour what puts me under" now leans your shuffle toward ${r.winner === 0 ? a : b} as strongly as it leans toward any show, and not toward ${r.winner === 0 ? b : a}.`
                 : `Turn on "Favour what puts me under" in Settings and your shuffle will lean toward ${r.winner === 0 ? a : b}.`}
+            </p>
+          )}
+          {r.winner !== null && e.arms[0].kind === "timer" && (
+            <p className="text-xs text-[var(--ink-3)]">
+              {learning
+                ? `It's your timer now: the Sleep screen sets the ${r.winner === 0 ? a : b} each night, in place of the learned one. A timer you pick by hand still holds for that night.`
+                : `Turn on "Learn my timer" in Settings and the Sleep screen will set the ${r.winner === 0 ? a : b} each night.`}
             </p>
           )}
           <div className="flex flex-wrap gap-2">

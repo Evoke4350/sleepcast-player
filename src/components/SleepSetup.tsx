@@ -30,7 +30,7 @@ import type { RestNight } from "../lib/rest/types";
 import { TIMER_PRESETS } from "../lib/timer-presets";
 import { learnedTimer, timedNights, handPickHolds, LEARN_MIN_NIGHTS } from "../lib/rest/learned-timer";
 import { importWatchSleep, describeImport } from "../lib/rest/watch";
-import { currentExperiment, assignTonight, experimentResult } from "../lib/rest/experiment";
+import { currentExperiment, assignTonight, experimentResult, provenTimer } from "../lib/rest/experiment";
 import { needsFetch } from "../lib/feed-status";
 import { pickNextEpisode, HEARD_SEC } from "../lib/plays";
 import { ShowGrid, ShowPage } from "./Shows";
@@ -176,16 +176,19 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // The timer learned from the nights (this screen is rebuilt after each,
-  // so it reads the latest), and tonight's: the learned one, unless a timer
-  // was picked by hand for tonight or learning is off.
-  const [learned, timedSoFar] = useMemo(() => {
+  // The timer learned from the nights, and one that won an experiment
+  // (provenTimer), read again on coming to this tab (an experiment ends on
+  // Rest). Tonight's is the winner, else the learned one, unless a timer
+  // was picked by hand for tonight or learning is off. The winner comes
+  // first: its nights were given at random, so it's the better evidence.
+  const [learned, timedSoFar, tested] = useMemo(() => {
     const nights = loadNights();
-    return [learnedTimer(nights), timedNights(nights)] as const;
-  }, []);
+    return [learnedTimer(nights), timedNights(nights), provenTimer(nights)] as const;
+  }, [tab]);
   const learnOn = appState.settings.learnTimer !== false;
-  const usingLearned = learnOn && learned !== null && appState.settings.mode.kind === "minutes" && !handPickHolds(appState.settings.timerPickedAt, Date.now());
-  const timerMinutes = usingLearned && learned ? learned.minutes : appState.settings.timerMinutes;
+  const auto = !learnOn ? null : (tested?.minutes ?? learned?.minutes ?? null);
+  const usingLearned = auto !== null && appState.settings.mode.kind === "minutes" && !handPickHolds(appState.settings.timerPickedAt, Date.now());
+  const timerMinutes = usingLearned && auto !== null ? auto : appState.settings.timerMinutes;
   const quarterHourRule = appState.settings.quarterHourRule;
   // A running experiment gives the next ordinary night (the moon) one of its
   // two sides (lib/rest/experiment.ts). Read again on coming to this tab (an
@@ -399,7 +402,7 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
 
   const mode = appState.settings.mode;
 
-  // Back to the learned timer: the hand pick, if any, let go.
+  // Back to the learned (or tested) timer: the hand pick, if any, let go.
   function selectLearned() {
     const { timerPickedAt: _, ...settings } = appState.settings;
     updateAndSave({ ...appState, settings: { ...settings, mode: { kind: "minutes", minutes: settings.timerMinutes } } });
@@ -864,7 +867,11 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
               <span className="text-[11px] font-bold uppercase tracking-widest text-[var(--ink-4)]">fades at the end</span>
             </div>
             <div className="flex flex-wrap gap-2">
-              {learnOn && learned && (
+              {learnOn && tested ? (
+                <Pill on={usingLearned} onClick={selectLearned} label={`Won your experiment: ${tested.minutes} minutes`}>
+                  Tested · {tested.minutes} min
+                </Pill>
+              ) : learnOn && learned && (
                 <Pill on={usingLearned} onClick={selectLearned} label={`Learned: ${learned.minutes} minutes`}>
                   Learned · {learned.minutes} min
                 </Pill>
@@ -879,7 +886,13 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
             </div>
             {learnOn && (
               <p className="text-xs leading-snug text-[var(--ink-3)]">
-                {!learned
+                {tested
+                  ? usingLearned
+                    ? `${tested.minutes} min put you to sleep faster than ${tested.beat} min in your experiment, so it's your timer now.`
+                    : mode.kind === "minutes"
+                      ? `Your pick for tonight. Tomorrow it's back to ${tested.minutes} min, from your experiment.`
+                      : `From your experiment: ${tested.minutes} min, when you want a timer.`
+                  : !learned
                   ? `After ${LEARN_MIN_NIGHTS} timed nights the timer learns how long you take to fall asleep (${Math.min(timedSoFar, LEARN_MIN_NIGHTS)} so far).`
                   : usingLearned
                     ? `You're usually under in about ${fmtOnsetMinutes(learned.usualMs)}, so ${learned.minutes} min leaves room. From your last ${learned.nights} nights.`
@@ -1055,7 +1068,7 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
                 checked={learnOn}
                 onChange={(on) => updateAndSave({ ...appState, settings: { ...appState.settings, learnTimer: on } })}
               >
-                Sets tonight&apos;s timer from how long you&apos;ve taken to fall asleep lately, with room to spare. A timer you pick by hand holds for that night.
+                Sets tonight&apos;s timer from how long you&apos;ve taken to fall asleep lately, with room to spare, or to the timer that won your latest timer experiment. A timer you pick by hand holds for that night.
               </SettingRow>
               {/* Stimulus control, off unless asked for. It can stop a night
                   early, so it is never on by default and never inferred. */}

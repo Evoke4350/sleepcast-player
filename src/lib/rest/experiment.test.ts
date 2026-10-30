@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import type { RestNight } from "./types";
 import {
   startExperiment, assignTonight, currentExperiment, endExperiment, extendExperiment, pastExperiments,
-  experimentResult, outcomeMs, rankSumPValue, nightOf, provenShows, type Arm,
+  experimentResult, outcomeMs, rankSumPValue, nightOf, provenShows, provenTimer, type Arm,
 } from "./experiment";
 
 const MIN = 60_000;
@@ -141,5 +141,40 @@ describe("provenShows", () => {
     endExperiment(200 * DAY, nights);
     expect(pastExperiments().at(-1)!.winner).toBeNull();
     expect(provenShows(nights).size).toBe(0);
+  });
+});
+
+describe("provenTimer", () => {
+  beforeEach(() => localStorage.clear());
+  const DAY = 86_400_000;
+  const T25: Arm = { kind: "timer", minutes: 25 };
+  const T45: Arm = { kind: "timer", minutes: 45 };
+  function run(fast: Arm, slow: Arm, from: number) {
+    startExperiment([fast, slow], 5, from, () => 0.1, []);
+    const nights: RestNight[] = [];
+    for (let i = 0; i < 10; i++) {
+      const at = from + (i + 1) * DAY;
+      const arm = assignTonight(at, () => 0.1)!;
+      nights.push(night(at, { timeToSleepMs: (JSON.stringify(arm) === JSON.stringify(fast) ? 12 + i : 40 + i) * MIN }));
+    }
+    return nights;
+  }
+
+  it("the winner and the timer it beat, kept once ended", () => {
+    const nights = run(T45, T25, 0);
+    expect(provenTimer(nights)).toEqual({ minutes: 45, beat: 25 });
+    endExperiment(20 * DAY, nights);
+    expect(provenTimer([])).toEqual({ minutes: 45, beat: 25 });
+  });
+
+  it("the latest timer experiment decides; a show experiment says nothing", () => {
+    endExperiment(20 * DAY, run(T45, T25, 0));
+    endExperiment(50 * DAY, run(T25, T45, 30 * DAY));
+    endExperiment(80 * DAY, run(A, B, 60 * DAY));
+    expect(provenTimer([])).toEqual({ minutes: 25, beat: 45 });
+  });
+
+  it("none before a clear result", () => {
+    expect(provenTimer(run(T45, T25, 0).slice(0, 3))).toBeNull();
   });
 });
