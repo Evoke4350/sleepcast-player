@@ -102,28 +102,29 @@ function withEnded(s: Saved, now: number, nights: readonly RestNight[]): Experim
   return [...s.past, { ...s.current, endedAt: now, ...(r.done ? { winner: r.winner } : {}) }];
 }
 
+/** Every experiment, oldest first, with its winner: a past one's kept
+ *  result, else (running, or ended before results were kept) what its
+ *  nights in the ledger say. Null: no clear winner, or none yet. */
+function decided(nights: readonly RestNight[]): { e: Experiment; winner: Side | null }[] {
+  const s = load();
+  return [...s.past, ...(s.current ? [s.current] : [])].map((e) => {
+    if (e.winner !== undefined) return { e, winner: e.winner };
+    const r = experimentResult(e, nights);
+    return { e, winner: r.done ? r.winner : null };
+  });
+}
+
 /** Shows that won or lost an experiment, for the shuffle's lean
  *  (shuffleWeights): the latest result for each show, from the past ones
  *  and a running one that has its result. Timer experiments and ones with
  *  no clear difference say nothing about a show. */
 export function provenShows(nights: readonly RestNight[]): Map<string, "won" | "lost"> {
-  const s = load();
   const out = new Map<string, "won" | "lost">();
-  const all = [...s.past, ...(s.current ? [s.current] : [])];
-  for (const e of all) {
+  for (const { e, winner } of decided(nights)) {
     const [a, b] = e.arms;
-    if (a?.kind !== "show" || b?.kind !== "show") continue;
-    // A past one's kept result; else (running, or ended before results
-    // were kept) what its nights in the ledger say.
-    const winner = e.winner !== undefined ? e.winner : (() => {
-      const r = experimentResult(e, nights);
-      return r.done ? r.winner : null;
-    })();
-    if (winner === null || winner === undefined) continue;
-    const won = winner === 0 ? a : b;
-    const lost = winner === 0 ? b : a;
-    out.set(won.feedId, "won");
-    out.set(lost.feedId, "lost");
+    if (winner === null || a?.kind !== "show" || b?.kind !== "show") continue;
+    out.set((winner === 0 ? a : b).feedId, "won");
+    out.set((winner === 0 ? b : a).feedId, "lost");
   }
   return out;
 }

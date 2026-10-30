@@ -5,10 +5,18 @@ import { useReducer, useState } from "react";
 import type { RestNight } from "../lib/rest/types";
 import {
   currentExperiment, endExperiment, experimentResult, extendExperiment, pastExperiments, startExperiment,
-  type Arm, type Experiment,
+  type Arm, type Experiment, type Side,
 } from "../lib/rest/experiment";
 import { TIMER_PRESETS } from "../lib/timer-presets";
 import { fmtLong } from "./NightChart";
+import { keepTimer } from "../lib/rest/kept-timer";
+
+/** A timer that won is saved as your timer (kept-timer.ts) when you're done. */
+function keepWinner(e: Experiment, winner: Side | null): void {
+  if (winner === null) return;
+  const [won, beat] = winner === 0 ? e.arms : [e.arms[1], e.arms[0]];
+  if (won.kind === "timer" && beat.kind === "timer") keepTimer({ minutes: won.minutes, beat: beat.minutes });
+}
 
 const NIGHTS_EACH = [5, 7, 10];
 
@@ -24,7 +32,7 @@ export function inHundred(p: number): string {
 
 const fmtTime = (ms: number | null) => (ms === null ? "—" : ms === Infinity ? "no sleep" : fmtLong(ms));
 
-export function Experiments({ nights, feeds, favoring = false }: { nights: RestNight[]; feeds: { id: string; title: string; enabled: boolean }[]; favoring?: boolean }) {
+export function Experiments({ nights, feeds, favoring = false, learning = true }: { nights: RestNight[]; feeds: { id: string; title: string; enabled: boolean }[]; favoring?: boolean; learning?: boolean }) {
   const [, redraw] = useReducer((n: number) => n + 1, 0);
   const titles = Object.fromEntries(feeds.map((f) => [f.id, f.title]));
   const e = currentExperiment();
@@ -33,7 +41,7 @@ export function Experiments({ nights, feeds, favoring = false }: { nights: RestN
   return (
     <section aria-labelledby="experiment-title" className="space-y-3 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
       <h2 id="experiment-title" className="text-[11px] font-bold uppercase tracking-widest text-[var(--ink-3)]">experiment</h2>
-      {e ? <Running e={e} nights={nights} titles={titles} favoring={favoring} onChange={redraw} /> : <Start feeds={feeds} onStart={redraw} />}
+      {e ? <Running e={e} nights={nights} titles={titles} favoring={favoring} learning={learning} onChange={redraw} /> : <Start feeds={feeds} onStart={redraw} />}
       {past.length > 0 && (
         <details className="text-xs text-[var(--ink-3)]">
           <summary className="cursor-pointer rounded font-semibold text-[var(--ink-2)]">Past experiments</summary>
@@ -61,7 +69,7 @@ function pastLine(p: Experiment, nights: RestNight[], titles: Record<string, str
     : `${names}: ${armName(p.arms[r.winner], titles)} was faster (${fmtTime(r.sides[0].medianMs)} vs ${fmtTime(r.sides[1].medianMs)}).`;
 }
 
-function Running({ e, nights, titles, favoring, onChange }: { e: Experiment; nights: RestNight[]; titles: Record<string, string>; favoring: boolean; onChange: () => void }) {
+function Running({ e, nights, titles, favoring, learning, onChange }: { e: Experiment; nights: RestNight[]; titles: Record<string, string>; favoring: boolean; learning: boolean; onChange: () => void }) {
   const r = experimentResult(e, nights);
   const [a, b] = e.arms.map((arm) => armName(arm, titles));
   const [confirmEnd, setConfirmEnd] = useState(false);
@@ -110,13 +118,18 @@ function Running({ e, nights, titles, favoring, onChange }: { e: Experiment; nig
                 : `Turn on "Favour what puts me under" in Settings and your shuffle will lean toward ${r.winner === 0 ? a : b}.`}
             </p>
           )}
+          {r.winner !== null && e.arms[0].kind === "timer" && (
+            <p className="text-xs text-[var(--ink-3)]">
+              {`Done saves the ${r.winner === 0 ? a : b} as your timer: the Sleep screen sets it each night${learning ? " in place of the learned one" : ""}, until you change it there.`}
+            </p>
+          )}
           <div className="flex flex-wrap gap-2">
             {r.winner === null && (
               <button onClick={() => { extendExperiment(5); onChange(); }} className="rounded-lg bg-[var(--raised)] px-3 py-2 text-sm font-semibold text-[var(--ink-2)] hover:text-[var(--ink)]">
                 5 more nights each
               </button>
             )}
-            <button onClick={() => { endExperiment(); onChange(); }} className="rounded-lg bg-[var(--raised)] px-3 py-2 text-sm font-semibold text-[var(--ink-2)] hover:text-[var(--ink)]">
+            <button onClick={() => { keepWinner(e, r.winner); endExperiment(); onChange(); }} className="rounded-lg bg-[var(--raised)] px-3 py-2 text-sm font-semibold text-[var(--ink-2)] hover:text-[var(--ink)]">
               Done
             </button>
           </div>

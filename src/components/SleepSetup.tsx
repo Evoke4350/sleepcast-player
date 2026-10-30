@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { AppState, FeedRef } from "../lib/store";
 import { loadBlocked, loadPositions, clampTimerMinutes, TIMER_MIN, TIMER_MAX } from "../lib/store";
 import { parseOpml, buildOpml } from "../lib/opml";
@@ -31,6 +31,7 @@ import { TIMER_PRESETS } from "../lib/timer-presets";
 import { learnedTimer, timedNights, handPickHolds, LEARN_MIN_NIGHTS } from "../lib/rest/learned-timer";
 import { importWatchSleep, describeImport } from "../lib/rest/watch";
 import { currentExperiment, assignTonight, experimentResult } from "../lib/rest/experiment";
+import { keptTimer, dropKeptTimer } from "../lib/rest/kept-timer";
 import { needsFetch } from "../lib/feed-status";
 import { pickNextEpisode, HEARD_SEC } from "../lib/plays";
 import { ShowGrid, ShowPage } from "./Shows";
@@ -176,16 +177,21 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // The timer learned from the nights (this screen is rebuilt after each,
-  // so it reads the latest), and tonight's: the learned one, unless a timer
-  // was picked by hand for tonight or learning is off.
+  // The timer learned from the nights, and "your timer" (kept-timer.ts, an
+  // experiment's winner you kept), read again on coming to this tab (an
+  // experiment ends on Rest). Tonight's is your timer, else the learned one
+  // if learning is on, unless a timer was picked by hand for tonight.
+  const [keptRead, rereadKept] = useReducer((n: number) => n + 1, 0);
   const [learned, timedSoFar] = useMemo(() => {
     const nights = loadNights();
     return [learnedTimer(nights), timedNights(nights)] as const;
-  }, []);
+  }, [tab]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const yourTimer = useMemo(() => keptTimer(), [tab, keptRead]);
   const learnOn = appState.settings.learnTimer !== false;
-  const usingLearned = learnOn && learned !== null && appState.settings.mode.kind === "minutes" && !handPickHolds(appState.settings.timerPickedAt, Date.now());
-  const timerMinutes = usingLearned && learned ? learned.minutes : appState.settings.timerMinutes;
+  const auto = yourTimer?.minutes ?? (learnOn ? learned?.minutes ?? null : null);
+  const usingLearned = auto !== null && appState.settings.mode.kind === "minutes" && !handPickHolds(appState.settings.timerPickedAt, Date.now());
+  const timerMinutes = usingLearned && auto !== null ? auto : appState.settings.timerMinutes;
   const quarterHourRule = appState.settings.quarterHourRule;
   // A running experiment gives the next ordinary night (the moon) one of its
   // two sides (lib/rest/experiment.ts). Read again on coming to this tab (an
@@ -399,7 +405,7 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
 
   const mode = appState.settings.mode;
 
-  // Back to the learned timer: the hand pick, if any, let go.
+  // Back to your timer, or the learned one: the hand pick, if any, let go.
   function selectLearned() {
     const { timerPickedAt: _, ...settings } = appState.settings;
     updateAndSave({ ...appState, settings: { ...settings, mode: { kind: "minutes", minutes: settings.timerMinutes } } });
@@ -864,8 +870,14 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
               <span className="text-[11px] font-bold uppercase tracking-widest text-[var(--ink-4)]">fades at the end</span>
             </div>
             <div className="flex flex-wrap gap-2">
+              {yourTimer && (
+                <Pill on={usingLearned} onClick={selectLearned} label={`Your timer: ${yourTimer.minutes} minutes`}>
+                  Your timer · {yourTimer.minutes} min
+                </Pill>
+              )}
               {learnOn && learned && (
-                <Pill on={usingLearned} onClick={selectLearned} label={`Learned: ${learned.minutes} minutes`}>
+                // With your timer kept, going back to the learned one lets it go.
+                <Pill on={usingLearned && !yourTimer} onClick={() => { if (yourTimer) { dropKeptTimer(); rereadKept(); } selectLearned(); }} label={`Learned: ${learned.minutes} minutes`}>
                   Learned · {learned.minutes} min
                 </Pill>
               )}
@@ -877,9 +889,15 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
               <Pill on={mode.kind === "one-episode"} onClick={() => selectEpisodeMode("one-episode")}>One episode</Pill>
               <Pill on={mode.kind === "all-night"} onClick={() => selectEpisodeMode("all-night")}>All night</Pill>
             </div>
-            {learnOn && (
+            {(learnOn || yourTimer) && (
               <p className="text-xs leading-snug text-[var(--ink-3)]">
-                {!learned
+                {yourTimer
+                  ? usingLearned
+                    ? `Your timer: ${yourTimer.minutes} min put you to sleep faster than ${yourTimer.beat} min in your experiment.${learnOn && learned ? " Tap Learned to go back to learning it from your nights." : ""}`
+                    : mode.kind === "minutes"
+                      ? `Your pick for tonight. Tomorrow it's back to ${yourTimer.minutes} min, your timer.`
+                      : `Your timer: ${yourTimer.minutes} min, when you want one.`
+                  : !learned
                   ? `After ${LEARN_MIN_NIGHTS} timed nights the timer learns how long you take to fall asleep (${Math.min(timedSoFar, LEARN_MIN_NIGHTS)} so far).`
                   : usingLearned
                     ? `You're usually under in about ${fmtOnsetMinutes(learned.usualMs)}, so ${learned.minutes} min leaves room. From your last ${learned.nights} nights.`
@@ -887,6 +905,14 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
                       ? `Your pick for tonight. Tomorrow it's back to ${learned.minutes} min, learned.`
                       : `Learned from your nights: ${learned.minutes} min, when you want a timer.`}
               </p>
+            )}
+            {yourTimer && (
+              <button
+                onClick={() => { dropKeptTimer(); rereadKept(); selectLearned(); }}
+                className="text-xs text-[var(--ink-3)] underline decoration-[var(--line)] underline-offset-4 hover:text-[var(--ink-2)]"
+              >
+                Forget your timer
+              </button>
             )}
           </div>
 
