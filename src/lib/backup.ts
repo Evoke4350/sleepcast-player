@@ -27,6 +27,7 @@ export const BACKUP_KEYS = [
   "sleepcast2.rest.goodbye",
   "sleepcast2.experiment",
   "sleepcast2.keptTimer",
+  "sleepcast2.volume",
 ] as const;
 
 const APP = "sleepcast";

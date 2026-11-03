@@ -176,6 +176,47 @@ body {
   transition: width 1s linear;
 }
 
+/* The volume in Now Playing: the scrubber's track, filled to the level
+   (--fill), with a thumb big enough to find in the dark. */
+.volume-slider {
+  appearance: none;
+  -webkit-appearance: none;
+  height: 28px;
+  background: transparent;
+  cursor: pointer;
+}
+.volume-slider::-webkit-slider-runnable-track {
+  height: 5px;
+  border-radius: 3px;
+  background: linear-gradient(to right, var(--accent-text) var(--fill, 100%), var(--line) var(--fill, 100%));
+}
+.volume-slider::-moz-range-track {
+  height: 5px;
+  border-radius: 3px;
+  background: linear-gradient(to right, var(--accent-text) var(--fill, 100%), var(--line) var(--fill, 100%));
+}
+.volume-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 20px;
+  height: 20px;
+  margin-top: -7.5px;
+  border-radius: 50%;
+  background: var(--ink);
+  border: none;
+}
+.volume-slider::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--ink);
+  border: none;
+}
+.volume-slider:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+
 /* One-line toast ("skipped the 21 min intro"): rises, lingers, fades. */
 .player-toast {
   animation: player-toast 4s ease forwards;
