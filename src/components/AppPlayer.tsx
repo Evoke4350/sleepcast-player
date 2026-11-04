@@ -329,7 +329,7 @@ export function AppPlayer() {
   }
 
   return (
-    <main className={`flex-1 px-4 pt-8 text-[var(--ink-2)] ${session ? "pb-44" : "pb-28"}`}>
+    <main className={`flex-1 px-4 pt-8 text-[var(--ink-2)] md:pt-24 ${session ? "pb-44 md:pb-32" : "pb-28 md:pb-16"}`}>
       <div className="mx-auto max-w-xl" inert={Boolean(session) && expanded} onPointerDownCapture={() => noteActivityRef.current?.()}>
         {tab === "sleep" && (<>
         {live && (
