@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
-// The app's four sections, along the bottom as a phone app has them.
+// The app's four sections: along the bottom as a phone app has them, and
+// along the top on a wider screen.
 export type AppTab = "podcasts" | "sleep" | "rest" | "settings";
 
 const TABS: { id: AppTab; label: string; icon: ReactNode }[] = [
@@ -51,19 +52,22 @@ export function TabBar({ tab, onTab, inert }: { tab: AppTab; onTab: (t: AppTab) 
     <nav
       aria-label="Sections"
       inert={inert}
-      className="fixed inset-x-0 bottom-0 z-40 border-t border-[var(--line)] bg-[var(--ground)] pb-[calc(0.5rem+env(safe-area-inset-bottom,0px))] pt-1.5"
+      className="fixed inset-x-0 bottom-0 z-40 border-t border-[var(--line)] bg-[var(--ground)] pb-[calc(0.5rem+env(safe-area-inset-bottom,0px))] pt-1.5 md:bottom-auto md:top-0 md:border-b md:border-t-0 md:pb-0 md:pt-[env(safe-area-inset-top,0px)]"
     >
-      <div className="mx-auto grid max-w-lg grid-cols-4">
+      <div className="mx-auto grid max-w-lg grid-cols-4 md:flex md:h-14 md:max-w-3xl md:items-center md:gap-1 md:px-6">
+        {/* On a wide screen the bar runs along the top, as a site's does, so
+            it carries the name; a phone's bottom bar has no room for it. */}
+        <span className="font-serif-display hidden text-xl text-[var(--ink)] md:mr-auto md:block">sleepcast</span>
         {TABS.map((t) => (
           <button
             key={t.id}
             onClick={() => onTab(t.id)}
             aria-current={tab === t.id ? "page" : undefined}
-            className={`grid justify-items-center gap-0.5 py-1.5 text-[11px] font-semibold transition-colors ${
-              tab === t.id ? "text-[var(--accent-text)]" : "text-[var(--ink-4)] hover:text-[var(--ink-3)]"
+            className={`grid justify-items-center gap-0.5 py-1.5 text-[11px] font-semibold transition-colors md:flex md:items-center md:gap-2 md:rounded-full md:px-3.5 md:py-2 md:text-sm ${
+              tab === t.id ? "text-[var(--accent-text)] md:bg-[var(--raised)]" : "text-[var(--ink-4)] hover:text-[var(--ink-3)]"
             }`}
           >
-            <span className="h-[22px] w-[22px]">{t.icon}</span>
+            <span className="h-[22px] w-[22px] md:h-[18px] md:w-[18px]">{t.icon}</span>
             {t.label}
           </button>
         ))}

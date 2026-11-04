@@ -1507,10 +1507,11 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, saveAhead
         </div>
       )}
 
-      {/* Collapsed: a mini bar above the tabs, so the shows can be browsed
+      {/* Collapsed: a mini bar above the tabs (at the foot of a wide screen,
+          where the tabs run along the top), so the shows can be browsed
           while the night plays. */}
       {!expanded && (
-        <div className="fixed inset-x-0 bottom-[calc(4.4rem+env(safe-area-inset-bottom,0px))] z-40 px-2.5">
+        <div className="fixed inset-x-0 bottom-[calc(4.4rem+env(safe-area-inset-bottom,0px))] z-40 px-2.5 md:bottom-[calc(1.25rem+env(safe-area-inset-bottom,0px))]">
           <div className="mx-auto grid max-w-lg grid-cols-[44px_1fr_auto] items-center gap-2.5 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-2 shadow-[0_8px_24px_rgba(0,0,0,0.12)]">
             <button ref={openBtnRef} onClick={expandPlayer} className="col-span-2 grid min-w-0 grid-cols-[44px_1fr] items-center gap-2.5 rounded-xl text-left" aria-label={`Open the player: ${nowPlaying?.title ?? "loading"}, ${timerLabel}`}>
               <NowArt key={nowPlaying?.feedId} src={artworkByFeedId[nowPlaying?.feedId ?? ""]} />
