@@ -83,11 +83,6 @@ So:
   rested ones (sleep, Deep, REM, wakings, bedtime and more), by rank
   correlation, calling a link clear only after a correction for testing
   several at once (`src/lib/rest/rested.ts`).
-- **A volume of its own.** A slider on Now Playing sets one level for the
-  night, under the fade and each show's trim, and it's kept for the next
-  night (`src/lib/volume.ts`). Where the browser won't let a page set the
-  volume, as iPhone Safari has done, the slider is left out and the side
-  buttons do the job.
 - **It resumes the night, not the episode.** Fall asleep 20 minutes into a
   90-minute episode and the app remembers where you went under, so the next
   night doesn't restart the same thing from 0:00 (`src/lib/positions.ts`).

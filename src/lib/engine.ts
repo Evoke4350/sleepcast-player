@@ -92,15 +92,13 @@ export function diverseByMeta(episodes: Episode[], n: number, rand: () => number
   return picks;
 }
 
-// Fade × per-feed trim × the listener's volume, clamped to what an <audio>
-// element accepts.
+// Fade × per-feed trim, clamped to what an <audio> element accepts.
 export function effectiveVolume(
   remainingSeconds: number,
   fadeSeconds: number,
-  trim: number,
-  volume = 1
+  trim: number
 ): number {
-  const v = fadeVolume(remainingSeconds, fadeSeconds) * trim * volume;
+  const v = fadeVolume(remainingSeconds, fadeSeconds) * trim;
   return Math.min(1, Math.max(0, v));
 }
 
