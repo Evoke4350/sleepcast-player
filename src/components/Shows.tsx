@@ -1,11 +1,12 @@
-// The Podcasts tab's two views: your shows as an artwork grid, and one show
-// with its episodes. Presentational: SleepSetup owns the feeds, their
-// statuses and starting a night.
+// The Podcasts tab's two views: your shows (Library, with Jump back in
+// above), and one show with its episodes. Presentational: SleepSetup owns
+// the feeds, their statuses and starting a night.
 import { useEffect, useRef, useState } from "react";
 import type { Episode } from "../lib/engine";
 import { formatTime } from "../lib/engine";
 import { formatLength, orderEpisodes, typicalLength, type EpisodeOrder } from "../lib/feed-details";
 import type { CatalogShow } from "../lib/catalog";
+import { arrangeShows, loadLibraryView, saveLibraryView, type LibraryFilter, type LibrarySort, type LibraryView } from "../lib/library";
 import type { FeedRef } from "../lib/store";
 
 export interface ShowStatus {
@@ -54,44 +55,195 @@ export function ShowArt({ feed, artwork, className = "", label = true }: { feed:
   );
 }
 
-export function ShowGrid({
+function showNote(st: ShowStatus | undefined): string {
+  if (st?.error) return "couldn't load";
+  if (st?.loading || !st) return "loading…";
+  const count = `${st.episodes.length} episodes`;
+  return st.author ? `${st.author} · ${count}` : count;
+}
+
+function CheckIcon({ className }: { className: string }) {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>;
+}
+
+const FILTERS: { filter: LibraryFilter; label: string }[] = [
+  { filter: "all", label: "All" },
+  { filter: "on", label: "In shuffle" },
+  { filter: "off", label: "Off" },
+];
+
+/** Your shows, Spotify's library style: chips to filter by the shuffle, a
+ *  sort, and a list or a grid. */
+export function Library({
   feeds,
   statuses,
+  lastPlayed,
   onOpen,
   onAdd,
 }: {
   feeds: FeedRef[];
   statuses: Record<string, ShowStatus | undefined>;
+  /** When each show last played, by feed id (lastPlayedByFeed). */
+  lastPlayed: Record<string, number>;
   onOpen: (id: string) => void;
   onAdd: () => void;
 }) {
+  const [filter, setFilter] = useState<LibraryFilter>("all");
+  const [sort, setSort] = useState<LibrarySort>("recent");
+  const [view, setView] = useState<LibraryView>(loadLibraryView);
+  const shows = arrangeShows(feeds, filter, sort, lastPlayed);
+  const offCount = feeds.filter((f) => !f.enabled).length;
+
+  const addLabel = (
+    <>
+      <span className="text-[15px] font-semibold leading-tight text-[var(--ink)]">Add a show</span>
+      <span className="text-[13px] text-[var(--ink-3)]">browse below or paste a link</span>
+    </>
+  );
+
   return (
-    <div className="grid grid-cols-3 gap-3 lg:grid-cols-5 lg:gap-4">
-      {feeds.map((feed) => {
-        const st = statuses[feed.id];
-        const note = st?.error
-          ? "couldn't load"
-          : st?.loading || !st
-            ? "loading…"
-            : feed.enabled
-              ? `${st.episodes.length} episodes`
-              : "not in shuffle";
-        return (
-          <button key={feed.id} data-show-id={feed.id} onClick={() => onOpen(feed.id)} className="grid gap-1.5 rounded-[10px] text-left">
-            <ShowArt feed={feed} artwork={st?.artwork} className={feed.enabled ? "" : "opacity-45"} />
-            <span className="text-[13px] font-semibold leading-tight text-[var(--ink)]">{feed.title}</span>
-            <span className={`text-xs ${st?.error && feed.enabled ? "text-[var(--danger)]" : "text-[var(--ink-3)]"}`}>{note}</span>
+    <div className="space-y-4">
+      <div className="flex gap-2" role="group" aria-label="Show">
+        {FILTERS.filter((f) => f.filter !== "off" || offCount > 0).map((f) => (
+          <button
+            key={f.filter}
+            aria-pressed={filter === f.filter}
+            onClick={() => setFilter(f.filter)}
+            className={`rounded-full px-3.5 py-1.5 text-[13px] font-semibold transition-colors ${
+              filter === f.filter ? "bg-[var(--accent)] text-[var(--accent-ink)]" : "bg-[var(--raised)] text-[var(--ink-2)] hover:text-[var(--ink)]"
+            }`}
+          >
+            {f.label}
           </button>
-        );
-      })}
-      <button onClick={onAdd} className="grid gap-1.5 text-left">
-        <span className="grid aspect-square w-full place-items-center rounded-[10px] border-[1.5px] border-dashed border-[var(--line)] bg-[var(--raised)] text-3xl text-[var(--ink-3)]">
-          +
-        </span>
-        <span className="text-[13px] font-semibold leading-tight text-[var(--ink)]">Add a show</span>
-        <span className="text-xs text-[var(--ink-3)]">browse or paste</span>
-      </button>
+        ))}
+      </div>
+
+      <div className="flex items-center justify-between">
+        <button
+          onClick={() => setSort(sort === "recent" ? "az" : "recent")}
+          aria-label={`Sorted by ${sort === "recent" ? "recently played" : "title"}. Sort by ${sort === "recent" ? "title" : "recently played"}`}
+          className="-ml-1 inline-flex items-center gap-1.5 rounded-full px-1 py-1 text-[13px] font-semibold text-[var(--ink-2)] hover:text-[var(--ink)]"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4" aria-hidden="true">
+            <path d="M7 4v16M3 16l4 4 4-4M17 20V4M13 8l4-4 4 4" />
+          </svg>
+          {sort === "recent" ? "Recently played" : "A–Z"}
+        </button>
+        <button
+          onClick={() => { const next = view === "list" ? "grid" : "list"; setView(next); saveLibraryView(next); }}
+          aria-label={view === "list" ? "Show as a grid" : "Show as a list"}
+          title={view === "list" ? "Show as a grid" : "Show as a list"}
+          className="grid h-9 w-9 place-items-center rounded-full text-[var(--ink-2)] hover:bg-[var(--raised)] hover:text-[var(--ink)]"
+        >
+          {view === "list" ? (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5" aria-hidden="true"><rect x="4" y="4" width="6.5" height="6.5" rx="1.5" /><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5" /><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5" /><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5" /></svg>
+          ) : (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="h-5 w-5" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11" /><circle cx="4.5" cy="6" r="1" fill="currentColor" /><circle cx="4.5" cy="12" r="1" fill="currentColor" /><circle cx="4.5" cy="18" r="1" fill="currentColor" /></svg>
+          )}
+        </button>
+      </div>
+
+      {!shows.length && (
+        <p className="py-4 text-sm text-[var(--ink-3)]">{filter === "off" ? "Every show is in the shuffle." : "None of your shows are in the shuffle. Open one and add it."}</p>
+      )}
+
+      {view === "list" ? (
+        <ul className="-mx-2 lg:grid lg:grid-cols-2 lg:gap-x-6">
+          {shows.map((feed) => {
+            const st = statuses[feed.id];
+            return (
+              <li key={feed.id}>
+                <button data-show-id={feed.id} onClick={() => onOpen(feed.id)} className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left transition-colors hover:bg-[var(--raised)]">
+                  <span className="w-16 shrink-0"><ShowArt feed={feed} artwork={st?.artwork} label={false} className={`rounded-md ${feed.enabled ? "" : "opacity-45"}`} /></span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[15px] font-semibold text-[var(--ink)]">{feed.title}</span>
+                    <span className={`flex items-center gap-1 text-[13px] ${st?.error && feed.enabled ? "text-[var(--danger)]" : "text-[var(--ink-3)]"}`}>
+                      {feed.enabled ? <CheckIcon className="h-3.5 w-3.5 shrink-0 text-[var(--accent-text)]" /> : null}
+                      <span className="sr-only">{feed.enabled ? "In shuffle, " : "Not in shuffle, "}</span>
+                      <span className="truncate">{showNote(st)}</span>
+                    </span>
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+          <li>
+            <button onClick={onAdd} className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left transition-colors hover:bg-[var(--raised)]">
+              <span className="grid h-16 w-16 shrink-0 place-items-center rounded-md border-[1.5px] border-dashed border-[var(--control)] text-2xl text-[var(--ink-3)]" aria-hidden="true">+</span>
+              <span className="grid">{addLabel}</span>
+            </button>
+          </li>
+        </ul>
+      ) : (
+        <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 lg:grid-cols-6 lg:gap-4">
+          {shows.map((feed) => {
+            const st = statuses[feed.id];
+            return (
+              <button key={feed.id} data-show-id={feed.id} onClick={() => onOpen(feed.id)} className="grid content-start gap-1.5 rounded-[10px] text-left">
+                <ShowArt feed={feed} artwork={st?.artwork} className={feed.enabled ? "" : "opacity-45"} />
+                <span className="truncate text-[13px] font-semibold leading-tight text-[var(--ink)]">{feed.title}</span>
+                <span className={`flex items-center gap-1 text-xs ${st?.error && feed.enabled ? "text-[var(--danger)]" : "text-[var(--ink-3)]"}`}>
+                  {feed.enabled ? <CheckIcon className="h-3 w-3 shrink-0 text-[var(--accent-text)]" /> : null}
+                  <span className="sr-only">{feed.enabled ? "In shuffle, " : "Not in shuffle, "}</span>
+                  <span className="truncate">{st?.error ? "couldn't load" : st?.loading || !st ? "loading…" : `${st.episodes.length} episodes`}</span>
+                </span>
+              </button>
+            );
+          })}
+          <button onClick={onAdd} className="grid content-start gap-1.5 text-left">
+            <span className="grid aspect-square w-full place-items-center rounded-[10px] border-[1.5px] border-dashed border-[var(--control)] text-3xl text-[var(--ink-3)]" aria-hidden="true">+</span>
+            <span className="text-[13px] font-semibold leading-tight text-[var(--ink)]">Add a show</span>
+          </button>
+        </div>
+      )}
     </div>
+  );
+}
+
+/** "Jump back in": episodes you went under in, across your shows, as a
+ *  shelf of cards. Each starts the night where you went under. */
+export function JumpBackIn({
+  items,
+  positions,
+  onPlay,
+}: {
+  items: { ep: Episode; feed: FeedRef; artwork?: string }[];
+  positions: Record<string, number>;
+  onPlay: (ep: Episode) => void;
+}) {
+  if (!items.length) return null;
+  return (
+    <section aria-labelledby="jump-back-title" className="space-y-3">
+      <h2 id="jump-back-title" className="text-xl font-bold tracking-tight text-[var(--ink)]">Jump back in</h2>
+      <ul className="-mx-4 flex snap-x gap-3 overflow-x-auto scroll-px-4 px-4 pb-1 [scrollbar-width:none] md:mx-0 md:px-0 lg:grid lg:grid-cols-6 lg:overflow-visible lg:[&>li:nth-child(n+7)]:hidden">
+        {items.map(({ ep, feed, artwork }) => {
+          const at = positions[ep.id] ?? 0;
+          return (
+            <li key={ep.id} className="w-[140px] shrink-0 snap-start lg:w-auto">
+              <button
+                onClick={() => onPlay(ep)}
+                aria-label={`Play ${ep.title}, ${feed.title}, from ${formatTime(at)}`}
+                className="group grid w-full gap-2 text-left"
+              >
+                <span className="relative block">
+                  <ShowArt feed={feed} artwork={artwork} className="rounded-lg" />
+                  <span className="absolute bottom-2 right-2 grid h-9 w-9 place-items-center rounded-full bg-[var(--accent)] text-[var(--accent-ink)] shadow-md transition-transform group-hover:scale-105">
+                    <PlayIcon className="ml-0.5 h-4 w-4" />
+                  </span>
+                  {ep.durationSec ? (
+                    <span className="absolute inset-x-2 bottom-0 block h-[3px] translate-y-1.5 overflow-hidden rounded-full bg-[var(--line)]">
+                      <span className="block h-full bg-[var(--accent)]" style={{ width: `${Math.min(100, (at / ep.durationSec) * 100)}%` }} />
+                    </span>
+                  ) : null}
+                </span>
+                <span className="mt-1 line-clamp-2 text-[13px] font-semibold leading-snug text-[var(--ink)]">{ep.title}</span>
+                <span className="-mt-1 truncate text-xs text-[var(--ink-3)]">{feed.title}</span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }
 

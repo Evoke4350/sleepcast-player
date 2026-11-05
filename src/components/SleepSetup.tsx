@@ -34,7 +34,8 @@ import { currentExperiment, assignTonight, experimentResult } from "../lib/rest/
 import { keptTimer, dropKeptTimer } from "../lib/rest/kept-timer";
 import { needsFetch } from "../lib/feed-status";
 import { pickNextEpisode, HEARD_SEC } from "../lib/plays";
-import { ShowGrid, ShowPage } from "./Shows";
+import { JumpBackIn, Library, ShowPage } from "./Shows";
+import { jumpBackIn, lastPlayedByFeed } from "../lib/library";
 import { ShowCatalog } from "./Catalog";
 import { CATALOG, CATALOG_STYLES, isAdded, type CatalogShow } from "../lib/catalog";
 
@@ -164,7 +165,7 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
     document.querySelector<HTMLElement>(`[data-show-id="${CSS.escape(returnToShowRef.current)}"]`)?.focus();
     returnToShowRef.current = null;
   }, [openShow]);
-  const addShowRef = useRef<HTMLDivElement | null>(null);
+  const addShowRef = useRef<HTMLElement | null>(null);
   const catalogRef = useRef<HTMLHeadingElement | null>(null);
   const [feedError, setFeedError] = useState("");
   const [lastEpisode] = useState(() => loadLastEpisode());
@@ -962,30 +963,62 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
             />
           );
         })()}
-        {tab === "podcasts" && !openShow && (
-          <div className="space-y-8 pb-8">
-        {/* Feeds */}
-        <section className="space-y-3">
+        {tab === "podcasts" && !openShow && (() => {
+          const positions = loadPositions();
+          const blockedNow = new Set(loadBlocked());
+          const plays = getPlays();
+          const byFeed = new Map(appState.feeds.map((f) => [f.id, f]));
+          const resumable = jumpBackIn(
+            appState.feeds.flatMap((f) => (feedStatuses[f.id]?.episodes ?? []).filter((e) => !blockedNow.has(e.id))),
+            positions,
+            plays,
+          );
+          return (
+          <div className="space-y-10 pb-8">
+        <div className="flex items-center justify-between">
           <h1 className="text-3xl font-extrabold tracking-tight text-[var(--ink)]">Podcasts</h1>
-          <ShowGrid
+          <button
+            onClick={() => {
+              addShowRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+              addUrlRef.current?.focus({ preventScroll: true });
+            }}
+            aria-label="Add a show by its link"
+            title="Add a show by its link"
+            className="grid h-10 w-10 place-items-center rounded-full text-[var(--ink)] hover:bg-[var(--raised)]"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" className="h-6 w-6" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+          </button>
+        </div>
+
+        <JumpBackIn
+          items={resumable.flatMap((ep) => {
+            const feed = byFeed.get(ep.feedId);
+            return feed ? [{ ep, feed, artwork: feedStatuses[feed.id]?.artwork }] : [];
+          })}
+          positions={positions}
+          onPlay={(ep) => beginNight(ep, positions[ep.id] ?? 0)}
+        />
+
+        <section aria-labelledby="your-shows-title" className="space-y-3">
+          <h2 id="your-shows-title" className="text-xl font-bold tracking-tight text-[var(--ink)]">Your shows</h2>
+          <Library
             feeds={appState.feeds}
             statuses={feedStatuses}
+            lastPlayed={lastPlayedByFeed(plays)}
             onOpen={openShowPage}
             onAdd={() => {
               catalogRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
               catalogRef.current?.focus({ preventScroll: true });
             }}
           />
+        </section>
 
-          {/* On a wide screen, adding by link sits beside the catalog and
-              stays in view while it scrolls. */}
-          <div className="space-y-3 lg:grid lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start lg:gap-6 lg:space-y-0 lg:pt-4">
-          <ShowCatalog feeds={appState.feeds} onAdd={addFromCatalog} onOpen={openShowPage} headingRef={catalogRef} />
+        <ShowCatalog feeds={appState.feeds} onAdd={addFromCatalog} onOpen={openShowPage} headingRef={catalogRef} />
 
-          {/* Add custom feed */}
-          <div ref={addShowRef} className="rounded-lg bg-[var(--surface)] border border-[var(--line)] px-4 py-3 space-y-2 lg:sticky lg:top-20">
-            <h2 className="text-xs text-[var(--ink-4)] uppercase tracking-widest">
-              Add a show
+        {/* Add by link: a private feed, or anything not in the catalog. */}
+        <section ref={addShowRef} aria-labelledby="add-by-link-title" className="scroll-mt-20 space-y-2 rounded-2xl border border-[var(--line)] bg-[var(--surface)] px-4 py-4 lg:max-w-xl">
+            <h2 id="add-by-link-title" className="text-lg font-bold tracking-tight text-[var(--ink)]">
+              Add by link
             </h2>
 
             {/* In-app on-ramp for non-technical listeners: the hard part isn't
@@ -1082,11 +1115,10 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
               </button>
             </div>
             <p role="status" className="text-xs text-[var(--ink-4)] empty:hidden">{opmlNote ?? ""}</p>
-          </div>
-          </div>
         </section>
           </div>
-        )}
+          );
+        })()}
         {tab === "settings" && (
           <div className="space-y-4 pb-8">
             <h1 className="text-3xl font-extrabold tracking-tight text-[var(--ink)]">Settings</h1>
