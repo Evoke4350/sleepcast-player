@@ -157,7 +157,14 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
 
   return (
     <div className="space-y-4 pb-8 text-[var(--ink-3)]">
-      <h1 className="text-3xl font-extrabold tracking-tight text-[var(--ink)]">Rest</h1>
+      <header className="space-y-1">
+        <h1 className="text-3xl font-extrabold tracking-tight text-[var(--ink)]">Rest</h1>
+        {r.nights > 0 && (
+          <p className="text-sm text-[var(--ink-3)]">
+            {`${pluralNights(r.nights)} since ${new Date(nights[0].startedAt).toLocaleDateString([], { month: "short", day: "numeric" })}${watched.length ? `, ${watched.length} from your watch` : ""}`}
+          </p>
+        )}
+      </header>
 
       <p role="status" className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4 text-[13px] text-[var(--ink-2)] empty:hidden">{note ?? ""}</p>
 
@@ -168,7 +175,7 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
 
       {reminder && (
         <section aria-labelledby="backup-reminder-title" className="space-y-2.5 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
-          <h2 id="backup-reminder-title" className="text-[11px] font-bold uppercase tracking-widest text-[var(--ink-3)]">back up your nights</h2>
+          <h2 id="backup-reminder-title" className="text-lg font-bold tracking-tight text-[var(--ink)]">Back up your nights</h2>
           {reminderDone === null ? (
             <>
               <p className="text-[13px] text-[var(--ink-2)]">
@@ -183,7 +190,7 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
                     void keepStorage();
                     closeReminder(`Saved ${pluralNights(saved)}. Keep the file somewhere other than this browser.`);
                   }}
-                  className="flex-1 rounded-lg bg-[var(--accent)] py-2 text-sm font-semibold text-[var(--accent-ink)]"
+                  className="flex-1 rounded-full bg-[var(--accent)] py-2.5 text-sm font-bold text-[var(--accent-ink)]"
                 >
                   Back up
                 </button>
@@ -192,7 +199,7 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
                     snoozeBackupReminder();
                     closeReminder("Hidden for a week. You can back up anytime in Settings.");
                   }}
-                  className="flex-1 rounded-lg bg-[var(--raised)] py-2 text-sm font-semibold text-[var(--ink-2)] hover:text-[var(--ink)]"
+                  className="flex-1 rounded-full bg-[var(--raised)] py-2.5 text-sm font-bold text-[var(--ink-2)] hover:text-[var(--ink)]"
                 >
                   Not now
                 </button>
@@ -203,6 +210,13 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
           )}
         </section>
       )}
+      </div>
+
+      {/* The headline figures, first on every screen. */}
+      <div className="grid grid-cols-3 gap-2.5 lg:gap-4">
+        <Figure tint="var(--stage-core)" value={r.medianTimeToSleepMs !== null ? fmtDuration(r.medianTimeToSleepMs) : "—"} label="Usual time to sleep" how="The middle of the nights it timed" />
+        <Figure tint="var(--stage-rem)" value={r.bestTimeToSleepMs !== null ? fmtDuration(r.bestTimeToSleepMs) : "—"} label="Fastest" how="Your quickest night so far" />
+        <Figure tint="var(--accent)" value={String(r.nightsSlept)} unit={r.nights ? `/ ${r.nights}` : ""} label="Nights you drifted off" how="Nights it saw you go quiet" />
       </div>
 
       <div className="space-y-4 lg:grid lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start lg:gap-6 lg:space-y-0">
@@ -218,7 +232,7 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
       ) : nights.length > 0 && (
         // Nothing to chart yet: say why, and take the watch's sleep here.
         <section aria-labelledby="chart-empty-title" className="space-y-2.5 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
-          <h2 id="chart-empty-title" className="text-[11px] font-bold uppercase tracking-widest text-[var(--ink-3)]">your nights, charted</h2>
+          <h2 id="chart-empty-title" className="text-lg font-bold tracking-tight text-[var(--ink)]">Your nights, charted</h2>
           <p className="text-[13px] text-[var(--ink-2)]">
             {nights.some((n) => n.detector === "hr")
               ? "Your watch's sleep came in before Sleepcast kept the stages, so those nights have no chart. Run the watch Shortcut again: it charts the nights it covers."
@@ -227,7 +241,7 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
           <p className="text-xs text-[var(--ink-3)]">Using Sleepcast from your Home Screen? Run the Shortcut, then come back here and add what it copied.</p>
           <button
             onClick={() => { void addWatchFromClipboard(); }}
-            className="w-full rounded-lg bg-[var(--raised)] py-2 text-sm font-semibold text-[var(--ink-2)] hover:text-[var(--ink)]"
+            className="w-full rounded-full bg-[var(--raised)] py-2.5 text-sm font-bold text-[var(--ink-2)] hover:text-[var(--ink)]"
           >
             Add from clipboard
           </button>
@@ -236,83 +250,12 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
         </section>
       )}
       </div>
-      {/* The side column puts the figures and the ranking first on a wide
-          screen; a phone keeps them where they are. */}
+      {/* Beside the charts on a wide screen, under them on a phone: what
+          puts you under first. */}
       <div className="flex flex-col gap-4">
-      <RestedLinks nights={nights} />
-      {nights.length > 0 && <Experiments nights={nights} feeds={feeds} favoring={favorWhatWorks} learning={learnTimer} />}
-      {/* The guess for nights without the watch, tuned on nights with it. */}
-      {accuracy && (
-        <section aria-labelledby="guess-title" className="space-y-1.5 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
-          <h2 id="guess-title" className="text-[11px] font-bold uppercase tracking-widest text-[var(--ink-3)]">sleepcast&apos;s own guess</h2>
-          <p className="text-[13px] text-[var(--ink-2)]">
-            {accuracy.applied
-              ? `Tuned to your watch over ${pluralNights(accuracy.nights)}: you fall asleep about ${fmtDuration(Math.abs(accuracy.correctionMs))} ${accuracy.correctionMs >= 0 ? "after" : "before"} it would have guessed, so its guess now moves ${accuracy.correctionMs >= 0 ? "later" : "earlier"} by that.`
-              : `Checked against your watch over ${pluralNights(accuracy.nights)}: moving its guess wouldn't make it closer, so it's left as it is.`}
-          </p>
-          <p className="text-xs text-[var(--ink-3)]">
-            {accuracy.applied
-              ? `It was off by about ${fmtDuration(accuracy.beforeMs)} a night; tuned, about ${fmtDuration(accuracy.afterMs)}. It's what you'll see on nights you don't wear the watch.`
-              : `It's off by about ${fmtDuration(accuracy.beforeMs)} a night.`}
-          </p>
-        </section>
-      )}
-      {last && last.detector === "hr" && !last.watchSleep && (
-        <div className="space-y-1.5 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
-          <p className="text-[11px] font-bold uppercase tracking-widest text-[var(--ink-3)]">last night · from your watch</p>
-          <p className="text-[13px] text-[var(--ink-2)]">
-            {describeWatchNight({
-              watchSleptAfterMs: last.watchSleptAfterMs ?? null,
-              sleptAtMs: last.sleptAtMs,
-              appSleptAtMs: last.appSleptAtMs ?? null,
-              playedMs: last.playedMs ?? null,
-            })}
-          </p>
-        </div>
-      )}
-
-      {last && last.sleptAtMs !== null && last.selfLabel === undefined && last.detector !== "hr" && (
-        <div className="space-y-2.5 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
-          <p className="text-[11px] font-bold uppercase tracking-widest text-[var(--ink-3)]">last night</p>
-          <p className="font-semibold text-[var(--ink)]">Did you fall asleep to it?</p>
-          <p className="text-[13px]">Sleepcast guesses from when you stopped touching the screen.</p>
-          <div className="flex gap-2">
-            <button onClick={() => label("slept")} className="rounded-full bg-[var(--raised)] px-4 py-1.5 text-sm font-semibold text-[var(--ink)]">I fell asleep</button>
-            <button onClick={() => label("awake")} className="rounded-full bg-[var(--raised)] px-4 py-1.5 text-sm font-semibold text-[var(--ink)]">I was awake</button>
-          </div>
-          <p className="text-xs">Your answer tunes how quickly it decides you&apos;re asleep.</p>
-        </div>
-      )}
-
-      <div className="grid grid-cols-2 gap-2.5 lg:order-first">
-        <Figure value={String(r.nightsSlept)} unit={r.nights ? `/ ${r.nights}` : ""} label="Nights you drifted off" how="Nights it saw you go quiet" wide />
-        <Figure value={r.medianTimeToSleepMs !== null ? fmtDuration(r.medianTimeToSleepMs) : "—"} label="Usual time to sleep" how="The middle of the nights it timed" />
-        <Figure value={r.bestTimeToSleepMs !== null ? fmtDuration(r.bestTimeToSleepMs) : "—"} label="Fastest" how="Your quickest night so far" />
-      </div>
-
-      {lastPlays.length > 0 && (
-        <div className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
-          <p className="text-[11px] font-bold uppercase tracking-widest text-[var(--ink-3)]">last night</p>
-          <ul className="mt-3 space-y-2 text-sm">
-            {lastPlays.map((p) => (
-              <li key={p.id}>
-                <div className="flex items-baseline justify-between gap-3">
-                  <span className="text-[var(--ink-2)]">{p.title || "an episode"}</span>
-                  <span className="shrink-0 text-xs text-[var(--ink-3)]">
-                    {Math.max(1, Math.round(p.heardSec / 60))} min
-                  </span>
-                </div>
-                {driftedDuring?.id === p.id && (
-                  <div className="mt-0.5 text-xs font-semibold text-[var(--accent-text)]">you drifted off here</div>
-                )}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
       {scored.length > 0 && (
-        <section className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4 lg:order-first">
-          <h2 className="font-semibold text-[var(--ink)]">What puts you under</h2>
+        <section className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
+          <h2 className="text-lg font-bold tracking-tight text-[var(--ink)]">What puts you under</h2>
           {/* counted first, so this list never names a different leader than
               the suggestion card just did — same predicate, same order. */}
           {counted.length > 0 && (
@@ -334,6 +277,71 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
           </p>
         </section>
       )}
+      <RestedLinks nights={nights} />
+      {nights.length > 0 && <Experiments nights={nights} feeds={feeds} favoring={favorWhatWorks} learning={learnTimer} />}
+      {/* The guess for nights without the watch, tuned on nights with it. */}
+      {accuracy && (
+        <section aria-labelledby="guess-title" className="space-y-1.5 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
+          <h2 id="guess-title" className="text-lg font-bold tracking-tight text-[var(--ink)]">Sleepcast&apos;s own guess</h2>
+          <p className="text-[13px] text-[var(--ink-2)]">
+            {accuracy.applied
+              ? `Tuned to your watch over ${pluralNights(accuracy.nights)}: you fall asleep about ${fmtDuration(Math.abs(accuracy.correctionMs))} ${accuracy.correctionMs >= 0 ? "after" : "before"} it would have guessed, so its guess now moves ${accuracy.correctionMs >= 0 ? "later" : "earlier"} by that.`
+              : `Checked against your watch over ${pluralNights(accuracy.nights)}: moving its guess wouldn't make it closer, so it's left as it is.`}
+          </p>
+          <p className="text-xs text-[var(--ink-3)]">
+            {accuracy.applied
+              ? `It was off by about ${fmtDuration(accuracy.beforeMs)} a night; tuned, about ${fmtDuration(accuracy.afterMs)}. It's what you'll see on nights you don't wear the watch.`
+              : `It's off by about ${fmtDuration(accuracy.beforeMs)} a night.`}
+          </p>
+        </section>
+      )}
+      {last && last.detector === "hr" && !last.watchSleep && (
+        <div className="space-y-1.5 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
+          <h2 className="text-lg font-bold tracking-tight text-[var(--ink)]">Last night, from your watch</h2>
+          <p className="text-[13px] text-[var(--ink-2)]">
+            {describeWatchNight({
+              watchSleptAfterMs: last.watchSleptAfterMs ?? null,
+              sleptAtMs: last.sleptAtMs,
+              appSleptAtMs: last.appSleptAtMs ?? null,
+              playedMs: last.playedMs ?? null,
+            })}
+          </p>
+        </div>
+      )}
+
+      {last && last.sleptAtMs !== null && last.selfLabel === undefined && last.detector !== "hr" && (
+        <div className="space-y-2.5 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
+          <h2 className="text-lg font-bold tracking-tight text-[var(--ink)]">Did you fall asleep to it last night?</h2>
+          <p className="text-[13px]">Sleepcast guesses from when you stopped touching the screen.</p>
+          <div className="flex gap-2">
+            <button onClick={() => label("slept")} className="rounded-full bg-[var(--raised)] px-4 py-1.5 text-sm font-semibold text-[var(--ink)]">I fell asleep</button>
+            <button onClick={() => label("awake")} className="rounded-full bg-[var(--raised)] px-4 py-1.5 text-sm font-semibold text-[var(--ink)]">I was awake</button>
+          </div>
+          <p className="text-xs">Your answer tunes how quickly it decides you&apos;re asleep.</p>
+        </div>
+      )}
+
+
+      {lastPlays.length > 0 && (
+        <div className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
+          <h2 className="text-lg font-bold tracking-tight text-[var(--ink)]">What played last night</h2>
+          <ul className="mt-3 space-y-2 text-sm">
+            {lastPlays.map((p) => (
+              <li key={p.id}>
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="text-[var(--ink-2)]">{p.title || "an episode"}</span>
+                  <span className="shrink-0 text-xs text-[var(--ink-3)]">
+                    {Math.max(1, Math.round(p.heardSec / 60))} min
+                  </span>
+                </div>
+                {driftedDuring?.id === p.id && (
+                  <div className="mt-0.5 text-xs font-semibold text-[var(--accent-text)]">you drifted off here</div>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {/* Outside the scored section: timed nights stay comparable even when
           no feed has scored nights (slept nights with no feed attributed). */}
       {/* The headline's measure split by lean, so formatted like it (fmtDuration). */}
@@ -353,16 +361,20 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
   );
 }
 
-/** One figure on the Rest tab, with how it's worked out. */
-function Figure({ value, unit = "", label, how, wide = false }: { value: string; unit?: string; label: string; how: string; wide?: boolean }) {
+/** One figure on the Rest tab, with how it's worked out, on a tile tinted
+ *  with `tint` (a theme token, so it holds in both themes). */
+function Figure({ value, unit = "", label, how, tint }: { value: string; unit?: string; label: string; how: string; tint: string }) {
   return (
-    <div className={`grid gap-0.5 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-3.5 ${wide ? "col-span-2" : ""}`}>
-      <span className="text-2xl font-extrabold tabular-nums tracking-tight text-[var(--ink)]">
+    <div
+      className="grid content-start gap-1 rounded-2xl p-3.5 lg:p-5"
+      style={{ background: `color-mix(in srgb, ${tint} 16%, var(--surface))` }}
+    >
+      <span className="text-2xl font-extrabold tabular-nums leading-none tracking-tight text-[var(--ink)] lg:text-4xl">
         {value}
         {unit && <small className="ml-1 text-sm font-semibold text-[var(--ink-3)]">{unit}</small>}
       </span>
-      <span className="text-[13px] font-semibold text-[var(--ink-2)]">{label}</span>
-      <span className="text-[11.5px] text-[var(--ink-3)]">{how}</span>
+      <span className="text-[13px] font-semibold leading-tight text-[var(--ink-2)]">{label}</span>
+      <span className="text-[11px] leading-snug text-[var(--ink-3)]">{how}</span>
     </div>
   );
 }

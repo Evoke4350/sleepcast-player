@@ -4,13 +4,13 @@
 import type { RestNight } from "../lib/rest/types";
 import { byShow, minutesAfterNoon, sleepRecords, typical } from "../lib/rest/trends";
 import { fmtLong, stageColor } from "./NightChart";
+import { useWidth } from "./useWidth";
 
 /** Nights drawn: two weeks. */
 const SHOWN = 14;
 /** Below this many, the figures come with a warning that they will move. */
 const SETTLED = 7;
 
-const W = 320;
 const LEFT = 44;
 const RIGHT = 8;
 const ROW = 12;
@@ -29,6 +29,8 @@ const hourOf = (m: number) => {
 };
 
 export function NightsTrend({ nights, feedTitles }: { nights: RestNight[]; feedTitles: Record<string, string> }) {
+  // Drawn at the width it has, so its labels stay their size on a wide screen.
+  const [boxRef, W] = useWidth<HTMLDivElement>(320);
   const records = sleepRecords(nights);
   if (records.length < 2) return null;
   const t = typical(records)!;
@@ -51,7 +53,7 @@ export function NightsTrend({ nights, feedTitles }: { nights: RestNight[]; feedT
   return (
     <section aria-labelledby="trend-title" className="space-y-3 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
       <div>
-        <h2 id="trend-title" className="text-[11px] font-bold uppercase tracking-widest text-[var(--ink-3)]">your nights</h2>
+        <h2 id="trend-title" className="text-lg font-bold tracking-tight text-[var(--ink)]">Your typical night</h2>
         <p className="text-[13px] text-[var(--ink-3)]">
           {`The middle of ${t.nights} nights from your watch.`}
           {t.nights < SETTLED ? " Early days: these will move as more nights come in." : ""}
@@ -65,8 +67,11 @@ export function NightsTrend({ nights, feedTitles }: { nights: RestNight[]; feedT
         <Typ label="Asleep" value={fmtLong(t.asleepMs)} />
       </dl>
 
+      <div ref={boxRef}>
       <svg
         viewBox={`0 0 ${W} ${H}`}
+        width={W}
+        height={H}
         role="img"
         aria-label={`Your last ${shown.length} nights, newest first, from when you pressed play to when you woke.`}
         className="block h-auto w-full max-w-full"
@@ -74,7 +79,7 @@ export function NightsTrend({ nights, feedTitles }: { nights: RestNight[]; feedT
         {ticks.map((m) => (
           <g key={m}>
             <line x1={x(m)} x2={x(m)} y1={0} y2={H - 14} stroke="var(--line)" />
-            <text x={x(m)} y={H - 3} fontSize={9} textAnchor="middle" fill="var(--ink-4)">{hourOf(m)}</text>
+            <text x={x(m)} y={H - 3} fontSize={10} textAnchor="middle" fill="var(--ink-4)">{hourOf(m)}</text>
           </g>
         ))}
         {shown.map((r, k) => {
@@ -83,7 +88,7 @@ export function NightsTrend({ nights, feedTitles }: { nights: RestNight[]; feedT
           const at = (ms: number) => x(base + ms / 60_000);
           return (
             <g key={r.startedAt}>
-              <text x={0} y={y + ROW - 2} fontSize={9.5} fill="var(--ink-3)">{day(r.startedAt)}</text>
+              <text x={0} y={y + ROW - 2} fontSize={10.5} fill="var(--ink-3)">{day(r.startedAt)}</text>
               <rect x={x(lo)} y={y} width={x(hi) - x(lo)} height={ROW} rx={2} fill="var(--raised)" />
               {r.stretches.map((s, j) => (
                 <rect key={j} x={at(s.from)} y={y} width={Math.max(0.5, at(s.to) - at(s.from))} height={ROW} fill={stageColor(s.stage)} />
@@ -94,13 +99,14 @@ export function NightsTrend({ nights, feedTitles }: { nights: RestNight[]; feedT
           );
         })}
       </svg>
+      </div>
       <p className="flex items-center gap-1.5 text-[11px] text-[var(--ink-3)]">
         <span aria-hidden className="inline-block h-1 w-4 rounded-sm bg-[var(--accent)]" />
         Sleepcast playing. Stages coloured as in the night above.
       </p>
 
       <div className="space-y-1.5">
-        <h3 className="text-sm font-semibold text-[var(--ink-2)]">By what you fell asleep to</h3>
+        <h3 className="pt-2 font-bold text-[var(--ink)]">By what you fell asleep to</h3>
         {shows.length ? (
           <ul>
             <li aria-hidden className="flex gap-2 text-[10px] uppercase tracking-widest text-[var(--ink-4)]">
@@ -134,7 +140,7 @@ function Typ({ label, value, note }: { label: string; value: string; note?: stri
   return (
     <div>
       <dt className="text-[11px] text-[var(--ink-3)]">{label}</dt>
-      <dd className="text-lg font-extrabold tabular-nums tracking-tight text-[var(--ink)]">{value}</dd>
+      <dd className="text-xl font-extrabold tabular-nums tracking-tight text-[var(--ink)]">{value}</dd>
       {note && <dd className="text-[11px] text-[var(--ink-3)]">{note}</dd>}
     </div>
   );
