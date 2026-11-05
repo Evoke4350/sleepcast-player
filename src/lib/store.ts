@@ -36,7 +36,6 @@ export interface Settings {
   favorWhatWorks: boolean;
   feedTrim: Record<string, number>; // feedId -> 0.5..1.5; absent = 1.0
   noise: NoiseSettings;
-  leveling: boolean; // opt-in auto-compressor probe (§1b) — off avoids the double load
   mode: PlayMode;
   lastSession: LastSession | null;
   /** The timer learns from the nights (rest/learned-timer). Absent = on. */
@@ -131,7 +130,6 @@ function defaultSettings(): Settings {
     favorWhatWorks: false,
     feedTrim: {},
     noise: { ...NOISE_DEFAULT },
-    leveling: false,
     mode: { kind: "minutes", minutes: 45 },
     lastSession: null,
   };
@@ -253,7 +251,6 @@ export function loadState(): AppState {
     timerMinutes,
     feedTrim: sanitizeTrim(rawSettings.feedTrim),
     noise: sanitizeNoise(rawSettings.noise),
-    leveling: typeof rawSettings.leveling === "boolean" ? rawSettings.leveling : false,
     mode: sanitizeMode(rawSettings.mode, timerMinutes),
     lastSession: sanitizeLastSession(rawSettings.lastSession),
     quarterHourRule: rawSettings.quarterHourRule === true,

@@ -553,19 +553,12 @@ describe("settings migration", () => {
     expect(s.settings.feedTrim).toEqual({}); // out-of-range trim dropped
   });
 
-  it("leveling defaults to false, round-trips when true, sanitizes non-boolean to false", () => {
-    expect(loadState().settings.leveling).toBe(false);
-
-    const s = loadState();
-    s.settings.leveling = true;
-    saveState(s);
-    expect(loadState().settings.leveling).toBe(true);
-
+  it("drops the old loudness setting", () => {
     localStorage.setItem(
       "sleepcast2.state",
-      JSON.stringify({ feeds: [], settings: { timerMinutes: 60, leveling: "yes" } })
+      JSON.stringify({ feeds: [], settings: { timerMinutes: 60, leveling: true } })
     );
-    expect(loadState().settings.leveling).toBe(false);
+    expect("leveling" in loadState().settings).toBe(false);
   });
 
   it("keeps `on` when level has floating-point noise (range input precision)", () => {

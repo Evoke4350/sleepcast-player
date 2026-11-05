@@ -1,10 +1,12 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { initConsent, startAnalytics, clearGaCookies, CONSENT_KEY } from "./analytics";
+import { AGE_KEY } from "./age";
 
 const gtagScripts = () => document.querySelectorAll('script[src^="https://www.googletagmanager.com/gtag/js"]').length;
 
 beforeEach(() => {
   localStorage.clear();
+  localStorage.setItem(AGE_KEY, "ok");
   delete window.gtag;
   delete window.dataLayer;
   document.head.innerHTML = "";
@@ -14,6 +16,20 @@ beforeEach(() => {
 });
 
 describe("analytics consent", () => {
+  it("before the age screen: no banner and nothing loads, even after an accept", () => {
+    localStorage.setItem(CONSENT_KEY, "granted");
+    localStorage.removeItem(AGE_KEY);
+    initConsent();
+    expect(document.getElementById("sc-consent")!.hidden).toBe(true);
+    expect(gtagScripts()).toBe(0);
+  });
+
+  it("too young: no banner", () => {
+    localStorage.setItem(AGE_KEY, "under");
+    initConsent();
+    expect(document.getElementById("sc-consent")!.hidden).toBe(true);
+  });
+
   it("first visit: asks, and loads nothing of Google's", () => {
     initConsent();
     expect(document.getElementById("sc-consent")!.hidden).toBe(false);

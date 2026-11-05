@@ -17,7 +17,6 @@ import { clearLockScreen, mediaSession, publishLockScreen, publishLockScreenMeta
 import { decideSkip, skipMessage, stillAtStart } from "../lib/skip-intro";
 import { pickNextEpisode, HEARD_SEC } from "../lib/plays";
 import type { ResumeDescriptor } from "../lib/store";
-import { Leveler } from "../lib/leveler";
 import { shouldTick } from "../lib/tick-gate";
 import { shouldSuggestGettingUp } from "../lib/rest/quarterhour";
 import { RestSession, revivedNightStart } from "../lib/rest/session";
@@ -31,33 +30,6 @@ const FADE_SECONDS = 60;
 // shares with the ~4Hz timeupdate stream.
 const TICK_MIN_MS = 900;
 
-// Feeds whose enclosures rejected CORS playback this session — don't retry.
-// Module-level and intentionally outliving a Player mount: a new mount on the
-// next episode shouldn't rediscover a feed's CORS support from scratch.
-const corsBadFeeds = new Set<string>();
-// Feeds that have proven a successful CORS playback this session. The
-// compressor only attaches once EVERY feed in the pool is known-good, because
-// createMediaElementSource is a one-way door: a feed that turns out to lack
-// CORS headers afterwards produces silence rather than an error event, and
-// cannot be detected at runtime.
-const corsGoodFeeds = new Set<string>();
-
-// iOS suspends AudioContext the moment the screen locks, and
-// createMediaElementSource permanently rewires the element's output through
-// that context — there is no way back once attached. So on iOS an attached
-// compressor means: lock the phone, the context suspends, and the night plays
-// in silence while currentTime advances, the fade runs and the timer completes
-// normally. Nothing reports a failure; the listener just gets nothing.
-//
-// Detected rather than inferred where possible: iPadOS reports itself as Mac,
-// so the touch-point check is the standard way to catch it.
-function suspendsWebAudioOnLock(): boolean {
-  if (typeof navigator === "undefined") return false;
-  const ua = navigator.userAgent;
-  const iOSLike = /iPad|iPhone|iPod/.test(ua) ||
-    (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
-  return iOSLike;
-}
 // A pool this small is a curated lineup (varied night), not a whole archive:
 // show it, so the night's spread is something you can see.
 const LINEUP_MAX = 12;
@@ -68,8 +40,6 @@ export interface PlayerProps {
   mode: PlayMode;
   /** feedId → 0.5..1.5 gain trim; absent means 1.0. */
   feedTrim: Record<string, number>;
-  /** Opt-in loudness compressor. Ignored where Web Audio dies on lock. */
-  leveling: boolean;
   /** Save the episode playing and the next one on the device, so a dropped
    *  network doesn't stop the night (lib/offline-audio). */
   saveAhead?: boolean;
@@ -130,7 +100,7 @@ function NowArt({ src, big = false, small = false }: { src?: string; big?: boole
     : <div aria-hidden="true" className={`${cls} grid place-items-center bg-[var(--raised)] text-[var(--accent)]`}><span className={big ? "text-6xl" : "text-lg"}>☾</span></div>;
 }
 
-export function Player({ pool, timerMinutes, mode, feedTrim, leveling, saveAhead = true, skipIntroByFeedId, feedTitles, artworkByFeedId, onEnd, resume = null, leadEpisode = null, leadPosition = 0, quarterHourRule = false, wasVaried = false, favorWhatWorks = false, expanded, onExpand, onCollapse, endRef, activityRef }: PlayerProps) {
+export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, skipIntroByFeedId, feedTitles, artworkByFeedId, onEnd, resume = null, leadEpisode = null, leadPosition = 0, quarterHourRule = false, wasVaried = false, favorWhatWorks = false, expanded, onExpand, onCollapse, endRef, activityRef }: PlayerProps) {
   const shuffle = useNightShuffle(favorWhatWorks, pool, resume);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -217,11 +187,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, saveAhead
   const stopFadeRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const currentFeedRef = useRef<string | null>(null);
   const feedTrimRef = useRef<Record<string, number>>(feedTrim);
-  const levelerRef = useRef<Leveler | null>(null);
-  // Whether the compressor has captured the element. Per-mount, unlike the
-  // CORS sets: the AudioContext it guards doesn't survive a mount either.
-  const attachedRef = useRef(false);
-  const levelingRef = useRef(leveling);
 
   const [nowPlaying, setNowPlaying] = useState<{ id: string; title: string; feedId: string } | null>(null);
   // The played set: state for the lineup, ref for same-tick snapshots, one
@@ -270,7 +235,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, saveAhead
   useEffect(() => { wasVariedRef.current = wasVaried; }, [wasVaried]);
   useEffect(() => { modeRef.current = mode; }, [mode]);
   useEffect(() => { feedTrimRef.current = feedTrim; }, [feedTrim]);
-  useEffect(() => { levelingRef.current = leveling; }, [leveling]);
 
   function playEpisode(ep: Episode, startAt = 0) {
     const audio = audioRef.current;
@@ -284,15 +248,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, saveAhead
     // ledger de-duplicates by episode id and cannot answer this for any night
     // but the most recent.
     restRef.current?.noteEpisode(ep.feedId, ep.id);
-    // crossOrigin is required before the compressor can ever capture the
-    // element, but it also makes playback fail outright on a host that serves
-    // no CORS headers — so it is only requested for feeds not already known
-    // bad, and onError retries plain before condemning one.
-    if (levelingRef.current && !corsBadFeeds.has(ep.feedId)) {
-      audio.crossOrigin = "anonymous";
-    } else {
-      audio.removeAttribute("crossorigin");
-    }
     audio.src = offlineRef.current.sourceFor(ep);
     currentEpRef.current = ep;
     // A new episode: the last one's length means nothing now (before the
@@ -607,14 +562,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, saveAhead
     // Exclude what is playing now. The ledger only records an episode after
     // HEARD_SEC, so on a fresh varied mix every episode is still a candidate
     // and Next had a real chance of restarting the same story from 0:00.
-    let available = poolRef.current;
-    if (attachedRef.current) {
-      // Past the one-way door: an episode from a feed that turned out CORS-bad
-      // plays silent through the captured element and reports nothing. Skip
-      // the whole feed, and end rather than fake-play silence all night.
-      available = available.filter((e) => !corsBadFeeds.has(e.feedId));
-      if (available.length === 0) return null;
-    }
+    const available = poolRef.current;
     const current = currentEpRef.current;
     const choices = current
       ? available.filter((e) => e.id !== current.id)
@@ -1032,19 +980,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, saveAhead
       hasEverPlayedRef.current = true;
       epPlayedRef.current = true;
       triedEpRef.current = noteSounded(triedEpRef.current, currentEpRef.current);
-      const feedId = currentFeedRef.current;
-      if (feedId && audio.crossOrigin === "anonymous") corsGoodFeeds.add(feedId);
-      // Conservative gate: attach only once every feed in the pool has already
-      // played successfully under CORS, because the capture cannot be undone.
-      if (
-        levelingRef.current &&
-        !suspendsWebAudioOnLock() &&
-        audio.crossOrigin === "anonymous" &&
-        poolRef.current.every((e) => corsGoodFeeds.has(e.feedId))
-      ) {
-        levelerRef.current ??= new Leveler(audio);
-        if (levelerRef.current.attach()) attachedRef.current = true;
-      }
     };
 
     const onError = () => {
@@ -1058,23 +993,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, saveAhead
       // it was, before anything else is concluded about this episode.
       const failed = currentEpRef.current;
       if (failed && tickHandleRef.current !== null && switchToSaved(failed)) return;
-      // A crossOrigin element failing may only mean "this enclosure serves no
-      // CORS headers" — retry the same source plain before skipping the track.
-      const feedId = currentFeedRef.current;
-      if (levelingRef.current && audio.crossOrigin === "anonymous" && audio.getAttribute("src")) {
-        // A feed already proven good this session serves CORS headers, so this
-        // is a dead enclosure or a signal drop, not a CORS failure. Don't
-        // condemn the whole feed over one bad episode.
-        if (feedId && !corsGoodFeeds.has(feedId)) corsBadFeeds.add(feedId);
-        // Once attached, the element is captured and a plain retry would play
-        // into a silenced node — fall through to the ordinary skip instead.
-        const ep = currentEpRef.current;
-        if (!attachedRef.current && ep) {
-          audio.removeAttribute("crossorigin");
-          reloadCurrent(ep);
-          return;
-        }
-      }
       if (tickHandleRef.current !== null && audio.getAttribute("src")) {
         // Counted like the watchdog's stuck tracks. Uncounted, a pool whose
         // sources all fail at once (network gone at 2am, every enclosure a
@@ -1167,7 +1085,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, saveAhead
       // A hold still counting at unmount would call endSession on a player
       // that is gone, and through onEnd end whatever night came next.
       if (holdTimerRef.current) clearInterval(holdTimerRef.current);
-      levelerRef.current?.dispose();
       audio.removeEventListener("pause", onPause);
       audio.removeEventListener("play", onPlay);
       audio.removeEventListener("timeupdate", tickGuarded);

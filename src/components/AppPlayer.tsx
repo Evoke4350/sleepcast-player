@@ -76,7 +76,6 @@ export function AppPlayer() {
   // apply to the night about to begin.
   const [mode, setMode] = useState<PlayMode>({ kind: "minutes", minutes: 45 });
   const [feedTrim, setFeedTrim] = useState<Record<string, number>>({});
-  const [leveling, setLeveling] = useState(false);
   const [saveAhead, setSaveAhead] = useState(true);
 
   const [goodbye] = useState(() => (isQuiet(loadQuietUntil(), Date.now()) ? null : shouldGreetGoodbye(Date.now())));
@@ -183,13 +182,12 @@ export function AppPlayer() {
   // Settings the players take as props, read fresh when a night starts or is
   // revived. A revived night used to skip this and run on the mount defaults:
   // no per-feed trim (a turned-down feed came back at full volume),
-  // no leveling, no quarter-hour rule, and a 45-minute timed mode.
+  // no quarter-hour rule, and a 45-minute timed mode.
   function applyNightSettings(nightMode: PlayMode) {
     const settings = loadState().settings;
     setQuarterHourRule(settings.quarterHourRule);
     setMode(nightMode);
     setFeedTrim(settings.feedTrim);
-    setLeveling(settings.leveling);
     setSaveAhead(settings.saveAhead !== false);
     setFavorWhatWorks(settings.favorWhatWorks);
   }
@@ -311,7 +309,6 @@ export function AppPlayer() {
         quarterHourRule={quarterHourRule}
         mode={mode}
         feedTrim={feedTrim}
-        leveling={leveling}
         saveAhead={saveAhead}
         wasVaried={session.wasVaried ?? false}
         favorWhatWorks={favorWhatWorks}
