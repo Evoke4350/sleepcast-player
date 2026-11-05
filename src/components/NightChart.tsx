@@ -2,6 +2,7 @@
 // them what Sleepcast did (what played, when you touched the phone, its own
 // guess), so the two can be read against each other.
 import { useState } from "react";
+import { useWidth } from "./useWidth";
 import type { RestNight, SleepStage } from "../lib/rest/types";
 import { describeWatchNight, summarizeStages } from "../lib/rest/watch";
 import { eventsWhileAsleep } from "../lib/rest/wakes";
@@ -18,7 +19,6 @@ const UNSTAGED: { stage: SleepStage; label: string }[] = [
   { stage: "asleep", label: "Asleep" },
 ];
 
-const W = 320;
 const LEFT = 50;
 const RIGHT = 8;
 const ROW = 16;
@@ -45,6 +45,8 @@ export function NightChart({ nights, feedTitles }: { nights: RestNight[]; feedTi
   // The whole night, or zoomed in on the part of it Sleepcast played through,
   // which is a sliver of a whole night's width.
   const [zoom, setZoom] = useState(false);
+  // Drawn at the width it has, so its labels stay their size on a wide screen.
+  const [boxRef, W] = useWidth<HTMLDivElement>(320);
   const n = nights[Math.min(i, nights.length - 1)];
   if (!n?.watchSleep) return null;
   const stretches = n.watchSleep;
@@ -96,14 +98,14 @@ export function NightChart({ nights, feedTitles }: { nights: RestNight[]; feedTi
     <section aria-labelledby="night-chart-title" className="space-y-3 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
       <div className="flex items-center justify-between gap-2">
         <div>
-          <h2 id="night-chart-title" className="text-[11px] font-bold uppercase tracking-widest text-[var(--ink-3)]">from your watch</h2>
-          <p className="font-semibold text-[var(--ink)]">{date}</p>
+          <h2 id="night-chart-title" className="text-lg font-bold tracking-tight text-[var(--ink)]">{date}</h2>
+          <p className="text-xs text-[var(--ink-3)]">From your watch</p>
           {n.rested && <p className="text-xs text-[var(--ink-3)]">{`The morning after: ${RESTED_LABEL[n.rested].toLowerCase()}`}</p>}
         </div>
         {nights.length > 1 && (
           <div className="flex shrink-0 gap-1">
-            <button onClick={() => setI(Math.max(0, i - 1))} disabled={i === 0} aria-label="Earlier night" className="rounded-lg bg-[var(--raised)] px-3 py-1.5 text-sm font-semibold text-[var(--ink-2)] disabled:opacity-40">‹</button>
-            <button onClick={() => setI(Math.min(nights.length - 1, i + 1))} disabled={i >= nights.length - 1} aria-label="Later night" className="rounded-lg bg-[var(--raised)] px-3 py-1.5 text-sm font-semibold text-[var(--ink-2)] disabled:opacity-40">›</button>
+            <button onClick={() => setI(Math.max(0, i - 1))} disabled={i === 0} aria-label="Earlier night" className="grid h-9 w-9 place-items-center rounded-full bg-[var(--raised)] text-lg font-semibold text-[var(--ink)] disabled:opacity-40">‹</button>
+            <button onClick={() => setI(Math.min(nights.length - 1, i + 1))} disabled={i >= nights.length - 1} aria-label="Later night" className="grid h-9 w-9 place-items-center rounded-full bg-[var(--raised)] text-lg font-semibold text-[var(--ink)] disabled:opacity-40">›</button>
           </div>
         )}
       </div>
@@ -121,11 +123,12 @@ export function NightChart({ nights, feedTitles }: { nights: RestNight[]; feedTi
         </dl>
       )}
 
-      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={summary} className="block h-auto w-full max-w-full">
+      <div ref={boxRef}>
+      <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} role="img" aria-label={summary} className="block h-auto w-full max-w-full">
         {rows.map((r, k) => (
           <g key={r.stage}>
             <rect x={LEFT} y={k * (ROW + GAP)} width={W - LEFT - RIGHT} height={ROW} rx={3} fill="var(--raised)" />
-            <text x={0} y={k * (ROW + GAP) + ROW - 4} fontSize={10} fill="var(--ink-3)">{r.label}</text>
+            <text x={0} y={k * (ROW + GAP) + ROW - 4} fontSize={11} fill="var(--ink-3)">{r.label}</text>
           </g>
         ))}
         {stretches.filter((s) => s.from < span).map((s, k) => (
@@ -134,12 +137,12 @@ export function NightChart({ nights, feedTitles }: { nights: RestNight[]; feedTi
           </rect>
         ))}
 
-        <text x={0} y={touchY + 7} fontSize={10} fill="var(--ink-3)">Touched</text>
+        <text x={0} y={touchY + 7} fontSize={11} fill="var(--ink-3)">Touched</text>
         {touches.map((t, k) => (
           <rect key={k} x={x(t) - 0.75} y={touchY} width={1.5} height={8} fill="var(--ink-2)" />
         ))}
 
-        <text x={0} y={playY + 9} fontSize={10} fill="var(--ink-3)">Played</text>
+        <text x={0} y={playY + 9} fontSize={11} fill="var(--ink-3)">Played</text>
         {segments.map((s, k) => (
           <rect key={k} x={x(s.from)} y={playY} width={Math.max(1, x(s.to) - x(s.from) - 1)} height={10} rx={2} fill="var(--accent)" opacity={k % 2 ? 0.6 : 1}>
             <title>{`${s.title ? `${s.title}, ` : ""}${clock(n.startedAt + s.from)} to ${clock(n.startedAt + s.to)}`}</title>
@@ -167,11 +170,12 @@ export function NightChart({ nights, feedTitles }: { nights: RestNight[]; feedTi
           return (
             <g key={t}>
               <line x1={tx} x2={tx} y1={axisY - 14} y2={axisY - 10} stroke="var(--ink-4)" />
-              <text x={tx} y={axisY} fontSize={9} textAnchor="middle" fill="var(--ink-4)">{tickLabel(t)}</text>
+              <text x={tx} y={axisY} fontSize={10} textAnchor="middle" fill="var(--ink-4)">{tickLabel(t)}</text>
             </g>
           );
         })}
       </svg>
+      </div>
 
       {played > 0 && whole > 2 * played && (
         <button onClick={() => setZoom(!zoom)} aria-pressed={zoom} className="text-xs text-[var(--ink-3)] underline decoration-[var(--line)] underline-offset-4 hover:text-[var(--ink-2)]">
@@ -216,7 +220,7 @@ function Stat({ label, value, note }: { label: string; value: string; note?: str
   return (
     <div>
       <dt className="text-[11px] text-[var(--ink-3)]">{label}</dt>
-      <dd className="text-lg font-extrabold tabular-nums tracking-tight text-[var(--ink)]">{value}</dd>
+      <dd className="text-xl font-extrabold tabular-nums tracking-tight text-[var(--ink)]">{value}</dd>
       {note && <dd className="text-[11px] text-[var(--ink-3)]">{note}</dd>}
     </div>
   );

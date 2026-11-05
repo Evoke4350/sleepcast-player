@@ -12,8 +12,8 @@ export function RateMorning({ night, onRated }: { night: RestNight; onRated: () 
   return (
     <section aria-labelledby="rate-title" className="space-y-2.5 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
       <div>
-        <h2 className="text-[11px] font-bold uppercase tracking-widest text-[var(--ink-3)]">this morning</h2>
-        <p id="rate-title" className="font-semibold text-[var(--ink)]">How rested do you feel?</p>
+        <p className="text-[11px] font-bold uppercase tracking-wider text-[var(--accent-text)]">This morning</p>
+        <h2 id="rate-title" className="text-lg font-bold tracking-tight text-[var(--ink)]">How rested do you feel?</h2>
       </div>
       <div role="group" aria-labelledby="rate-title" className="grid grid-cols-5 gap-1.5">
         {SCALE.map((v) => (
@@ -21,7 +21,7 @@ export function RateMorning({ night, onRated }: { night: RestNight; onRated: () 
             key={v}
             aria-pressed={rested === v}
             onClick={() => { rateNight(night.startedAt, v); setRested(v); onRated(); }}
-            className={`grid min-h-14 content-center gap-0.5 rounded-lg px-1 py-2 text-center ${rested === v ? "bg-[var(--accent)] text-[var(--accent-ink)]" : "bg-[var(--raised)] text-[var(--ink-2)] hover:text-[var(--ink)]"}`}
+            className={`grid min-h-14 content-center gap-0.5 rounded-xl px-1 py-2 text-center ${rested === v ? "bg-[var(--accent)] text-[var(--accent-ink)]" : "bg-[var(--raised)] text-[var(--ink-2)] hover:text-[var(--ink)]"}`}
           >
             <span className="text-lg font-extrabold leading-none tabular-nums">{v}</span>
             <span className="text-[10.5px] font-semibold leading-tight">{RESTED_LABEL[v]}</span>
@@ -59,7 +59,7 @@ export function RestedLinks({ nights }: { nights: RestNight[] }) {
   return (
     <section aria-labelledby="rested-title" className="space-y-3 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
       <div>
-        <h2 id="rested-title" className="text-[11px] font-bold uppercase tracking-widest text-[var(--ink-3)]">what goes with rested mornings</h2>
+        <h2 id="rested-title" className="text-lg font-bold tracking-tight text-[var(--ink)]">What goes with rested mornings</h2>
         <p className="text-[13px] text-[var(--ink-2)]">
           {`${plural(s.rated)} rated, usually ${usual.toLowerCase()} (${s.average.toFixed(1)} of 5).`}
         </p>

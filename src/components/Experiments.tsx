@@ -40,7 +40,7 @@ export function Experiments({ nights, feeds, favoring = false, learning = true }
 
   return (
     <section aria-labelledby="experiment-title" className="space-y-3 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
-      <h2 id="experiment-title" className="text-[11px] font-bold uppercase tracking-widest text-[var(--ink-3)]">experiment</h2>
+      <h2 id="experiment-title" className="text-lg font-bold tracking-tight text-[var(--ink)]">Experiment</h2>
       {e ? <Running e={e} nights={nights} titles={titles} favoring={favoring} learning={learning} onChange={redraw} /> : <Start feeds={feeds} onStart={redraw} />}
       {past.length > 0 && (
         <details className="text-xs text-[var(--ink-3)]">

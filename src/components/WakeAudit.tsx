@@ -28,7 +28,7 @@ export function WakeAudit({ nights }: { nights: RestNight[] }) {
   return (
     <section aria-labelledby="wakes-title" className="space-y-3 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
       <div>
-        <h2 id="wakes-title" className="text-[11px] font-bold uppercase tracking-widest text-[var(--ink-3)]">what wakes you</h2>
+        <h2 id="wakes-title" className="text-lg font-bold tracking-tight text-[var(--ink)]">What wakes you</h2>
         <p className="text-[13px] text-[var(--ink-3)]">
           Wakings your watch saw within 3 minutes of something Sleepcast did while you slept, against how often you&apos;d wake that soon anyway.
         </p>
