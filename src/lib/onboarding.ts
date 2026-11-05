@@ -6,6 +6,7 @@ import { storedAge } from "./age";
 import { storedConsent } from "./analytics";
 import { BUILTIN_FEEDS, addCustomFeed, loadState, saveState } from "./store";
 import { CATALOG } from "./catalog";
+import { localCover } from "./covers";
 
 export const ONBOARDED_KEY = "sc-onboarded";
 
@@ -29,8 +30,6 @@ export function markOnboarded(): void {
 }
 
 /** A show to pick on the first visit: the built-ins, then the catalog. */
-// The built-ins' covers live in public/shows, copied like the catalog's, so
-// the picker sends nothing to any show's host.
 export interface StarterShow {
   key: string;
   title: string;
@@ -40,7 +39,7 @@ export interface StarterShow {
 }
 
 export const STARTER_SHOWS: StarterShow[] = [
-  ...BUILTIN_FEEDS.map((f) => ({ key: f.id, title: f.title, art: `/shows/${f.id}.jpg`, builtinId: f.id, url: f.url })),
+  ...BUILTIN_FEEDS.map((f) => ({ key: f.id, title: f.title, art: localCover({ ...f, builtin: true })!, builtinId: f.id, url: f.url })),
   ...CATALOG.map((c) => ({ key: c.url, title: c.title, art: c.art, url: c.url })),
 ];
 
