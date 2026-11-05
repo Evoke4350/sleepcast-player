@@ -54,7 +54,7 @@ export function TabBar({ tab, onTab, inert }: { tab: AppTab; onTab: (t: AppTab) 
       inert={inert}
       className="fixed inset-x-0 bottom-0 z-40 border-t border-[var(--line)] bg-[var(--ground)] pb-[calc(0.5rem+env(safe-area-inset-bottom,0px))] pt-1.5 md:bottom-auto md:top-0 md:border-b md:border-t-0 md:pb-0 md:pt-[env(safe-area-inset-top,0px)]"
     >
-      <div className="mx-auto grid max-w-lg grid-cols-4 md:flex md:h-14 md:max-w-3xl md:items-center md:gap-1 md:px-6">
+      <div className="mx-auto grid max-w-lg grid-cols-4 md:flex md:h-14 md:max-w-3xl md:items-center md:gap-1 md:px-6 lg:max-w-[calc(64rem+2rem)] lg:px-4">
         {/* On a wide screen the bar runs along the top, as a site's does, so
             it carries the name; a phone's bottom bar has no room for it. */}
         <span className="font-serif-display hidden text-xl text-[var(--ink)] md:mr-auto md:block">sleepcast</span>
