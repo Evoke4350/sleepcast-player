@@ -161,6 +161,9 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
 
       <p role="status" className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4 text-[13px] text-[var(--ink-2)] empty:hidden">{note ?? ""}</p>
 
+      {/* Two columns on a wide screen, in the same order as one: the asks
+          side by side on top, then the charts beside the figures. */}
+      <div className="space-y-4 empty:hidden lg:grid lg:grid-cols-2 lg:items-start lg:gap-4 lg:space-y-0">
       {toRate && <RateMorning night={toRate} onRated={reloadNights} />}
 
       {reminder && (
@@ -200,7 +203,10 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
           )}
         </section>
       )}
+      </div>
 
+      <div className="space-y-4 lg:grid lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start lg:gap-6 lg:space-y-0">
+      <div className="space-y-4 empty:hidden">
       {/* The watch measured last night: nothing to ask, only to show. With
           its stages kept, the chart says it, for any night the watch saw. */}
       {watched.length > 0 ? (
@@ -229,6 +235,10 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
           <p role="status" className="text-xs text-[var(--ink-3)] empty:hidden">{watchNote && !watchNote.error ? watchNote.text : ""}</p>
         </section>
       )}
+      </div>
+      {/* The side column puts the figures and the ranking first on a wide
+          screen; a phone keeps them where they are. */}
+      <div className="flex flex-col gap-4">
       <RestedLinks nights={nights} />
       {nights.length > 0 && <Experiments nights={nights} feeds={feeds} favoring={favorWhatWorks} learning={learnTimer} />}
       {/* The guess for nights without the watch, tuned on nights with it. */}
@@ -274,7 +284,7 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-2.5">
+      <div className="grid grid-cols-2 gap-2.5 lg:order-first">
         <Figure value={String(r.nightsSlept)} unit={r.nights ? `/ ${r.nights}` : ""} label="Nights you drifted off" how="Nights it saw you go quiet" wide />
         <Figure value={r.medianTimeToSleepMs !== null ? fmtDuration(r.medianTimeToSleepMs) : "—"} label="Usual time to sleep" how="The middle of the nights it timed" />
         <Figure value={r.bestTimeToSleepMs !== null ? fmtDuration(r.bestTimeToSleepMs) : "—"} label="Fastest" how="Your quickest night so far" />
@@ -301,7 +311,7 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
         </div>
       )}
       {scored.length > 0 && (
-        <section className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
+        <section className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4 lg:order-first">
           <h2 className="font-semibold text-[var(--ink)]">What puts you under</h2>
           {/* counted first, so this list never names a different leader than
               the suggestion card just did — same predicate, same order. */}
@@ -332,6 +342,8 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
           {`How long you usually take: ${orDash(compared.leaned.medianMs, fmtDuration)} on nights the shuffle leaned (${pluralNights(compared.leaned.timedNights, "timed")}), ${orDash(compared.plain.medianMs, fmtDuration)} on plain-shuffle nights (${pluralNights(compared.plain.timedNights, "timed")}). A rough guide: the two differ in more than the lean (which shows, which weeks).`}
         </p>
       )}
+      </div>
+      </div>
       <p className="text-center text-xs text-[var(--ink-4)]">
         counted only on this device. no account, nothing sent anywhere. we're
         rooting for the nights you don't need us.

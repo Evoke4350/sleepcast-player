@@ -54,7 +54,7 @@ export function ShowGrid({
   onAdd: () => void;
 }) {
   return (
-    <div className="grid grid-cols-3 gap-3">
+    <div className="grid grid-cols-3 gap-3 lg:grid-cols-5 lg:gap-4">
       {feeds.map((feed) => {
         const st = statuses[feed.id];
         const note = st?.error

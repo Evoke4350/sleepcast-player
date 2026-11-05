@@ -739,7 +739,9 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
   return (
     // The page owns the background (globals.css tokens); this lays out inside it.
     <div className="text-[var(--ink-2)]" hidden={tab === null}>
-      <div className="mx-auto max-w-lg">
+      {/* The Sleep screen stays a phone's width everywhere; the lists take a
+          wide screen's room. */}
+      <div className={`mx-auto max-w-lg ${tab === "podcasts" || tab === "settings" ? "lg:max-w-none" : ""}`}>
         {/* The field: one decision, in the thumb's arc. The moon IS the button —
             it's the same moon the Player veils the countdown behind, so the
             object you tap to fall asleep is the object holding the time you're
@@ -953,10 +955,13 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
             }}
           />
 
+          {/* On a wide screen, adding by link sits beside the catalog and
+              stays in view while it scrolls. */}
+          <div className="space-y-3 lg:grid lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start lg:gap-6 lg:space-y-0 lg:pt-4">
           <ShowCatalog feeds={appState.feeds} onAdd={addFromCatalog} onOpen={openShowPage} headingRef={catalogRef} />
 
           {/* Add custom feed */}
-          <div ref={addShowRef} className="rounded-lg bg-[var(--surface)] border border-[var(--line)] px-4 py-3 space-y-2">
+          <div ref={addShowRef} className="rounded-lg bg-[var(--surface)] border border-[var(--line)] px-4 py-3 space-y-2 lg:sticky lg:top-20">
             <h2 className="text-xs text-[var(--ink-4)] uppercase tracking-widest">
               Add a show
             </h2>
@@ -1056,12 +1061,16 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
             </div>
             <p role="status" className="text-xs text-[var(--ink-4)] empty:hidden">{opmlNote ?? ""}</p>
           </div>
+          </div>
         </section>
           </div>
         )}
         {tab === "settings" && (
           <div className="space-y-4 pb-8">
             <h1 className="text-3xl font-extrabold tracking-tight text-[var(--ink)]">Settings</h1>
+            {/* Two columns on a wide screen: what the app does, then the
+                watch and the backup. */}
+            <div className="space-y-4 lg:grid lg:grid-cols-2 lg:items-start lg:gap-6 lg:space-y-0">
             <div className="divide-y divide-[var(--line)] rounded-2xl border border-[var(--line)] bg-[var(--surface)] px-4">
               {/* The shuffle leaning on the sleep scores, off unless asked
                   for: a pool that narrows on its own is hard to notice going
@@ -1143,6 +1152,7 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
                 </span>
               </div>
             </div>
+            <div className="space-y-4">
             <section aria-labelledby="watch-title" className="space-y-3 rounded-2xl border border-[var(--line)] bg-[var(--surface)] px-4 py-3.5">
               <div className="space-y-0.5">
                 <h2 id="watch-title" className="font-semibold text-[var(--ink)]">Sleep from your watch</h2>
@@ -1235,6 +1245,8 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
             </section>
             <div className="pt-1 text-center">
               <a href="/privacy" className="text-xs text-[var(--ink-4)] underline decoration-[var(--line)] underline-offset-4 hover:text-[var(--ink-3)]">Privacy and analytics</a>
+            </div>
+            </div>
             </div>
           </div>
         )}
