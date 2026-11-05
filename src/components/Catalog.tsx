@@ -1,5 +1,6 @@
-// "More sleep podcasts": the catalog (lib/catalog.ts), by style, each a tap
-// to add. Presentational: SleepSetup adds the feed and opens the show.
+// "More sleep podcasts": the catalog (lib/catalog.ts) as shelves by style,
+// Spotify's home style. A tap adds a show, or opens one you have.
+// Presentational: SleepSetup adds the feed.
 import { useState } from "react";
 import { CATALOG, CATALOG_STYLES, isAdded, type CatalogShow } from "../lib/catalog";
 import type { FeedRef } from "../lib/store";
@@ -17,56 +18,57 @@ export function ShowCatalog({
 }) {
   const [note, setNote] = useState("");
   return (
-    <section aria-labelledby="catalog-title" className="space-y-4 rounded-lg border border-[var(--line)] bg-[var(--surface)] px-4 py-3">
+    <section aria-labelledby="catalog-title" className="space-y-6">
       <div className="space-y-1">
-        <h2 id="catalog-title" ref={headingRef} tabIndex={-1} className="text-xs uppercase tracking-widest text-[var(--ink-4)] outline-none">
+        <h2 id="catalog-title" ref={headingRef} tabIndex={-1} className="scroll-mt-20 text-2xl font-extrabold tracking-tight text-[var(--ink)] outline-none">
           More sleep podcasts
         </h2>
-        <p className="text-xs leading-relaxed text-[var(--ink-3)]">
-          Checked for long, calm episodes. Added shows join your shuffle.
+        <p className="text-sm text-[var(--ink-3)]">
+          Picked by hand and checked for long, calm episodes. Tap one to add it to your shows and your shuffle.
         </p>
       </div>
       {CATALOG_STYLES.map(({ style, label }) => {
         const shows = CATALOG.filter((s) => s.style === style);
         if (!shows.length) return null;
         return (
-          <div key={style} className="space-y-1">
-            <h3 className="text-sm font-semibold text-[var(--ink-2)]">{label}</h3>
-            <ul className="divide-y divide-[var(--line)]">
+          <div key={style} className="space-y-3">
+            <h3 className="text-lg font-bold tracking-tight text-[var(--ink)]">{label}</h3>
+            {/* A phone scrolls each shelf sideways; a wide screen lays it out. */}
+            <ul className="-mx-4 flex snap-x gap-3 overflow-x-auto scroll-px-4 px-4 pb-1 [scrollbar-width:none] md:mx-0 md:px-0 lg:grid lg:grid-cols-6 lg:gap-4 lg:overflow-visible">
               {shows.map((show) => {
                 const feed = feeds.find((f) => f.url === show.url);
                 const added = isAdded(show, feeds);
                 return (
-                  <li key={show.url} className="flex items-start gap-3 py-2.5">
-                    {/* Decorative: the title beside it names the show. */}
-                    <img src={show.art} alt="" width={48} height={48} loading="lazy" decoding="async" className="h-12 w-12 shrink-0 rounded-md bg-[var(--raised)] object-cover" />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-semibold leading-snug text-[var(--ink)]">
-                        {show.title} <span className="text-xs font-normal text-[var(--ink-4)]">{show.by}</span>
-                      </p>
-                      <p className="text-xs leading-relaxed text-[var(--ink-3)]">{show.about}</p>
-                    </div>
-                    {added ? (
-                      feed ? (
-                        <button
-                          onClick={() => onOpen(feed.id)}
-                          aria-label={`Open ${show.title}`}
-                          className="shrink-0 rounded border border-transparent px-3 py-1.5 text-xs text-[var(--ink-3)] underline decoration-[var(--line)] underline-offset-4 hover:text-[var(--ink-2)]"
+                  <li key={show.url} className="w-[136px] shrink-0 snap-start lg:w-auto">
+                    <button
+                      onClick={() => {
+                        if (added) { if (feed) onOpen(feed.id); return; }
+                        onAdd(show);
+                        setNote(`Added ${show.title} to your shows and your shuffle.`);
+                      }}
+                      disabled={added && !feed}
+                      aria-label={added ? `Open ${show.title}` : `Add ${show.title}`}
+                      className="group grid w-full content-start gap-2 text-left"
+                    >
+                      <span className="relative block">
+                        {/* Decorative: the button names the show. */}
+                        <img src={show.art} alt="" width={144} height={144} loading="lazy" decoding="async" className="aspect-square w-full rounded-lg bg-[var(--raised)] object-cover shadow-[0_8px_20px_-12px_rgba(0,0,0,0.5)]" />
+                        <span
+                          aria-hidden="true"
+                          className={`absolute bottom-2 right-2 grid h-8 w-8 place-items-center rounded-full shadow-md transition-transform group-hover:scale-105 ${
+                            added ? "bg-[var(--accent)] text-[var(--accent-ink)]" : "bg-[var(--ink)] text-[var(--ground)]"
+                          }`}
                         >
-                          Added
-                        </button>
-                      ) : (
-                        <span className="shrink-0 px-3 py-1.5 text-xs text-[var(--ink-4)]">Added</span>
-                      )
-                    ) : (
-                      <button
-                        onClick={() => { onAdd(show); setNote(`Added ${show.title} to your shows and your shuffle.`); }}
-                        aria-label={`Add ${show.title}`}
-                        className="shrink-0 rounded border border-[var(--line)] bg-[var(--surface)] px-3 py-1.5 text-xs font-semibold text-[var(--ink-2)] transition-colors hover:border-[var(--ink-4)]"
-                      >
-                        Add
-                      </button>
-                    )}
+                          {added ? (
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
+                          ) : (
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round" className="h-4 w-4"><path d="M12 5v14M5 12h14" /></svg>
+                          )}
+                        </span>
+                      </span>
+                      <span className="truncate text-[13px] font-semibold text-[var(--ink)]">{show.title}</span>
+                      <span className="-mt-1.5 line-clamp-2 text-xs leading-snug text-[var(--ink-3)]">{show.about}</span>
+                    </button>
                   </li>
                 );
               })}
@@ -74,7 +76,7 @@ export function ShowCatalog({
           </div>
         );
       })}
-      <p role="status" className="text-xs text-[var(--ink-3)] empty:hidden">{note}</p>
+      <p role="status" className="text-sm text-[var(--ink-3)] empty:hidden">{note}</p>
     </section>
   );
 }
