@@ -1,3 +1,5 @@
+import { parseItunesDuration, plainText } from "./feed-details";
+
 export interface Episode {
   id: string;
   title: string;
@@ -8,8 +10,21 @@ export interface Episode {
    *  than anything an <audio> element can stream. Its presence is what tells
    *  the player to use the embedded backend instead. See youtube.ts. */
   youtubeId?: string;
+  /** Its length from the feed (<itunes:duration>), when the feed says. */
+  durationSec?: number;
 }
-export interface Feed { id: string; title: string; episodes: Episode[]; artwork?: string; }
+export interface Feed {
+  id: string;
+  title: string;
+  episodes: Episode[];
+  artwork?: string;
+  /** Who makes it (<itunes:author>), and what it says about itself. */
+  author?: string;
+  about?: string;
+  /** A few lines on each episode, by episode id. Kept off Episode, which a
+   *  night's snapshot stores by the hundred. */
+  notes?: Record<string, string>;
+}
 
 export type PlayMode =
   | { kind: "minutes"; minutes: number }
@@ -46,22 +61,49 @@ function extractArtwork(doc: Document): string | undefined {
   return legacyUrl;
 }
 
+// A direct child's text by local name, so <itunes:duration> and a bare
+// <duration> both match and an item's tags never answer for the channel.
+// The first match wins: <description> before a later <itunes:summary>.
+function childText(parent: Element, localName: string): string | undefined {
+  for (const el of Array.from(parent.children)) {
+    if (el.localName === localName) return el.textContent ?? undefined;
+  }
+  return undefined;
+}
+
 export function parseFeedXml(xmlText: string, feedId: string): Feed {
   const doc = new DOMParser().parseFromString(xmlText, "text/xml");
   const title = doc.querySelector("channel > title")?.textContent?.trim() ?? "feed";
   const episodes: Episode[] = [];
+  const notes: Record<string, string> = {};
   for (const item of doc.querySelectorAll("item")) {
     const url = item.querySelector("enclosure")?.getAttribute("url");
     if (!url) continue;
+    const id = item.querySelector("guid")?.textContent?.trim() || url;
+    const durationSec = parseItunesDuration(childText(item, "duration"));
     episodes.push({
-      id: item.querySelector("guid")?.textContent?.trim() || url,
+      id,
       title: item.querySelector("title")?.textContent?.trim() ?? "untitled",
       url,
       feedId,
       date: item.querySelector("pubDate")?.textContent ?? "",
+      ...(durationSec ? { durationSec } : {}),
     });
+    const note = plainText(childText(item, "description") || childText(item, "summary"), 280);
+    if (note) notes[id] = note;
   }
-  return { id: feedId, title, episodes, artwork: extractArtwork(doc) };
+  const channel = doc.querySelector("channel");
+  const author = channel ? childText(channel, "author")?.trim() : undefined;
+  const about = channel ? plainText(childText(channel, "description") || childText(channel, "summary"), 1200) : "";
+  return {
+    id: feedId,
+    title,
+    episodes,
+    artwork: extractArtwork(doc),
+    ...(author ? { author } : {}),
+    ...(about ? { about } : {}),
+    notes,
+  };
 }
 
 // Deterministic-ish diverse pick without embeddings: spread selections across

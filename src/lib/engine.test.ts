@@ -95,3 +95,22 @@ describe("fadeDriverSeconds", () => {
     expect(fadeDriverSeconds("all-night", 42, 30)).toBe(Infinity);
   });
 });
+
+describe("parseFeedXml details", () => {
+  const xml = `<rss xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"><channel><title>Show</title><itunes:author>Otis</itunes:author><description><![CDATA[<p>Old books, read slowly.</p>]]></description>
+    <item><title>Ep1</title><guid>g1</guid><enclosure url="https://x/a.mp3"/><itunes:duration>1:02:03</itunes:duration><description><![CDATA[Chapter <b>one</b>.]]></description><itunes:author>Item author</itunes:author></item>
+    <item><title>Ep2</title><guid>g2</guid><enclosure url="https://x/b.mp3"/><itunes:summary>Chapter two</itunes:summary></item></channel></rss>`;
+  const f = parseFeedXml(xml, "f");
+  it("reads lengths when the feed gives them", () => {
+    expect(f.episodes[0].durationSec).toBe(3723);
+    expect("durationSec" in f.episodes[1]).toBe(false);
+  });
+  it("keeps episode notes beside the episodes, not on them", () => {
+    expect(f.notes).toEqual({ g1: "Chapter one.", g2: "Chapter two" });
+    expect("note" in f.episodes[0]).toBe(false);
+  });
+  it("reads the channel's author and description, not an item's", () => {
+    expect(f.author).toBe("Otis");
+    expect(f.about).toBe("Old books, read slowly.");
+  });
+});

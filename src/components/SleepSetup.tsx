@@ -36,7 +36,7 @@ import { needsFetch } from "../lib/feed-status";
 import { pickNextEpisode, HEARD_SEC } from "../lib/plays";
 import { ShowGrid, ShowPage } from "./Shows";
 import { ShowCatalog } from "./Catalog";
-import type { CatalogShow } from "../lib/catalog";
+import { CATALOG, CATALOG_STYLES, isAdded, type CatalogShow } from "../lib/catalog";
 
 
 interface FeedStatus {
@@ -45,6 +45,9 @@ interface FeedStatus {
   error: string | null;
   episodes: Episode[];
   artwork?: string;
+  author?: string;
+  about?: string;
+  notes?: Record<string, string>;
   /** When it last failed, for the retry backoff (see needsFetch). */
   failedAt?: number;
 }
@@ -254,6 +257,9 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
               error: null,
               episodes: parsed.episodes,
               artwork: parsed.artwork,
+              author: parsed.author,
+              about: parsed.about,
+              notes: parsed.notes,
             },
           }));
         } catch (err) {
@@ -269,6 +275,9 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
                 error: null,
                 episodes: parsed.episodes,
                 artwork: parsed.artwork,
+                author: parsed.author,
+                about: parsed.about,
+                notes: parsed.notes,
               },
             }));
           } else {
@@ -926,9 +935,22 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
           const positions = loadPositions();
           const blockedNow = new Set(loadBlocked());
           const heard = new Set(getPlays().filter((p) => p.heardSec >= HEARD_SEC).map((p) => p.id));
+          const listed = CATALOG.find((c) => c.url === feed.url);
+          const similar = listed
+            ? CATALOG.filter((c) => c.style === listed.style && c.url !== feed.url).map((show) => ({
+                show,
+                feedId: appState.feeds.find((f) => f.url === show.url)?.id,
+                added: isAdded(show, appState.feeds),
+              }))
+            : [];
           return (
             <ShowPage
+              key={feed.id}
               feed={feed}
+              styleLabel={listed && CATALOG_STYLES.find((c) => c.style === listed.style)?.label}
+              similar={similar}
+              onAddSimilar={addFromCatalog}
+              onOpenShow={openShowPage}
               status={feedStatuses[feed.id] && { ...feedStatuses[feed.id], episodes: feedStatuses[feed.id].episodes.filter((e) => !blockedNow.has(e.id)) }}
               heard={heard}
               positions={positions}
