@@ -22,6 +22,11 @@
   --stage-rem: #1d91b3;
   --stage-core: #2c5fc4;
   --stage-deep: #312f8c;
+  /* The Sleep tab's sky: dusk at the top fading into the page; stars only
+     after dark. */
+  --sky-top: #e6e1f7;
+  --sky-bottom: #f7f7f9;
+  --star: transparent;
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -44,6 +49,9 @@
     --stage-rem: #7cc6f6;
     --stage-core: #5a8ff0;
     --stage-deep: #9a8ef2;
+    --sky-top: #1e1c3d;
+    --sky-bottom: #111116;
+    --star: rgba(255, 255, 255, 0.6);
   }
 }
 
@@ -241,6 +249,20 @@ body {
 }
 @media (prefers-reduced-motion: reduce) {
   .setup-moon, .setup-moon-glow { animation: none; }
+}
+
+/* The panel the setup moon sits in: a few fixed stars over dusk. */
+.sleep-sky {
+  background:
+    radial-gradient(1.5px 1.5px at 14% 22%, var(--star), transparent),
+    radial-gradient(1px 1px at 27% 64%, var(--star), transparent),
+    radial-gradient(1.5px 1.5px at 41% 14%, var(--star), transparent),
+    radial-gradient(1px 1px at 63% 30%, var(--star), transparent),
+    radial-gradient(1.5px 1.5px at 78% 12%, var(--star), transparent),
+    radial-gradient(1px 1px at 86% 52%, var(--star), transparent),
+    radial-gradient(1px 1px at 9% 80%, var(--star), transparent),
+    radial-gradient(1px 1px at 92% 82%, var(--star), transparent),
+    linear-gradient(180deg, var(--sky-top), var(--sky-bottom));
 }
 
 /* ── home hero: the fading waveform + night narrative ─────────────────── */

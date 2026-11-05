@@ -34,7 +34,7 @@ import { currentExperiment, assignTonight, experimentResult } from "../lib/rest/
 import { keptTimer, dropKeptTimer } from "../lib/rest/kept-timer";
 import { needsFetch } from "../lib/feed-status";
 import { pickNextEpisode, HEARD_SEC } from "../lib/plays";
-import { JumpBackIn, Library, ShowPage } from "./Shows";
+import { JumpBackIn, Library, ShowArt, ShowPage } from "./Shows";
 import { jumpBackIn, lastPlayedByFeed } from "../lib/library";
 import { ShowCatalog } from "./Catalog";
 import { CATALOG, CATALOG_STYLES, isAdded, type CatalogShow } from "../lib/catalog";
@@ -749,187 +749,238 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
   return (
     // The page owns the background (globals.css tokens); this lays out inside it.
     <div className="text-[var(--ink-2)]" hidden={tab === null}>
-      {/* The Sleep screen stays a phone's width everywhere; the lists take a
-          wide screen's room. */}
-      <div className={`mx-auto max-w-lg ${tab === "podcasts" || tab === "settings" ? "lg:max-w-none" : ""}`}>
-        {/* The field: one decision, in the thumb's arc. The moon IS the button —
-            it's the same moon the Player veils the countdown behind, so the
-            object you tap to fall asleep is the object holding the time you're
-            not allowed to see. */}
-        {tab === "sleep" && (
-        <div className="flex min-h-[82vh] flex-col items-center justify-center gap-6">
-          {(lastEpisode || greetNight) && (
-            <div className="w-full max-w-xs space-y-4 text-center">
-              <p className="text-lg text-[var(--ink)]">welcome back.</p>
+      {/* A phone's width, and a wide screen's room on one. */}
+      <div className="mx-auto max-w-lg lg:max-w-none">
+        {tab === "sleep" && (() => {
+          const hour = new Date().getHours();
+          const greeting = hour >= 5 && hour < 12 ? "Good morning" : hour >= 12 && hour < 18 ? "Good afternoon" : hour >= 18 && hour < 22 ? "Good evening" : "Good night";
+          const poolShows = new Set(pool.map((e) => e.feedId)).size;
+          const timerLine = mode.kind === "one-episode"
+            ? "One episode · fades when it ends"
+            : mode.kind === "all-night"
+              ? "All night · until you stop it"
+              : `${timerMinutes} min · fades at the end`;
+          const artOf = (feedId: string) => feedStatuses[feedId]?.artwork;
+          const lastFeed = lastEpisode ? appState.feeds.find((f) => f.id === lastEpisode.feedId) : undefined;
+          const showRearm = Boolean(rearmable && !goldenPending);
+          const showSuggestion = Boolean(suggestion && !experimentTonight);
+          const hasCards = Boolean(lastEpisode || greetNight || feedError || showRearm || showSuggestion || experimentTonight);
+          const cardClass = "rounded-2xl bg-[var(--surface)] p-4 ring-1 ring-[var(--line)]";
+          const eyebrow = "text-[11px] font-bold uppercase tracking-wider text-[var(--accent-text)]";
+
+          const cards = (
+            <div className="space-y-3">
               {greetNight && (
-                <div className="text-sm text-[var(--ink-3)]">
-                  sleep well?
-                  <span className="ml-3 inline-flex gap-2">
-                    <button onClick={() => handleSleepLabel("slept")} className="rounded-full border border-[var(--line)] px-3 py-1 transition-colors hover:border-[var(--ink-4)]">yes</button>
-                    <button onClick={() => handleSleepLabel("awake")} className="rounded-full border border-[var(--line)] px-3 py-1 transition-colors hover:border-[var(--ink-4)]">no</button>
+                <div className={`${cardClass} flex items-center justify-between gap-3`}>
+                  <p className="font-semibold text-[var(--ink)]">Did you sleep well?</p>
+                  <span className="flex gap-2">
+                    <button onClick={() => handleSleepLabel("slept")} className="rounded-full bg-[var(--raised)] px-4 py-1.5 text-sm font-semibold text-[var(--ink)] hover:bg-[var(--accent)] hover:text-[var(--accent-ink)]">Yes</button>
+                    <button onClick={() => handleSleepLabel("awake")} className="rounded-full bg-[var(--raised)] px-4 py-1.5 text-sm font-semibold text-[var(--ink)] hover:bg-[var(--line)]">No</button>
                   </span>
                 </div>
               )}
+
               {lastEpisode && (
-                <button
-                  onClick={handleExactAgain}
-                  disabled={goldenPending}
-                  className="w-full rounded-xl border border-[var(--line)] bg-[var(--surface)] px-4 py-3 text-sm text-[var(--ink)] transition-colors hover:border-[var(--ink-4)] disabled:opacity-50"
-                >
-                  ↻ the exact one again
-                  <span className="mt-0.5 block truncate text-xs text-[var(--ink-3)]">{lastEpisode.title}</span>
-                  {lastEpisodePosition > 0 && (
-                    <span className="mt-0.5 block text-xs text-[var(--ink-4)]">
-                      from where you drifted · {formatTime(lastEpisodePosition)} in
+                <div className={cardClass}>
+                  <button onClick={handleExactAgain} disabled={goldenPending} className="group flex w-full items-center gap-3.5 text-left disabled:opacity-50">
+                    {lastFeed ? (
+                      <span className="w-16 shrink-0"><ShowArt feed={lastFeed} artwork={artOf(lastFeed.id)} label={false} className="rounded-lg" /></span>
+                    ) : null}
+                    <span className="min-w-0 flex-1 space-y-0.5">
+                      <span className={`block ${eyebrow}`}>{lastEpisodePosition > 0 ? "Pick up where you drifted" : "The exact one again"}</span>
+                      <span className="line-clamp-2 block font-semibold leading-snug text-[var(--ink)]">{lastEpisode.title}</span>
+                      <span className="block text-xs text-[var(--ink-3)]">
+                        {lastEpisodePosition > 0 ? `from ${formatTime(lastEpisodePosition)}` : lastFeed?.title ?? "from the start"}
+                      </span>
                     </span>
+                    <span aria-hidden="true" className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[var(--accent)] text-[var(--accent-ink)] transition-transform group-hover:scale-105">
+                      <svg viewBox="0 0 24 24" fill="currentColor" className="ml-0.5 h-5 w-5"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.6-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z" /></svg>
+                    </span>
+                  </button>
+                  {lastEpisodePosition > 0 && (
+                    <button
+                      onClick={handleExactAgainFromStart}
+                      disabled={goldenPending}
+                      className="mt-3 text-xs font-semibold text-[var(--ink-3)] underline decoration-[var(--line)] underline-offset-4 hover:text-[var(--ink-2)] disabled:opacity-50"
+                    >
+                      Play it from the start
+                    </button>
                   )}
-                </button>
+                </div>
               )}
-              {lastEpisode && lastEpisodePosition > 0 && (
-                <button
-                  onClick={handleExactAgainFromStart}
-                  disabled={goldenPending}
-                  className="w-full text-center text-xs text-[var(--ink-4)] underline decoration-[var(--line)] underline-offset-4 transition-colors hover:text-[var(--ink-3)] disabled:opacity-50"
-                >
-                  or from the start
-                </button>
-              )}
+
               {feedError && <p role="alert" className="text-xs text-[var(--danger)]">{feedError}</p>}
-              <p className="text-xs text-[var(--ink-4)]">or the moon below — the same shows, on shuffle ↓</p>
+
+              {showRearm && rearmable && (
+                <div className={`${cardClass} flex items-center justify-between gap-3`}>
+                  <span>
+                    <span className={`block ${eyebrow}`}>Still awake?</span>
+                    <span className="block text-sm text-[var(--ink-2)]">{rearmable.modeKind === "one-episode" ? "One more episode, then the fade." : `Half the last timer: ${rearmM} min.`}</span>
+                  </span>
+                  <button onClick={handleRearm} className="shrink-0 rounded-full bg-[var(--raised)] px-4 py-2 text-sm font-bold text-[var(--ink)] hover:bg-[var(--line)]">
+                    {rearmable.modeKind === "one-episode" ? "One more" : `Resume · ${rearmM} min`}
+                  </button>
+                </div>
+              )}
+
+              {/* Names one feed and the reason, so the pick is never asserted
+                  without the evidence beside it — and never without a one-tap
+                  refusal, since a suggestion that can't be waved off is a nag.
+                  Not during an experiment: a suggested show would tilt it. */}
+              {showSuggestion && suggestion && (
+                <div className={cardClass}>
+                  <div className="flex items-center gap-3.5">
+                    <span className="w-14 shrink-0"><ShowArt feed={suggestion.feed} artwork={artOf(suggestion.feed.id)} label={false} className="rounded-lg" /></span>
+                    <span className="min-w-0">
+                      <span className={`block ${eyebrow}`}>Tonight</span>
+                      <span className="block font-semibold leading-snug text-[var(--ink)]">{suggestion.feed.title} leads tonight.</span>
+                      <span className="block text-xs text-[var(--ink-3)]">{suggestion.line}</span>
+                    </span>
+                  </div>
+                  <div className="mt-3 flex gap-2">
+                    <button
+                      onClick={() => beginNight(leadFromFeed(suggestion.feed.id))}
+                      disabled={goldenPending || !suggestionReady}
+                      title={suggestionReady ? undefined : "still loading that feed's episodes…"}
+                      className="rounded-full bg-[var(--accent)] px-4 py-1.5 text-sm font-bold text-[var(--accent-ink)] disabled:opacity-50"
+                    >
+                      Start
+                    </button>
+                    <button
+                      onClick={() => beginNight(null)}
+                      disabled={goldenPending}
+                      className="rounded-full bg-[var(--raised)] px-4 py-1.5 text-sm font-semibold text-[var(--ink-2)] hover:text-[var(--ink)] disabled:opacity-50"
+                    >
+                      Something else
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {experimentTonight && (
+                <div className={`${cardClass} flex gap-3`}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 h-5 w-5 shrink-0 text-[var(--accent-text)]" aria-hidden="true"><path d="M9 3h6M10 3v6L4.5 18.5A1.7 1.7 0 0 0 6 21h12a1.7 1.7 0 0 0 1.5-2.5L14 9V3" /><path d="M7 15h10" /></svg>
+                  <p className="text-sm text-[var(--ink-2)]">
+                    {experimentTonight.kind === "show"
+                      ? `Experiment night: only ${appState.feeds.find((f) => f.id === experimentTonight.feedId)?.title ?? "a show you removed"} tonight, from the moon.`
+                      : `Experiment night: a ${experimentTonight.minutes}-minute timer tonight, from the moon.`}
+                    {experimentTonight.kind === "show" && !enabledFeeds.some((f) => f.id === experimentTonight.feedId)
+                      ? " Turn it on in Podcasts for tonight to count."
+                      : ""}
+                  </p>
+                </div>
+              )}
+
+              {(lastEpisode || showSuggestion) && (
+                <p className="px-1 text-xs text-[var(--ink-4)]">Or tap the moon: the same shows, on shuffle.</p>
+              )}
             </div>
-          )}
-          <p className="text-xs text-[var(--ink-4)] tracking-wide">{poolNote}</p>
-          {experimentTonight && (
-            <p className="max-w-xs text-center text-xs text-[var(--ink-3)]">
-              {experimentTonight.kind === "show"
-                ? `Experiment night: only ${appState.feeds.find((f) => f.id === experimentTonight.feedId)?.title ?? "a show you removed"} tonight, from the moon.`
-                : `Experiment night: a ${experimentTonight.minutes}-minute timer tonight, from the moon.`}
-              {experimentTonight.kind === "show" && !enabledFeeds.some((f) => f.id === experimentTonight.feedId)
-                ? " Turn it on in Podcasts for tonight to count."
-                : ""}
-            </p>
-          )}
+          );
 
-          {rearmable && !goldenPending && (
-            <button
-              onClick={handleRearm}
-              className="w-full max-w-xs rounded-xl border border-[var(--line)] bg-[var(--surface)] px-4 py-3 text-sm text-[var(--ink-3)] transition-colors hover:text-[var(--ink-2)]"
-            >
-              still awake?{" "}
-              {rearmable.modeKind === "one-episode"
-                ? "one more episode"
-                : `resume · ${rearmM} min`}
-            </button>
-          )}
-
-          {/* Names one feed and the reason, so the pick is never asserted
-              without the evidence beside it — and never without a one-tap
-              refusal, since a suggestion that can't be waved off is a nag. */}
-          {/* Not during an experiment: a suggested show would tilt it. */}
-          {suggestion && !experimentTonight && (
-            <div className="w-full max-w-xs rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4 text-center">
-              <p className="text-sm text-[var(--ink)]">
-                {suggestion.feed.title} leads tonight.
+          return (
+        <div className="space-y-6 pb-4">
+          <header className="space-y-2">
+            <h1 className="text-3xl font-extrabold tracking-tight text-[var(--ink)]">{greeting}</h1>
+            <div className="flex items-center gap-2.5">
+              {enabledFeeds.length > 0 && (
+                <span className="flex -space-x-2" aria-hidden="true">
+                  {enabledFeeds.slice(0, 4).map((f) => (
+                    <span key={f.id} className="w-7 rounded-md ring-2 ring-[var(--ground)]"><ShowArt feed={f} artwork={artOf(f.id)} label={false} className="rounded-md" /></span>
+                  ))}
+                </span>
+              )}
+              <p className="text-sm text-[var(--ink-3)]">
+                {pool.length > 0 ? `${poolNote} from ${poolShows} ${poolShows === 1 ? "show" : "shows"}` : poolNote}
               </p>
-              <p className="mt-1 text-xs text-[var(--ink-3)]">{suggestion.line}</p>
-              <div className="mt-3 flex justify-center gap-3 text-sm">
+            </div>
+          </header>
+
+          <div className={hasCards ? "space-y-6 lg:grid lg:grid-cols-[minmax(0,1fr)_380px] lg:items-start lg:gap-8 lg:space-y-0" : "space-y-6"}>
+            {hasCards && <div className="lg:order-last">{cards}</div>}
+
+            <div className="space-y-6">
+              {/* The moon IS the button: the same moon the Player veils the
+                  countdown behind, so the object you tap to fall asleep is the
+                  object holding the time you're not allowed to see. */}
+              <section className="sleep-sky flex flex-col items-center gap-1 overflow-hidden rounded-3xl px-4 pb-7 pt-8 ring-1 ring-[var(--line)] lg:pb-10 lg:pt-12">
                 <button
-                  onClick={() => beginNight(leadFromFeed(suggestion.feed.id))}
-                  disabled={goldenPending || !suggestionReady}
-                  title={suggestionReady ? undefined : "still loading that feed's episodes…"}
-                  className="rounded-full border border-[var(--ink-4)] px-4 py-1.5 text-[var(--ink)] transition-colors hover:border-[var(--ink-3)] disabled:opacity-50"
-                >
-                  start
-                </button>
-                <button
-                  onClick={() => beginNight(null)}
+                  onClick={handleGolden}
                   disabled={goldenPending}
-                  className="rounded-full border border-[var(--line)] px-4 py-1.5 text-[var(--ink-3)] transition-colors hover:border-[var(--ink-4)] disabled:opacity-50"
+                  aria-label="sleep"
+                  className="group relative grid h-48 w-48 place-items-center rounded-full disabled:cursor-wait lg:h-56 lg:w-56"
                 >
-                  something else
+                  <span
+                    aria-hidden="true"
+                    className="setup-moon-glow pointer-events-none absolute -inset-8 rounded-full [background:radial-gradient(circle,rgba(240,220,184,0.16)_0%,rgba(240,220,184,0)_68%)]"
+                  />
+                  <span
+                    aria-hidden="true"
+                    className="setup-moon select-none text-[7.5rem] leading-none text-[var(--accent)] [text-shadow:0_0_60px_rgba(240,220,184,0.35)] transition-transform group-active:scale-95 lg:text-[8.5rem]"
+                  >
+                    ☾
+                  </span>
                 </button>
-              </div>
-            </div>
-          )}
+                <p role="status" className="font-serif-display -mt-3 text-3xl text-[var(--ink)]">
+                  {goldenPending ? "tucking you in…" : "Sleep"}
+                </p>
+                <p className="text-sm text-[var(--ink-3)]">{timerLine}</p>
+              </section>
 
-          <button
-            onClick={handleGolden}
-            disabled={goldenPending}
-            aria-label="sleep"
-            className="group relative grid h-52 w-52 place-items-center rounded-full disabled:cursor-wait"
-          >
-            <span
-              aria-hidden="true"
-              className="setup-moon-glow pointer-events-none absolute -inset-8 rounded-full [background:radial-gradient(circle,rgba(240,220,184,0.13)_0%,rgba(240,220,184,0)_68%)]"
-            />
-            <span
-              aria-hidden="true"
-              className="setup-moon select-none text-[7.5rem] leading-none text-[var(--accent)] [text-shadow:0_0_60px_rgba(240,220,184,0.35)] transition-transform group-active:scale-95"
-            >
-              ☾
-            </span>
-          </button>
-
-          <p role="status" className="font-serif-display -mt-4 text-2xl text-[var(--ink)]">
-            {goldenPending ? "tucking you in…" : "Sleep"}
-          </p>
-
-          {/* The only other decision on this screen: how long. Minutes, or
-              one episode (fades when it ends), or all night (stopped by hand). */}
-          <div className="w-full max-w-sm space-y-2.5 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
-            <div className="flex items-baseline justify-between">
-              <span className="font-semibold text-[var(--ink)]">Sleep timer</span>
-              <span className="text-[11px] font-bold uppercase tracking-widest text-[var(--ink-4)]">fades at the end</span>
+              {/* The only other decision on this screen: how long. Minutes, or
+                  one episode (fades when it ends), or all night (stopped by hand). */}
+              <section aria-labelledby="timer-title" className="space-y-3">
+                <h2 id="timer-title" className="text-xl font-bold tracking-tight text-[var(--ink)]">Sleep timer</h2>
+                <div className="flex flex-wrap gap-2">
+                  {yourTimer && (
+                    <Pill on={usingLearned} onClick={selectLearned} label={`Your timer: ${yourTimer.minutes} minutes`}>
+                      Your timer · {yourTimer.minutes} min
+                    </Pill>
+                  )}
+                  {learnOn && learned && (
+                    // With your timer kept, going back to the learned one lets it go.
+                    <Pill on={usingLearned && !yourTimer} onClick={() => { if (yourTimer) { dropKeptTimer(); rereadKept(); } selectLearned(); }} label={`Learned: ${learned.minutes} minutes`}>
+                      Learned · {learned.minutes} min
+                    </Pill>
+                  )}
+                  {TIMER_PRESETS.map((minutes) => (
+                    <Pill key={minutes} on={timerMinutes === minutes && isPreset} onClick={() => selectTimer(minutes)} label={`${minutes} minutes`}>
+                      {minutes} min
+                    </Pill>
+                  ))}
+                  <Pill on={mode.kind === "one-episode"} onClick={() => selectEpisodeMode("one-episode")}>One episode</Pill>
+                  <Pill on={mode.kind === "all-night"} onClick={() => selectEpisodeMode("all-night")}>All night</Pill>
+                </div>
+                {(learnOn || yourTimer) && (
+                  <p className="text-xs leading-snug text-[var(--ink-3)]">
+                    {yourTimer
+                      ? usingLearned
+                        ? `Your timer: ${yourTimer.minutes} min put you to sleep faster than ${yourTimer.beat} min in your experiment.${learnOn && learned ? " Tap Learned to go back to learning it from your nights." : ""}`
+                        : mode.kind === "minutes"
+                          ? `Your pick for tonight. Tomorrow it's back to ${yourTimer.minutes} min, your timer.`
+                          : `Your timer: ${yourTimer.minutes} min, when you want one.`
+                      : !learned
+                      ? `After ${LEARN_MIN_NIGHTS} timed nights the timer learns how long you take to fall asleep (${Math.min(timedSoFar, LEARN_MIN_NIGHTS)} so far).`
+                      : usingLearned
+                        ? `You're usually under in about ${fmtOnsetMinutes(learned.usualMs)}, so ${learned.minutes} min leaves room. From your last ${learned.nights} nights.`
+                        : mode.kind === "minutes"
+                          ? `Your pick for tonight. Tomorrow it's back to ${learned.minutes} min, learned.`
+                          : `Learned from your nights: ${learned.minutes} min, when you want a timer.`}
+                  </p>
+                )}
+                {yourTimer && (
+                  <button
+                    onClick={() => { dropKeptTimer(); rereadKept(); selectLearned(); }}
+                    className="text-xs text-[var(--ink-3)] underline decoration-[var(--line)] underline-offset-4 hover:text-[var(--ink-2)]"
+                  >
+                    Forget your timer
+                  </button>
+                )}
+              </section>
             </div>
-            <div className="flex flex-wrap gap-2">
-              {yourTimer && (
-                <Pill on={usingLearned} onClick={selectLearned} label={`Your timer: ${yourTimer.minutes} minutes`}>
-                  Your timer · {yourTimer.minutes} min
-                </Pill>
-              )}
-              {learnOn && learned && (
-                // With your timer kept, going back to the learned one lets it go.
-                <Pill on={usingLearned && !yourTimer} onClick={() => { if (yourTimer) { dropKeptTimer(); rereadKept(); } selectLearned(); }} label={`Learned: ${learned.minutes} minutes`}>
-                  Learned · {learned.minutes} min
-                </Pill>
-              )}
-              {TIMER_PRESETS.map((minutes) => (
-                <Pill key={minutes} on={timerMinutes === minutes && isPreset} onClick={() => selectTimer(minutes)} label={`${minutes} minutes`}>
-                  {minutes} min
-                </Pill>
-              ))}
-              <Pill on={mode.kind === "one-episode"} onClick={() => selectEpisodeMode("one-episode")}>One episode</Pill>
-              <Pill on={mode.kind === "all-night"} onClick={() => selectEpisodeMode("all-night")}>All night</Pill>
-            </div>
-            {(learnOn || yourTimer) && (
-              <p className="text-xs leading-snug text-[var(--ink-3)]">
-                {yourTimer
-                  ? usingLearned
-                    ? `Your timer: ${yourTimer.minutes} min put you to sleep faster than ${yourTimer.beat} min in your experiment.${learnOn && learned ? " Tap Learned to go back to learning it from your nights." : ""}`
-                    : mode.kind === "minutes"
-                      ? `Your pick for tonight. Tomorrow it's back to ${yourTimer.minutes} min, your timer.`
-                      : `Your timer: ${yourTimer.minutes} min, when you want one.`
-                  : !learned
-                  ? `After ${LEARN_MIN_NIGHTS} timed nights the timer learns how long you take to fall asleep (${Math.min(timedSoFar, LEARN_MIN_NIGHTS)} so far).`
-                  : usingLearned
-                    ? `You're usually under in about ${fmtOnsetMinutes(learned.usualMs)}, so ${learned.minutes} min leaves room. From your last ${learned.nights} nights.`
-                    : mode.kind === "minutes"
-                      ? `Your pick for tonight. Tomorrow it's back to ${learned.minutes} min, learned.`
-                      : `Learned from your nights: ${learned.minutes} min, when you want a timer.`}
-              </p>
-            )}
-            {yourTimer && (
-              <button
-                onClick={() => { dropKeptTimer(); rereadKept(); selectLearned(); }}
-                className="text-xs text-[var(--ink-3)] underline decoration-[var(--line)] underline-offset-4 hover:text-[var(--ink-2)]"
-              >
-                Forget your timer
-              </button>
-            )}
           </div>
-
         </div>
-        )}
+          );
+        })()}
         {tab === "podcasts" && openShow && (() => {
           const feed = appState.feeds.find((f) => f.id === openShow);
           if (!feed) return null;
