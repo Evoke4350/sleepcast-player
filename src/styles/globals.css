@@ -12,7 +12,7 @@
   --ink-3: #5c5c68;      /* secondary */
   --ink-4: #6a6a77;      /* faint: labels, hints (still 4.5:1 on every ground) */
   --control: #85858f;    /* outlines of controls in their off state (3:1) */
-  --accent: #c47a12;     /* moon gold: the one action colour, as a fill */
+  --accent: #e89a2c;     /* moon gold: the one action colour, as a fill (8:1 under --accent-ink) */
   --accent-text: #9a5a08; /* the gold as text or a thin mark (4.5:1) */
   --accent-ink: #1a1306; /* text on the accent */
   --accent-soft: #fbefdc;
