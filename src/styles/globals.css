@@ -183,6 +183,18 @@ body {
   border-radius: 3px;
   transition: width 1s linear;
 }
+/* The scrubber's thumb, centred on the bar's end. */
+.ep-knob {
+  position: absolute;
+  top: 50%;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--ink);
+  transform: translate(-50%, -50%);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  transition: left 1s linear;
+}
 
 /* One-line toast ("skipped the 21 min intro"): rises, lingers, fades. */
 .player-toast {
@@ -195,7 +207,7 @@ body {
 }
 @media (prefers-reduced-motion: reduce) {
   .player-toast { animation: none; opacity: 0.8; }
-  .ep-progress > span { transition: none; }
+  .ep-progress > span, .ep-knob { transition: none; }
 }
 
 /* veiled sleep timer: the moon breathes where the number would count */
