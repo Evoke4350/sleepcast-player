@@ -122,9 +122,9 @@ function PauseIcon({ big = false }: { big?: boolean }) {
   return <svg viewBox="0 0 24 24" fill="currentColor" className={big ? "h-7 w-7" : "h-4 w-4"} aria-hidden="true"><path d="M7 5h4v14H7zM13 5h4v14h-4z" /></svg>;
 }
 /** The playing show's artwork, or a quiet square while there is none. */
-function NowArt({ src, big = false }: { src?: string; big?: boolean }) {
+function NowArt({ src, big = false, small = false }: { src?: string; big?: boolean; small?: boolean }) {
   const [broken, setBroken] = useState(false);
-  const cls = big ? "aspect-square w-full rounded-[18px] shadow-[0_12px_40px_rgba(0,0,0,0.25)]" : "aspect-square w-11 rounded-lg";
+  const cls = big ? "aspect-square w-full rounded-[18px] shadow-[0_16px_48px_rgba(0,0,0,0.35)]" : small ? "aspect-square w-10 rounded-md" : "aspect-square w-11 rounded-lg";
   return src && !broken
     ? <img src={src} alt="" onError={() => setBroken(true)} className={`${cls} bg-[var(--raised)] object-cover`} />
     : <div aria-hidden="true" className={`${cls} grid place-items-center bg-[var(--raised)] text-[var(--accent)]`}><span className={big ? "text-6xl" : "text-lg"}>☾</span></div>;
@@ -1418,6 +1418,10 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, saveAhead
   // The room dims as the night wanes: the artwork only, so the words and
   // controls keep their contrast.
   const dim = Math.max(0.55, 1 - 0.45 * (1 - countdown / Math.max(1, totalSeconds)));
+  const nowArt = artworkByFeedId[nowPlaying?.feedId ?? ""];
+  const nowShow = nowPlaying ? (feedTitles[nowPlaying.feedId] ?? "") : "";
+  const epPct = epPos ? Math.min(100, (epPos.cur / epPos.dur) * 100) : 0;
+  const spread = pool.filter((e) => !blockedTonight.has(e.id));
 
   // Ending this night from outside (another night started), always through
   // this render's endSession.
@@ -1485,9 +1489,10 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, saveAhead
           while the night plays. */}
       {!expanded && (
         <div className="fixed inset-x-0 bottom-[calc(4.4rem+env(safe-area-inset-bottom,0px))] z-40 px-2.5 md:bottom-[calc(1.25rem+env(safe-area-inset-bottom,0px))]">
-          <div className="mx-auto grid max-w-lg grid-cols-[44px_1fr_auto] items-center gap-2.5 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-2 shadow-[0_8px_24px_rgba(0,0,0,0.12)]">
+          <div className="relative mx-auto grid max-w-lg grid-cols-[44px_1fr_auto] items-center gap-2.5 overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-2 shadow-[0_8px_24px_rgba(0,0,0,0.12)]">
+            <span aria-hidden="true" className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-[var(--line)]"><span className="block h-full rounded-full bg-[var(--accent-text)]" style={{ width: `${epPct}%` }} /></span>
             <button ref={openBtnRef} onClick={expandPlayer} className="col-span-2 grid min-w-0 grid-cols-[44px_1fr] items-center gap-2.5 rounded-xl text-left" aria-label={`Open the player: ${nowPlaying?.title ?? "loading"}, ${timerLabel}`}>
-              <NowArt key={nowPlaying?.feedId} src={artworkByFeedId[nowPlaying?.feedId ?? ""]} />
+              <NowArt key={nowPlaying?.feedId} src={nowArt} />
               <span className="min-w-0">
                 <span className="block truncate text-[13.5px] font-semibold text-[var(--ink)]">{nowPlaying?.title ?? "loading…"}</span>
                 <span className="block truncate text-xs text-[var(--ink-3)]">
@@ -1508,140 +1513,178 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, saveAhead
         </div>
       )}
 
-      {/* Expanded: Now Playing. */}
+      {/* Expanded: Now Playing. The show's artwork, blurred, colours the
+          room (and dims with it as the night wanes); on a wide screen the
+          cover sits beside the controls. */}
       {expanded && (
         <div role="dialog" aria-modal="true" aria-label="Now playing" inert={gettingUp} className="fixed inset-0 z-45 overflow-y-auto bg-[var(--ground)] [z-index:45] [scroll-padding-bottom:0]">
-          <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-5 px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] pt-[calc(0.75rem+env(safe-area-inset-top,0px))] dream-sink">
-            <button ref={collapseBtnRef} onClick={collapsePlayer} aria-label="Close the player, keep it playing" className="mx-auto grid h-8 w-16 place-items-center text-[var(--ink-3)]">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" className="h-6 w-6" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
-            </button>
+          <div aria-hidden="true" className="pointer-events-none fixed inset-0 overflow-hidden dream-sink" style={{ opacity: dim }}>
+            {nowArt ? (
+              <img key={nowArt} src={nowArt} alt="" className="h-full w-full scale-125 object-cover opacity-75 blur-3xl saturate-150" />
+            ) : null}
+            <div className="absolute inset-0" style={{ background: "linear-gradient(to bottom, color-mix(in srgb, var(--ground) 20%, transparent), color-mix(in srgb, var(--ground) 60%, transparent) 45%, var(--ground) 90%)" }} />
+          </div>
 
-            <div className="mx-auto w-full max-w-[320px]" style={{ opacity: dim }}><NowArt key={nowPlaying?.feedId} src={artworkByFeedId[nowPlaying?.feedId ?? ""]} big /></div>
-
-            <div className="space-y-1 text-center">
-              <div className="line-clamp-2 text-lg font-bold leading-snug text-[var(--ink)]">{nowPlaying?.title ?? "loading…"}</div>
-              <div className="text-sm text-[var(--ink-3)]">{nowPlaying ? (feedTitles[nowPlaying.feedId] ?? "") : ""}</div>
-            </div>
-
-            <div>
-              <div
-                className="ep-progress cursor-pointer"
-                onClick={seekToRatio}
-                onKeyDown={seekByKey}
-                tabIndex={0}
-                role="slider"
-                aria-label="Position in the episode"
-                aria-valuemin={0}
-                aria-valuemax={epPos ? Math.round(epPos.dur) : 0}
-                aria-valuenow={epPos ? Math.round(epPos.cur) : 0}
-                aria-valuetext={epPos ? `${formatTime(epPos.cur)} of ${formatTime(epPos.dur)}` : "not started"}
-              >
-                <span style={{ width: `${epPos ? Math.min(100, (epPos.cur / epPos.dur) * 100) : 0}%` }} />
-              </div>
-              <div className="mt-1.5 flex justify-between text-xs tabular-nums text-[var(--ink-3)]">
-                <span>{epPos ? formatTime(epPos.cur) : "0:00"}</span>
-                <span>{epPos ? `-${formatTime(Math.max(0, epPos.dur - epPos.cur))}` : ""}</span>
+          <div className="relative mx-auto flex min-h-dvh w-full max-w-md flex-col gap-6 px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] pt-[calc(0.75rem+env(safe-area-inset-top,0px))] lg:grid lg:max-w-5xl lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:content-start lg:gap-x-14 lg:px-10">
+            <div className="grid grid-cols-[40px_1fr_40px] items-center lg:col-span-2">
+              <button ref={collapseBtnRef} onClick={collapsePlayer} aria-label="Close the player, keep it playing" className="grid h-10 w-10 place-items-center rounded-full text-[var(--ink)] hover:bg-[var(--raised)]">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" className="h-6 w-6" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
+              </button>
+              <div className="min-w-0 text-center leading-tight">
+                <div className="text-[11px] font-semibold text-[var(--ink-3)]">Playing from</div>
+                <div className="truncate text-sm font-bold text-[var(--ink)]">{nowShow || "your shuffle"}</div>
               </div>
             </div>
 
-            <div className="flex items-center justify-center gap-8">
-              <button onClick={() => skipBy(-30)} aria-label="Back 30 seconds" className="relative grid h-12 w-12 place-items-center text-[var(--ink)]">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" className="h-9 w-9" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7" /><path d="M3 4v4h4" /></svg>
-                <span className="absolute pt-0.5 text-[10px] font-extrabold">30</span>
-              </button>
-              <button onClick={handleTogglePause} aria-label={paused ? "Resume" : "Pause"} className="grid h-[72px] w-[72px] place-items-center rounded-full bg-[var(--accent)] text-[var(--accent-ink)] active:scale-95">
-                {paused ? <PlayIcon big /> : <PauseIcon big />}
-              </button>
-              <button onClick={() => skipBy(30)} aria-label="Forward 30 seconds" className="relative grid h-12 w-12 place-items-center text-[var(--ink)]">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" className="h-9 w-9" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7" /><path d="M21 4v4h-4" /></svg>
-                <span className="absolute pt-0.5 text-[10px] font-extrabold">30</span>
-              </button>
-            </div>
+            <div className="mx-auto w-full max-w-[340px] lg:sticky lg:top-8 lg:max-w-[440px] lg:self-start"><NowArt key={nowPlaying?.feedId} src={nowArt} big /></div>
 
-            <div className="flex justify-center gap-2 text-sm">
-              <button onClick={handleNext} className="rounded-full bg-[var(--raised)] px-4 py-2 font-semibold text-[var(--ink-2)]">Next episode</button>
-              {/* The only per-episode negative control. Disabling a whole feed
-                  used to be the only way to escape one jarring episode. */}
-              <button onClick={handleBlock} className="rounded-full bg-[var(--raised)] px-4 py-2 font-semibold text-[var(--ink-2)]">Never again</button>
-            </div>
-            <div aria-hidden="true" className="min-h-4 text-center text-xs text-[var(--ink-3)]">
-              {toast && <span className="player-toast inline-block">{toast}</span>}
-            </div>
-
-            <div className="mt-auto space-y-3 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
-              <div className="flex items-baseline justify-between">
-                <span className="text-[11px] font-bold uppercase tracking-widest text-[var(--ink-3)]">sleep timer</span>
-                <b className="text-2xl font-extrabold tabular-nums tracking-tight text-[var(--ink)]">{timerLabel}</b>
+            <div className="flex flex-col gap-6">
+              <div className="flex items-start gap-3">
+                <div className="min-w-0 flex-1">
+                  <h2 className="line-clamp-2 text-[22px] font-extrabold leading-tight tracking-tight text-[var(--ink)]">{nowPlaying?.title ?? "loading…"}</h2>
+                  <div className="mt-1 truncate text-[15px] text-[var(--ink-2)]">{nowShow}</div>
+                </div>
+                {/* The only per-episode negative control. Disabling a whole feed
+                    used to be the only way to escape one jarring episode. */}
+                <button onClick={handleBlock} className="mt-1 inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] font-semibold text-[var(--ink-2)] ring-1 ring-[var(--line)] hover:text-[var(--ink)]">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="h-4 w-4" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M5.6 5.6l12.8 12.8" /></svg>
+                  Never again
+                </button>
               </div>
-              {/* Only a timed night has a timer to stretch. Past the cap the
-                  offer is withdrawn rather than disabled: a greyed-out button
-                  is still an invitation to keep trying. */}
-              {mode.kind === "minutes" && (
-                canExtendMore ? (
-                  <button onClick={() => extendTimer(15)} className="rounded-full bg-[var(--raised)] px-4 py-2 text-sm font-semibold text-[var(--ink)]">+15 min</button>
-                ) : (
-                  <p className="text-xs text-[var(--ink-3)]">It isn&apos;t the timer: no more time tonight.</p>
-                )
+
+              <div>
+                <div
+                  className="relative cursor-pointer py-2"
+                  onClick={seekToRatio}
+                  onKeyDown={seekByKey}
+                  tabIndex={0}
+                  role="slider"
+                  aria-label="Position in the episode"
+                  aria-valuemin={0}
+                  aria-valuemax={epPos ? Math.round(epPos.dur) : 0}
+                  aria-valuenow={epPos ? Math.round(epPos.cur) : 0}
+                  aria-valuetext={epPos ? `${formatTime(epPos.cur)} of ${formatTime(epPos.dur)}` : "not started"}
+                >
+                  <div className="ep-progress"><span style={{ width: `${epPct}%` }} /></div>
+                  <span aria-hidden="true" className="ep-knob" style={{ left: `${epPct}%` }} />
+                </div>
+                <div className="mt-0.5 flex justify-between text-xs tabular-nums text-[var(--ink-3)]">
+                  <span>{epPos ? formatTime(epPos.cur) : "0:00"}</span>
+                  <span>{epPos ? `-${formatTime(Math.max(0, epPos.dur - epPos.cur))}` : ""}</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-5 items-center justify-items-center">
+                {/* The timer within reach of the controls; the card below has
+                    the rest. */}
+                <button
+                  onClick={() => document.getElementById("timer-title")?.scrollIntoView({ behavior: "smooth", block: "center" })}
+                  aria-label={`Sleep timer: ${timerLabel}`}
+                  className="inline-flex h-12 items-center gap-1 text-[var(--accent-text)]"
+                >
+                  <svg viewBox="0 0 24 24" fill="currentColor" className="h-5 w-5 shrink-0" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z" /></svg>
+                  {mode.kind === "minutes" && <span className="text-xs font-bold tabular-nums">{Math.ceil(countdown / 60)}m</span>}
+                </button>
+                <button onClick={() => skipBy(-30)} aria-label="Back 30 seconds" className="relative grid h-12 w-12 place-items-center text-[var(--ink)]">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" className="h-9 w-9" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7" /><path d="M3 4v4h4" /></svg>
+                  <span className="absolute pt-0.5 text-[10px] font-extrabold">30</span>
+                </button>
+                <button onClick={handleTogglePause} aria-label={paused ? "Resume" : "Pause"} className="grid h-[72px] w-[72px] place-items-center rounded-full bg-[var(--accent)] text-[var(--accent-ink)] shadow-[0_8px_24px_rgba(0,0,0,0.25)] active:scale-95">
+                  {paused ? <PlayIcon big /> : <PauseIcon big />}
+                </button>
+                <button onClick={() => skipBy(30)} aria-label="Forward 30 seconds" className="relative grid h-12 w-12 place-items-center text-[var(--ink)]">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" className="h-9 w-9" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7" /><path d="M21 4v4h-4" /></svg>
+                  <span className="absolute pt-0.5 text-[10px] font-extrabold">30</span>
+                </button>
+                <button onClick={handleNext} aria-label="Next episode" title="Next episode" className="grid h-12 w-12 place-items-center text-[var(--ink)]">
+                  <svg viewBox="0 0 24 24" fill="currentColor" className="h-7 w-7" aria-hidden="true"><path d="M5 5.5v13l10-6.5z" /><rect x="16.5" y="5.5" width="2.5" height="13" rx="1" /></svg>
+                </button>
+              </div>
+              <div aria-hidden="true" className="-my-3 min-h-4 text-center text-xs text-[var(--ink-3)]">
+                {toast && <span className="player-toast inline-block">{toast}</span>}
+              </div>
+
+              <section aria-labelledby="timer-title" className="space-y-3 rounded-2xl bg-[color-mix(in_srgb,var(--surface)_85%,transparent)] p-4 ring-1 ring-[var(--line)] backdrop-blur">
+                <div className="flex items-center justify-between gap-3">
+                  <h3 id="timer-title" className="inline-flex items-center gap-2 text-base font-bold text-[var(--ink)]">
+                    <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4 text-[var(--accent-text)]" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z" /></svg>
+                    Sleep timer
+                  </h3>
+                  <b className="text-2xl font-extrabold tabular-nums tracking-tight text-[var(--ink)]">{timerLabel}</b>
+                </div>
+                <p className="text-[13px] text-[var(--ink-3)]">
+                  {mode.kind === "minutes"
+                    ? "The last stretch fades to silence. Add time up to three times a night."
+                    : mode.kind === "one-episode"
+                      ? "Fades at the end of this episode."
+                      : "Plays on until you end it."}
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* Only a timed night has a timer to stretch. Past the cap the
+                      offer is withdrawn rather than disabled: a greyed-out button
+                      is still an invitation to keep trying. */}
+                  {mode.kind === "minutes" && (
+                    canExtendMore ? (
+                      <button onClick={() => extendTimer(15)} className="rounded-full bg-[var(--raised)] px-4 py-2.5 text-sm font-semibold text-[var(--ink)]">+15 min</button>
+                    ) : (
+                      <p className="text-xs text-[var(--ink-3)]">It isn&apos;t the timer: no more time tonight.</p>
+                    )
+                  )}
+                  <button
+                    onPointerDown={holdEndStart}
+                    onPointerUp={holdEndCancel}
+                    onPointerLeave={holdEndCancel}
+                    // The same hold by keyboard: Space or Enter held down.
+                    onKeyDown={(e) => {
+                      if (e.key !== " " && e.key !== "Enter") return;
+                      e.preventDefault();
+                      if (!e.repeat) holdEndStart();
+                    }}
+                    onKeyUp={(e) => { if (e.key === " " || e.key === "Enter") holdEndCancel(); }}
+                    onBlur={holdEndCancel}
+                    onContextMenu={(e) => e.preventDefault()}
+                    className="relative flex-1 select-none touch-none overflow-hidden rounded-full bg-[var(--raised)] px-4 py-2.5 text-sm font-bold text-[var(--ink-2)]"
+                    aria-label="Hold to end the night"
+                    aria-describedby="hold-end-hint"
+                  >
+                    {holdPct > 0 ? "keep holding…" : "Hold to end the night"}
+                    <span aria-hidden="true" className="absolute inset-x-0 bottom-0 h-1 origin-left bg-[var(--accent-text)]" style={{ transform: `scaleX(${holdPct / 100})` }} />
+                  </button>
+                </div>
+                <p id="hold-end-hint" className="sr-only">Press and hold, or hold Space, for about a second.</p>
+              </section>
+
+              {/* Tonight's spread: the curated lineup, current episode marked,
+                  already-played ones settling back like turned pages. */}
+              {spread.length <= LINEUP_MAX && (
+                <section aria-labelledby="spread-title" className="rounded-2xl bg-[color-mix(in_srgb,var(--surface)_85%,transparent)] p-4 ring-1 ring-[var(--line)] backdrop-blur">
+                  <h3 id="spread-title" className="pb-3 text-base font-bold text-[var(--ink)]">Tonight&apos;s spread</h3>
+                  <ul className="-mx-2 space-y-0.5">
+                  {spread.map((ep) => {
+                    const isNow = nowPlaying?.id === ep.id;
+                    const wasPlayed = playedIds.has(ep.id) && !isNow;
+                    return (
+                      <li key={ep.id}>
+                      <button
+                        aria-current={isNow ? "true" : undefined}
+                        onClick={() => { if (!isNow) { restRef.current?.noteInteraction(); playEpisode(ep); } }}
+                        className={`grid w-full grid-cols-[40px_1fr_auto] items-center gap-3 rounded-xl px-2 py-1.5 text-left hover:bg-[var(--raised)] ${wasPlayed ? "opacity-50" : ""}`}
+                      >
+                        <NowArt src={artworkByFeedId[ep.feedId]} small />
+                        <span className="min-w-0">
+                          {(isNow || wasPlayed) && <span className="sr-only">{isNow ? "Now playing: " : "Played: "}</span>}
+                          <span className={`block truncate text-sm ${isNow ? "font-bold text-[var(--accent-text)]" : "font-semibold text-[var(--ink)]"}`}>{ep.title}</span>
+                          <span className="block truncate text-xs text-[var(--ink-3)]">{feedTitles[ep.feedId] ?? ep.feedId}</span>
+                        </span>
+                        <span aria-hidden="true" className="text-xs font-semibold text-[var(--ink-3)]">{isNow ? <span className="text-[var(--accent-text)]">Now</span> : wasPlayed ? "Played" : ""}</span>
+                      </button>
+                      </li>
+                    );
+                  })}
+                  </ul>
+                </section>
               )}
-              <p className="text-xs text-[var(--ink-3)]">
-                {mode.kind === "minutes"
-                  ? "The last stretch fades to silence. Add time up to three times a night."
-                  : mode.kind === "one-episode"
-                    ? "Fades at the end of this episode."
-                    : "Plays on until you end it."}
-              </p>
-              <button
-                onPointerDown={holdEndStart}
-                onPointerUp={holdEndCancel}
-                onPointerLeave={holdEndCancel}
-                // The same hold by keyboard: Space or Enter held down.
-                onKeyDown={(e) => {
-                  if (e.key !== " " && e.key !== "Enter") return;
-                  e.preventDefault();
-                  if (!e.repeat) holdEndStart();
-                }}
-                onKeyUp={(e) => { if (e.key === " " || e.key === "Enter") holdEndCancel(); }}
-                onBlur={holdEndCancel}
-                onContextMenu={(e) => e.preventDefault()}
-                className="relative w-full select-none touch-none overflow-hidden rounded-xl bg-[var(--raised)] py-3 text-sm font-bold text-[var(--ink-2)]"
-                aria-label="Hold to end the night"
-                aria-describedby="hold-end-hint"
-              >
-                {holdPct > 0 ? "keep holding…" : "Hold to end the night"}
-                <span aria-hidden="true" className="absolute inset-x-0 bottom-0 h-1 origin-left bg-[var(--accent-text)]" style={{ transform: `scaleX(${holdPct / 100})` }} />
-              </button>
-              <p id="hold-end-hint" className="sr-only">Press and hold, or hold Space, for about a second.</p>
             </div>
-
-            {/* Tonight's spread: the curated lineup, current episode marked,
-                already-played ones settling back like turned pages. */}
-            {pool.filter((e) => !blockedTonight.has(e.id)).length <= LINEUP_MAX && (
-              <div className="space-y-1.5 text-left">
-                <h2 id="spread-title" className="pb-1 text-[11px] font-bold uppercase tracking-widest text-[var(--ink-3)]">tonight&apos;s spread</h2>
-                <ul aria-labelledby="spread-title" className="space-y-1.5">
-                {pool.filter((e) => !blockedTonight.has(e.id)).map((ep) => {
-                  const isNow = nowPlaying?.id === ep.id;
-                  const wasPlayed = playedIds.has(ep.id) && !isNow;
-                  return (
-                    <li key={ep.id}>
-                    <button
-                      aria-current={isNow ? "true" : undefined}
-                      onClick={() => { if (!isNow) { restRef.current?.noteInteraction(); playEpisode(ep); } }}
-                      className={`flex w-full items-baseline gap-2 text-left text-sm leading-snug ${
-                        isNow ? "font-semibold text-[var(--ink)]" : wasPlayed ? "text-[var(--ink-4)]" : "text-[var(--ink-2)]"
-                      }`}
-                    >
-                      <span aria-hidden="true" className="w-3 shrink-0 text-xs">{isNow ? "♪" : wasPlayed ? "·" : ""}</span>
-                      {(isNow || wasPlayed) && <span className="sr-only">{isNow ? "Now playing: " : "Played: "}</span>}
-                      <span className="line-clamp-1 flex-1">{ep.title}</span>
-                      <span className="shrink-0 text-[10px] text-[var(--ink-4)]">{feedTitles[ep.feedId] ?? ep.feedId}</span>
-                    </button>
-                    </li>
-                  );
-                })}
-                </ul>
-              </div>
-            )}
           </div>
         </div>
       )}
