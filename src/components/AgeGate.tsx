@@ -42,7 +42,7 @@ export function AgeGate({ children }: { children: ReactNode }) {
           <div className="space-y-2">
             <h1 className="text-2xl font-extrabold tracking-tight text-[var(--ink)]">When were you born?</h1>
             <p className="text-[15px] leading-relaxed text-[var(--ink-2)]">
-              Sleepcast is for people {MIN_AGE} and older. Only whether you&apos;re old enough is kept, on this device.
+              Sleepcast is for people over {MIN_AGE}.
             </p>
           </div>
           <div className="grid grid-cols-[3fr_2fr] gap-3">
