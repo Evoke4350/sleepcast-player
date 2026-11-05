@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLazyRef } from "../lib/use-lazy-ref";
 import { useNightShuffle } from "../lib/use-night-shuffle";
 import { useStateRef } from "../lib/use-state-ref";
@@ -6,7 +6,6 @@ import { useNightExtensions } from "../lib/use-night-extensions";
 
 import type { Episode, PlayMode } from "../lib/engine";
 import { fadeVolume, formatTime, effectiveVolume, fadeDriverSeconds } from "../lib/engine";
-import { loadVolume, saveVolume, volumeIsSettable, VOLUME_MIN } from "../lib/volume";
 import { getPlays, recordHeardPlay, saveLive, noteSounded, SNAPSHOT_EVERY_TICKS, counterAfterStartSnapshot, rememberPosition, forgetPosition, blockEpisode } from "../lib/store";
 import { NetworkHold, isOffline } from "../lib/network-hold";
 import { SeekEnforcer, type SeekHooks } from "../lib/seek-enforcer";
@@ -122,14 +121,6 @@ function PlayIcon({ big = false }: { big?: boolean }) {
 function PauseIcon({ big = false }: { big?: boolean }) {
   return <svg viewBox="0 0 24 24" fill="currentColor" className={big ? "h-7 w-7" : "h-4 w-4"} aria-hidden="true"><path d="M7 5h4v14H7zM13 5h4v14h-4z" /></svg>;
 }
-function SpeakerIcon({ loud = false }: { loud?: boolean }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5 shrink-0" aria-hidden="true">
-      <path d="M4 9h3l5-4v14l-5-4H4z" fill="currentColor" />
-      {loud ? <path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13" /> : <path d="M15.5 10a2.5 2.5 0 0 1 0 4" />}
-    </svg>
-  );
-}
 /** The playing show's artwork, or a quiet square while there is none. */
 function NowArt({ src, big = false }: { src?: string; big?: boolean }) {
   const [broken, setBroken] = useState(false);
@@ -226,11 +217,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, saveAhead
   const stopFadeRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const currentFeedRef = useRef<string | null>(null);
   const feedTrimRef = useRef<Record<string, number>>(feedTrim);
-  // The listener's volume (lib/volume), and the fade driver tick() last used,
-  // so a move of the slider is heard at once rather than on the next tick.
-  const [volume, volumeRef, setVolume] = useStateRef(loadVolume());
-  const [canSetVolume] = useState(volumeIsSettable);
-  const lastDriverRef = useRef(Infinity);
   const levelerRef = useRef<Leveler | null>(null);
   // Whether the compressor has captured the element. Per-mount, unlike the
   // CORS sets: the AudioContext it guards doesn't survive a mount either.
@@ -877,12 +863,11 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, saveAhead
     // tick() would reassign full volume from the mode driver (Infinity in
     // all-night) on every pass, fighting the fade back up and producing
     // audible stabs on the way out.
-    lastDriverRef.current = driver;
     if (stopFadeRef.current === null) {
       // effectiveVolume with no fade underway (driver Infinity) is the feed's
       // trim alone. A hard 1 here played turned-down feeds at full volume in
       // all-night mode (and one-episode, before the duration was known).
-      audio.volume = effectiveVolume(driver, FADE_SECONDS, feedTrimRef.current[currentFeedRef.current ?? ""] ?? 1.0, volumeRef.current);
+      audio.volume = effectiveVolume(driver, FADE_SECONDS, feedTrimRef.current[currentFeedRef.current ?? ""] ?? 1.0);
     }
     setCountdown(kind === "minutes" ? remaining : 0);
     setEpPos((prev) => barPosition(prev, span));
@@ -1371,8 +1356,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, saveAhead
               audio.volume = effectiveVolume(
                 left / 1000,
                 5,
-                feedTrimRef.current[currentFeedRef.current ?? ""] ?? 1.0,
-                volumeRef.current
+                feedTrimRef.current[currentFeedRef.current ?? ""] ?? 1.0
               );
             }, 100);
           } else {
@@ -1459,17 +1443,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, saveAhead
   // Opening or closing the player is a touch like any other.
   const expandPlayer = () => { restRef.current?.noteInteraction(); onExpand(); };
   const collapsePlayer = () => { restRef.current?.noteInteraction(); onCollapse(); };
-
-  function changeVolume(level: number) {
-    restRef.current?.noteInteraction();
-    setVolume(level);
-    saveVolume(level);
-    const audio = audioRef.current;
-    // The courtesy fade picks the new level up on its own next step.
-    if (audio && stopFadeRef.current === null) {
-      audio.volume = effectiveVolume(lastDriverRef.current, FADE_SECONDS, feedTrimRef.current[currentFeedRef.current ?? ""] ?? 1.0, level);
-    }
-  }
 
   function dismissGettingUp() {
     restRef.current?.noteInteraction();
@@ -1591,30 +1564,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, leveling, saveAhead
                   used to be the only way to escape one jarring episode. */}
               <button onClick={handleBlock} className="rounded-full bg-[var(--raised)] px-4 py-2 font-semibold text-[var(--ink-2)]">Never again</button>
             </div>
-            {/* Only where the browser lets a page set it: on a phone that
-                keeps the volume under its side buttons, a slider would move
-                and change nothing. */}
-            {canSetVolume ? (
-              <div className="flex items-center gap-3 text-[var(--ink-3)]">
-                <SpeakerIcon />
-                <input
-                  id="player-volume"
-                  type="range"
-                  min={VOLUME_MIN}
-                  max={1}
-                  step={0.05}
-                  value={volume}
-                  onChange={(e) => changeVolume(Number(e.target.value))}
-                  aria-label="Volume"
-                  aria-valuetext={`${Math.round(volume * 100)}%`}
-                  className="volume-slider flex-1"
-                  style={{ "--fill": `${((volume - VOLUME_MIN) / (1 - VOLUME_MIN)) * 100}%` } as CSSProperties}
-                />
-                <SpeakerIcon loud />
-              </div>
-            ) : (
-              <p className="text-center text-xs text-[var(--ink-3)]">Use your phone&apos;s side buttons for the volume.</p>
-            )}
             <div aria-hidden="true" className="min-h-4 text-center text-xs text-[var(--ink-3)]">
               {toast && <span className="player-toast inline-block">{toast}</span>}
             </div>

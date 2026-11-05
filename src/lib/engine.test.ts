@@ -69,12 +69,6 @@ describe("effectiveVolume", () => {
     expect(effectiveVolume(0, 60, 1.5)).toBe(0);
     expect(effectiveVolume(-5, 60, 1.2)).toBe(0);
   });
-  it("scales by the listener's volume, under the clamp", () => {
-    expect(effectiveVolume(120, 60, 1.0, 0.4)).toBeCloseTo(0.4);
-    expect(effectiveVolume(30, 60, 1.0, 0.4)).toBeCloseTo(0.2);
-    // A turned-up feed is heard turned up at a lower volume, not lost to the clamp.
-    expect(effectiveVolume(120, 60, 1.5, 0.5)).toBeCloseTo(0.75);
-  });
 });
 
 describe("rearmMinutes", () => {
