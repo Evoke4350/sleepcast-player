@@ -330,27 +330,37 @@ export function AppPlayer() {
 
   return (
     <main className={`flex-1 px-4 pt-8 text-[var(--ink-2)] md:pt-24 ${session ? "pb-44 md:pb-32" : "pb-28 md:pb-16"}`}>
-      <div className={`mx-auto max-w-xl ${tab === "sleep" ? "" : "lg:max-w-5xl"}`} inert={Boolean(session) && expanded} onPointerDownCapture={() => noteActivityRef.current?.()}>
+      <div className="mx-auto max-w-xl lg:max-w-5xl" inert={Boolean(session) && expanded} onPointerDownCapture={() => noteActivityRef.current?.()}>
         {tab === "sleep" && (<>
         {live && (
-          <div className="mb-6 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4">
-            <p className="text-center text-[0.7rem] uppercase tracking-widest text-[var(--ink-4)]">still playing from before</p>
-            <p className="mt-1.5 truncate text-center text-sm text-[var(--ink)]">{live.current.title}</p>
-            <p className="mt-0.5 text-center text-xs text-[var(--ink-3)]">
-              {formatTime(live.position)} in · {live.modeKind === "all-night" ? "playing all night" : live.modeKind === "one-episode" ? "to the end of this one" : `${Math.round(live.remainingMs / 60_000)} min left on the timer`}
-            </p>
-            <button
-              onClick={handleResume}
-              className="mt-3 w-full rounded-lg border border-[var(--ink-4)] bg-[var(--surface)] py-2.5 text-sm font-medium text-[var(--ink)] transition-transform hover:border-[var(--ink-3)] active:scale-95"
-            >
-              ▶ keep going
-            </button>
-            <button
-              onClick={() => recordStoredNight(false)}
-              className="mt-2 block w-full text-center text-xs text-[var(--ink-4)] underline decoration-[var(--line)] underline-offset-4 transition-colors hover:text-[var(--ink-3)]"
-            >
-              or start fresh
-            </button>
+          <div className="mb-6 rounded-2xl bg-[var(--surface)] p-4 ring-1 ring-[var(--line)]">
+            <div className="flex items-center gap-3.5">
+              {live.artworkByFeedId?.[live.current.feedId] && (
+                <img src={live.artworkByFeedId[live.current.feedId]} alt="" className="h-16 w-16 shrink-0 rounded-lg bg-[var(--raised)] object-cover" />
+              )}
+              <div className="min-w-0 space-y-0.5">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-[var(--accent-text)]">Still playing from before</p>
+                <p className="line-clamp-2 font-semibold leading-snug text-[var(--ink)]">{live.current.title}</p>
+                <p className="text-xs text-[var(--ink-3)]">
+                  {formatTime(live.position)} in · {live.modeKind === "all-night" ? "playing all night" : live.modeKind === "one-episode" ? "to the end of this one" : `${Math.round(live.remainingMs / 60_000)} min left on the timer`}
+                </p>
+              </div>
+            </div>
+            <div className="mt-3.5 flex items-center gap-4">
+              <button
+                onClick={handleResume}
+                className="inline-flex items-center gap-2 rounded-full bg-[var(--accent)] px-5 py-2.5 text-sm font-bold text-[var(--accent-ink)] transition-transform active:scale-95"
+              >
+                <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.6-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z" /></svg>
+                Keep going
+              </button>
+              <button
+                onClick={() => recordStoredNight(false)}
+                className="text-sm font-semibold text-[var(--ink-3)] underline decoration-[var(--line)] underline-offset-4 transition-colors hover:text-[var(--ink-2)]"
+              >
+                Start fresh
+              </button>
+            </div>
           </div>
         )}
         {goodbye && (
