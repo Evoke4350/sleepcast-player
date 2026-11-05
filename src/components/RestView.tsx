@@ -15,6 +15,18 @@ import { getPlays, loadState } from "../lib/store";
 import { backupReminder, keepStorage, snoozeBackupReminder } from "../lib/keep";
 import { downloadBackup } from "../lib/backup";
 import { playsSince, playAtMoment } from "../lib/plays";
+import { localCover } from "../lib/covers";
+import { ShowArt } from "./Shows";
+import type { FeedRef } from "../lib/store";
+
+/** The Rest tab's chips: everything, or one part of it. */
+type RestFilter = "all" | "nights" | "shows" | "insights";
+const FILTERS: { key: RestFilter; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "nights", label: "Nights" },
+  { key: "shows", label: "Shows" },
+  { key: "insights", label: "Insights" },
+];
 
 /** `onClose` when shown as its own screen; in the Rest tab there is none,
  *  and a label just redraws the view. */
@@ -67,9 +79,10 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
   // setup builds no lineup from a removed or switched-off one. A 3am
   // re-anchor carries the faded night's lineup, so a feed switched off since
   // can still lean that one night, unlisted.)
-  const { feedTitles, enabledFeeds, favorWhatWorks, learnTimer, feeds } = useMemo(() => {
+  const { feedTitles, enabledFeeds, favorWhatWorks, learnTimer, feeds, feedRefs } = useMemo(() => {
     const s = loadState();
     return {
+      feedRefs: Object.fromEntries(s.feeds.map((f) => [f.id, f])) as Record<string, FeedRef>,
       feeds: s.feeds.map((f) => ({ id: f.id, title: f.title, enabled: f.enabled })),
       feedTitles: Object.fromEntries(s.feeds.map((f) => [f.id, f.title])),
       enabledFeeds: new Set(s.feeds.filter((f) => f.enabled).map((f) => f.id)),
@@ -112,37 +125,46 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
   );
 
   // Shared row markup so the two groups below (counted / not-yet-counted)
-  // can never drift apart in what they show per feed.
-  function feedRow(f: (typeof scored)[number]) {
+  // can never drift apart in what they show per feed. Counted shows carry
+  // their rank, as a chart would.
+  function feedRow(f: (typeof scored)[number], rank: number | null) {
     const median = medianTimeToSleep(nights, f.feedId);
     const lean = enabledFeeds.has(f.feedId) ? leanOf?.(f.feedId) : undefined;
+    const ref = feedRefs[f.feedId];
     return (
-      <li key={f.feedId} className="flex flex-wrap items-baseline gap-x-2 text-sm">
-        <span className="flex-1 truncate text-[var(--ink-2)]">
+      <li key={f.feedId} className="grid grid-cols-[1.25rem_44px_minmax(0,1fr)] items-center gap-3">
+        <span className="text-center text-base font-extrabold tabular-nums text-[var(--ink-3)]">{rank ?? "·"}</span>
+        <span className="w-11">
+          {ref
+            ? <ShowArt feed={ref} artwork={localCover(ref)} label={false} className="rounded-md" />
+            : <span aria-hidden="true" className="block aspect-square w-full rounded-md bg-[var(--raised)]" />}
+        </span>
+        <span className="min-w-0">
           {/* Raw ids for builtins ("swm") are readable enough to ship;
               a removed custom feed's id ("custom-1699999999-ab3f2")
               is not, so a title-less feed gets a plain label instead
               of leaking that internal id into the UI. */}
-          {feedTitles[f.feedId] ?? "a show you removed"}
-        </span>
-        <span className="shrink-0 text-xs text-[var(--ink-3)]">
-          {/* Worded as the evidence sentence words it, so the two can be checked against each other. */}
-          {orDash(median, fmtOnsetMinutes)}
-        </span>
-        <span className="shrink-0 text-[10px] text-[var(--ink-4)]">
-          {pluralNights(f.nights)}
-          {f.skipNights > 0 ? ` · ${f.skipNights} skipped` : ""}
-        </span>
-        {/* On its own line, so the title keeps its room at phone width.
-            Relative: the shuffle weighs a night's lineup against itself. */}
-        {lean !== undefined && (lean !== 1 || proven.has(f.feedId)) && (
-          <span className="w-full text-right text-[10px] text-[var(--ink-4)]">
-            {[`weighs ×${lean.toFixed(2)}`, proven.has(f.feedId) ? `${proven.get(f.feedId)} an experiment` : ""].filter(Boolean).join(" · ")}
+          <span className="block truncate text-[15px] font-semibold text-[var(--ink)]">{feedTitles[f.feedId] ?? "a show you removed"}</span>
+          <span className="block truncate text-xs text-[var(--ink-3)]">
+            {/* Worded as the evidence sentence words it, so the two can be checked against each other. */}
+            {[median !== null ? `${fmtOnsetMinutes(median)} to sleep` : null, pluralNights(f.nights), f.skipNights > 0 ? `${f.skipNights} skipped` : null].filter(Boolean).join(" · ")}
           </span>
-        )}
+          {/* Relative: the shuffle weighs a night's lineup against itself. */}
+          {lean !== undefined && (lean !== 1 || proven.has(f.feedId)) && (
+            <span className="mt-1 inline-block rounded-full bg-[var(--raised)] px-2 py-0.5 text-[10px] font-semibold text-[var(--ink-2)]">
+              {[`weighs ×${lean.toFixed(2)}`, proven.has(f.feedId) ? `${proven.get(f.feedId)} an experiment` : ""].filter(Boolean).join(" · ")}
+            </span>
+          )}
+        </span>
       </li>
     );
   }
+
+  // Time to sleep, night by night, for the headline's little chart.
+  const recent = nights.filter((n) => n.timeToSleepMs !== null).slice(-14);
+  const recentMax = Math.max(1, ...recent.map((n) => n.timeToSleepMs!));
+  const [filter, setFilter] = useState<RestFilter>("all");
+  const show = (k: Exclude<RestFilter, "all">) => filter === "all" || filter === k;
 
   function label(kind: "slept" | "awake") {
     if (!last) return;
@@ -159,11 +181,6 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
     <div className="space-y-4 pb-8 text-[var(--ink-3)]">
       <header className="space-y-1">
         <h1 className="text-3xl font-extrabold tracking-tight text-[var(--ink)]">Rest</h1>
-        {r.nights > 0 && (
-          <p className="text-sm text-[var(--ink-3)]">
-            {`${pluralNights(r.nights)} since ${new Date(nights[0].startedAt).toLocaleDateString([], { month: "short", day: "numeric" })}${watched.length ? `, ${watched.length} from your watch` : ""}`}
-          </p>
-        )}
       </header>
 
       <p role="status" className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4 text-[13px] text-[var(--ink-2)] empty:hidden">{note ?? ""}</p>
@@ -212,24 +229,82 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
       )}
       </div>
 
-      {/* The headline figures, first on every screen. */}
-      <div className="grid grid-cols-3 gap-2.5 lg:gap-4">
-        <Figure tint="var(--stage-core)" value={r.medianTimeToSleepMs !== null ? fmtDuration(r.medianTimeToSleepMs) : "—"} label="Usual time to sleep" how="The middle of the nights it timed" />
-        <Figure tint="var(--stage-rem)" value={r.bestTimeToSleepMs !== null ? fmtDuration(r.bestTimeToSleepMs) : "—"} label="Fastest" how="Your quickest night so far" />
-        <Figure tint="var(--accent)" value={String(r.nightsSlept)} unit={r.nights ? `/ ${r.nights}` : ""} label="Nights you drifted off" how="Nights it saw you go quiet" />
-      </div>
+      {/* The headline, first on every screen: how long you usually take,
+          under the night sky, with the nights behind it. */}
+      <section aria-labelledby="rest-headline" className="sleep-sky overflow-hidden rounded-3xl p-5 ring-1 ring-[var(--line)] lg:p-7">
+        <div className="lg:flex lg:items-end lg:justify-between lg:gap-10">
+          <div className="space-y-1">
+            <h2 id="rest-headline" className="text-sm font-semibold text-[var(--ink-2)]">Usual time to sleep</h2>
+            <p className="text-6xl font-extrabold tabular-nums leading-none tracking-tight text-[var(--ink)] lg:text-7xl">
+              {r.medianTimeToSleepMs !== null ? fmtDuration(r.medianTimeToSleepMs) : "—"}
+            </p>
+            <p className="text-[13px] text-[var(--ink-2)]">
+              {r.nights > 0
+                ? `The middle of the nights it timed. ${pluralNights(r.nights)} since ${new Date(nights[0].startedAt).toLocaleDateString([], { month: "short", day: "numeric" })}${watched.length ? `, ${watched.length} from your watch` : ""}.`
+                : "The middle of the nights it timed. None yet."}
+            </p>
+          </div>
+          {recent.length >= 3 && (
+            <figure className="mt-5 lg:mt-0 lg:w-80">
+              <div className="flex h-16 items-end gap-1" role="img" aria-label={`Time to sleep, your last ${recent.length} timed nights: ${recent.map((n) => fmtDuration(n.timeToSleepMs!)).join(", ")}`}>
+                {recent.map((n, i) => (
+                  <span
+                    key={n.startedAt}
+                    className="flex-1 rounded-t-[3px] bg-[var(--accent)]"
+                    style={{ height: `${Math.max(6, (n.timeToSleepMs! / recentMax) * 100)}%`, opacity: i === recent.length - 1 ? 1 : 0.55 }}
+                  />
+                ))}
+              </div>
+              <figcaption className="mt-1.5 flex justify-between text-[11px] text-[var(--ink-3)]">
+                <span>Last {recent.length} timed nights</span>
+                <span>Latest</span>
+              </figcaption>
+            </figure>
+          )}
+        </div>
+        <dl className="mt-5 grid grid-cols-2 gap-4 border-t border-[var(--line)] pt-4">
+          <div>
+            <dt className="text-xs font-semibold text-[var(--ink-3)]">Fastest</dt>
+            <dd className="text-2xl font-extrabold tabular-nums tracking-tight text-[var(--ink)]">{r.bestTimeToSleepMs !== null ? fmtDuration(r.bestTimeToSleepMs) : "—"}</dd>
+            <dd className="text-[11px] text-[var(--ink-3)]">Your quickest night so far</dd>
+          </div>
+          <div>
+            <dt className="text-xs font-semibold text-[var(--ink-3)]">Nights you drifted off</dt>
+            <dd className="text-2xl font-extrabold tabular-nums tracking-tight text-[var(--ink)]">
+              {r.nightsSlept}{r.nights ? <small className="ml-1 text-sm font-semibold text-[var(--ink-3)]">/ {r.nights}</small> : null}
+            </dd>
+            <dd className="text-[11px] text-[var(--ink-3)]">Nights it saw you go quiet</dd>
+          </div>
+        </dl>
+      </section>
 
-      <div className="space-y-4 lg:grid lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start lg:gap-6 lg:space-y-0">
+      {/* Chips, as in Podcasts: the whole tab, or one part of it. */}
+      {nights.length > 0 && (
+        <div role="group" aria-label="Show" className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 md:mx-0 md:px-0">
+          {FILTERS.map((f) => (
+            <button
+              key={f.key}
+              onClick={() => setFilter(f.key)}
+              aria-pressed={filter === f.key}
+              className={`shrink-0 rounded-full px-4 py-1.5 text-sm font-semibold ${filter === f.key ? "bg-[var(--accent)] text-[var(--accent-ink)]" : "bg-[var(--raised)] text-[var(--ink)]"}`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className={filter === "all" ? "space-y-4 lg:grid lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start lg:gap-6 lg:space-y-0" : "mx-auto max-w-3xl space-y-4"}>
       <div className="space-y-4 empty:hidden">
       {/* The watch measured last night: nothing to ask, only to show. With
           its stages kept, the chart says it, for any night the watch saw. */}
       {watched.length > 0 ? (
         <>
-          <NightChart key={imports} nights={watched} feedTitles={feedTitles} />
-          <NightsTrend nights={watched} feedTitles={feedTitles} />
-          <WakeAudit nights={watched} />
+          {show("nights") && <NightChart key={imports} nights={watched} feedTitles={feedTitles} />}
+          {show("nights") && <NightsTrend nights={watched} feedTitles={feedTitles} />}
+          {show("insights") && <WakeAudit nights={watched} />}
         </>
-      ) : nights.length > 0 && (
+      ) : nights.length > 0 && show("nights") && (
         // Nothing to chart yet: say why, and take the watch's sleep here.
         <section aria-labelledby="chart-empty-title" className="space-y-2.5 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
           <h2 id="chart-empty-title" className="text-lg font-bold tracking-tight text-[var(--ink)]">Your nights, charted</h2>
@@ -253,23 +328,21 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
       {/* Beside the charts on a wide screen, under them on a phone: what
           puts you under first. */}
       <div className="flex flex-col gap-4">
-      {scored.length > 0 && (
+      {scored.length > 0 && show("shows") && (
         <section className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
           <h2 className="text-lg font-bold tracking-tight text-[var(--ink)]">What puts you under</h2>
           {/* counted first, so this list never names a different leader than
               the suggestion card just did — same predicate, same order. */}
           {counted.length > 0 && (
-            <ul className="mt-2 space-y-1.5">{counted.map(feedRow)}</ul>
+            <ul className="mt-3 space-y-3">{counted.map((f, i) => feedRow(f, i + 1))}</ul>
           )}
           {notYetCounted.length > 0 && (
             <div className={counted.length > 0 ? "mt-4" : "mt-2"}>
-              <p className="text-[10px] uppercase tracking-widest text-[var(--ink-4)]">
-                not counted for the suggestion yet
-              </p>
-              <ul className="mt-2 space-y-1.5">{notYetCounted.map(feedRow)}</ul>
+              <p className="text-xs font-semibold text-[var(--ink-3)]">Not counted for the suggestion yet</p>
+              <ul className="mt-3 space-y-3">{notYetCounted.map((f) => feedRow(f, null))}</ul>
             </div>
           )}
-          <p className="mt-2 text-[11px] leading-snug text-[var(--ink-4)]">
+          <p className="mt-4 text-[11px] leading-snug text-[var(--ink-3)]">
             {`Ranked by what was playing when you went under. Shows with fewer than ${MIN_NIGHTS} nights, that have never led, or that net negative aren't counted yet.`}
             {favorWhatWorks
               ? ` "Favour what puts me under" is on: a show with ${MIN_NIGHTS} or more nights, counted or not, weighs by its record against the other shows in a night's lineup; a show with fewer nights weighs ×1, and shows that weigh the same lean nothing between them. A weight applies to each fresh episode, so a show with more of them still comes up more. A show that won an experiment weighs ×${WEIGHT_MAX.toFixed(2)}, the most a show can, and the show it beat no more than ×1, whatever their records: an experiment's nights were given at random, so it's the better evidence. Weights other than ×1 are listed for shows that are switched on.`
@@ -277,10 +350,10 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
           </p>
         </section>
       )}
-      <RestedLinks nights={nights} />
-      {nights.length > 0 && <Experiments nights={nights} feeds={feeds} favoring={favorWhatWorks} learning={learnTimer} />}
+      {show("insights") && <RestedLinks nights={nights} />}
+      {nights.length > 0 && show("shows") && <Experiments nights={nights} feeds={feeds} favoring={favorWhatWorks} learning={learnTimer} />}
       {/* The guess for nights without the watch, tuned on nights with it. */}
-      {accuracy && (
+      {accuracy && show("insights") && (
         <section aria-labelledby="guess-title" className="space-y-1.5 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
           <h2 id="guess-title" className="text-lg font-bold tracking-tight text-[var(--ink)]">Sleepcast&apos;s own guess</h2>
           <p className="text-[13px] text-[var(--ink-2)]">
@@ -295,7 +368,7 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
           </p>
         </section>
       )}
-      {last && last.detector === "hr" && !last.watchSleep && (
+      {last && last.detector === "hr" && !last.watchSleep && show("nights") && (
         <div className="space-y-1.5 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
           <h2 className="text-lg font-bold tracking-tight text-[var(--ink)]">Last night, from your watch</h2>
           <p className="text-[13px] text-[var(--ink-2)]">
@@ -309,7 +382,7 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
         </div>
       )}
 
-      {last && last.sleptAtMs !== null && last.selfLabel === undefined && last.detector !== "hr" && (
+      {last && last.sleptAtMs !== null && last.selfLabel === undefined && last.detector !== "hr" && show("nights") && (
         <div className="space-y-2.5 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
           <h2 className="text-lg font-bold tracking-tight text-[var(--ink)]">Did you fall asleep to it last night?</h2>
           <p className="text-[13px]">Sleepcast guesses from when you stopped touching the screen.</p>
@@ -322,7 +395,7 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
       )}
 
 
-      {lastPlays.length > 0 && (
+      {lastPlays.length > 0 && show("nights") && (
         <div className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
           <h2 className="text-lg font-bold tracking-tight text-[var(--ink)]">What played last night</h2>
           <ul className="mt-3 space-y-2 text-sm">
@@ -345,7 +418,7 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
       {/* Outside the scored section: timed nights stay comparable even when
           no feed has scored nights (slept nights with no feed attributed). */}
       {/* The headline's measure split by lean, so formatted like it (fmtDuration). */}
-      {compared && (
+      {compared && show("shows") && (
         <p className="text-[11px] leading-snug text-[var(--ink-3)]">
           {`How long you usually take: ${orDash(compared.leaned.medianMs, fmtDuration)} on nights the shuffle leaned (${pluralNights(compared.leaned.timedNights, "timed")}), ${orDash(compared.plain.medianMs, fmtDuration)} on plain-shuffle nights (${pluralNights(compared.plain.timedNights, "timed")}). A rough guide: the two differ in more than the lean (which shows, which weeks).`}
         </p>
@@ -357,24 +430,6 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
         rooting for the nights you don't need us.
       </p>
       {onClose && <button onClick={onClose} className="text-xs underline decoration-[var(--line)] underline-offset-4 hover:text-[var(--ink-2)]">back</button>}
-    </div>
-  );
-}
-
-/** One figure on the Rest tab, with how it's worked out, on a tile tinted
- *  with `tint` (a theme token, so it holds in both themes). */
-function Figure({ value, unit = "", label, how, tint }: { value: string; unit?: string; label: string; how: string; tint: string }) {
-  return (
-    <div
-      className="grid content-start gap-1 rounded-2xl p-3.5 lg:p-5"
-      style={{ background: `color-mix(in srgb, ${tint} 16%, var(--surface))` }}
-    >
-      <span className="text-2xl font-extrabold tabular-nums leading-none tracking-tight text-[var(--ink)] lg:text-4xl">
-        {value}
-        {unit && <small className="ml-1 text-sm font-semibold text-[var(--ink-3)]">{unit}</small>}
-      </span>
-      <span className="text-[13px] font-semibold leading-tight text-[var(--ink-2)]">{label}</span>
-      <span className="text-[11px] leading-snug text-[var(--ink-3)]">{how}</span>
     </div>
   );
 }
