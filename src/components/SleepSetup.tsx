@@ -146,7 +146,7 @@ function Pill({ on, onClick, label, children }: { on: boolean; onClick: () => vo
       aria-pressed={on}
       aria-label={label}
       className={`rounded-full px-3.5 py-2 text-sm font-semibold transition-colors ${
-        on ? "bg-[var(--accent)] text-[var(--accent-ink)]" : "bg-[var(--raised)] text-[var(--ink-2)] hover:text-[var(--ink)]"
+        on ? "bg-[var(--accent)] text-[var(--accent-ink)]" : "bg-[color-mix(in_srgb,var(--surface)_65%,transparent)] text-[var(--ink)] ring-1 ring-[var(--line)] hover:bg-[var(--surface)]"
       }`}
     >
       {children}
@@ -789,21 +789,12 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
           const lastFeed = lastEpisode ? appState.feeds.find((f) => f.id === lastEpisode.feedId) : undefined;
           const showRearm = Boolean(rearmable && !goldenPending);
           const showSuggestion = Boolean(suggestion && !experimentTonight);
-          const hasCards = Boolean(lastEpisode || greetNight || feedError || showRearm || showSuggestion || experimentTonight);
+          const hasCards = Boolean(lastEpisode || feedError || showRearm || showSuggestion || experimentTonight);
           const cardClass = "rounded-2xl bg-[var(--surface)] p-4 ring-1 ring-[var(--line)]";
           const eyebrow = "text-[11px] font-bold uppercase tracking-wider text-[var(--accent-text)]";
 
           const cards = (
             <div className="space-y-3">
-              {greetNight && (
-                <div className={`${cardClass} flex items-center justify-between gap-3`}>
-                  <p className="font-semibold text-[var(--ink)]">Did you sleep well?</p>
-                  <span className="flex gap-2">
-                    <button onClick={() => handleSleepLabel("slept")} className="rounded-full bg-[var(--raised)] px-4 py-1.5 text-sm font-semibold text-[var(--ink)] hover:bg-[var(--accent)] hover:text-[var(--accent-ink)]">Yes</button>
-                    <button onClick={() => handleSleepLabel("awake")} className="rounded-full bg-[var(--raised)] px-4 py-1.5 text-sm font-semibold text-[var(--ink)] hover:bg-[var(--line)]">No</button>
-                  </span>
-                </div>
-              )}
 
               {lastEpisode && (
                 <div className={cardClass}>
@@ -904,58 +895,57 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
 
           return (
         <div className="space-y-6 pb-4">
-          <header className="space-y-2">
+          <header className="space-y-1">
             <h1 className="text-3xl font-extrabold tracking-tight text-[var(--ink)]">{greeting}</h1>
-            <div className="flex items-center gap-2.5">
-              {enabledFeeds.length > 0 && (
-                <span className="flex -space-x-2" aria-hidden="true">
-                  {enabledFeeds.slice(0, 4).map((f) => (
-                    <span key={f.id} className="w-7 rounded-md ring-2 ring-[var(--ground)]"><ShowArt feed={f} artwork={artOf(f.id)} label={false} className="rounded-md" /></span>
-                  ))}
-                </span>
-              )}
-              <p className="text-sm text-[var(--ink-3)]">
-                {pool.length > 0 ? `${poolNote} from ${poolShows} ${poolShows === 1 ? "show" : "shows"}` : poolNote}
-              </p>
-            </div>
+            <p className="text-sm text-[var(--ink-3)]">
+              {pool.length > 0 ? `${poolNote} from ${poolShows} ${poolShows === 1 ? "show" : "shows"}` : poolNote}
+            </p>
           </header>
 
-          <div className={hasCards ? "space-y-6 lg:grid lg:grid-cols-[minmax(0,1fr)_380px] lg:items-start lg:gap-8 lg:space-y-0" : "space-y-6"}>
-            {hasCards && <div className="lg:order-last">{cards}</div>}
+          {/* A yes or no, so it may sit above the moon. */}
+          {greetNight && (
+            <div className={`${cardClass} flex items-center justify-between gap-3`}>
+              <p className="font-semibold text-[var(--ink)]">Did you sleep well?</p>
+              <span className="flex gap-2">
+                <button onClick={() => handleSleepLabel("slept")} className="rounded-full bg-[var(--raised)] px-4 py-1.5 text-sm font-semibold text-[var(--ink)] hover:bg-[var(--accent)] hover:text-[var(--accent-ink)]">Yes</button>
+                <button onClick={() => handleSleepLabel("awake")} className="rounded-full bg-[var(--raised)] px-4 py-1.5 text-sm font-semibold text-[var(--ink)] hover:bg-[var(--line)]">No</button>
+              </span>
+            </div>
+          )}
 
-            <div className="space-y-6">
-              {/* The moon IS the button: the same moon the Player veils the
-                  countdown behind, so the object you tap to fall asleep is the
-                  object holding the time you're not allowed to see. */}
-              <section className="sleep-sky flex flex-col items-center gap-1 overflow-hidden rounded-3xl px-4 pb-7 pt-8 ring-1 ring-[var(--line)] lg:pb-10 lg:pt-12">
-                <button
-                  onClick={handleGolden}
-                  disabled={goldenPending}
-                  aria-label="sleep"
-                  className="group relative grid h-48 w-48 place-items-center rounded-full disabled:cursor-wait lg:h-56 lg:w-56"
+          <div className={hasCards || enabledFeeds.length > 0 ? "space-y-6 lg:grid lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start lg:gap-8 lg:space-y-0" : "space-y-6"}>
+            {/* The moon IS the button: the same moon the Player veils the
+                countdown behind, so the object you tap to fall asleep is the
+                object holding the time you're not allowed to see. */}
+            <section className="sleep-sky flex flex-col items-center gap-1 overflow-hidden rounded-3xl px-4 pb-6 pt-8 ring-1 ring-[var(--line)] lg:px-8 lg:pt-12">
+              <button
+                onClick={handleGolden}
+                disabled={goldenPending}
+                aria-label="sleep"
+                className="group relative grid h-48 w-48 place-items-center rounded-full disabled:cursor-wait lg:h-56 lg:w-56"
+              >
+                <span
+                  aria-hidden="true"
+                  className="setup-moon-glow pointer-events-none absolute -inset-8 rounded-full [background:radial-gradient(circle,rgba(240,220,184,0.16)_0%,rgba(240,220,184,0)_68%)]"
+                />
+                <span
+                  aria-hidden="true"
+                  className="setup-moon select-none text-[7.5rem] leading-none text-[var(--accent)] [text-shadow:0_0_60px_rgba(240,220,184,0.35)] transition-transform group-active:scale-95 lg:text-[8.5rem]"
                 >
-                  <span
-                    aria-hidden="true"
-                    className="setup-moon-glow pointer-events-none absolute -inset-8 rounded-full [background:radial-gradient(circle,rgba(240,220,184,0.16)_0%,rgba(240,220,184,0)_68%)]"
-                  />
-                  <span
-                    aria-hidden="true"
-                    className="setup-moon select-none text-[7.5rem] leading-none text-[var(--accent)] [text-shadow:0_0_60px_rgba(240,220,184,0.35)] transition-transform group-active:scale-95 lg:text-[8.5rem]"
-                  >
-                    ☾
-                  </span>
-                </button>
-                <p role="status" className="font-serif-display -mt-3 text-3xl text-[var(--ink)]">
-                  {goldenPending ? "tucking you in…" : "Sleep"}
-                </p>
-                <p className="text-sm text-[var(--ink-3)]">{timerLine}</p>
-              </section>
+                  ☾
+                </span>
+              </button>
+              <p role="status" className="font-serif-display -mt-3 text-3xl text-[var(--ink)]">
+                {goldenPending ? "tucking you in…" : "Sleep"}
+              </p>
+              <p className="text-sm text-[var(--ink-3)]">{timerLine}</p>
 
               {/* The only other decision on this screen: how long. Minutes, or
-                  one episode (fades when it ends), or all night (stopped by hand). */}
-              <section aria-labelledby="timer-title" className="space-y-3">
-                <h2 id="timer-title" className="text-xl font-bold tracking-tight text-[var(--ink)]">Sleep timer</h2>
-                <div className="flex flex-wrap gap-2">
+                  one episode (fades when it ends), or all night (stopped by hand).
+                  Inside the moon's panel: the timer is the moon's. */}
+              <div role="group" aria-labelledby="timer-title" className="mt-6 w-full space-y-3 border-t border-[var(--line)] pt-5">
+                <h2 id="timer-title" className="text-center text-sm font-bold text-[var(--ink-2)]">Sleep timer</h2>
+                <div className="flex flex-wrap justify-center gap-2">
                   {yourTimer && (
                     <Pill on={usingLearned} onClick={selectLearned} label={`Your timer: ${yourTimer.minutes} minutes`}>
                       Your timer · {yourTimer.minutes} min
@@ -976,7 +966,7 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
                   <Pill on={mode.kind === "all-night"} onClick={() => selectEpisodeMode("all-night")}>All night</Pill>
                 </div>
                 {(learnOn || yourTimer) && (
-                  <p className="text-xs leading-snug text-[var(--ink-3)]">
+                  <p className="mx-auto max-w-md text-center text-xs leading-snug text-[var(--ink-3)]">
                     {yourTimer
                       ? usingLearned
                         ? `Your timer: ${yourTimer.minutes} min put you to sleep faster than ${yourTimer.beat} min in your experiment.${learnOn && learned ? " Tap Learned to go back to learning it from your nights." : ""}`
@@ -995,12 +985,31 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
                 {yourTimer && (
                   <button
                     onClick={() => { dropKeptTimer(); rereadKept(); selectLearned(); }}
-                    className="text-xs text-[var(--ink-3)] underline decoration-[var(--line)] underline-offset-4 hover:text-[var(--ink-2)]"
+                    className="mx-auto block text-xs text-[var(--ink-3)] underline decoration-[var(--line)] underline-offset-4 hover:text-[var(--ink-2)]"
                   >
                     Forget your timer
                   </button>
                 )}
-              </section>
+              </div>
+            </section>
+
+            <div className="space-y-6">
+              {hasCards && cards}
+
+              {/* What the moon will shuffle tonight: the shows that are on. */}
+              {enabledFeeds.length > 0 && (
+                <section aria-labelledby="shuffle-title" className="space-y-3">
+                  <h2 id="shuffle-title" className="text-xl font-bold tracking-tight text-[var(--ink)]">In tonight&apos;s shuffle</h2>
+                  <ul className="-mx-4 flex gap-3 overflow-x-auto px-4 pb-1 md:mx-0 md:px-0 lg:grid lg:grid-cols-3 lg:overflow-visible">
+                    {enabledFeeds.map((f) => (
+                      <li key={f.id} className="w-28 shrink-0 lg:w-auto">
+                        <ShowArt feed={f} artwork={artOf(f.id)} label={false} className="rounded-xl" />
+                        <span className="mt-1.5 line-clamp-2 block text-[13px] font-semibold leading-snug text-[var(--ink)]">{f.title}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
             </div>
           </div>
         </div>
