@@ -1,8 +1,8 @@
 ---
 import PlayerLayout from "../layouts/PlayerLayout.astro";
-import { AppPlayer } from "../components/AppPlayer";
+import { AppRoot } from "../components/AppRoot";
 ---
 
 <PlayerLayout>
-  <AppPlayer client:only="react" />
+  <AppRoot client:only="react" />
 </PlayerLayout>

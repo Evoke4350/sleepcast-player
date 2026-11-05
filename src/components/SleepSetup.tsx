@@ -101,7 +101,6 @@ const ICONS = {
   learn: "M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1",
   quarter: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2",
   custom: "M6 3h12M6 21h12M7 3c0 5 10 5 10 9s-10 4-10 9M17 3c0 5-10 5-10 9",
-  leveling: "M4 10v4M8 7v10M12 4v16M16 7v10M20 10v4",
   saveAhead: "M12 4v11M7 10l5 5 5-5M5 20h14",
   appearance: "M12 3a9 9 0 1 0 0 18 9 9 0 1 0 0-18zM12 3v18M12 7h4M12 11h5M12 15h4",
   privacy: "M6 11h12v9H6zM8.5 11V8a3.5 3.5 0 0 1 7 0v3",
@@ -241,7 +240,7 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
   }, [goldenPending, tab]);
 
   /** An on/off setting, saved. */
-  function setFlag(key: "quarterHourRule" | "favorWhatWorks" | "leveling", on: boolean) {
+  function setFlag(key: "quarterHourRule" | "favorWhatWorks", on: boolean) {
     updateAndSave({ ...appState, settings: { ...appState.settings, [key]: on } });
   }
   const enabledFeeds = appState.feeds.filter((f) => f.enabled);
@@ -769,12 +768,6 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
   // all-night mode the saved minutes still matched a preset, so it lit up
   // alongside the mode button and two choices looked active at once.
   const isPreset = mode.kind === "minutes" && !usingLearned && (TIMER_PRESETS as readonly number[]).includes(timerMinutes);
-  // Offered as a disabled control with a reason rather than hidden: someone
-  // who has read about the feature should find out why it isn't here, not
-  // wonder whether they imagined it.
-  const levelingUnavailable = typeof navigator !== "undefined" &&
-    (/iPad|iPhone|iPod/.test(navigator.userAgent) ||
-      (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1));
 
   const poolNote = pool.length > 0 ? `${pool.length} episodes ready` : "gathering episodes…";
 
@@ -1290,18 +1283,6 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
             </Group>
 
             <Group id="playback" title="Playback">
-              <SettingRow
-                id="leveling"
-                icon={ICONS.leveling}
-                title="Even out loudness"
-                checked={appState.settings.leveling}
-                disabled={levelingUnavailable}
-                onChange={(on) => setFlag("leveling", on)}
-              >
-                {levelingUnavailable
-                  ? "Not on iPhone or iPad: it routes audio through Web Audio, which these suspend when the screen locks, and the night would go silent."
-                  : "Quiet and loud shows play at about the same level. Costs an extra load on each show's first episode."}
-              </SettingRow>
               <SettingRow
                 id="save-ahead"
                 icon={ICONS.saveAhead}

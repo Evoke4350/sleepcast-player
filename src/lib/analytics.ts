@@ -10,6 +10,8 @@
 // those, and blocked the is:inline versions this replaces, so analytics and
 // the banner never ran. gtag.js's host is allowed in astro.config.mjs.
 
+import { storedAge } from "./age";
+
 export const GA_ID = "G-DPQWL1XFMD";
 export const CONSENT_KEY = "sc-consent";
 const GTAG_SRC = `https://www.googletagmanager.com/gtag/js?id=${GA_ID}`;
@@ -54,10 +56,13 @@ export function startAnalytics(doc: Document = document): void {
  *  page's "change your choice". */
 export function initConsent(doc: Document = document): void {
   const consent = storedConsent();
-  if (consent === "granted") startAnalytics(doc);
+  // Nothing, not even the question, until the age screen is passed (see
+  // age.ts): it runs this again once it is.
+  const ageOk = storedAge() === "ok";
+  if (consent === "granted" && ageOk) startAnalytics(doc);
 
   const banner = doc.getElementById("sc-consent");
-  if (banner && consent === null) {
+  if (banner && consent === null && ageOk && banner.hidden) {
     banner.hidden = false;
     const choose = (v: Consent) => {
       try { localStorage.setItem(CONSENT_KEY, v); } catch { /* the choice holds for this page */ }
