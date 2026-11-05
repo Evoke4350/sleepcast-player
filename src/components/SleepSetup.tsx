@@ -25,7 +25,7 @@ import { beacon } from "../lib/beacon";
 import type { Episode } from "../lib/engine";
 import { loadNights, setSelfLabel } from "../lib/rest/ledger";
 import { recordFalsePositive } from "../lib/rest/calibrate";
-import { rankedFeeds, evidenceFor, fmtOnsetMinutes } from "../lib/rest/sleepscore";
+import { rankedFeeds, evidenceFor, fmtOnsetMinutes, pluralNights } from "../lib/rest/sleepscore";
 import type { RestNight } from "../lib/rest/types";
 import { TIMER_PRESETS } from "../lib/timer-presets";
 import { learnedTimer, timedNights, handPickHolds, LEARN_MIN_NIGHTS } from "../lib/rest/learned-timer";
@@ -76,12 +76,44 @@ export interface SleepSetupProps {
 }
 
 /** One setting: a title, a line on what it does, and its switch. */
-function SettingRow({ id, title, checked, disabled = false, onChange, children }: {
-  id: string; title: string; checked: boolean; disabled?: boolean; onChange: (on: boolean) => void; children: React.ReactNode;
+/** A settings group: a heading over a card of rows, as on a phone's own
+ *  settings screen. */
+function Group({ id, title, children, padded = false }: { id: string; title: string; children: React.ReactNode; padded?: boolean }) {
+  return (
+    <section aria-labelledby={`group-${id}`} className="space-y-2">
+      <h2 id={`group-${id}`} className="px-1 text-lg font-bold tracking-tight text-[var(--ink)]">{title}</h2>
+      <div className={`rounded-2xl bg-[var(--surface)] ring-1 ring-[var(--line)] ${padded ? "space-y-3 p-4" : "divide-y divide-[var(--line)] px-4"}`}>{children}</div>
+    </section>
+  );
+}
+
+/** A row's icon: a small tile, so the rows scan by shape before words. */
+function RowIcon({ d }: { d: string }) {
+  return (
+    <span aria-hidden="true" className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[var(--raised)] text-[var(--accent-text)]">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-[18px] w-[18px]"><path d={d} /></svg>
+    </span>
+  );
+}
+
+const ICONS = {
+  favor: "M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5",
+  learn: "M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1",
+  quarter: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2",
+  custom: "M6 3h12M6 21h12M7 3c0 5 10 5 10 9s-10 4-10 9M17 3c0 5-10 5-10 9",
+  leveling: "M4 10v4M8 7v10M12 4v16M16 7v10M20 10v4",
+  saveAhead: "M12 4v11M7 10l5 5 5-5M5 20h14",
+  appearance: "M12 3a9 9 0 1 0 0 18 9 9 0 1 0 0-18zM12 3v18M12 7h4M12 11h5M12 15h4",
+  privacy: "M6 11h12v9H6zM8.5 11V8a3.5 3.5 0 0 1 7 0v3",
+};
+
+function SettingRow({ id, title, icon, checked, disabled = false, onChange, children }: {
+  id: string; title: string; icon: string; checked: boolean; disabled?: boolean; onChange: (on: boolean) => void; children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-start justify-between gap-4 py-3.5">
-      <label htmlFor={`setting-${id}`} className="space-y-0.5">
+    <div className="flex items-start gap-3 py-3.5">
+      <RowIcon d={icon} />
+      <label htmlFor={`setting-${id}`} className="flex-1 space-y-0.5">
         <span className="block font-semibold text-[var(--ink)]">{title}</span>
         <span className="block text-[12.5px] leading-snug text-[var(--ink-3)]">{children}</span>
       </label>
@@ -1171,64 +1203,58 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
           );
         })()}
         {tab === "settings" && (
-          <div className="space-y-4 pb-8">
+          <div className="space-y-6 pb-8">
             <h1 className="text-3xl font-extrabold tracking-tight text-[var(--ink)]">Settings</h1>
+
+            {/* Where a phone's settings show your account: there is none, so
+                what this device holds, and whether it's backed up. */}
+            <div className="flex items-center gap-4 rounded-2xl bg-[var(--surface)] p-4 ring-1 ring-[var(--line)]">
+              <span aria-hidden="true" className="grid h-14 w-14 shrink-0 place-items-center rounded-full bg-[var(--accent)] text-3xl leading-none text-[var(--accent-ink)]">☾</span>
+              <div className="min-w-0 flex-1">
+                <p className="text-lg font-bold tracking-tight text-[var(--ink)]">This device</p>
+                <p className="text-[13px] text-[var(--ink-3)]">
+                  {`${appState.feeds.length} ${appState.feeds.length === 1 ? "show" : "shows"}, ${pluralNights(summarizeStored().nights)} · ${backedUpAt ? `backed up ${fmtBackupDate(backedUpAt)}` : "not backed up yet"}`}
+                </p>
+              </div>
+              <button onClick={handleBackup} className="hidden shrink-0 rounded-full bg-[var(--raised)] px-4 py-2 text-sm font-bold text-[var(--ink)] hover:bg-[var(--line)] sm:block">
+                Back up
+              </button>
+            </div>
+
             {/* Two columns on a wide screen: what the app does, then the
                 watch and the backup. */}
-            <div className="space-y-4 lg:grid lg:grid-cols-2 lg:items-start lg:gap-6 lg:space-y-0">
-            <div className="divide-y divide-[var(--line)] rounded-2xl border border-[var(--line)] bg-[var(--surface)] px-4">
+            <div className="space-y-6 lg:grid lg:grid-cols-2 lg:items-start lg:gap-8 lg:space-y-0">
+            <div className="space-y-6">
+            <Group id="shuffle" title="Shuffle">
               {/* The shuffle leaning on the sleep scores, off unless asked
                   for: a pool that narrows on its own is hard to notice going
                   wrong, so the listener chooses it knowingly, and off is the
                   plain shuffle to compare against (the scoring spec, §8). */}
               <SettingRow
                 id="favor"
+                icon={ICONS.favor}
                 title="Favour what puts me under"
                 checked={appState.settings.favorWhatWorks}
                 onChange={(on) => setFlag("favorWhatWorks", on)}
               >
                 Shows you&apos;ve fallen asleep to come up a little more often, and ones you skip a little less. Each needs a few nights first, and nothing is ever ruled out.
               </SettingRow>
+            </Group>
+
+            <Group id="timer" title="Sleep timer">
               <SettingRow
                 id="learn-timer"
+                icon={ICONS.learn}
                 title="Learn my timer"
                 checked={learnOn}
                 onChange={(on) => updateAndSave({ ...appState, settings: { ...appState.settings, learnTimer: on } })}
               >
                 Sets tonight&apos;s timer from how long you&apos;ve taken to fall asleep lately, with room to spare. A timer you pick by hand holds for that night.
               </SettingRow>
-              {/* Stimulus control, off unless asked for. It can stop a night
-                  early, so it is never on by default and never inferred. */}
-              <SettingRow
-                id="quarter-hour"
-                title="The quarter-hour rule"
-                checked={quarterHourRule}
-                onChange={(on) => setFlag("quarterHourRule", on)}
-              >
-                If you&apos;re still restless after 25 minutes, it stops and suggests getting up for a while (stimulus control, from CBT-I): lying awake in bed teaches the bed to mean lying awake. A suggestion, not treatment.
-              </SettingRow>
-              <SettingRow
-                id="leveling"
-                title="Even out loudness"
-                checked={appState.settings.leveling}
-                disabled={levelingUnavailable}
-                onChange={(on) => setFlag("leveling", on)}
-              >
-                {levelingUnavailable
-                  ? "Not on iPhone or iPad: it routes audio through Web Audio, which these suspend when the screen locks, and the night would go silent."
-                  : "Quiet and loud shows play at about the same level. Costs an extra load on each show's first episode."}
-              </SettingRow>
-              <SettingRow
-                id="save-ahead"
-                title="Keep playing without internet"
-                checked={appState.settings.saveAhead !== false}
-                onChange={(on) => updateAndSave({ ...appState, settings: { ...appState.settings, saveAhead: on } })}
-              >
-                Saves the episode playing and the next one on this device as they play, so a dropped connection doesn&apos;t stop the night. Each episode downloads whole, so off Wi-Fi it uses more data than streaming.
-              </SettingRow>
               {/* A custom timer is the long tail of the timer presets. */}
-              <div className="flex items-center justify-between gap-4 py-3.5">
-                <label htmlFor="custom-minutes" className="space-y-0.5">
+              <div className="flex items-center gap-3 py-3.5">
+                <RowIcon d={ICONS.custom} />
+                <label htmlFor="custom-minutes" className="flex-1 space-y-0.5">
                   <span className="block font-semibold text-[var(--ink)]">Custom timer</span>
                   <span className="block text-[12.5px] text-[var(--ink-3)]">
                     {mode.kind === "minutes" ? `Now ${timerMinutes} min. The last 60 s fade to silence.` : "Minutes, between the presets or past them."}
@@ -1246,27 +1272,76 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
                   // typing, the box keeps what's typed so "3" can become "30";
                   // on leaving it, it shows what was actually saved.
                   onBlur={() => setCustomMinutes("")}
-                  className="w-20 rounded-lg border border-[var(--line)] bg-[var(--raised)] px-2 py-2 text-center text-base text-[var(--ink)] placeholder:text-[var(--ink-4)] focus:border-[var(--accent)] [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                  className="w-20 rounded-full border border-[var(--line)] bg-[var(--raised)] px-2 py-2 text-center text-base text-[var(--ink)] placeholder:text-[var(--ink-4)] focus:border-[var(--accent)] [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                   aria-label="Custom timer minutes"
                 />
               </div>
-              <div className="flex items-center justify-between gap-4 py-3.5">
-                <span className="space-y-0.5">
+              {/* Stimulus control, off unless asked for. It can stop a night
+                  early, so it is never on by default and never inferred. */}
+              <SettingRow
+                id="quarter-hour"
+                icon={ICONS.quarter}
+                title="The quarter-hour rule"
+                checked={quarterHourRule}
+                onChange={(on) => setFlag("quarterHourRule", on)}
+              >
+                If you&apos;re still restless after 25 minutes, it stops and suggests getting up for a while (stimulus control, from CBT-I): lying awake in bed teaches the bed to mean lying awake. A suggestion, not treatment.
+              </SettingRow>
+            </Group>
+
+            <Group id="playback" title="Playback">
+              <SettingRow
+                id="leveling"
+                icon={ICONS.leveling}
+                title="Even out loudness"
+                checked={appState.settings.leveling}
+                disabled={levelingUnavailable}
+                onChange={(on) => setFlag("leveling", on)}
+              >
+                {levelingUnavailable
+                  ? "Not on iPhone or iPad: it routes audio through Web Audio, which these suspend when the screen locks, and the night would go silent."
+                  : "Quiet and loud shows play at about the same level. Costs an extra load on each show's first episode."}
+              </SettingRow>
+              <SettingRow
+                id="save-ahead"
+                icon={ICONS.saveAhead}
+                title="Keep playing without internet"
+                checked={appState.settings.saveAhead !== false}
+                onChange={(on) => updateAndSave({ ...appState, settings: { ...appState.settings, saveAhead: on } })}
+              >
+                Saves the episode playing and the next one on this device as they play, so a dropped connection doesn&apos;t stop the night. Each episode downloads whole, so off Wi-Fi it uses more data than streaming.
+              </SettingRow>
+            </Group>
+
+            <Group id="about" title="About">
+              <div className="flex items-center gap-3 py-3.5">
+                <RowIcon d={ICONS.appearance} />
+                <span className="flex-1 space-y-0.5">
                   <span className="block font-semibold text-[var(--ink)]">Appearance</span>
                   <span className="block text-[12.5px] text-[var(--ink-3)]">Light or dark, as your phone is set.</span>
                 </span>
               </div>
+              <a href="/privacy" className="group flex items-center gap-3 py-3.5">
+                <RowIcon d={ICONS.privacy} />
+                <span className="flex-1 space-y-0.5">
+                  <span className="block font-semibold text-[var(--ink)] group-hover:underline group-hover:decoration-[var(--line)] group-hover:underline-offset-4">Privacy and analytics</span>
+                  <span className="block text-[12.5px] text-[var(--ink-3)]">How Sleepcast handles your data.</span>
+                </span>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5 shrink-0 text-[var(--ink-4)]" aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg>
+              </a>
+            </Group>
             </div>
-            <div className="space-y-4">
-            <section aria-labelledby="watch-title" className="space-y-3 rounded-2xl border border-[var(--line)] bg-[var(--surface)] px-4 py-3.5">
-              <div className="space-y-0.5">
-                <h2 id="watch-title" className="font-semibold text-[var(--ink)]">Sleep from your watch</h2>
-                <p className="text-[12.5px] leading-snug text-[var(--ink-3)]">
-                  With sleep tracking on, Apple Watch records when you fell asleep. A Shortcut can bring that here each morning, in place of Sleepcast&apos;s guess from when you stopped touching the screen. It goes straight from your phone to this browser.
-                </p>
-              </div>
-              <details className="group text-[12.5px] leading-snug text-[var(--ink-2)]">
-                <summary className="cursor-pointer rounded font-semibold text-[var(--ink)]">Set up the Shortcut</summary>
+
+            <div className="space-y-6">
+            <Group id="watch" title="Sleep from your watch" padded>
+              <p className="text-[13px] leading-snug text-[var(--ink-3)]">
+                With sleep tracking on, Apple Watch records when you fell asleep. A Shortcut can bring that here each morning, in place of Sleepcast&apos;s guess from when you stopped touching the screen. It goes straight from your phone to this browser.
+              </p>
+              <details className="group rounded-xl bg-[var(--raised)] px-3.5 py-3 text-[12.5px] leading-snug text-[var(--ink-2)]">
+                <summary className="flex cursor-pointer list-none items-center justify-between rounded font-semibold text-[var(--ink)] [&::-webkit-details-marker]:hidden">
+                  Set up the Shortcut
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4 text-[var(--ink-3)] transition-transform group-open:rotate-90" aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg>
+                </summary>
                 <ol className="mt-2 list-decimal space-y-1.5 pl-5">
                   <li>In Shortcuts, make a new shortcut and add <b>Find Health Samples</b>. Set Type to Sleep Analysis, and add two filters: Start Date is in the last 1 day, and Value is not In Bed. Sort by Start Date, Latest First, and turn on Limit at 200. With sleep stages, one night alone can be a hundred samples, and more than that makes the Shortcut give up.</li>
                   <li>If another sleep app also writes to Health, add the filter Source is your Apple Watch, so each night comes through once.</li>
@@ -1281,33 +1356,31 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
               </details>
               <button
                 onClick={() => { void handleWatchPaste(); }}
-                className="w-full rounded-lg bg-[var(--raised)] py-2 text-sm font-semibold text-[var(--ink-2)] hover:text-[var(--ink)]"
+                className="w-full rounded-full bg-[var(--raised)] py-2.5 text-sm font-bold text-[var(--ink)] hover:bg-[var(--line)]"
               >
                 Add from clipboard
               </button>
               <p role="alert" className="text-xs text-[var(--danger)] empty:hidden">{watchNote?.error ? watchNote.text : ""}</p>
               <p role="status" className="text-xs text-[var(--ink-3)] empty:hidden">{watchNote && !watchNote.error ? watchNote.text : ""}</p>
-            </section>
+            </Group>
+
             {/* Everything here lives only in this browser's storage. */}
-            <section aria-labelledby="backup-title" className="space-y-3 rounded-2xl border border-[var(--line)] bg-[var(--surface)] px-4 py-3.5">
-              <div className="space-y-0.5">
-                <h2 id="backup-title" className="font-semibold text-[var(--ink)]">Your history</h2>
-                <p className="text-[12.5px] leading-snug text-[var(--ink-3)]">
-                  Your feeds, settings and nights are kept only in this browser. Clearing site data or switching phones loses them, so save a backup now and then.
-                </p>
-                <p className="text-[12.5px] leading-snug text-[var(--ink-3)]">
-                  {backedUpAt ? `Last backed up ${fmtBackupDate(backedUpAt)}.` : "Not backed up yet."}
-                  {kept ? " This browser has agreed not to clear it on its own." : ""}
-                </p>
-              </div>
+            <Group id="history" title="Your history" padded>
+              <p className="text-[13px] leading-snug text-[var(--ink-3)]">
+                Your feeds, settings and nights are kept only in this browser. Clearing site data or switching phones loses them, so save a backup now and then.
+              </p>
+              <p className="text-[13px] font-semibold leading-snug text-[var(--ink-2)]">
+                {backedUpAt ? `Last backed up ${fmtBackupDate(backedUpAt)}.` : "Not backed up yet."}
+                {kept ? <span className="font-normal text-[var(--ink-3)]"> This browser has agreed not to clear it on its own.</span> : ""}
+              </p>
               <div className="flex gap-2">
                 <button
                   onClick={handleBackup}
-                  className="flex-1 rounded-lg bg-[var(--raised)] py-2 text-sm font-semibold text-[var(--ink-2)] hover:text-[var(--ink)]"
+                  className="flex-1 rounded-full bg-[var(--accent)] py-2.5 text-sm font-bold text-[var(--accent-ink)]"
                 >
                   Back up
                 </button>
-                <label className="flex-1 cursor-pointer rounded-lg bg-[var(--raised)] py-2 text-center text-sm font-semibold text-[var(--ink-2)] hover:text-[var(--ink)] has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[var(--accent-text)]">
+                <label className="flex-1 cursor-pointer rounded-full bg-[var(--raised)] py-2.5 text-center text-sm font-bold text-[var(--ink)] hover:bg-[var(--line)] has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[var(--accent-text)]">
                   Restore…
                   <input
                     id="restore-file"
@@ -1323,7 +1396,7 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
                 </label>
               </div>
               {pendingRestore && (
-                <div role="group" aria-labelledby="restore-question" className="space-y-2 rounded-lg border border-[var(--line)] p-3">
+                <div role="group" aria-labelledby="restore-question" className="space-y-2 rounded-xl bg-[var(--raised)] p-3">
                   <p id="restore-question" className="text-[12.5px] leading-snug text-[var(--ink-2)]">
                     Replace what&apos;s here ({describeSummary(summarizeStored())}) with the backup
                     {pendingRestore.backup.exportedAt ? ` from ${fmtBackupDate(Date.parse(pendingRestore.backup.exportedAt))}` : ""} ({describeSummary(pendingRestore.summary)})? The page reloads afterwards.
@@ -1332,13 +1405,13 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
                     <button
                       ref={replaceBtnRef}
                       onClick={confirmRestore}
-                      className="flex-1 rounded-lg bg-[var(--accent)] py-2 text-sm font-semibold text-[var(--accent-ink)]"
+                      className="flex-1 rounded-full bg-[var(--accent)] py-2 text-sm font-bold text-[var(--accent-ink)]"
                     >
                       Replace
                     </button>
                     <button
                       onClick={() => setPendingRestore(null)}
-                      className="flex-1 rounded-lg bg-[var(--raised)] py-2 text-sm font-semibold text-[var(--ink-2)] hover:text-[var(--ink)]"
+                      className="flex-1 rounded-full bg-[var(--surface)] py-2 text-sm font-bold text-[var(--ink-2)] hover:text-[var(--ink)]"
                     >
                       Cancel
                     </button>
@@ -1347,10 +1420,7 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
               )}
               <p role="alert" className="text-xs text-[var(--danger)] empty:hidden">{backupError ?? ""}</p>
               <p role="status" className="text-xs text-[var(--ink-4)] empty:hidden">{backupNote ?? ""}</p>
-            </section>
-            <div className="pt-1 text-center">
-              <a href="/privacy" className="text-xs text-[var(--ink-4)] underline decoration-[var(--line)] underline-offset-4 hover:text-[var(--ink-3)]">Privacy and analytics</a>
-            </div>
+            </Group>
             </div>
             </div>
           </div>
