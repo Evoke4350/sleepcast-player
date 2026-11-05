@@ -299,3 +299,20 @@ body {
 /* The tab bar and the mini player are fixed over the bottom of the page: a
    control tabbed to stops above them rather than behind. */
 html { scroll-padding-bottom: calc(10.5rem + env(safe-area-inset-bottom, 0px)); }
+
+/* The first visit's welcome: rows of covers drifting slowly, alternate rows
+   the other way. Each row holds its covers twice, so half its width is one
+   full lap. */
+.ob-drift {
+  animation: ob-drift 90s linear infinite;
+}
+.ob-drift-back {
+  animation-direction: reverse;
+}
+@keyframes ob-drift {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ob-drift { animation: none; }
+}

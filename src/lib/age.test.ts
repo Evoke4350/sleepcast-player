@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { oldEnough, storedAge, saveAge, AGE_KEY } from "./age";
+import { oldEnough, storedAge, saveAge, retryAt, clearAge, AGE_KEY, RETRY_AFTER_MS } from "./age";
 
 describe("oldEnough", () => {
   const now = new Date(2026, 10, 5); // 5 November 2026
@@ -25,5 +25,24 @@ describe("the stored answer", () => {
     expect(storedAge()).toBe("under");
     localStorage.setItem(AGE_KEY, "2010-04");
     expect(storedAge()).toBeNull();
+  });
+});
+
+describe("changing a too-young answer", () => {
+  beforeEach(() => localStorage.clear());
+  it("can be done a day after it was given", () => {
+    saveAge("under", 1_000);
+    expect(retryAt()).toBe(1_000 + RETRY_AFTER_MS);
+    clearAge();
+    expect(storedAge()).toBeNull();
+    expect(retryAt()).toBeNull();
+  });
+  it("at once for an answer kept without a time", () => {
+    localStorage.setItem(AGE_KEY, "under");
+    expect(retryAt()).toBe(0);
+  });
+  it("doesn't apply to old enough", () => {
+    saveAge("ok");
+    expect(retryAt()).toBeNull();
   });
 });
