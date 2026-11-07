@@ -27,7 +27,7 @@ export function ReanchorView({ next, onKeepDrifting, onDismiss }: ReanchorViewPr
       <div className="max-w-xs space-y-2">
         <h1 className="text-2xl font-bold text-[var(--ink)]">Still here?</h1>
         <p className="text-sm text-[var(--ink-3)]">
-          You woke within a few hours of last night's fade. Keep drifting picks up the same shows where they went quiet, on a fresh timer.
+          You woke within a few hours of last night's timer running out. Keep drifting picks up the same shows where they went quiet, on a fresh timer.
         </p>
       </div>
       <button

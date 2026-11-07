@@ -755,7 +755,7 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [goldenPending, canStart]);
 
-  // A natural fade-out inside the last six hours means someone may have woken
+  // A natural end (the timer ran out) inside the last six hours means someone may have woken
   // back up. Offer half the previous dose, one tap, no setup.
   const lastSession = appState.settings.lastSession;
   const rearmable =
@@ -781,10 +781,10 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
           const greeting = hour >= 5 && hour < 12 ? "Good morning" : hour >= 12 && hour < 18 ? "Good afternoon" : hour >= 18 && hour < 22 ? "Good evening" : "Good night";
           const poolShows = new Set(pool.map((e) => e.feedId)).size;
           const timerLine = mode.kind === "one-episode"
-            ? "One episode · fades when it ends"
+            ? "One episode · stops when it ends"
             : mode.kind === "all-night"
               ? "All night · until you stop it"
-              : `${timerMinutes} min · fades at the end`;
+              : `${timerMinutes} min · then it stops`;
           const artOf = (feedId: string) => feedStatuses[feedId]?.artwork;
           const lastFeed = lastEpisode ? appState.feeds.find((f) => f.id === lastEpisode.feedId) : undefined;
           const showRearm = Boolean(rearmable && !goldenPending);
@@ -831,7 +831,7 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
                 <div className={`${cardClass} flex items-center justify-between gap-3`}>
                   <span>
                     <span className={`block ${eyebrow}`}>Still awake?</span>
-                    <span className="block text-sm text-[var(--ink-2)]">{rearmable.modeKind === "one-episode" ? "One more episode, then the fade." : `Half the last timer: ${rearmM} min.`}</span>
+                    <span className="block text-sm text-[var(--ink-2)]">{rearmable.modeKind === "one-episode" ? "One more episode, then it stops." : `Half the last timer: ${rearmM} min.`}</span>
                   </span>
                   <button onClick={handleRearm} className="shrink-0 rounded-full bg-[var(--raised)] px-4 py-2 text-sm font-bold text-[var(--ink)] hover:bg-[var(--line)]">
                     {rearmable.modeKind === "one-episode" ? "One more" : `Resume · ${rearmM} min`}
@@ -941,7 +941,7 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
               <p className="text-sm text-[var(--ink-3)]">{timerLine}</p>
 
               {/* The only other decision on this screen: how long. Minutes, or
-                  one episode (fades when it ends), or all night (stopped by hand).
+                  one episode (stops when it ends), or all night (stopped by hand).
                   Inside the moon's panel: the timer is the moon's. */}
               <div role="group" aria-labelledby="timer-title" className="mt-6 w-full space-y-3 border-t border-[var(--line)] pt-5">
                 <h2 id="timer-title" className="text-center text-sm font-bold text-[var(--ink-2)]">Sleep timer</h2>
@@ -1259,7 +1259,7 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
                 <label htmlFor="custom-minutes" className="flex-1 space-y-0.5">
                   <span className="block font-semibold text-[var(--ink)]">Custom timer</span>
                   <span className="block text-[12.5px] text-[var(--ink-3)]">
-                    {mode.kind === "minutes" ? `Now ${timerMinutes} min. The last 60 s fade to silence.` : "Minutes, between the presets or past them."}
+                    {mode.kind === "minutes" ? `Now ${timerMinutes} min.` : "Minutes, between the presets or past them."}
                   </span>
                 </label>
                 <input
