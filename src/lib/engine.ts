@@ -31,12 +31,6 @@ export type PlayMode =
   | { kind: "one-episode" }
   | { kind: "all-night" };
 
-export function fadeVolume(remainingSeconds: number, fadeSeconds: number): number {
-  if (remainingSeconds >= fadeSeconds) return 1;
-  if (remainingSeconds <= 0) return 0;
-  return remainingSeconds / fadeSeconds;
-}
-
 export function formatTime(totalSeconds: number): string {
   const s = Math.max(0, Math.floor(totalSeconds));
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
@@ -134,14 +128,9 @@ export function diverseByMeta(episodes: Episode[], n: number, rand: () => number
   return picks;
 }
 
-// Fade × per-feed trim, clamped to what an <audio> element accepts.
-export function effectiveVolume(
-  remainingSeconds: number,
-  fadeSeconds: number,
-  trim: number
-): number {
-  const v = fadeVolume(remainingSeconds, fadeSeconds) * trim;
-  return Math.min(1, Math.max(0, v));
+// A feed's trim, clamped to what an <audio> element accepts.
+export function feedVolume(trim: number): number {
+  return Math.min(1, Math.max(0, trim));
 }
 
 // Half the previous timer, rounded to 5, never under 10 — the 3am dose.
@@ -149,8 +138,9 @@ export function rearmMinutes(previousMinutes: number): number {
   return Math.max(10, Math.round(previousMinutes / 2 / 5) * 5);
 }
 
-// Seconds driving the fade this tick. Infinity means "no fade underway".
-export function fadeDriverSeconds(
+// Seconds until the night ends on its own: the timer, or the episode in
+// one-episode mode. Infinity means it won't (all-night, or a length unknown).
+export function secondsToEnd(
   mode: PlayMode["kind"],
   timerRemaining: number,
   episodeRemaining: number | null
