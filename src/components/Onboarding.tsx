@@ -152,7 +152,7 @@ function Welcome({ onStart }: { onStart: () => void }) {
             <span className="font-serif-display text-xl text-[var(--ink)]">sleepcast</span>
           </div>
           <h1 className="text-[34px] font-extrabold leading-[1.08] tracking-tight text-[var(--ink)]">Fall asleep to a story.</h1>
-          <p className="text-base leading-relaxed text-[var(--ink-2)]">Calm podcasts on shuffle, with a timer that fades them out once you&apos;ve drifted off.</p>
+          <p className="text-base leading-relaxed text-[var(--ink-2)]">Calm podcasts on shuffle, with a timer that stops them once you&apos;ve drifted off.</p>
         </div>
         <button onClick={onStart} className="w-full rounded-full bg-[var(--accent)] px-5 py-3.5 text-base font-bold text-[var(--accent-ink)]">Get started</button>
       </div>
