@@ -456,37 +456,6 @@ describe("favor what puts me under opt-in", () => {
   });
 });
 
-describe("quarter-hour rule opt-in", () => {
-  it("is off on a fresh install", () => {
-    expect(loadState().settings.quarterHourRule).toBe(false);
-  });
-
-  it("is off for an existing listener whose saved settings predate it", () => {
-    // The upgrade must never switch on a rule that can end a night early.
-    localStorage.setItem(
-      "sleepcast2.state",
-      JSON.stringify({ feeds: [], settings: { timerMinutes: 45 } }),
-    );
-    expect(loadState().settings.quarterHourRule).toBe(false);
-  });
-
-  it("is off for any non-true value, not merely falsy ones", () => {
-    for (const v of ["true", 1, {}, [], "yes"]) {
-      localStorage.setItem(
-        "sleepcast2.state",
-        JSON.stringify({ feeds: [], settings: { timerMinutes: 45, quarterHourRule: v } }),
-      );
-      expect(loadState().settings.quarterHourRule).toBe(false);
-    }
-  });
-
-  it("survives a save/load round trip once switched on", () => {
-    const s = loadState();
-    saveState({ ...s, settings: { ...s.settings, quarterHourRule: true } });
-    expect(loadState().settings.quarterHourRule).toBe(true);
-  });
-});
-
 import { recordSessionEnd, REARM_WINDOW_MS } from "./store";
 import { isRevivable, LIVE_MAX_AGE_MS, resumeMode, resumeFrom, nightTimerMinutes, type LiveSession, saveLive, loadLive, saveLastNight, loadLastNight, clampTimerMinutes } from "./store";
 
@@ -551,6 +520,14 @@ describe("settings migration", () => {
     // `level: 9` is a finite number so it clamps rather than defaulting.
     expect(s.settings.noise).toEqual({ on: false, level: 0.3 });
     expect(s.settings.feedTrim).toEqual({}); // out-of-range trim dropped
+  });
+
+  it("drops the old quarter-hour setting", () => {
+    localStorage.setItem(
+      "sleepcast2.state",
+      JSON.stringify({ feeds: [], settings: { timerMinutes: 60, quarterHourRule: true } })
+    );
+    expect("quarterHourRule" in loadState().settings).toBe(false);
   });
 
   it("drops the old loudness setting", () => {
@@ -666,8 +643,8 @@ describe("timerless snapshots", () => {
   });
 
   it("revives with every per-night field the snapshot carries", () => {
-    const r = resumeFrom(live({ extensions: 2, wasVaried: true, ruleSpent: true, touches: 7, shuffleLean: { swm: 1.5 } }));
-    expect(r).toMatchObject({ episode: ep, extensions: 2, ruleSpent: true, touches: 7, playedIds: [], shuffleLean: { swm: 1.5 } });
+    const r = resumeFrom(live({ extensions: 2, wasVaried: true, shuffleLean: { swm: 1.5 } }));
+    expect(r).toMatchObject({ episode: ep, extensions: 2, playedIds: [], shuffleLean: { swm: 1.5 } });
     expect(r).not.toHaveProperty("pool"); // the session's, one copy
     expect(r).not.toHaveProperty("wasVaried");
   });
@@ -698,10 +675,10 @@ describe("writes when storage is full", () => {
     const spy = quotaUntilCacheGone();
     try {
       const s = loadState();
-      s.settings.quarterHourRule = true;
+      s.settings.favorWhatWorks = true;
       expect(() => saveState(s)).not.toThrow();
     } finally { spy.mockRestore(); }
-    expect(loadState().settings.quarterHourRule).toBe(true);
+    expect(loadState().settings.favorWhatWorks).toBe(true);
     expect(getCachedFeedXml("swm")).toBeNull();
   });
 

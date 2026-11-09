@@ -18,7 +18,6 @@ import { decideSkip, skipMessage, stillAtStart } from "../lib/skip-intro";
 import { pickNextEpisode, HEARD_SEC } from "../lib/plays";
 import type { ResumeDescriptor } from "../lib/store";
 import { shouldTick } from "../lib/tick-gate";
-import { shouldSuggestGettingUp } from "../lib/rest/quarterhour";
 import { RestSession, revivedNightStart } from "../lib/rest/session";
 import { recordNightEnd } from "../lib/night-end";
 import type { RestNight } from "../lib/rest/types";
@@ -56,8 +55,6 @@ export interface PlayerProps {
   // Where to resume the lead episode, when the listener chose "from where you
   // drifted". 0 means start at the top (skip-intro still applies).
   leadPosition?: number;
-  /** Opt-in stimulus control (rest/quarterhour.ts). Off unless asked for. */
-  quarterHourRule?: boolean;
   wasVaried?: boolean;
   /** Opt-in: the shuffle leans by feed (rest/sleepscore shuffleWeights).
    *  Read once, at the night's start (useNightShuffle); a later change does
@@ -100,7 +97,7 @@ function NowArt({ src, big = false, small = false }: { src?: string; big?: boole
     : <div aria-hidden="true" className={`${cls} grid place-items-center bg-[var(--raised)] text-[var(--accent)]`}><span className={big ? "text-6xl" : "text-lg"}>☾</span></div>;
 }
 
-export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, skipIntroByFeedId, feedTitles, artworkByFeedId, onEnd, resume = null, leadEpisode = null, leadPosition = 0, quarterHourRule = false, wasVaried = false, favorWhatWorks = false, expanded, onExpand, onCollapse, endRef, activityRef }: PlayerProps) {
+export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, skipIntroByFeedId, feedTitles, artworkByFeedId, onEnd, resume = null, leadEpisode = null, leadPosition = 0, wasVaried = false, favorWhatWorks = false, expanded, onExpand, onCollapse, endRef, activityRef }: PlayerProps) {
   const shuffle = useNightShuffle(favorWhatWorks, pool, resume);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -204,26 +201,15 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
     endTimeRef, pausedRemainingMsRef, totalSecondsRef, setTotalSeconds, restRef,
   }, (m) => showToast(m));
   const [blockedTonight, setBlockedTonight] = useState<ReadonlySet<string>>(new Set());
-  // The quarter-hour rule has fired and playback is held. Once dismissed it
-  // does not fire again for the rest of the night.
-  const [gettingUp, setGettingUp] = useState(false);
   const collapseBtnRef = useRef<HTMLButtonElement | null>(null);
   const openBtnRef = useRef<HTMLButtonElement | null>(null);
-  const getUpBtnRef = useRef<HTMLButtonElement | null>(null);
   // Focus follows the player: into Now Playing when it opens (the control
   // that opened it is now underneath), back to the mini bar when it closes.
   useEffect(() => {
     (expanded ? collapseBtnRef : openBtnRef).current?.focus();
   }, [expanded]);
-  useEffect(() => {
-    if (gettingUp) getUpBtnRef.current?.focus();
-  }, [gettingUp]);
-  /** Set with the state, not after the render: the hold reads it at once. */
-  const gettingUpRef = useRef(false);
   /** The latest askForSound(), for handlers registered once at mount. */
   const askForSoundRef = useRef<() => void>(() => {});
-  const ruleSpentRef = useRef(false);
-  const nightStartedAtRef = useRef(Date.now());
   const holdTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Keep refs in sync
@@ -348,9 +334,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
     setPaused(true);
     netHoldRef.current.hold(
       () => {
-        // Not into a night that is ending (a fade-out) or has moved on. A
-        // tap through the get-up prompt is the listener's choice, as it is
-        // without a hold.
+        // Not into a night that is ending (a fade-out) or has moved on.
         if (tickHandleRef.current === null || stopFadeRef.current !== null) return false;
         if (currentEpRef.current !== ep) return false;
         // Where it is at resume: the pending seek's target (the skip may have
@@ -359,8 +343,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
         return reloadCurrent(ep);
       },
       paused,
-      // Not by itself over the get-up hold the listener opted into.
-      () => !gettingUpRef.current,
     );
   }
 
@@ -524,13 +506,11 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
     return resumePosition();
   }
 
-  /** A request for sound: the toggle's play half, the media session's, and
-   *  the get-up prompt's "keep listening". Asking for sound answers the
-   *  prompt. Read through askForSoundRef by handlers registered at mount. */
+  /** A request for sound: the toggle's play half and the media session's.
+   *  Read through askForSoundRef by handlers registered at mount. */
   function askForSound() {
     const audio = audioRef.current;
     if (!audio) return;
-    if (gettingUpRef.current) showGettingUp(false);
     // Held for the network: this retries the reload (see NetworkHold).
     if (netHoldRef.current.resumeNow(true)) return;
     // An episode that hasn't played yet gets its watchdog back (a pause of a
@@ -549,12 +529,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
     if (endTimeRef.current !== null && pausedRemainingMsRef.current === null) {
       pausedRemainingMsRef.current = endTimeRef.current - Date.now();
     }
-  }
-
-  /** The get-up prompt, with its ref set at once (the hold reads it). */
-  function showGettingUp(on: boolean) {
-    gettingUpRef.current = on;
-    setGettingUp(on);
   }
 
   /** What the next episode can be, or null when nothing can play. */
@@ -690,8 +664,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
       extensions: extensionsRef.current,
       wasVaried: wasVariedRef.current,
       shuffleLean: shuffle.lean,
-      touches: restRef.current?.touchCount,
-      ruleSpent: ruleSpentRef.current,
       remainingMs,
       totalSeconds: totalSecondsRef.current,
       position: resumePosition(),
@@ -774,26 +746,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
         : Infinity;
 
     restTick();
-
-    // Opt-in stimulus control: a restless stretch means the bed is losing the
-    // argument, and playing on only reinforces it. Hold playback and suggest
-    // getting up. Fires at most once a night.
-    if (quarterHourRule && !ruleSpentRef.current && restRef.current) {
-      const now = Date.now();
-      const w = restRef.current.wakefulness(now);
-      if (shouldSuggestGettingUp({ elapsedMs: now - nightStartedAtRef.current, ...w })) {
-        ruleSpentRef.current = true;
-        // Stored at once, not left to the pause's own snapshot (its event
-        // can be dropped by a reload), from a fresh reading. (The pause
-        // writes again: once a night, accepted.)
-        notePosition(audio);
-        persistLive();
-        audio.pause();
-        setPaused(true);
-        showGettingUp(true);
-        return;
-      }
-    }
 
     if (remaining <= 0) {
       endSession();
@@ -920,9 +872,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
     // from the tap on "keep going".
     const nightStart = revivedNightStart(resume?.nightStartedAt, Date.now());
     restRef.current = new RestSession(nightStart, timerMinutes, shuffle.lean !== undefined);
-    restRef.current.seedInteractions(resume?.interactions ?? 0, resume?.touches);
-    ruleSpentRef.current = resume?.ruleSpent === true; // at most once a night, reloads included
-    nightStartedAtRef.current = nightStart; // the quarter-hour rule's clock too
+    restRef.current.seedInteractions(resume?.interactions ?? 0);
     if (resume) {
       setTotalSeconds(resume.totalSeconds);
       setCountdown(Math.max(0, resume.remainingMs / 1000));
@@ -1365,41 +1315,11 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
   const expandPlayer = () => { restRef.current?.noteInteraction(); onExpand(); };
   const collapsePlayer = () => { restRef.current?.noteInteraction(); onCollapse(); };
 
-  function dismissGettingUp() {
-    restRef.current?.noteInteraction();
-    askForSound();
-  }
-
   return (
     <>
       <audio ref={audioRef} preload="none" />
       {/* Notes like "skipped the intro" read out, whichever view is up. */}
       <div role="status" className="sr-only">{toast}</div>
-
-      {/* Opt-in stimulus control. Playback is held, not ended — the listener
-          asked for the nudge, not for the app to overrule them. */}
-      {gettingUp && (
-        <div role="alertdialog" aria-modal="true" aria-labelledby="getting-up-title" className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-[var(--surface)] px-8 text-center">
-          <p id="getting-up-title" className="text-lg text-[var(--ink-2)]">this one isn't working tonight.</p>
-          <p className="max-w-xs text-sm text-[var(--ink-3)]">
-            get up for a bit. somewhere dim, something dull. come back when
-            you're heavy — the bed keeps its meaning that way.
-          </p>
-          <button
-            ref={getUpBtnRef}
-            onClick={() => { showGettingUp(false); endSession("ended"); }}
-            className="mt-2 rounded-full border border-[var(--ink-4)] px-5 py-2 text-sm text-[var(--ink)] transition-colors hover:border-[var(--ink-3)]"
-          >
-            alright, I'll get up
-          </button>
-          <button
-            onClick={dismissGettingUp}
-            className="text-xs text-[var(--ink-4)] underline decoration-[var(--line)] underline-offset-4 transition-colors hover:text-[var(--ink-3)]"
-          >
-            keep playing anyway
-          </button>
-        </div>
-      )}
 
       {/* Collapsed: a mini bar above the tabs (at the foot of a wide screen,
           where the tabs run along the top), so the shows can be browsed
@@ -1434,7 +1354,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
           room (and dims with it as the night wanes); on a wide screen the
           cover sits beside the controls. */}
       {expanded && (
-        <div role="dialog" aria-modal="true" aria-label="Now playing" inert={gettingUp} className="fixed inset-0 z-45 overflow-y-auto bg-[var(--ground)] [z-index:45] [scroll-padding-bottom:0]">
+        <div role="dialog" aria-modal="true" aria-label="Now playing" className="fixed inset-0 z-45 overflow-y-auto bg-[var(--ground)] [z-index:45] [scroll-padding-bottom:0]">
           <div aria-hidden="true" className="pointer-events-none fixed inset-0 overflow-hidden dream-sink" style={{ opacity: dim }}>
             {nowArt ? (
               <img key={nowArt} src={nowArt} alt="" className="h-full w-full scale-125 object-cover opacity-75 blur-3xl saturate-150" />

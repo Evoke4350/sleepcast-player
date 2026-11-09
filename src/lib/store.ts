@@ -28,9 +28,6 @@ export interface LastSession {
 
 export interface Settings {
   timerMinutes: number;
-  /** Opt-in stimulus control: stop and suggest getting up after a restless
-   *  stretch. Off unless the listener asks for it — see rest/quarterhour.ts. */
-  quarterHourRule: boolean;
   /** Opt-in: the shuffle leans toward feeds that have put this listener
    *  under (rest/sleepscore shuffleWeights). Off is a plain shuffle. */
   favorWhatWorks: boolean;
@@ -126,7 +123,6 @@ const NOISE_DEFAULT: NoiseSettings = { on: false, level: 0.15 };
 function defaultSettings(): Settings {
   return {
     timerMinutes: 45,
-    quarterHourRule: false,
     favorWhatWorks: false,
     feedTrim: {},
     noise: { ...NOISE_DEFAULT },
@@ -253,7 +249,6 @@ export function loadState(): AppState {
     noise: sanitizeNoise(rawSettings.noise),
     mode: sanitizeMode(rawSettings.mode, timerMinutes),
     lastSession: sanitizeLastSession(rawSettings.lastSession),
-    quarterHourRule: rawSettings.quarterHourRule === true,
     favorWhatWorks: rawSettings.favorWhatWorks === true,
   };
   if (rawSettings.learnTimer === false) settings.learnTimer = false;
@@ -300,10 +295,6 @@ export interface LiveSession {
   modeKind?: PlayMode["kind"];
   /** Transport touches before the snapshot, carried into a revived session. */
   interactions?: number;
-  /** Player only (the quarter-hour rule's input): the same, unmerged
-   *  (wakefulness counts every touch), and whether the rule was spent. */
-  touches?: number;
-  ruleSpent?: boolean;
   /** Timer extensions used (capped per night, reloads included). */
   extensions?: number;
   /** Whether the night was a varied mix (lastNight, and the re-anchor's
