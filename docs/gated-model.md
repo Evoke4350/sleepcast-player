@@ -19,7 +19,7 @@ logged) but never lie.
 **Since November 2026 there is no fade** (iOS ignores a page's volume, so it
 never worked on iPhone). The gate is now the night's last minute, untouched,
 and the stop does the fade's old job: a new night started within five minutes
-of it takes the last night's guess back (`restart.ts`).
+of it sets the last night's guess aside as undecided (`restart.ts`): awake at the stop and woken by it look the same, so it counts neither way until you answer the morning question.
 
 ## The model
 

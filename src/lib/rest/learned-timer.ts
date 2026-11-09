@@ -1,6 +1,7 @@
 // The sleep timer, learned from the nights: long enough to cover how long you
 // usually take to fall asleep, with room to spare, so the fade comes after
 // you're under rather than while you're still listening.
+import { undecided } from "./restart";
 import type { RestNight } from "./types";
 import { believableOnsetMs } from "./ledger";
 
@@ -41,6 +42,8 @@ function evidenceMs(n: RestNight): number | null {
   if (n.detector === "hr") return n.watchSleptAfterMs ?? null;
   const onset = believableOnsetMs(n);
   if (onset !== null) return onset;
+  // Awake at the stop, or woken by it: no telling, so nothing (restart.ts).
+  if (undecided(n)) return null;
   if (n.endedVia === "faded" && n.sleptAtMs === null && n.selfLabel !== "slept" && n.timerMinutes > 0) {
     return n.timerMinutes * 60_000;
   }

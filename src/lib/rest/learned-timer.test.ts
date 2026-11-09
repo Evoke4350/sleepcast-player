@@ -43,6 +43,15 @@ describe("learnedTimer", () => {
     expect(learnedTimer(outlasted)!.minutes).toBe(55);
   });
 
+  it("learns nothing from a night a quick restart left undecided, until answered", () => {
+    const quick = [15, 15, 15, 15, 15].map((m, i) => slept(i, m));
+    const setAside = (i: number, extra: Partial<RestNight> = {}) => ({ ...awakeAtFade(i, 45), restartedAfter: true as const, ...extra });
+    expect(learnedTimer([...quick, setAside(5), setAside(6), setAside(7)])).toEqual(learnedTimer(quick));
+    // Said awake: the timer did run out first, so it counts again.
+    const awake = [setAside(5, { selfLabel: "awake" }), setAside(6, { selfLabel: "awake" }), setAside(7, { selfLabel: "awake" })];
+    expect(learnedTimer([...quick, ...awake])!.minutes).toBe(55);
+  });
+
   it("ignores nights marked awake, ended by hand, and implausible onsets", () => {
     const good = [20, 20, 20, 20, 20].map((m, i) => slept(i, m));
     const noise = [

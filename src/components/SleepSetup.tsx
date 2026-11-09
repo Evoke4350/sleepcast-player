@@ -202,7 +202,8 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
   const [greetNight, setGreetNight] = useState<RestNight | null>(() => {
     const last = loadNights().at(-1) ?? null;
     // A night the watch measured needs no asking.
-    return last && last.sleptAtMs !== null && last.selfLabel === undefined && last.detector !== "hr" ? last : null;
+    // A night a quick restart left undecided is asked about too (rest/restart.ts).
+    return last && (last.sleptAtMs !== null || last.restartedAfter) && last.selfLabel === undefined && last.detector !== "hr" ? last : null;
   });
 
   // A returning listener saw the welcome — fire once. (Aggregate, no PII.)
