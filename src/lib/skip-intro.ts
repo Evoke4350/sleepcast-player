@@ -41,7 +41,7 @@ export function startWithSkip(seekTo: number, skipSec: number): number {
 /** What the listener is told once the skip lands. */
 export function skipMessage(skipSec: number): string {
   const seconds = Math.max(1, Math.round(skipSec));
-  if (seconds < 60) return `skipped the ${seconds} s intro`;
+  if (seconds < 60) return `Skipped the ${seconds} s intro`;
   const minutes = Number((skipSec / 60).toFixed(1)); // 1.02 shows as 1
-  return `skipped the ${minutes} min intro`;
+  return `Skipped the ${minutes} min intro`;
 }

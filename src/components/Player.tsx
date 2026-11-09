@@ -631,7 +631,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
     // The spread renders the pool PROP, so it also has to be told — otherwise
     // the blocked title stays in tonight's list and tapping it plays it.
     setBlockedTonight((prev) => new Set(prev).add(ep.id));
-    showToast("never again");
+    showToast("Never again");
     restRef.current?.noteInteraction();
     playNext();
   }
@@ -1273,7 +1273,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
             <button ref={openBtnRef} onClick={expandPlayer} className="col-span-2 grid min-w-0 grid-cols-[44px_1fr] items-center gap-2.5 rounded-xl text-left" aria-label={`Open the player: ${nowPlaying?.title ?? "loading"}, ${timerLabel}`}>
               <NowArt key={nowPlaying?.feedId} src={nowArt} />
               <span className="min-w-0">
-                <span className="block truncate text-[13.5px] font-semibold text-[var(--ink)]">{nowPlaying?.title ?? "loading…"}</span>
+                <span className="block truncate text-[13.5px] font-semibold text-[var(--ink)]">{nowPlaying?.title ?? "Loading…"}</span>
                 <span className="block truncate text-xs text-[var(--ink-3)]">
                   {nowPlaying ? (feedTitles[nowPlaying.feedId] ?? "") : ""}
                   {" · "}
@@ -1320,7 +1320,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
             <div className="flex flex-col gap-6">
               <div className="flex items-start gap-3">
                 <div className="min-w-0 flex-1">
-                  <h2 className="line-clamp-2 text-[22px] font-extrabold leading-tight tracking-tight text-[var(--ink)]">{nowPlaying?.title ?? "loading…"}</h2>
+                  <h2 className="line-clamp-2 text-[22px] font-extrabold leading-tight tracking-tight text-[var(--ink)]">{nowPlaying?.title ?? "Loading…"}</h2>
                   <div className="mt-1 truncate text-[15px] text-[var(--ink-2)]">{nowShow}</div>
                 </div>
                 {/* The only per-episode negative control. Disabling a whole feed
@@ -1426,7 +1426,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
                     aria-label="Hold to end the night"
                     aria-describedby="hold-end-hint"
                   >
-                    {holdPct > 0 ? "keep holding…" : "Hold to end the night"}
+                    {holdPct > 0 ? "Keep holding…" : "Hold to end the night"}
                     <span aria-hidden="true" className="absolute inset-x-0 bottom-0 h-1 origin-left bg-[var(--accent-text)]" style={{ transform: `scaleX(${holdPct / 100})` }} />
                   </button>
                 </div>

@@ -35,7 +35,7 @@ describe("analytics consent", () => {
     expect(document.getElementById("sc-consent")!.hidden).toBe(false);
     expect(gtagScripts()).toBe(0);
     expect(window.dataLayer).toBeUndefined();
-    expect(document.getElementById("sc-consent-status")!.textContent).toBe("you haven't chosen yet.");
+    expect(document.getElementById("sc-consent-status")!.textContent).toBe("You haven't chosen yet.");
   });
 
   it("accept: remembered, and gtag.js loads with analytics storage granted, ads denied", () => {
@@ -56,7 +56,7 @@ describe("analytics consent", () => {
     expect(localStorage.getItem(CONSENT_KEY)).toBe("denied");
     initConsent();
     expect(gtagScripts()).toBe(0);
-    expect(document.getElementById("sc-consent-status")!.textContent).toBe("you declined analytics.");
+    expect(document.getElementById("sc-consent-status")!.textContent).toBe("You turned analytics off.");
   });
 
   it("a later visit after accepting: loads at once, no banner", () => {

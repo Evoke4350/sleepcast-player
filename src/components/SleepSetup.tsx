@@ -349,7 +349,7 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
     leadRef.current = null;
     rearmNightRef.current = null;
     scopeRef.current = null;
-    setFeedError("couldn't reach your feeds — check your connection and try again");
+    setFeedError("Couldn't reach your feeds. Check your connection and try again.");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [goldenPending, feedStatuses, appState.feeds]);
 
@@ -631,7 +631,7 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
     // turned on below. Both used to hit this early return and report a
     // network failure that hadn't happened.
     if (pool.length === 0 && enabledFeeds.length > 0 && !anyFeedLoading()) {
-      setFeedError("couldn't reach your feeds — check your connection and try again");
+      setFeedError("Couldn't reach your feeds. Check your connection and try again.");
       // "Try again" has to mean something: retry failed feeds now. Before,
       // they were only retried when the feed list changed, so tapping again
       // repeated this message forever.
@@ -767,7 +767,7 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
   // alongside the mode button and two choices looked active at once.
   const isPreset = mode.kind === "minutes" && !usingLearned && (TIMER_PRESETS as readonly number[]).includes(timerMinutes);
 
-  const poolNote = pool.length > 0 ? `${pool.length} episodes ready` : "gathering episodes…";
+  const poolNote = pool.length > 0 ? `${pool.length} episodes ready` : "Gathering episodes…";
 
   return (
     // The page owns the background (globals.css tokens); this lays out inside it.
@@ -855,7 +855,7 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
                     <button
                       onClick={() => beginNight(leadFromFeed(suggestion.feed.id))}
                       disabled={goldenPending || !suggestionReady}
-                      title={suggestionReady ? undefined : "still loading that feed's episodes…"}
+                      title={suggestionReady ? undefined : "Still loading that feed's episodes…"}
                       className="rounded-full bg-[var(--accent)] px-4 py-1.5 text-sm font-bold text-[var(--accent-ink)] disabled:opacity-50"
                     >
                       Start
@@ -934,7 +934,7 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
                 </span>
               </button>
               <p role="status" className="font-serif-display -mt-3 text-3xl text-[var(--ink)]">
-                {goldenPending ? "tucking you in…" : "Sleep"}
+                {goldenPending ? "Tucking you in…" : "Sleep"}
               </p>
               <p className="text-sm text-[var(--ink-3)]">{timerLine}</p>
 
@@ -1163,7 +1163,7 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
               type="text"
               value={customTitle}
               onChange={(e) => setCustomTitle(e.target.value)}
-              placeholder="as it should appear"
+              placeholder="As it should appear"
               className="w-full rounded bg-[var(--surface)] border border-[var(--line)] px-3 py-2 text-sm text-[var(--ink-2)] placeholder:text-[var(--ink-4)]"
             />
             {customError && (
@@ -1178,7 +1178,7 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
             </button>
             <div className="flex items-center justify-between pt-1 text-xs text-[var(--ink-4)]">
               <label className="cursor-pointer rounded underline decoration-[var(--line)] underline-offset-4 hover:text-[var(--ink-2)] has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[var(--accent-text)]">
-                import OPML
+                Import OPML
                 <input
                   type="file"
                   accept=".opml,.xml,text/xml,text/x-opml"
@@ -1194,7 +1194,7 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
                 onClick={handleOpmlExport}
                 className="underline decoration-[var(--line)] underline-offset-4 hover:text-[var(--ink-2)]"
               >
-                export OPML
+                Export OPML
               </button>
             </div>
             <p role="status" className="text-xs text-[var(--ink-4)] empty:hidden">{opmlNote ?? ""}</p>

@@ -361,7 +361,7 @@ export function AppPlayer() {
           <div className="mb-6 flex items-center justify-center gap-2 text-center text-xs text-[var(--ink-4)]">
             <span className="player-moon text-sm text-[var(--ink-3)]">☾</span>
             <span>
-              you slept{goodbye.timeToSleepMs !== null ? ` — gone in ${fmtDuration(goodbye.timeToSleepMs)}` : ""}.
+              You slept{goodbye.timeToSleepMs !== null ? ` — gone in ${fmtDuration(goodbye.timeToSleepMs)}` : ""}.
             </span>
           </div>
         )}
@@ -372,24 +372,24 @@ export function AppPlayer() {
             <RestView key={restVisit} note={watchNote} />
           {stepBack && (
             <div className="mt-4 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
-              <p className="text-[11px] font-bold uppercase tracking-widest text-[var(--ink-3)]">quick lately</p>
+              <p className="text-[11px] font-bold uppercase tracking-widest text-[var(--ink-3)]">Quick lately</p>
               <p className="mt-1 font-semibold text-[var(--ink)]">You've been falling asleep quickly for a while.</p>
               <p className="mt-1 text-xs text-[var(--ink-3)]">
-                you might not need us at the moment. we can stop nudging — no 3am
-                check-in, no morning note — and stay out of the way.
+                You might not need us at the moment. We can stop nudging (no 3am
+                check-in, no morning note) and stay out of the way.
               </p>
               <div className="mt-3 flex gap-2 text-sm">
                 <button
                   onClick={goQuiet}
                   className="rounded-full border border-[var(--ink-4)] px-4 py-1.5 text-[var(--ink)] transition-colors hover:border-[var(--ink-3)]"
                 >
-                  go quiet for a month
+                  Go quiet for a month
                 </button>
                 <button
                   onClick={stayOn}
                   className="rounded-full border border-[var(--line)] px-4 py-1.5 text-[var(--ink-3)] transition-colors hover:border-[var(--ink-4)]"
                 >
-                  stay as you are
+                  Stay as you are
                 </button>
               </div>
             </div>
