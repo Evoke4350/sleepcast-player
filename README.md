@@ -1,7 +1,7 @@
 # sleepcast-player
 
 A sleep podcast player. Add your own feeds, it shuffles episodes, and a sleep
-timer fades the audio to silence and stops. No account, no database, no
+timer stops the audio. No account, no database, no
 tracking, no server-side anything. Everything you add lives in your browser's
 `localStorage`.
 
@@ -30,8 +30,6 @@ So:
   what puts me under" and it also leans toward shows you've fallen asleep to
   and away from ones you skip, never ruling one out (`shuffleWeights` in
   `src/lib/rest/sleepscore.ts`).
-- **The timer fades, it doesn't cut.** A hard stop wakes people. The fade is a
-  volume ramp over the last stretch (`fadeVolume` in `src/lib/engine.ts`).
 - **A dropped connection doesn't stop the night.** While an episode plays, it
   and the one picked to follow it download whole into the browser's cache,
   and the service worker plays them from there (`src/lib/offline-audio.ts`,

@@ -5,7 +5,7 @@ import { useStateRef } from "../lib/use-state-ref";
 import { useNightExtensions } from "../lib/use-night-extensions";
 
 import type { Episode, PlayMode } from "../lib/engine";
-import { fadeVolume, formatTime, effectiveVolume, fadeDriverSeconds } from "../lib/engine";
+import { formatTime, feedVolume, secondsToEnd } from "../lib/engine";
 import { getPlays, recordHeardPlay, saveLive, noteSounded, SNAPSHOT_EVERY_TICKS, counterAfterStartSnapshot, rememberPosition, forgetPosition, blockEpisode } from "../lib/store";
 import { NetworkHold, isOffline } from "../lib/network-hold";
 import { SeekEnforcer, type SeekHooks } from "../lib/seek-enforcer";
@@ -24,7 +24,8 @@ import type { RestNight } from "../lib/rest/types";
 import { MAX_FAILS } from "../lib/episode-end";
 import { OfflineAudio } from "../lib/offline-audio";
 
-const FADE_SECONDS = 60;
+// The night's last minute: reaching it untouched is the sleep detector's gate.
+const END_WINDOW_SECONDS = 60;
 // Just under a second, so a jittery 1s interval isn't swallowed by the gate it
 // shares with the ~4Hz timeupdate stream.
 const TICK_MIN_MS = 900;
@@ -179,9 +180,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
   const epStartedAtRef = useRef(0); // epoch ms this episode began
   const wasVariedRef = useRef(wasVaried);
   const modeRef = useRef(mode);
-  // The user asked to stop and a short courtesy fade is running. While it is,
-  // it owns audio.volume — see tick().
-  const stopFadeRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const currentFeedRef = useRef<string | null>(null);
   const feedTrimRef = useRef<Record<string, number>>(feedTrim);
 
@@ -334,8 +332,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
     setPaused(true);
     netHoldRef.current.hold(
       () => {
-        // Not into a night that is ending (a fade-out) or has moved on.
-        if (tickHandleRef.current === null || stopFadeRef.current !== null) return false;
+        // Not into a night that has ended or moved on.
+        if (tickHandleRef.current === null) return false;
         if (currentEpRef.current !== ep) return false;
         // Where it is at resume: the pending seek's target (the skip may have
         // been decided during the hold), or the last trustworthy position,
@@ -457,7 +455,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
       if (err instanceof DOMException && err.name === "NotAllowedError") {
         watchRef.current = null;
         // The pause EVENT does not fire here, so without this the timer keeps
-        // counting through silence, and an untouched fade is recorded as a
+        // counting through silence, and an untouched timer is recorded as a
         // night they slept through when nothing ever played.
         freezeClock();
         setPaused(true);
@@ -679,7 +677,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
   // Feed the sleep detector at a wall-clock 15s cadence, driven by BOTH the 1s
   // interval (foreground) AND the audio's "timeupdate" event — which keeps
   // firing while the tab is backgrounded / the phone is locked (the dominant
-  // sleep case, where setInterval is throttled and the fade-window tick would
+  // sleep case, where setInterval is throttled and the last-minute tick would
   // otherwise never arrive). The lastRestTickRef guard dedupes the two sources.
   function restTick() {
     const r = restRef.current;
@@ -690,15 +688,15 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
     if (audioRef.current?.paused) return;
     if (Date.now() - lastRestTickRef.current < 15_000) return;
     lastRestTickRef.current = Date.now();
-    // The detector's gate is an unattended fade, so it has to watch whichever
-    // clock is actually driving the fade in this mode — the timer in minutes
-    // mode, the episode in one-episode mode. Keyed to the timer alone, the
-    // detector would never see a fade in one-episode mode and could never
-    // conclude.
+    // The detector's gate is an unattended end (the night's last minute), so
+    // it has to watch whichever clock ends the night in this mode — the timer
+    // in minutes mode, the episode in one-episode mode. Keyed to the timer
+    // alone, the detector would never see an end in one-episode mode and
+    // could never conclude.
     //
-    // In all-night there is no fade by design, so no night can be scored. That
+    // In all-night there is no end by design, so no night can be scored. That
     // is a consequence of the gated model (docs/gated-model.md), not an
-    // oversight: precision comes from the fade, and without one there is no
+    // oversight: precision comes from the end, and without one there is no
     // evidence that separates asleep from awake-and-resting.
     const audio = audioRef.current;
     const kind = modeRef.current.kind;
@@ -707,11 +705,11 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
         ? (endTimeRef.current - Date.now()) / 1000
         : Infinity;
     const epRemaining = audio ? remainingOf(episodeSpan(audio)) : null;
-    const driver = fadeDriverSeconds(kind, timerRemaining, epRemaining);
+    const toEnd = secondsToEnd(kind, timerRemaining, epRemaining);
     r.tick({
       now: Date.now(),
       hidden: typeof document !== "undefined" && document.hidden,
-      fadingOrDone: driver <= FADE_SECONDS,
+      fadingOrDone: toEnd <= END_WINDOW_SECONDS,
     });
   }
 
@@ -719,11 +717,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
   //
   // setInterval alone was not enough: browsers throttle background intervals
   // to about once a minute, and the phone is locked for nearly all of a sleep
-  // timer, so the 60-second fade was sampled once or twice and the stop landed
-  // late — the fade decaying into the hard cut it exists to avoid, precisely
-  // when it mattered. "timeupdate" keeps firing while backgrounded, which is
-  // why the sleep detector and the play ledger were already driven from it;
-  // the fade and the stop were simply left behind.
+  // timer, so the stop landed late, by up to a minute. "timeupdate" keeps
+  // firing while backgrounded, which is why the sleep detector and the play
+  // ledger were already driven from it; the stop was simply left behind.
   function tickGuarded() {
     const now = Date.now();
     const sessionActive = tickHandleRef.current !== null;
@@ -737,8 +733,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
     if (!audio) return;
 
     // In one-episode and all-night modes there is no timer to run down, so the
-    // countdown is Infinity and the fade is driven by the episode instead —
-    // see fadeDriverSeconds.
+    // countdown is Infinity (one-episode ends with the episode; see onEnded).
     const kind = modeRef.current.kind;
     const remaining =
       kind === "minutes"
@@ -754,21 +749,11 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
 
     // Where the episode is and how long, as the rest of the player sees it
     // (not a reading Safari hasn't corrected yet, and not lost on a reload),
-    // once per pass for the fade and the bar.
+    // once per pass for the bar.
     const span = episodeSpan(audio);
-    const epRemaining = remainingOf(span);
-    const driver = fadeDriverSeconds(kind, remaining, epRemaining);
 
-    // The courtesy fade owns audio.volume while it runs. Without this guard
-    // tick() would reassign full volume from the mode driver (Infinity in
-    // all-night) on every pass, fighting the fade back up and producing
-    // audible stabs on the way out.
-    if (stopFadeRef.current === null) {
-      // effectiveVolume with no fade underway (driver Infinity) is the feed's
-      // trim alone. A hard 1 here played turned-down feeds at full volume in
-      // all-night mode (and one-episode, before the duration was known).
-      audio.volume = effectiveVolume(driver, FADE_SECONDS, feedTrimRef.current[currentFeedRef.current ?? ""] ?? 1.0);
-    }
+    // The feed's trim, not a hard 1, so a turned-down feed stays down.
+    audio.volume = feedVolume(feedTrimRef.current[currentFeedRef.current ?? ""] ?? 1.0);
     setCountdown(kind === "minutes" ? remaining : 0);
     setEpPos((prev) => barPosition(prev, span));
 
@@ -794,13 +779,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
     }
   }
 
-  function clearStopFade() {
-    if (stopFadeRef.current !== null) {
-      clearInterval(stopFadeRef.current);
-      stopFadeRef.current = null;
-    }
-  }
-
   /** `gaveUp`: the app, not the listener, is ending a night that never
    *  played, so its snapshot is kept (see NightEnd.gaveUp). */
   function endSession(reason: RestNight["endedVia"] = "faded", { gaveUp = false }: { gaveUp?: boolean } = {}) {
@@ -811,7 +789,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
     // A night that never played in this page records what recordNightEnd
     // decides: nothing for a fresh one (its snapshot cleared unless the app
     // gives up), or, for a revived one, the night it continues.
-    clearStopFade();
     netHoldRef.current.cancel();
     offlineRef.current.stop();
     plannedNextRef.current = null;
@@ -866,7 +843,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
     endTimeRef.current =
       mode.kind === "minutes"
         ? Date.now() + (resume ? resume.remainingMs : timerMinutes * 60 * 1000)
-        : null; // timerless modes: the fade is driven by the episode, not a clock
+        : null; // timerless modes: the episode ends the night, not a clock
     // A revived night continues the one that began before the reload: its
     // time-to-sleep, timeline and snapshots count from the real start, not
     // from the tap on "keep going".
@@ -904,17 +881,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
     const onEnded = () => {
       const done = currentEpRef.current;
       if (done) forgetPosition(done.id); // played out: nothing left to resume
-      if (stopFadeRef.current !== null) {
-        // A courtesy fade is in flight: the listener asked to stop and the
-        // episode happened to end underneath it. Starting another would
-        // resurrect the night they just ended.
-        endSession("ended");
-        return;
-      }
       if (tickHandleRef.current === null) return;
-      // One-episode mode means one episode: its fade was driven by this
-      // episode's end, so the night is over. Playing on started the next
-      // episode at full volume after the fade and the night never ended.
+      // One-episode mode means one episode: the night is over. Playing on
+      // started the next episode and the night never ended.
       if (modeRef.current.kind === "one-episode") {
         endSession("faded");
         return;
@@ -953,10 +922,10 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
 
     audio.addEventListener("pause", onPause);
     audio.addEventListener("play", onPlay);
-    // heardTick first: it notes the position, which tick (the fade, the bar)
+    // heardTick first: it notes the position, which tick (the stop, the bar)
     // and restTick then read fresh.
     audio.addEventListener("timeupdate", heardTick); // accumulates real playback for the play ledger
-    audio.addEventListener("timeupdate", tickGuarded); // fade + stop must survive a locked screen
+    audio.addEventListener("timeupdate", tickGuarded); // the stop must survive a locked screen
     audio.addEventListener("timeupdate", restTick); // keeps the sleep detector fed while backgrounded
     // The skip-intro decides as soon as the duration is known.
     const onDuration = () => {
@@ -1028,7 +997,6 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
 
     return () => {
       if (tickHandleRef.current !== null) clearInterval(tickHandleRef.current);
-      clearStopFade();
       netHoldRef.current.cancel();
       pendingSeekRef.current?.cancel();
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
@@ -1132,7 +1100,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
 
   /** Where the episode is and how long it is, as the player sees it, with
    *  the position kept within it: the one view the bar, the lock screen and
-   *  the fade all read. Null while the length is unknown. */
+   *  the stop all read. Null while the length is unknown. */
   function episodeSpan(audio: HTMLAudioElement): { pos: number; dur: number } | null {
     return spanOf(resumePosition(), episodeDuration(audio));
   }
@@ -1198,38 +1166,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
       setHoldPct(pct);
       if (pct >= 100) {
         holdEndCancel();
-        if (modeRef.current.kind === "minutes") {
-          // A timer night already ends on a fade of its own; cutting it here
-          // is what the listener asked for.
-          endSession("ended");
-        } else if (stopFadeRef.current !== null) {
-          // Already mid-courtesy-fade: a second hold means "out now" — don't
-          // make them sit through the rest of it.
-          endSession("ended");
-        } else {
-          // Timerless modes have had no fade at all, so stopping would be a
-          // hard cut in a dark room. Five seconds of ramp costs nothing and is
-          // the whole difference between "ended" and "yanked".
-          const audio = audioRef.current;
-          if (audio && !audio.paused) {
-            const t0 = Date.now();
-            stopFadeRef.current = setInterval(() => {
-              const left = 5000 - (Date.now() - t0);
-              if (left <= 0 || !audioRef.current) {
-                clearStopFade();
-                endSession("ended");
-                return;
-              }
-              audio.volume = effectiveVolume(
-                left / 1000,
-                5,
-                feedTrimRef.current[currentFeedRef.current ?? ""] ?? 1.0
-              );
-            }, 100);
-          } else {
-            endSession("ended");
-          }
-        }
+        endSession("ended");
       }
     }, 80);
   }
@@ -1451,9 +1388,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
                 </div>
                 <p className="text-[13px] text-[var(--ink-3)]">
                   {mode.kind === "minutes"
-                    ? "The last stretch fades to silence. Add time up to three times a night."
+                    ? "Stops when the timer runs out. Add time up to three times a night."
                     : mode.kind === "one-episode"
-                      ? "Fades at the end of this episode."
+                      ? "Stops at the end of this episode."
                       : "Plays on until you end it."}
                 </p>
                 <div className="flex flex-wrap items-center gap-2">

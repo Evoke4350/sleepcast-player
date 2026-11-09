@@ -1,17 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { fadeVolume, formatTime, parseFeedXml, diverseByMeta, effectiveVolume, rearmMinutes, fadeDriverSeconds } from "./engine";
+import { formatTime, parseFeedXml, diverseByMeta, feedVolume, rearmMinutes, secondsToEnd } from "./engine";
 import type { Episode } from "./engine";
 
 const eps = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `e${i}`, title: `E${i}`, url: `u${i}`, feedId: "f", date: "" }));
-
-describe("fadeVolume", () => {
-  it("1 outside window, 0 at end, monotonic", () => {
-    expect(fadeVolume(600, 60)).toBe(1);
-    expect(fadeVolume(0, 60)).toBe(0);
-    let prev = 1;
-    for (let s = 60; s >= 0; s--) { const v = fadeVolume(s, 60); expect(v).toBeLessThanOrEqual(prev); prev = v; }
-  });
-});
 
 describe("formatTime", () => {
   it("renders", () => { expect(formatTime(90)).toBe("1:30"); expect(formatTime(3600)).toBe("1:00:00"); });
@@ -58,16 +49,11 @@ describe("diverseByMeta", () => {
   });
 });
 
-describe("effectiveVolume", () => {
-  it("multiplies fade by trim", () => {
-    expect(effectiveVolume(120, 60, 1.0)).toBe(1);
-    expect(effectiveVolume(30, 60, 1.0)).toBeCloseTo(0.5);
-    expect(effectiveVolume(30, 60, 0.5)).toBeCloseTo(0.25);
-  });
-  it("clamps to [0, 1] even with trim > 1", () => {
-    expect(effectiveVolume(120, 60, 1.5)).toBe(1);
-    expect(effectiveVolume(0, 60, 1.5)).toBe(0);
-    expect(effectiveVolume(-5, 60, 1.2)).toBe(0);
+describe("feedVolume", () => {
+  it("is the trim, clamped to [0, 1]", () => {
+    expect(feedVolume(0.5)).toBe(0.5);
+    expect(feedVolume(1.5)).toBe(1);
+    expect(feedVolume(-0.2)).toBe(0);
   });
 });
 
@@ -83,16 +69,16 @@ describe("rearmMinutes", () => {
   });
 });
 
-describe("fadeDriverSeconds", () => {
+describe("secondsToEnd", () => {
   it("minutes mode follows the timer", () => {
-    expect(fadeDriverSeconds("minutes", 42, 100)).toBe(42);
+    expect(secondsToEnd("minutes", 42, 100)).toBe(42);
   });
   it("one-episode follows episode remaining, Infinity until known", () => {
-    expect(fadeDriverSeconds("one-episode", 42, 30)).toBe(30);
-    expect(fadeDriverSeconds("one-episode", 42, null)).toBe(Infinity);
+    expect(secondsToEnd("one-episode", 42, 30)).toBe(30);
+    expect(secondsToEnd("one-episode", 42, null)).toBe(Infinity);
   });
-  it("all-night never fades automatically", () => {
-    expect(fadeDriverSeconds("all-night", 42, 30)).toBe(Infinity);
+  it("all-night never ends on its own", () => {
+    expect(secondsToEnd("all-night", 42, 30)).toBe(Infinity);
   });
 });
 
