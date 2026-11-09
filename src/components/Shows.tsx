@@ -56,8 +56,8 @@ export function ShowArt({ feed, artwork, className = "", label = true }: { feed:
 }
 
 function showNote(st: ShowStatus | undefined): string {
-  if (st?.error) return "couldn't load";
-  if (st?.loading || !st) return "loading…";
+  if (st?.error) return "Couldn't load";
+  if (st?.loading || !st) return "Loading…";
   const count = `${st.episodes.length} episodes`;
   return st.author ? `${st.author} · ${count}` : count;
 }
@@ -97,7 +97,7 @@ export function Library({
   const addLabel = (
     <>
       <span className="text-[15px] font-semibold leading-tight text-[var(--ink)]">Add a show</span>
-      <span className="text-[13px] text-[var(--ink-3)]">browse below or paste a link</span>
+      <span className="text-[13px] text-[var(--ink-3)]">Browse below or paste a link</span>
     </>
   );
 
@@ -185,7 +185,7 @@ export function Library({
                 <span className={`flex items-center gap-1 text-xs ${st?.error && feed.enabled ? "text-[var(--danger)]" : "text-[var(--ink-3)]"}`}>
                   {feed.enabled ? <CheckIcon className="h-3 w-3 shrink-0 text-[var(--accent-text)]" /> : null}
                   <span className="sr-only">{feed.enabled ? "In shuffle, " : "Not in shuffle, "}</span>
-                  <span className="truncate">{st?.error ? "couldn't load" : st?.loading || !st ? "loading…" : `${st.episodes.length} episodes`}</span>
+                  <span className="truncate">{st?.error ? "Couldn't load" : st?.loading || !st ? "Loading…" : `${st.episodes.length} episodes`}</span>
                 </span>
               </button>
             );
@@ -334,7 +334,7 @@ export function ShowPage({
   const lengthOf = (ep: Episode) => (ep.durationSec ? formatLength(ep.durationSec) : "");
   const meta = [
     styleLabel,
-    status?.loading ? "loading episodes…" : status?.error ? "couldn't load this show" : `${episodes.length} episodes`,
+    status?.loading ? "Loading episodes…" : status?.error ? "Couldn't load this show" : `${episodes.length} episodes`,
     usual ? `usually ${formatLength(usual)}` : "",
   ].filter(Boolean);
   const tabs: { id: ShowTab; label: string }[] = [

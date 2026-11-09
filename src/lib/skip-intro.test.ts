@@ -36,12 +36,12 @@ describe("decideSkip", () => {
 
 describe("skipMessage", () => {
   test("minutes, fractional minutes, seconds", () => {
-    expect(skipMessage(300)).toBe("skipped the 5 min intro");
-    expect(skipMessage(90)).toBe("skipped the 1.5 min intro");
-    expect(skipMessage(15)).toBe("skipped the 15 s intro");
-    expect(skipMessage(61.2)).toBe("skipped the 1 min intro");
-    expect(skipMessage(59.7)).toBe("skipped the 1 min intro");
-    expect(skipMessage(0.3)).toBe("skipped the 1 s intro");
+    expect(skipMessage(300)).toBe("Skipped the 5 min intro");
+    expect(skipMessage(90)).toBe("Skipped the 1.5 min intro");
+    expect(skipMessage(15)).toBe("Skipped the 15 s intro");
+    expect(skipMessage(61.2)).toBe("Skipped the 1 min intro");
+    expect(skipMessage(59.7)).toBe("Skipped the 1 min intro");
+    expect(skipMessage(0.3)).toBe("Skipped the 1 s intro");
   });
 });
 

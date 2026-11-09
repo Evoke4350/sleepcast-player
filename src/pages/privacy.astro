@@ -6,66 +6,68 @@ import PlayerLayout from "../layouts/PlayerLayout.astro";
   body { background: var(--ground); }
 </style>
 
-<PlayerLayout title="sleepcast — privacy">
-  <main class="mx-auto w-full max-w-2xl px-6 py-16 text-[var(--ink-2)]">
-    <a href="/" class="text-xs uppercase tracking-widest text-[var(--ink-4)] hover:text-[var(--ink-2)]">&larr; back to sleepcast</a>
+<PlayerLayout title="Privacy · sleepcast">
+  <main class="mx-auto w-full max-w-2xl px-6 pb-16 pt-[calc(2.5rem+env(safe-area-inset-top,0px))] text-[var(--ink-2)]">
+    <a href="/" class="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--ink-3)] hover:text-[var(--ink)]">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4" aria-hidden="true"><path d="M15 18l-6-6 6-6" /></svg>
+      Back to Sleepcast
+    </a>
 
-    <h1 class="mt-8 text-2xl text-[var(--ink)]">privacy</h1>
-    <p class="mt-2 text-xs uppercase tracking-widest text-[var(--ink-4)]">how sleepcast handles your data</p>
+    <h1 class="mt-8 text-[32px] font-extrabold leading-tight tracking-tight text-[var(--ink)]">Privacy</h1>
+    <p class="mt-2 text-[15px] text-[var(--ink-3)]">How Sleepcast handles your data.</p>
 
-    <section class="mt-10 space-y-4 text-sm leading-relaxed">
-      <h2 class="text-base text-[var(--ink)]">analytics</h2>
+    <section class="mt-10 space-y-4 text-[15px] leading-relaxed">
+      <h2 class="text-lg font-bold text-[var(--ink)]">Analytics</h2>
       <p>
-        sleepcast uses google analytics to understand how the site is used, to keep it running well, and to get a rough
-        picture of the userbase, how many people visit, which features they reach, what devices and browsers they use, and
-        the general region they connect from. this is used for site management and product decisions, not to identify
+        Sleepcast uses Google Analytics to understand how the site is used, to keep it running well, and to get a rough
+        picture of who uses it: how many people visit, which features they reach, what devices and browsers they use, and
+        the general region they connect from. This is used for running the site and deciding what to build, not to identify
         individual people.
       </p>
       <p>
-        analytics is off until you accept the consent banner (it is denied by default, and you can decline). if you
-        accept, google analytics sets cookies and collects usage and approximate-location data on google's behalf. that data is
-        handled under
-        <a href="https://policies.google.com/privacy" class="underline text-[var(--ink)] hover:text-[var(--ink)]">google's privacy policy</a>.
-        you can opt out across all sites with the
-        <a href="https://tools.google.com/dlpage/gaoptout" class="underline text-[var(--ink)] hover:text-[var(--ink)]">google analytics opt-out browser add-on</a>,
-        or by blocking cookies for this site. sleepcast still works fully with analytics blocked.
+        Analytics is off unless you allow it, when Sleepcast first asks or later. If you allow it, Google Analytics sets
+        cookies and collects usage and approximate-location data on Google's behalf. That data is handled under
+        <a href="https://policies.google.com/privacy" class="font-semibold text-[var(--ink)] underline underline-offset-2">Google's privacy policy</a>.
+        You can opt out across all sites with the
+        <a href="https://tools.google.com/dlpage/gaoptout" class="font-semibold text-[var(--ink)] underline underline-offset-2">Google Analytics opt-out browser add-on</a>,
+        or by blocking cookies for this site. Sleepcast still works fully with analytics blocked.
       </p>
       <p>
         <span id="sc-consent-status"></span>
-        <button id="sc-consent-reset" type="button" class="ml-1 underline text-[var(--ink)] hover:text-[var(--ink)]">change your choice</button>
-        <span class="text-[var(--ink-4)]">(asks again, and removes google analytics' cookies)</span>
+        <button id="sc-consent-reset" type="button" class="ml-1 font-semibold text-[var(--ink)] underline underline-offset-2">Change your choice</button>
+        <span class="text-[var(--ink-3)]">(asks again, and removes Google Analytics' cookies)</span>
       </p>
 
-      <h2 class="mt-8 text-base text-[var(--ink)]">what stays on your device</h2>
+      <h2 class="pt-6 text-lg font-bold text-[var(--ink)]">What stays on your device</h2>
       <p>
-        your feed choices, timer preferences, listening positions, and play history live in your browser's local storage on
-        your own device. they are not uploaded to a sleepcast account, because there is no account.
+        Your shows, timer settings, listening positions, nights and play history live in your browser's storage on your
+        own device. They aren't uploaded to a Sleepcast account, because there is no account.
       </p>
 
-      <h2 class="mt-8 text-base text-[var(--ink)]">audio and feeds</h2>
+      <h2 class="pt-6 text-lg font-bold text-[var(--ink)]">Audio and feeds</h2>
       <p>
-        episodes are fetched from their original podcast feeds. when a request needs to pass through sleepcast's relay, the
-        specific episode url is not logged.
+        Episodes are fetched from their original podcast feeds. When a request needs to pass through Sleepcast's relay,
+        the specific episode address isn't logged.
       </p>
 
-      <h2 class="mt-8 text-base text-[var(--ink)]">no ads, no selling data</h2>
+      <h2 class="pt-6 text-lg font-bold text-[var(--ink)]">No ads, no selling data</h2>
       <p>
-        sleepcast does not run advertising and does not sell your data. analytics exists to run and improve the site.
+        Sleepcast doesn't run advertising and doesn't sell your data. Analytics exists to run and improve the site.
       </p>
 
-      <h2 class="mt-8 text-base text-[var(--ink)]">children</h2>
+      <h2 class="pt-6 text-lg font-bold text-[var(--ink)]">Children</h2>
       <p>
-        sleepcast is for people 13 and over. on a first visit it asks when you were born, and keeps only whether you're
-        old enough (and, if not, when you answered), on your device; the date itself is not stored or sent anywhere.
-        under 13, the app doesn't open and analytics never loads. a wrong date can be entered again a day later.
+        Sleepcast is for people 13 and over. On a first visit it asks when you were born, and keeps only whether you're
+        old enough (and, if not, when you answered), on your device; the date itself isn't stored or sent anywhere. Under
+        13, the app doesn't open and analytics never loads. A wrong date can be entered again a day later.
       </p>
 
-      <h2 class="mt-8 text-base text-[var(--ink)]">contact</h2>
+      <h2 class="pt-6 text-lg font-bold text-[var(--ink)]">Contact</h2>
       <p>
-        questions: <a href="mailto:nathanib@pm.me" class="underline text-[var(--ink)] hover:text-[var(--ink)]">nathanib@pm.me</a>.
+        Questions: <a href="mailto:nathanib@pm.me" class="font-semibold text-[var(--ink)] underline underline-offset-2">nathanib@pm.me</a>.
       </p>
     </section>
 
-    <p class="mt-12 text-xs text-[var(--ink-4)]">last updated november 2026</p>
+    <p class="mt-12 text-[13px] text-[var(--ink-3)]">Last updated November 2026</p>
   </main>
 </PlayerLayout>
