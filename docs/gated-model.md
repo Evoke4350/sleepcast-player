@@ -16,6 +16,11 @@ separates awake (stops/extends the audio) from asleep (lets it fade). Precision
 by construction; we happily under-count (someone who manually ends it is not
 logged) but never lie.
 
+**Since November 2026 there is no fade** (iOS ignores a page's volume, so it
+never worked on iPhone). The gate is now the night's last minute, untouched,
+and the stop does the fade's old job: a new night started within five minutes
+of it takes the last night's guess back (`restart.ts`).
+
 ## The model
 
 **`tickLogLR(s, p)` — drop the `hidden` term entirely.** The only discriminative

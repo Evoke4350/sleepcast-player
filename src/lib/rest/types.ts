@@ -62,6 +62,9 @@ export interface RestNight {
   /** How rested you felt the morning after, 1 (exhausted) to 5 (very
    *  rested), kept on the first night of the sleep (rested.ts). */
   rested?: Rested;
+  /** Another night was started within minutes of this one stopping, so its
+   *  guessed sleep was taken back (restart.ts). */
+  restartedAfter?: true;
 }
 export type Rested = 1 | 2 | 3 | 4 | 5;
 export interface NightEpisode { t: number; feedId: string; episodeId: string }
