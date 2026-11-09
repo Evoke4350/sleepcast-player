@@ -341,14 +341,12 @@ describe("revivedNightStart", () => {
 });
 
 describe("RestSession interaction bursts", () => {
-  it("a burst counts once, however long it runs, but keeps the listener active", () => {
+  it("a burst counts once, however long it runs", () => {
     const s = new RestSession(0, 45);
     const step = INTERACTION_MERGE_MS / 4;
     const end = 10_000 + 3 * INTERACTION_MERGE_MS; // longer than one window
     for (let t = 10_000; t <= end; t += step) s.noteInteraction(t); // one drag
     expect(s.interactionCount).toBe(1);
-    // Wakefulness counts every touch: a long restless stretch is not one.
-    expect(s.wakefulness(end)).toEqual({ interactions: 13, msSinceLastInteraction: 0 });
     s.noteInteraction(end + INTERACTION_MERGE_MS); // exactly the window apart: new
     expect(s.interactionCount).toBe(2);
   });
@@ -358,7 +356,6 @@ describe("RestSession interaction bursts", () => {
     s.noteInteraction(100_000);
     s.noteInteraction(50_000);
     expect(s.interactionCount).toBe(2);
-    expect(s.wakefulness(50_000).msSinceLastInteraction).toBe(0);
   });
 });
 
@@ -369,11 +366,6 @@ describe("RestSession interactions across a reload", () => {
     s.noteInteraction(1000);
     expect(s.interactionCount).toBe(9);
     expect(s.finish("faded", 2000).interactions).toBe(9);
-    expect(s.wakefulness(2000).interactions).toBe(9);
-    const t = new RestSession(0, 45);
-    t.seedInteractions(1, 5); // one merged burst of five touches
-    expect(t.interactionCount).toBe(1);
-    expect(t.wakefulness(0).interactions).toBe(5);
   });
 
   it("ignores nonsense", () => {
@@ -383,11 +375,6 @@ describe("RestSession interactions across a reload", () => {
     expect(s.interactionCount).toBe(0);
   });
 
-  it("seeding does not make the quarter-hour rule think a touch was recent", () => {
-    const s = new RestSession(0, 45);
-    s.seedInteractions(8);
-    expect(s.wakefulness(60_000).msSinceLastInteraction).toBeNull();
-  });
 });
 
 describe("RestSession shuffle record", () => {

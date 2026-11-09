@@ -99,7 +99,6 @@ function RowIcon({ d }: { d: string }) {
 const ICONS = {
   favor: "M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5",
   learn: "M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1",
-  quarter: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2",
   custom: "M6 3h12M6 21h12M7 3c0 5 10 5 10 9s-10 4-10 9M17 3c0 5-10 5-10 9",
   saveAhead: "M12 4v11M7 10l5 5 5-5M5 20h14",
   appearance: "M12 3a9 9 0 1 0 0 18 9 9 0 1 0 0-18zM12 3v18M12 7h4M12 11h5M12 15h4",
@@ -227,7 +226,6 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
   const auto = yourTimer?.minutes ?? (learnOn ? learned?.minutes ?? null : null);
   const usingLearned = auto !== null && appState.settings.mode.kind === "minutes" && !handPickHolds(appState.settings.timerPickedAt, Date.now());
   const timerMinutes = usingLearned && auto !== null ? auto : appState.settings.timerMinutes;
-  const quarterHourRule = appState.settings.quarterHourRule;
   // A running experiment gives the next ordinary night (the moon) one of its
   // two sides (lib/rest/experiment.ts). Read again on coming to this tab (an
   // experiment is started from Rest) and after each start.
@@ -240,7 +238,7 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
   }, [goldenPending, tab]);
 
   /** An on/off setting, saved. */
-  function setFlag(key: "quarterHourRule" | "favorWhatWorks", on: boolean) {
+  function setFlag(key: "favorWhatWorks", on: boolean) {
     updateAndSave({ ...appState, settings: { ...appState.settings, [key]: on } });
   }
   const enabledFeeds = appState.feeds.filter((f) => f.enabled);
@@ -1278,17 +1276,6 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
                   aria-label="Custom timer minutes"
                 />
               </div>
-              {/* Stimulus control, off unless asked for. It can stop a night
-                  early, so it is never on by default and never inferred. */}
-              <SettingRow
-                id="quarter-hour"
-                icon={ICONS.quarter}
-                title="The quarter-hour rule"
-                checked={quarterHourRule}
-                onChange={(on) => setFlag("quarterHourRule", on)}
-              >
-                If you&apos;re still restless after 25 minutes, it stops and suggests getting up for a while (stimulus control, from CBT-I): lying awake in bed teaches the bed to mean lying awake. A suggestion, not treatment.
-              </SettingRow>
             </Group>
 
             <Group id="playback" title="Playback">

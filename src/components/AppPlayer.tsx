@@ -69,7 +69,6 @@ export function AppPlayer() {
   // page load and never remounts between nights, so reading it here meant
   // ticking the box in the drawer had no effect until a full reload — the
   // whole feature silently did nothing.
-  const [quarterHourRule, setQuarterHourRule] = useState(false);
   // Opt-in: the night's shuffle leans by what has put the listener under.
   const [favorWhatWorks, setFavorWhatWorks] = useState(false);
   // Read at start, not at mount: settings changed on the setup screen must
@@ -182,10 +181,9 @@ export function AppPlayer() {
   // Settings the players take as props, read fresh when a night starts or is
   // revived. A revived night used to skip this and run on the mount defaults:
   // no per-feed trim (a turned-down feed came back at full volume),
-  // no quarter-hour rule, and a 45-minute timed mode.
+  // and a 45-minute timed mode.
   function applyNightSettings(nightMode: PlayMode) {
     const settings = loadState().settings;
-    setQuarterHourRule(settings.quarterHourRule);
     setMode(nightMode);
     setFeedTrim(settings.feedTrim);
     setSaveAhead(settings.saveAhead !== false);
@@ -306,7 +304,6 @@ export function AppPlayer() {
         resume={resume}
         leadEpisode={session.leadEpisode}
         leadPosition={session.leadPosition ?? 0}
-        quarterHourRule={quarterHourRule}
         mode={mode}
         feedTrim={feedTrim}
         saveAhead={saveAhead}

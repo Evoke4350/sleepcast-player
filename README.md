@@ -101,11 +101,6 @@ is worse than a late verdict.
 it that it got one wrong. Every one of these has tests, including a simulation
 harness (`detector.sim.test.ts`) that runs synthetic nights.
 
-**The quarter-hour rule** (`quarterhour.ts`) is opt-in and off by default. It
-is the stimulus-control idea from CBT-I: if you have been awake for a quarter of
-an hour, get out of bed. The app can suggest it. It is a timer and a
-suggestion, not treatment, and nothing here is medical advice.
-
 ## `/api/relay` — read this before deploying
 
 Browsers cannot fetch most podcast feeds directly (CORS), so the server fetches

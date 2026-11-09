@@ -18,9 +18,6 @@ export class RestSession {
    *  a verdict only stands if no touch follows it and the night fades out. */
   private onset: SleepOnset | null = null;
   private interactions = 0;
-  /** Every touch, unmerged: the live wakefulness signal, where a long
-   *  restless stretch of fiddling must count as more than one. */
-  private touches = 0;
   private pendingInteraction = false;
   /** Episode starts, t relative to night start so it compares directly with
    *  SleepOnset.atMs. This is why attribution is a comparison and not a join
@@ -44,7 +41,7 @@ export class RestSession {
 
   private lastInteractionAt: number | null = null;
   /** Any transport touch since the last tick. Every touch marks the listener
-   *  active now and counts toward wakefulness. For the night's record
+   *  active now. For the night's record
    *  (calibration), touches closer than INTERACTION_MERGE_MS to the one
    *  before are one burst (a lock-screen drag's steps, taps on ±30 s),
    *  however long the burst runs, and count once. */
@@ -56,7 +53,6 @@ export class RestSession {
       this.interactions++;
       if (this.touchedAt.length < MAX_TOUCHES) this.touchedAt.push(Math.max(0, now - this.startedAt));
     }
-    this.touches++;
     this.pendingInteraction = true;
     // A touch after the verdict overturns it. The night may go on (a stretch)
     // and reach another fade, so the evidence starts again from nothing.
@@ -67,37 +63,17 @@ export class RestSession {
     this.lastInteractionAt = now;
   }
 
-  /** Observable wakefulness, for the opt-in quarter-hour rule. The detector's
-   *  own onset is gated on the timer fade and says nothing mid-night, so
-   *  interaction is the only live signal there is: every touch, unmerged. */
-  wakefulness(now: number): { interactions: number; msSinceLastInteraction: number | null } {
-    return {
-      interactions: this.touches,
-      msSinceLastInteraction:
-        this.lastInteractionAt === null ? null : now - this.lastInteractionAt,
-    };
-  }
-
   /** Transport touches so far, for carrying across a reload (see seed). */
   get interactionCount(): number {
     return this.interactions;
-  }
-
-  /** Every touch so far, unmerged (wakefulness), for carrying across a reload. */
-  get touchCount(): number {
-    return this.touches;
   }
 
   /** A revived night keeps its real start (revivedNightStart), so it must keep
    *  the touches from before the reload too: otherwise its RestNight pairs a
    *  whole-night time-to-sleep with only the post-reload interactions, and
    *  calibration underestimates how often this listener touches the phone. */
-  seedInteractions(n: number, touches: number = n): void {
-    const count = (x: number) => (Number.isFinite(x) && x > 0 ? Math.floor(x) : 0);
-    this.interactions += count(n);
-    // Wakefulness's unmerged count; a snapshot from before it was kept
-    // carries only the merged one.
-    this.touches += count(touches);
+  seedInteractions(n: number): void {
+    if (Number.isFinite(n) && n > 0) this.interactions += Math.floor(n);
   }
 
   /** Called whenever an episode starts playing. */
