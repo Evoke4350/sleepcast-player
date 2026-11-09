@@ -382,7 +382,7 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
         </div>
       )}
 
-      {last && last.sleptAtMs !== null && last.selfLabel === undefined && last.detector !== "hr" && show("nights") && (
+      {last && (last.sleptAtMs !== null || last.restartedAfter) && last.selfLabel === undefined && last.detector !== "hr" && show("nights") && (
         <div className="space-y-2.5 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
           <h2 className="text-lg font-bold tracking-tight text-[var(--ink)]">Did you fall asleep to it last night?</h2>
           <p className="text-[13px]">Sleepcast guesses from when you stopped touching the screen.</p>

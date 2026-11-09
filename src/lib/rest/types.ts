@@ -63,10 +63,14 @@ export interface RestNight {
    *  rested), kept on the first night of the sleep (rested.ts). */
   rested?: Rested;
   /** Another night was started within minutes of this one stopping, so its
-   *  guessed sleep was taken back (restart.ts). */
+   *  guessed sleep was set aside (restart.ts): awake at the stop, or woken by
+   *  it, can't be told apart, so the night is undecided until you answer. */
   restartedAfter?: true;
+  /** The guess set aside, put back if you say you fell asleep. */
+  restartGuess?: RestartGuess;
 }
 export type Rested = 1 | 2 | 3 | 4 | 5;
+export type RestartGuess = Pick<RestNight, "sleptAtMs" | "timeToSleepMs" | "detector" | "onsetFeedId" | "onsetEpisodeId" | "onsetAfterMs" | "sleptThrough" | "detectorAtMs">;
 export interface NightEpisode { t: number; feedId: string; episodeId: string }
 /** Health's sleep stages; "asleep" is a watch that doesn't tell them apart. */
 export type SleepStage = "awake" | "rem" | "core" | "deep" | "asleep" | "inbed";

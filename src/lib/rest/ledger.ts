@@ -32,11 +32,20 @@ export function appendNight(n: RestNight): void {
   save([...loadNights(), n]);
 }
 
+/** A night a quick restart set aside (restart.ts) that you say you slept:
+ *  its guess put back. */
+export function restoreGuess(n: RestNight): RestNight {
+  if (!n.restartGuess) return n;
+  const { restartGuess, ...rest } = n;
+  return { ...rest, ...restartGuess };
+}
+
 export function setSelfLabel(startedAt: number, label: "slept" | "awake"): RestNight | null {
   const nights = loadNights();
   const i = nights.findIndex((n) => n.startedAt === startedAt);
   if (i === -1) return null;
-  nights[i] = { ...nights[i], selfLabel: label };
+  // Slept after all: a guess set aside by a quick restart comes back.
+  nights[i] = { ...(label === "slept" ? restoreGuess(nights[i]) : nights[i]), selfLabel: label };
   save(nights);
   return nights[i];
 }
