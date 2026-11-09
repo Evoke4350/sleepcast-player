@@ -46,7 +46,7 @@ export function useNightExtensions(
     setExtensions(used); // the ref at once: a second tap before the render counts it too
     // Snapshotted at once: every ref the snapshot reads is already moved.
     persist();
-    say(canExtend(used) ? "a little longer — sleep when you're ready" : "that's the last stretch. resting counts too.");
+    say(canExtend(used) ? "A little longer. Sleep when you're ready." : "That's the last stretch. Resting counts too.");
   }
 
   return { canExtendMore: canExtend(extensions), extendTimer, extensionsRef };

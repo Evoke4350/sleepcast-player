@@ -76,7 +76,7 @@ export function initConsent(doc: Document = document): void {
   // Withdrawing is as easy as giving: forget the choice and ask again. A
   // reload, so a gtag.js already running stops.
   const status = doc.getElementById("sc-consent-status");
-  if (status) status.textContent = consent === "granted" ? "you accepted analytics." : consent === "denied" ? "you declined analytics." : "you haven't chosen yet.";
+  if (status) status.textContent = consent === "granted" ? "You allowed analytics." : consent === "denied" ? "You turned analytics off." : "You haven't chosen yet.";
   doc.getElementById("sc-consent-reset")?.addEventListener("click", () => {
     try { localStorage.removeItem(CONSENT_KEY); } catch { /* ignore */ }
     // First, or gtag.js writes its session cookie back as the page unloads.

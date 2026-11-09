@@ -187,7 +187,7 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
 
       {/* Two columns on a wide screen, in the same order as one: the asks
           side by side on top, then the charts beside the figures. */}
-      <div className="space-y-4 empty:hidden lg:grid lg:grid-cols-2 lg:items-start lg:gap-4 lg:space-y-0">
+      <div className="space-y-4 empty:hidden lg:grid lg:grid-cols-2 lg:items-start lg:gap-4 lg:space-y-0 lg:[&>:only-child]:col-span-2">
       {toRate && <RateMorning night={toRate} onRated={reloadNights} />}
 
       {reminder && (
@@ -408,7 +408,7 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
                   </span>
                 </div>
                 {driftedDuring?.id === p.id && (
-                  <div className="mt-0.5 text-xs font-semibold text-[var(--accent-text)]">you drifted off here</div>
+                  <div className="mt-0.5 text-xs font-semibold text-[var(--accent-text)]">You drifted off here</div>
                 )}
               </li>
             ))}
@@ -426,10 +426,10 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
       </div>
       </div>
       <p className="text-center text-xs text-[var(--ink-4)]">
-        counted only on this device. no account, nothing sent anywhere. we're
+        Counted only on this device. No account, nothing sent anywhere. We're
         rooting for the nights you don't need us.
       </p>
-      {onClose && <button onClick={onClose} className="text-xs underline decoration-[var(--line)] underline-offset-4 hover:text-[var(--ink-2)]">back</button>}
+      {onClose && <button onClick={onClose} className="text-xs underline decoration-[var(--line)] underline-offset-4 hover:text-[var(--ink-2)]">Back</button>}
     </div>
   );
 }
