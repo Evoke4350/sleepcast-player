@@ -19,6 +19,7 @@ import { pickNextEpisode, HEARD_SEC } from "../lib/plays";
 import type { ResumeDescriptor } from "../lib/store";
 import { shouldTick } from "../lib/tick-gate";
 import { RestSession, revivedNightStart } from "../lib/rest/session";
+import { noteNightStart } from "../lib/rest/restart";
 import { recordNightEnd } from "../lib/night-end";
 import type { RestNight } from "../lib/rest/types";
 import { MAX_FAILS } from "../lib/episode-end";
@@ -848,6 +849,10 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
     // time-to-sleep, timeline and snapshots count from the real start, not
     // from the tap on "keep going".
     const nightStart = revivedNightStart(resume?.nightStartedAt, Date.now());
+    // A new night moments after the last one stopped: whoever started it was
+    // awake for the stop (see rest/restart.ts). Before the session, which
+    // reads the ledger for its calibration.
+    if (!resume) noteNightStart(nightStart);
     restRef.current = new RestSession(nightStart, timerMinutes, shuffle.lean !== undefined);
     restRef.current.seedInteractions(resume?.interactions ?? 0);
     if (resume) {
