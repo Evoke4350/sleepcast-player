@@ -17,7 +17,9 @@ by construction; we happily under-count (someone who manually ends it is not
 logged) but never lie.
 
 **Since November 2026 there is no fade** (iOS ignores a page's volume, so it
-never worked on iPhone). The gate is now the night's last minute, untouched,
+never worked on iPhone). The gate is now the night's last minute, untouched
+(the signal once called `fadingOrDone` is `atEnd`, and `endedVia: "faded"` is
+`"ranOut"`; old nights are renamed as they load),
 and the stop does the fade's old job: a new night started within five minutes
 of it sets the last night's guess aside as undecided (`restart.ts`): awake at the stop and woken by it look the same, so it counts neither way until you answer the morning question.
 
@@ -30,7 +32,7 @@ tickLogLR = s.interacted
   ? Math.log(EPS_INTERACT) - Math.log(p.lambdaAwake)            // strong against sleep
   : Math.log(1 - EPS_INTERACT) - Math.log(1 - p.lambdaAwake);   // mild for sleep
 ```
-Do NOT add a `fadingOrDone` term — `fadingOrDone` is now a **gate**, not evidence.
+Do NOT add a `atEnd` term — `atEnd` is now a **gate**, not evidence.
 
 **`DetectorParams`:** keep the `pHiddenAwake`/`pHiddenAsleep` fields in the type
 (reserved for Phase-2 HR; leave a comment) but they are unused by `tickLogLR`.
@@ -39,7 +41,7 @@ Revert `DEFAULT_PARAMS.alpha` to **0.02** — precision now comes from the gate,
 
 **`observe(s)` — add the fade gate.** The CUSUM still accumulates on quiet and
 tracks `candidateOnset` (the tick `S` left the 0 floor = when the quiet stretch
-began). But it only *emits* once evidence has crossed `A` **and** `s.fadingOrDone`
+began). But it only *emits* once evidence has crossed `A` **and** `s.atEnd`
 is true:
 ```
 observe(s):
@@ -48,7 +50,7 @@ observe(s):
   this.S = Math.max(0, this.S + tickLogLR(s, this.p));
   if (this.S === 0) { this.candidateOnset = null; return null; }
   if (prev === 0) this.candidateOnset = s.t;
-  if (this.S >= this.A && s.fadingOrDone) {
+  if (this.S >= this.A && s.atEnd) {
     this.decided = true;
     return { atMs: this.candidateOnset, confidence: 1 - Math.exp(-this.S), via: "inference" };
   }
@@ -60,8 +62,8 @@ commit waits for the fade. A night that never reaches the fade never emits.
 ## Tests to rewrite
 
 `src/lib/rest/detector.test.ts` (gate-aware):
-- quiet stream with `fadingOrDone: false` throughout → **never emits** (new).
-- quiet stream that builds evidence then enters the fade (`fadingOrDone: true`) →
+- quiet stream with `atEnd: false` throughout → **never emits** (new).
+- quiet stream that builds evidence then enters the fade (`atEnd: true`) →
   emits, `atMs` near the start of the quiet stretch.
 - an interaction after evidence has built, before the fade → resets (delays/prevents).
 - fully-interactive stream → never emits.
@@ -71,10 +73,10 @@ commit waits for the fade. A night that never reaches the fade never emits.
   `hidden` assertions.)
 
 `src/lib/rest/detector.sim.test.ts` (precision now from the gate):
-- `awakeNight`: taps at ~lambda, **ends without a fade** (`fadingOrDone: false`
+- `awakeNight`: taps at ~lambda, **ends without a fade** (`atEnd: false`
   every tick — awake people stop the audio). Assert FP < 5% (should be ~0).
 - `quietAwakeNight`: no taps, **no fade** (ends manually). Assert FP < 5% (~0).
-- `asleepNight`: quiet after a short settle, `fadingOrDone: true` in the last few
+- `asleepNight`: quiet after a short settle, `atEnd: true` in the last few
   ticks. Assert recall > 90% and mean reported onset within ~6 min.
 - Note in a comment: a quiet listener who *does* let the full timer fade untouched
   is counted as slept **by design** (the human's decision), so it is not a false

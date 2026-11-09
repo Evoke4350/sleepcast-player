@@ -22,7 +22,7 @@ function rng(seed: number) {
 function awakeNight(seed: number): SleepSignal[] {
   const r = rng(seed);
   return Array.from({ length: TICKS_PER_NIGHT }, (_, i) => ({
-    t: i * TICK, interacted: r() < 0.12, hidden: r() < 0.3, fadingOrDone: false,
+    t: i * TICK, interacted: r() < 0.12, hidden: r() < 0.3, atEnd: false,
   }));
 }
 
@@ -36,7 +36,7 @@ function awakeNight(seed: number): SleepSignal[] {
 function quietAwakeNight(seed: number): SleepSignal[] {
   const r = rng(seed);
   return Array.from({ length: TICKS_PER_NIGHT }, (_, i) => ({
-    t: i * TICK, interacted: r() < 0.02, hidden: r() < 0.85, fadingOrDone: false,
+    t: i * TICK, interacted: r() < 0.02, hidden: r() < 0.85, atEnd: false,
   }));
 }
 
@@ -48,7 +48,7 @@ function asleepNight(seed: number, settleTicks: number): SleepSignal[] {
     t: i * TICK,
     interacted: i < settleTicks ? r() < 0.15 : false,
     hidden: i < settleTicks ? r() < 0.5 : true,
-    fadingOrDone: i > TICKS_PER_NIGHT - 4,
+    atEnd: i > TICKS_PER_NIGHT - 4,
   }));
 }
 

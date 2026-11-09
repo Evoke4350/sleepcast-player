@@ -8,7 +8,7 @@ const ep = (t: number) => ({ t: t * MIN, feedId: "f", episodeId: `e${t}` });
 
 function night(over: Partial<RestNight> = {}): RestNight {
   return {
-    startedAt: 0, timerMinutes: 90, endedVia: "faded", sleptAtMs: 20 * MIN, timeToSleepMs: 20 * MIN, interactions: 0, detector: "hr",
+    startedAt: 0, timerMinutes: 90, endedVia: "ranOut", sleptAtMs: 20 * MIN, timeToSleepMs: 20 * MIN, interactions: 0, detector: "hr",
     playedMs: 90 * MIN, episodes: [ep(0), ep(40), ep(70)],
     // asleep 20–600, woken 41–45 (after the episode at 40), never at 70 or 90.
     watchSleep: [st(0, 20, "awake"), st(20, 41, "core"), st(41, 45, "awake"), st(45, 600, "core")],

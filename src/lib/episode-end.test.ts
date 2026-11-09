@@ -10,7 +10,7 @@ describe("decideAfterEnded", () => {
   });
 
   test("one-episode mode ends the night", () => {
-    expect(decideAfterEnded({ ...base, mode: "one-episode" })).toEqual({ action: "end-night", reason: "faded" });
+    expect(decideAfterEnded({ ...base, mode: "one-episode" })).toEqual({ action: "end-night", reason: "ranOut" });
   });
 
   test("ending under the courtesy fade ends the night, whatever else is true", () => {
@@ -92,7 +92,7 @@ describe("applyEndedDecision", () => {
     const cases: Array<[Parameters<typeof applyEndedDecision>[0], string[]]> = [
       [{ action: "ignore" }, []],
       [{ action: "replay-from-start" }, ["replay"]],
-      [{ action: "end-night", reason: "faded" }, ["forget", "end:faded"]],
+      [{ action: "end-night", reason: "ranOut" }, ["forget", "end:ranOut"]],
       [{ action: "skip-dead" }, ["forget", "skip"]],
       [{ action: "next" }, ["forget", "next"]],
     ];

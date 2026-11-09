@@ -11,7 +11,7 @@ const live: LiveSession = {
   playedIds: [], pool: [ep], skipIntroByFeedId: {}, feedTitles: {}, artworkByFeedId: {},
 };
 const end = (over: Partial<NightEnd> = {}): NightEnd => ({
-  reason: "faded", played: true, timerMinutes: 45, modeKind: "minutes",
+  reason: "ranOut", played: true, timerMinutes: 45, modeKind: "minutes",
   lastNight: { pool: [ep], playedIds: ["a"], feedTitles: {}, artworkByFeedId: {}, skipIntroByFeedId: {}, wasVaried: false },
   rest: new RestSession(1_000, 45), now: 5_000,
   ...over,
@@ -23,12 +23,12 @@ describe("recordNightEnd", () => {
   it("a played night clears the snapshot and writes every record", () => {
     recordNightEnd(end());
     expect(loadLive()).toBeNull();
-    expect(loadLastNight()).toMatchObject({ endedVia: "faded", endedAt: 5_000 });
+    expect(loadLastNight()).toMatchObject({ endedVia: "ranOut", endedAt: 5_000 });
     expect(loadNights()).toHaveLength(1);
     expect(loadState().settings.lastSession).not.toBeNull();
   });
 
-  it("only a faded night stamps the re-arm", () => {
+  it("only a night the timer ended stamps the re-arm", () => {
     recordNightEnd(end({ reason: "ended" }));
     expect(loadState().settings.lastSession).toBeNull();
     expect(loadLastNight()?.endedVia).toBe("ended");

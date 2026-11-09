@@ -685,7 +685,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
     if (!r || pausedRemainingMsRef.current !== null || tickHandleRef.current === null) return;
     // pausedRemainingMsRef is only set in minutes mode. In one-episode and
     // all-night a pause kept feeding quiet ticks, and with the episode near
-    // its end (fadingOrDone) the detector could infer sleep during a pause.
+    // its end (atEnd) the detector could infer sleep during a pause.
     if (audioRef.current?.paused) return;
     if (Date.now() - lastRestTickRef.current < 15_000) return;
     lastRestTickRef.current = Date.now();
@@ -710,7 +710,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
     r.tick({
       now: Date.now(),
       hidden: typeof document !== "undefined" && document.hidden,
-      fadingOrDone: toEnd <= END_WINDOW_SECONDS,
+      atEnd: toEnd <= END_WINDOW_SECONDS,
     });
   }
 
@@ -782,8 +782,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
 
   /** `gaveUp`: the app, not the listener, is ending a night that never
    *  played, so its snapshot is kept (see NightEnd.gaveUp). */
-  function endSession(reason: RestNight["endedVia"] = "faded", { gaveUp = false }: { gaveUp?: boolean } = {}) {
-    // "faded" is the natural end — the timer ran out untouched. Stamp it so
+  function endSession(reason: RestNight["endedVia"] = "ranOut", { gaveUp = false }: { gaveUp?: boolean } = {}) {
+    // "ranOut" is the natural end: the timer ran out untouched. Stamp it so
     // the setup screen can offer a smaller re-arm to someone who wakes back
     // up inside the window. A manual stop is not an invitation to resume.
     //
@@ -890,7 +890,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
       // One-episode mode means one episode: the night is over. Playing on
       // started the next episode and the night never ended.
       if (modeRef.current.kind === "one-episode") {
-        endSession("faded");
+        endSession("ranOut");
         return;
       }
       playNext();

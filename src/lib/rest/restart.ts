@@ -25,7 +25,7 @@ export const RESTART_WITHIN_MS = 5 * 60_000;
  */
 export function overturnOnRestart(nights: readonly RestNight[], now: number): RestNight[] | null {
   const last = nights[nights.length - 1];
-  if (!last || last.endedVia !== "faded" || last.detector !== "inference") return null;
+  if (!last || last.endedVia !== "ranOut" || last.detector !== "inference") return null;
   if (last.sleptAtMs === null || last.selfLabel === "slept") return null;
   if (last.playedMs === undefined) return null; // no end time to measure from
   const since = now - (last.startedAt + last.playedMs);

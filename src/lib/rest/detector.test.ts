@@ -4,7 +4,7 @@ import type { SleepSignal } from "./types";
 
 const TICK = 15_000;
 const sig = (i: number, over: Partial<SleepSignal> = {}): SleepSignal => ({
-  t: i * TICK, interacted: false, hidden: true, fadingOrDone: false, ...over,
+  t: i * TICK, interacted: false, hidden: true, atEnd: false, ...over,
 });
 
 describe("tickLogLR", () => {
@@ -20,7 +20,7 @@ describe("SleepDetector — fade gate", () => {
   it("quiet stream WITHOUT a fade never emits, however long it runs", () => {
     const d = new SleepDetector();
     let onset = null;
-    for (let i = 0; i < 400; i++) onset = d.observe(sig(i, { fadingOrDone: false })) ?? onset;
+    for (let i = 0; i < 400; i++) onset = d.observe(sig(i, { atEnd: false })) ?? onset;
     expect(onset).toBeNull();
   });
 
@@ -30,11 +30,11 @@ describe("SleepDetector — fade gate", () => {
     let i = 0;
     // Build evidence quietly (no fade yet) until evidence has clearly crossed A...
     for (; i < 40; i++) {
-      onset = d.observe(sig(i, { fadingOrDone: false }));
+      onset = d.observe(sig(i, { atEnd: false }));
       expect(onset).toBeNull(); // gate withholds even once S >= A
     }
     // ...then the fade begins and the next quiet tick should emit.
-    onset = d.observe(sig(i, { fadingOrDone: true }));
+    onset = d.observe(sig(i, { atEnd: true }));
     expect(onset).not.toBeNull();
     expect(onset!.via).toBe("inference");
     // The guard that matters here is that onset is NOT the fade tick — we must
@@ -43,7 +43,7 @@ describe("SleepDetector — fade gate", () => {
     // reached the bound, which is far earlier than the fade and far later than
     // the first quiet tick. (This assertion used to read `<= 2 * TICK`, which
     // pinned it to tick one and was the cause of "you drifted off in 1 min".)
-    const q = tickLogLR(sig(0, { fadingOrDone: false }), DEFAULT_PARAMS);
+    const q = tickLogLR(sig(0, { atEnd: false }), DEFAULT_PARAMS);
     const crossing = (Math.ceil(boundA(DEFAULT_PARAMS) / q) - 1) * TICK;
     expect(onset!.atMs).toBe(crossing);
     expect(onset!.atMs).toBeLessThan(i * TICK); // strictly before the fade tick
@@ -58,16 +58,16 @@ describe("SleepDetector — fade gate", () => {
       if (interrupt) { d.observe(sig(i, { interacted: true })); i++; } // knock S down
       // now let it fade uninterrupted until it alarms
       let onset = null;
-      while (!onset) { onset = d.observe(sig(i, { fadingOrDone: true })); i++; }
+      while (!onset) { onset = d.observe(sig(i, { atEnd: true })); i++; }
       return i;
     };
     expect(ticksToAlarm(true)).toBeGreaterThan(ticksToAlarm(false));
   });
 
-  it("NEVER alarms on a fully-interactive stream, even with fadingOrDone true", () => {
+  it("NEVER alarms on a fully-interactive stream, even with atEnd true", () => {
     const d = new SleepDetector();
     for (let i = 0; i < 200; i++) {
-      expect(d.observe(sig(i, { interacted: true, hidden: false, fadingOrDone: true }))).toBeNull();
+      expect(d.observe(sig(i, { interacted: true, hidden: false, atEnd: true }))).toBeNull();
     }
   });
 
@@ -75,7 +75,7 @@ describe("SleepDetector — fade gate", () => {
     const d = new SleepDetector();
     let count = 0;
     for (let i = 0; i < 200; i++) {
-      if (d.observe(sig(i, { fadingOrDone: true }))) count++;
+      if (d.observe(sig(i, { atEnd: true }))) count++;
     }
     expect(count).toBe(1);
   });
@@ -97,7 +97,7 @@ describe("reported onset time", () => {
     const d = new SleepDetector();
     const fadeAt = totalMs - 60_000;
     for (let t = 0; t <= totalMs; t += TICK) {
-      const o = d.observe({ t, interacted: false, hidden: true, fadingOrDone: t >= fadeAt });
+      const o = d.observe({ t, interacted: false, hidden: true, atEnd: t >= fadeAt });
       if (o) return o;
     }
     return null;
@@ -117,7 +117,7 @@ describe("reported onset time", () => {
     // log(0.999) - log(0.88) ≈ 0.1268, so ~30 quiet ticks ≈ 7.5 minutes.
     const onset = untouchedNight(45 * 60_000);
     const quiet = tickLogLR(
-      { t: 0, interacted: false, hidden: true, fadingOrDone: false },
+      { t: 0, interacted: false, hidden: true, atEnd: false },
       DEFAULT_PARAMS,
     );
     // The first observation happens at t = 0, so the nth lands at (n-1)*TICK.
@@ -133,7 +133,7 @@ describe("reported onset time", () => {
     const fadeAt = 44 * 60_000;
     let onset = null;
     for (let t = 0; t <= 45 * 60_000 && !onset; t += TICK) {
-      onset = d.observe({ t, interacted: t === touchAt, hidden: true, fadingOrDone: t >= fadeAt });
+      onset = d.observe({ t, interacted: t === touchAt, hidden: true, atEnd: t >= fadeAt });
     }
     expect(onset).not.toBeNull();
     expect(onset!.atMs).toBeGreaterThan(touchAt);
@@ -149,7 +149,7 @@ describe("reported onset time", () => {
     for (let t = 0; t <= TOTAL; t += TICK) {
       // Interact on every tick for the first 10 minutes: S is pinned to 0.
       const interacted = t < 10 * 60_000;
-      const o = d.observe({ t, interacted, hidden: true, fadingOrDone: t >= fadeAt });
+      const o = d.observe({ t, interacted, hidden: true, atEnd: t >= fadeAt });
       if (o && !onset) onset = o;
     }
     expect(onset).not.toBeNull();

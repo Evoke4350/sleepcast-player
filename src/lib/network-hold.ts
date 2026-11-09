@@ -15,7 +15,7 @@ export function isOffline(): boolean {
  *  the network is back, unless the player was paused when the hold began (by
  *  the listener: no sound in a dark room they silenced) or `allow()` says no
  *  (Player's get-up prompt); then it waits for resumeNow(), a tap. The resume
- *  itself decides whether it still applies (a fade-out, a new episode). A tap
+ *  itself decides whether it still applies (the night ended, a new episode). A tap
  *  during the hold must go through resumeNow too: play() on the failed
  *  source does nothing and would only thaw the clock over silence. Holding
  *  again replaces the pending resume, so it always concerns what failed last. */
@@ -29,7 +29,7 @@ export class NetworkHold {
   private pausedAtHold: boolean | null = null;
 
   /** `resume` returns whether it actually reloaded: it may find the hold no
-   *  longer applies (a fade-out, the night moved on). `paused`: whether the
+   *  longer applies (the night ended or moved on). `paused`: whether the
    *  player was paused as the hold begins; ignored after the first hold until
    *  cancel() (see pausedAtHold). */
   hold(resume: () => boolean, paused: boolean, allow: () => boolean = () => true): void {

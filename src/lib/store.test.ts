@@ -688,7 +688,7 @@ describe("writes when storage is full", () => {
     const spy = quotaUntilCacheGone();
     try {
       saveLive({ savedAt: 1, remainingMs: 1, totalSeconds: 1, position: 0, current: ep, playedIds: [], pool: [ep], skipIntroByFeedId: {}, feedTitles: {}, artworkByFeedId: {} });
-      saveLastNight({ pool: [ep], playedIds: [], feedTitles: {}, artworkByFeedId: {}, skipIntroByFeedId: {}, endedVia: "faded", endedAt: 1, wasVaried: false });
+      saveLastNight({ pool: [ep], playedIds: [], feedTitles: {}, artworkByFeedId: {}, skipIntroByFeedId: {}, endedVia: "ranOut", endedAt: 1, wasVaried: false });
     } finally { spy.mockRestore(); }
     expect(loadLive()).not.toBeNull();
     expect(loadLastNight()).not.toBeNull();

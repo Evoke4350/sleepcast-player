@@ -10,7 +10,7 @@ const A: Arm = { kind: "show", feedId: "a" };
 const B: Arm = { kind: "show", feedId: "b" };
 
 function night(startedAt: number, over: Partial<RestNight> = {}): RestNight {
-  return { startedAt, timerMinutes: 45, endedVia: "faded", sleptAtMs: 20 * MIN, timeToSleepMs: 20 * MIN, interactions: 0, detector: "inference", ...over };
+  return { startedAt, timerMinutes: 45, endedVia: "ranOut", sleptAtMs: 20 * MIN, timeToSleepMs: 20 * MIN, interactions: 0, detector: "inference", ...over };
 }
 
 describe("experiments", () => {

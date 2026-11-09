@@ -1,5 +1,5 @@
 // The sleep timer, learned from the nights: long enough to cover how long you
-// usually take to fall asleep, with room to spare, so the fade comes after
+// usually take to fall asleep, with room to spare, so the stop comes after
 // you're under rather than while you're still listening.
 import { undecided } from "./restart";
 import type { RestNight } from "./types";
@@ -30,7 +30,7 @@ export interface LearnedTimer {
  * says nothing.
  *
  * A slept night with a believable onset: that time to sleep. A night that
- * faded on its timer with no onset and not marked slept: the timer ran out
+ * ran out on its timer with no onset and not marked slept: the timer ran out
  * first, so sleep took at least that long. Counting it (at the timer's
  * length) is what lets a timer that's too short grow. Nights ended by hand
  * or abandoned with no onset say nothing about the timer.
@@ -44,7 +44,7 @@ function evidenceMs(n: RestNight): number | null {
   if (onset !== null) return onset;
   // Awake at the stop, or woken by it: no telling, so nothing (restart.ts).
   if (undecided(n)) return null;
-  if (n.endedVia === "faded" && n.sleptAtMs === null && n.selfLabel !== "slept" && n.timerMinutes > 0) {
+  if (n.endedVia === "ranOut" && n.sleptAtMs === null && n.selfLabel !== "slept" && n.timerMinutes > 0) {
     return n.timerMinutes * 60_000;
   }
   return null;

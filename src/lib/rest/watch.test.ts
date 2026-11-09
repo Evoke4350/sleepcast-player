@@ -16,7 +16,7 @@ const sample = (fromMin: number, toMin: number, value: string) => `${iso(START +
 
 function night(over: Partial<RestNight> = {}): RestNight {
   return {
-    startedAt: START, timerMinutes: 45, endedVia: "faded", sleptAtMs: 12 * MIN, timeToSleepMs: 12 * MIN,
+    startedAt: START, timerMinutes: 45, endedVia: "ranOut", sleptAtMs: 12 * MIN, timeToSleepMs: 12 * MIN,
     interactions: 1, detector: "inference", playedMs: 45 * MIN, ...over,
   };
 }

@@ -5,7 +5,7 @@ import type { RestNight } from "./types";
 
 const MIN = 60_000;
 const night = (over: Partial<RestNight> = {}): RestNight => ({
-  startedAt: 0, timerMinutes: 45, endedVia: "faded",
+  startedAt: 0, timerMinutes: 45, endedVia: "ranOut",
   sleptAtMs: 20 * MIN, timeToSleepMs: 20 * MIN, interactions: 0, detector: "inference",
   playedMs: 45 * MIN, onsetFeedId: "swm", onsetEpisodeId: "e1", onsetAfterMs: 5 * MIN,
   sleptThrough: ["nsp"], detectorAtMs: 19 * MIN, ...over,

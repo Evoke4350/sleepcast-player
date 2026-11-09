@@ -5,10 +5,10 @@ export const DEFAULT_PARAMS: DetectorParams = {
   // pHiddenAwake/pHiddenAsleep: reserved for Phase 2 (HR-fused signal). Unused
   // by tickLogLR today — simulation proved `hidden` alone can't separate an
   // awake-but-resting listener from a sleeper (see docs/gated-model.md). Precision
-  // now comes from the fade gate in `observe`, not from this signal or `alpha`.
+  // now comes from the end gate in `observe`, not from this signal or `alpha`.
   pHiddenAwake: 0.25,
   pHiddenAsleep: 0.9,
-  alpha: 0.02, // target false-positive rate; the fade gate does the real precision work now
+  alpha: 0.02, // target false-positive rate; the end gate does the real precision work now
   beta: 0.15,
 };
 
@@ -35,7 +35,7 @@ export const LAMBDA_MAX = 0.5;
 
 /** Quiet ticks, from a standing start, before the evidence reaches the bound. */
 export function quietTicksToDecide(p: DetectorParams): number {
-  const quiet: SleepSignal = { t: 0, interacted: false, hidden: false, fadingOrDone: false };
+  const quiet: SleepSignal = { t: 0, interacted: false, hidden: false, atEnd: false };
   return Math.ceil(boundA(p) / tickLogLR(quiet, p));
 }
 
@@ -76,11 +76,11 @@ export class SleepDetector {
     // leaving the floor and reaching the bound, and over-claiming a fast
     // night is the more misleading error for someone tracking their sleep.
     if (this.S >= this.A && this.crossedAt === null) this.crossedAt = s.t;
-    // Fade gate: evidence alone never emits. Only a night that reaches the
-    // sleep-timer fade *unattended* counts as slept (see docs/gated-model.md) —
+    // End gate: evidence alone never emits. Only a night that reaches its
+    // last minute *unattended* counts as slept (see docs/gated-model.md) —
     // that's the one behavioral signal that separates awake (stops/extends
-    // the audio) from asleep (lets it fade).
-    if (this.S >= this.A && s.fadingOrDone) {
+    // the audio) from asleep (lets it run out).
+    if (this.S >= this.A && s.atEnd) {
       this.decided = true;
       return {
         atMs: this.crossedAt ?? s.t,

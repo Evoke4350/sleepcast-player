@@ -29,7 +29,7 @@ describe("reconcileLive", () => {
     const nights = loadNights();
     expect(nights).toHaveLength(1);
     expect(nights[0]).toMatchObject({
-      startedAt: T0, timerMinutes: 45, endedVia: "faded",
+      startedAt: T0, timerMinutes: 45, endedVia: "ranOut",
       sleptAtMs: null, timeToSleepMs: null, detector: "none",
     });
   });
