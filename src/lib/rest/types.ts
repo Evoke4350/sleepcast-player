@@ -6,14 +6,14 @@ export interface SleepSignal {
   t: number;              // ms since night start
   interacted: boolean;    // tap/skip/pause/extend/scrub this tick
   hidden: boolean;        // document.hidden
-  fadingOrDone: boolean;  // timer fade in progress or complete
+  atEnd: boolean;        // in the night's last minute, or past it
   hr?: number;            // Phase 2 only
 }
 export interface SleepOnset { atMs: number; confidence: number; via: "inference" | "hr" | "fused"; }
 export interface RestNight {
   startedAt: number;
   timerMinutes: number;
-  endedVia: "faded" | "ended" | "abandoned";
+  endedVia: "ranOut" | "ended" | "abandoned";
   sleptAtMs: number | null;
   timeToSleepMs: number | null;
   interactions: number;

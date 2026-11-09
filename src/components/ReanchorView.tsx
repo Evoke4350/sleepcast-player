@@ -17,7 +17,7 @@ interface ReanchorViewProps {
 
 // The middle-night re-entry: near-black, no time, one tap. The half-asleep
 // brain gets one choice and no numbers. Shown only when reanchorNext() finds
-// an episode (reopened in the dark soon after a faded night, with more to play).
+// an episode (reopened in the dark soon after a night the timer ended, with more to play).
 export function ReanchorView({ next, onKeepDrifting, onDismiss }: ReanchorViewProps) {
   useEffect(() => { beacon("reanchor_shown"); }, []);
 

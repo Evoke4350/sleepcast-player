@@ -14,7 +14,7 @@ export const MAX_FAILS = 6;
 
 export type EndedDecision =
   | { action: "ignore" }
-  | { action: "end-night"; reason: "ended" | "faded" }
+  | { action: "end-night"; reason: "ended" | "ranOut" }
   | { action: "replay-from-start" }
   | { action: "skip-dead" }
   | { action: "next" };
@@ -48,7 +48,7 @@ export function decideAfterEnded(i: EndedInput): EndedDecision {
     return i.replayedFromStart ? { action: "skip-dead" } : { action: "replay-from-start" };
   }
   // One-episode mode means one episode: the night ends with it.
-  if (i.mode === "one-episode") return { action: "end-night", reason: "faded" };
+  if (i.mode === "one-episode") return { action: "end-night", reason: "ranOut" };
   return { action: "next" };
 }
 
@@ -81,7 +81,7 @@ export function tooShortForStart(startSec: number, durationSec: number): boolean
 /** What each outcome does, supplied by the player. */
 export interface EndedHooks {
   replay(): void;
-  endNight(reason: "ended" | "faded"): void;
+  endNight(reason: "ended" | "ranOut"): void;
   skipDead(): void;
   next(): void;
   /** Drop the episode's saved position: it played out, or can't play. */

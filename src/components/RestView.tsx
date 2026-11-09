@@ -77,7 +77,7 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
   // (And whether the shuffle leans: shown per feed while it's on, so the
   // lean is as auditable as the ranking; only for a feed that is on, since
   // setup builds no lineup from a removed or switched-off one. A 3am
-  // re-anchor carries the faded night's lineup, so a feed switched off since
+  // re-anchor carries the last night's lineup, so a feed switched off since
   // can still lean that one night, unlisted.)
   const { feedTitles, enabledFeeds, favorWhatWorks, learnTimer, feeds, feedRefs } = useMemo(() => {
     const s = loadState();

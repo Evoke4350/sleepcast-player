@@ -4,7 +4,7 @@ import { appendNight } from "./ledger";
 import type { RestNight } from "./types";
 
 const night = (over: Partial<RestNight> = {}): RestNight => ({
-  startedAt: 1000, timerMinutes: 60, endedVia: "faded",
+  startedAt: 1000, timerMinutes: 60, endedVia: "ranOut",
   sleptAtMs: 300000, timeToSleepMs: 300000, interactions: 1, detector: "inference", ...over,
 });
 

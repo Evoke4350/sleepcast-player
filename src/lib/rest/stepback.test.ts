@@ -14,7 +14,7 @@ const DAY = 86_400_000;
 const night = (over: Partial<RestNight> = {}): RestNight => ({
   startedAt: 1_000_000,
   timerMinutes: 45,
-  endedVia: "faded",
+  endedVia: "ranOut",
   sleptAtMs: 8 * 60_000,
   timeToSleepMs: 8 * 60_000,
   interactions: 1,

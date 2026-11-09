@@ -5,7 +5,7 @@ import { DEFAULT_PARAMS, quietTicksToDecide, TICK_MS } from "./detector";
 import type { RestNight } from "./types";
 
 const night = (interactions: number, timeToSleepMs = 300000): RestNight => ({
-  startedAt: Math.random(), timerMinutes: 60, endedVia: "faded",
+  startedAt: Math.random(), timerMinutes: 60, endedVia: "ranOut",
   sleptAtMs: timeToSleepMs, timeToSleepMs, interactions, detector: "inference",
 });
 
@@ -64,7 +64,7 @@ describe("recording a false positive", () => {
   it("keeps re-estimating lambdaAwake from history after a save", () => {
     recordFalsePositive();
     const busy = Array.from({ length: 3 }, (_, i) => ({
-      startedAt: i, timerMinutes: 45, endedVia: "faded" as const,
+      startedAt: i, timerMinutes: 45, endedVia: "ranOut" as const,
       sleptAtMs: 600_000, timeToSleepMs: 600_000, interactions: 12, detector: "inference" as const,
     }));
     expect(currentParams(loadParams(), busy).lambdaAwake).toBe(paramsFromHistory(busy).lambdaAwake);
@@ -94,7 +94,7 @@ describe("tuning the guess to the watch", () => {
   const MIN = 60_000;
   /** A night the watch timed: the detector guessed `app` min, the watch `watch` min. */
   const timed = (app: number, watch: number, over: Partial<RestNight> = {}): RestNight => ({
-    startedAt: Math.random(), timerMinutes: 60, endedVia: "faded", sleptAtMs: watch * MIN, timeToSleepMs: watch * MIN,
+    startedAt: Math.random(), timerMinutes: 60, endedVia: "ranOut", sleptAtMs: watch * MIN, timeToSleepMs: watch * MIN,
     interactions: 0, detector: "hr", appSleptAtMs: app * MIN, watchSleptAfterMs: watch * MIN, ...over,
   });
 

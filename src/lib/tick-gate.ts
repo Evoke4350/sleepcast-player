@@ -1,11 +1,9 @@
 // When may the countdown tick run?
 //
-// The tick applies the volume fade and ends the session, and it used to be
-// driven by `setInterval` alone. Browsers throttle background intervals to
-// roughly once a minute, and the phone is locked for practically the whole of
-// a sleep timer — so a 60-second fade got one or two samples and the stop
-// landed late. The fade is this app's entire claim over a hard cut, and it was
-// degrading toward a hard cut in exactly the case it exists for.
+// The tick ends the session, and it used to be driven by `setInterval` alone.
+// Browsers throttle background intervals to roughly once a minute, and the
+// phone is locked for practically the whole of a sleep timer — so the stop
+// landed up to a minute late, in exactly the case the timer exists for.
 //
 // So the tick is now driven by BOTH the interval (foreground, steady) and the
 // media element's "timeupdate" (~4Hz, and it keeps firing while backgrounded —

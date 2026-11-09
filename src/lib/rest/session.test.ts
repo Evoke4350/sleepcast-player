@@ -10,8 +10,8 @@ describe("RestSession", () => {
     const s = new RestSession(1000, 60);
     s.noteInteraction(1000);
     s.noteInteraction(60_000);
-    for (let i = 0; i < 40; i++) s.tick({ interacted: false, hidden: true, fadingOrDone: i >= 34, now: 1000 + i * 15000 });
-    const night = s.finish("faded", 1000 + 60 * 60000);
+    for (let i = 0; i < 40; i++) s.tick({ interacted: false, hidden: true, atEnd: i >= 34, now: 1000 + i * 15000 });
+    const night = s.finish("ranOut", 1000 + 60 * 60000);
     expect(night.interactions).toBe(2);
     expect(night.sleptAtMs).not.toBeNull();
     expect(night.detector).toBe("inference");
@@ -20,13 +20,13 @@ describe("RestSession", () => {
   it("moves its onset by the watch's tuning, keeping the detector's own", () => {
     const MIN = 60_000;
     const watched = (app: number, watch: number): RestNight => ({
-      startedAt: Math.random(), timerMinutes: 60, endedVia: "faded", sleptAtMs: watch * MIN, timeToSleepMs: watch * MIN,
+      startedAt: Math.random(), timerMinutes: 60, endedVia: "ranOut", sleptAtMs: watch * MIN, timeToSleepMs: watch * MIN,
       interactions: 0, detector: "hr", appSleptAtMs: app * MIN, watchSleptAfterMs: watch * MIN,
     });
     saveNights([watched(10, 20), watched(10, 20), watched(10, 20)]);
     const quietNight = (s: RestSession) => {
-      for (let i = 0; i < 240; i++) s.tick({ hidden: true, fadingOrDone: i >= 230, now: 1000 + i * 15000 });
-      return s.finish("faded", 1000 + 240 * 15000);
+      for (let i = 0; i < 240; i++) s.tick({ hidden: true, atEnd: i >= 230, now: 1000 + i * 15000 });
+      return s.finish("ranOut", 1000 + 240 * 15000);
     };
     const plain = quietNight(new RestSession(1000, 60));
     expect(plain.detectorAtMs).toBeDefined();
@@ -41,14 +41,14 @@ describe("RestSession", () => {
   it("never moves its onset before the last touch or past the night's end", () => {
     const MIN = 60_000;
     const early = (app: number, watch: number): RestNight => ({
-      startedAt: Math.random(), timerMinutes: 60, endedVia: "faded", sleptAtMs: watch * MIN, timeToSleepMs: watch * MIN,
+      startedAt: Math.random(), timerMinutes: 60, endedVia: "ranOut", sleptAtMs: watch * MIN, timeToSleepMs: watch * MIN,
       interactions: 0, detector: "hr", appSleptAtMs: app * MIN, watchSleptAfterMs: watch * MIN,
     });
     saveNights([early(50, 0), early(50, 0), early(50, 0)]); // a 50-minute pull earlier
     const s = new RestSession(1000, 60);
     s.noteInteraction(1000 + 20 * MIN);
-    for (let i = 0; i < 240; i++) s.tick({ hidden: true, fadingOrDone: i >= 230, now: 1000 + i * 15000 });
-    expect(s.finish("faded", 1000 + 240 * 15000).sleptAtMs).toBe(20 * MIN);
+    for (let i = 0; i < 240; i++) s.tick({ hidden: true, atEnd: i >= 230, now: 1000 + i * 15000 });
+    expect(s.finish("ranOut", 1000 + 240 * 15000).sleptAtMs).toBe(20 * MIN);
   });
 
   it("keeps when each burst of touches began, for the night's chart", () => {
@@ -56,13 +56,13 @@ describe("RestSession", () => {
     s.noteInteraction(61_000);
     s.noteInteraction(62_000); // the same burst
     s.noteInteraction(61_000 + INTERACTION_MERGE_MS + 5000);
-    expect(s.finish("faded", 120_000).touchedAt).toEqual([60_000, 60_000 + INTERACTION_MERGE_MS + 5000]);
-    expect(new RestSession(1000, 60).finish("faded", 2000)).not.toHaveProperty("touchedAt");
+    expect(s.finish("ranOut", 120_000).touchedAt).toEqual([60_000, 60_000 + INTERACTION_MERGE_MS + 5000]);
+    expect(new RestSession(1000, 60).finish("ranOut", 2000)).not.toHaveProperty("touchedAt");
   });
 
   it("no onset on a fully-interactive night → sleptAtMs null, detector none", () => {
     const s = new RestSession(1000, 60);
-    for (let i = 0; i < 60; i++) { s.noteInteraction(1000 + i * 15000); s.tick({ interacted: true, hidden: false, fadingOrDone: false, now: 1000 + i * 15000 }); }
+    for (let i = 0; i < 60; i++) { s.noteInteraction(1000 + i * 15000); s.tick({ interacted: true, hidden: false, atEnd: false, now: 1000 + i * 15000 }); }
     const night = s.finish("ended", 1000 + 60 * 60000);
     expect(night.sleptAtMs).toBeNull();
     expect(night.detector).toBe("none");
@@ -76,7 +76,7 @@ describe("a verdict stands only if the night fades out untouched", () => {
   /** Quiet from the start, into the fade at tick 34: the detector has its
    *  verdict by tick 35. */
   function quietIntoFade(s: RestSession, start: number, ticks = 36) {
-    for (let i = 0; i < ticks; i++) s.tick({ hidden: true, fadingOrDone: i >= 34, now: start + i * 15_000 });
+    for (let i = 0; i < ticks; i++) s.tick({ hidden: true, atEnd: i >= 34, now: start + i * 15_000 });
   }
 
   it("a stretch in the fade overturns it: the listener heard it and was awake", () => {
@@ -84,7 +84,7 @@ describe("a verdict stands only if the night fades out untouched", () => {
     const s = new RestSession(start, 10);
     quietIntoFade(s, start);
     s.noteInteraction(start + 36 * 15_000);
-    const night = s.finish("faded", start + 40 * 15_000);
+    const night = s.finish("ranOut", start + 40 * 15_000);
     expect(night.sleptAtMs).toBeNull();
     expect(night.detector).toBe("none");
   });
@@ -95,8 +95,8 @@ describe("a verdict stands only if the night fades out untouched", () => {
     quietIntoFade(s, start);
     const touch = start + 36 * 15_000;
     s.noteInteraction(touch);
-    for (let i = 1; i <= 50; i++) s.tick({ hidden: true, fadingOrDone: i >= 46, now: touch + i * 15_000 });
-    const night = s.finish("faded", touch + 51 * 15_000);
+    for (let i = 1; i <= 50; i++) s.tick({ hidden: true, atEnd: i >= 46, now: touch + i * 15_000 });
+    const night = s.finish("ranOut", touch + 51 * 15_000);
     expect(night.sleptAtMs).not.toBeNull();
     expect(night.sleptAtMs!).toBeGreaterThan(touch - start);
   });
@@ -112,7 +112,7 @@ describe("a verdict stands only if the night fades out untouched", () => {
     const start = 1_000_000;
     const s = new RestSession(start, 10);
     quietIntoFade(s, start);
-    expect(s.finish("faded", start + 38 * 15_000).detector).toBe("inference");
+    expect(s.finish("ranOut", start + 38 * 15_000).detector).toBe("inference");
   });
 });
 
@@ -148,9 +148,9 @@ describe("session — simulated awake listeners who react to the fade", () => {
         s.noteInteraction(now);
         if (!stretch) return s.finish("ended", now);
       }
-      s.tick({ hidden: true, fadingOrDone: i >= ticks - 4, now });
+      s.tick({ hidden: true, atEnd: i >= ticks - 4, now });
     }
-    return s.finish("faded", start + ticks * TICK);
+    return s.finish("ranOut", start + ticks * TICK);
   }
 
   it("none of them is logged as slept", () => {
@@ -165,14 +165,14 @@ describe("attributing sleep onset to what was playing", () => {
 
   /** Drive a session to a detected onset. Copied from the existing passing
    *  test at the top of this file — the detector only concludes once the fade
-   *  is under way, which is why fadingOrDone turns on at tick 34 rather than
+   *  is under way, which is why atEnd turns on at tick 34 rather than
    *  at the start. Measured onset is 435_000ms, not the 34 * 15s = 510_000ms
    *  the tick count suggests: the detector backdates onset to behind the tick
    *  that detected it, rather than to the tick doing the detecting. */
   function sessionWithOnset(start: number) {
     const s = new RestSession(start, 60);
     for (let i = 0; i < 40; i++) {
-      s.tick({ interacted: false, hidden: true, fadingOrDone: i >= 34, now: start + i * 15_000 });
+      s.tick({ interacted: false, hidden: true, atEnd: i >= 34, now: start + i * 15_000 });
     }
     return s;
   }
@@ -182,7 +182,7 @@ describe("attributing sleep onset to what was playing", () => {
     const s = sessionWithOnset(start);
     s.noteEpisode("swm", "ep1", start);
     s.noteEpisode("boring", "ep2", start + 10_000);
-    const night = s.finish("faded", start + 900_000);
+    const night = s.finish("ranOut", start + 900_000);
     expect(night.sleptAtMs).not.toBeNull();
     // Both started before onset; the LAST one before it is what was playing.
     expect(night.onsetFeedId).toBe("boring");
@@ -194,7 +194,7 @@ describe("attributing sleep onset to what was playing", () => {
     const s = sessionWithOnset(start);
     s.noteEpisode("swm", "ep1", start);              // before onset — it led
     s.noteEpisode("boring", "ep2", start + 700_000); // after onset (>510_000)
-    const night = s.finish("faded", start + 900_000);
+    const night = s.finish("ranOut", start + 900_000);
     expect(night.onsetFeedId).toBe("swm");
     expect(night.sleptThrough).toEqual(["boring"]);
   });
@@ -207,7 +207,7 @@ describe("attributing sleep onset to what was playing", () => {
     const s = sessionWithOnset(start);
     s.noteEpisode("swm", "ep1", start);
     s.noteEpisode("swm", "ep2", start + 700_000);
-    const night = s.finish("faded", start + 900_000);
+    const night = s.finish("ranOut", start + 900_000);
     expect(night.onsetFeedId).toBe("swm");
     expect(night.sleptThrough).toEqual(["swm"]);
   });
@@ -233,7 +233,7 @@ describe("attributing sleep onset to what was playing", () => {
   it("leaves onset absent when nothing had started yet", () => {
     // A clock or resume artefact. Better absent than invented.
     const s = sessionWithOnset(1_000_000);
-    const night = s.finish("faded", 1_900_000);
+    const night = s.finish("ranOut", 1_900_000);
     expect(night.onsetFeedId).toBeUndefined();
     expect(night.sleptThrough).toBeUndefined();
   });
@@ -246,7 +246,7 @@ describe("attributing sleep onset to what was playing", () => {
     const s = sessionWithOnset(start);
     s.noteEpisode("before", "e0", start + 100_000);
     s.noteEpisode("boundary", "e1", start + 435_000); // exactly onset.atMs
-    const night = s.finish("faded", start + 900_000);
+    const night = s.finish("ranOut", start + 900_000);
     expect(night.onsetFeedId).toBe("boundary");
     expect(night.onsetEpisodeId).toBe("e1");
     expect(night.sleptThrough).toBeUndefined();
@@ -259,7 +259,7 @@ describe("attributing sleep onset to what was playing", () => {
     const s = sessionWithOnset(start);
     s.noteEpisode("a", "e1", start + 500_000); // after onset (435_000)
     s.noteEpisode("b", "e2", start + 600_000); // after onset
-    const night = s.finish("faded", start + 900_000);
+    const night = s.finish("ranOut", start + 900_000);
     expect(night.onsetFeedId).toBeUndefined();
     expect(night.sleptThrough).toEqual(["a", "b"]);
   });
@@ -268,7 +268,7 @@ describe("attributing sleep onset to what was playing", () => {
     const start = 1_000_000;
     const s = sessionWithOnset(start);
     s.noteEpisode("only", "e1", start);
-    const night = s.finish("faded", start + 900_000);
+    const night = s.finish("ranOut", start + 900_000);
     expect(night.onsetFeedId).toBe("only");
     expect(night.onsetEpisodeId).toBe("e1");
     expect(night.sleptThrough).toBeUndefined();
@@ -282,7 +282,7 @@ describe("attributing sleep onset to what was playing", () => {
     const s = sessionWithOnset(start);
     s.noteEpisode("late", "e2", start + 400_000);
     s.noteEpisode("early", "e1", start + 100_000);
-    const night = s.finish("faded", start + 900_000);
+    const night = s.finish("ranOut", start + 900_000);
     expect(night.onsetFeedId).toBe("late");
     expect(night.onsetEpisodeId).toBe("e2");
   });
@@ -300,7 +300,7 @@ describe("attributing sleep onset to what was playing", () => {
     const start = 1_000_000;
     const s = sessionWithOnset(start);
     s.noteEpisode("swm", "ep1", start);
-    const night = s.finish("faded", start + 900_000);
+    const night = s.finish("ranOut", start + 900_000);
     expect(night.onsetAfterMs).toBe(435_000);
     expect(night.timeToSleepMs).toBe(435_000);
   });
@@ -314,7 +314,7 @@ describe("attributing sleep onset to what was playing", () => {
     const s = sessionWithOnset(start);
     s.noteEpisode("swm", "ep1", start);
     s.noteEpisode("boring", "ep2", start + 400_000);
-    const night = s.finish("faded", start + 900_000);
+    const night = s.finish("ranOut", start + 900_000);
     expect(night.onsetFeedId).toBe("boring");
     expect(night.onsetAfterMs).toBe(35_000);
     expect(night.timeToSleepMs).toBe(435_000);
@@ -365,7 +365,7 @@ describe("RestSession interactions across a reload", () => {
     s.seedInteractions(8);
     s.noteInteraction(1000);
     expect(s.interactionCount).toBe(9);
-    expect(s.finish("faded", 2000).interactions).toBe(9);
+    expect(s.finish("ranOut", 2000).interactions).toBe(9);
   });
 
   it("ignores nonsense", () => {
@@ -379,7 +379,7 @@ describe("RestSession interactions across a reload", () => {
 
 describe("RestSession shuffle record", () => {
   it("marks a night whose lean was in effect, and leaves a plain one unmarked", () => {
-    expect(new RestSession(0, 45, true).finish("faded", 1000).shuffle).toBe("leaned");
-    expect(new RestSession(0, 45).finish("faded", 1000)).not.toHaveProperty("shuffle");
+    expect(new RestSession(0, 45, true).finish("ranOut", 1000).shuffle).toBe("leaned");
+    expect(new RestSession(0, 45).finish("ranOut", 1000)).not.toHaveProperty("shuffle");
   });
 });

@@ -2,8 +2,7 @@
 // while you sleep more often than chance would have it.
 //
 // Two things Sleepcast does can wake a sleeper: start a new episode (a fresh
-// intro, a jingle, an ad, a different voice), and stop (the sound ending, or
-// its fade). Each time one happens while the watch has you asleep, look for
+// intro, a jingle, an ad, a different voice), and stop (the sound ending). Each time one happens while the watch has you asleep, look for
 // a waking within WAKE_WINDOW_MS after it. Chance is how often a waking would
 // start that soon after any moment of that night's sleep: a restless night
 // wakes after anything.

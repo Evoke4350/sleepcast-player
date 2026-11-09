@@ -10,7 +10,7 @@ function slept(i: number, minutes: number, extra: Partial<RestNight> = {}): Rest
   return {
     startedAt: START + i * DAY,
     timerMinutes: 45,
-    endedVia: "faded",
+    endedVia: "ranOut",
     sleptAtMs: minutes * MIN,
     timeToSleepMs: minutes * MIN,
     interactions: 0,

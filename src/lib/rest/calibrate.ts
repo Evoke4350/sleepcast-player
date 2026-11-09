@@ -18,9 +18,9 @@ export function paramsFromHistory(nights: RestNight[]): DetectorParams {
   const rate = interactions / awakeTicks;
   // Never below the default. A quiet listener (0 interactions) estimated at
   // the old 0.02 floor made each quiet tick such weak evidence that the bound
-  // took ~49 min to reach: every shorter night hit its fade undecided, was
+  // took ~49 min to reach: every shorter night hit its end undecided, was
   // never scored as slept, and so never fed a better estimate back. Quiet
-  // while awake is indistinguishable from asleep here; the fade gate, not a
+  // while awake is indistinguishable from asleep here; the end gate, not a
   // lower rate, is what keeps that honest.
   const lambdaAwake = Math.min(LAMBDA_MAX, Math.max(DEFAULT_PARAMS.lambdaAwake, rate));
   return { ...DEFAULT_PARAMS, lambdaAwake };

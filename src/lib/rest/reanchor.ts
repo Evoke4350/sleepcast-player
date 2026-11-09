@@ -1,7 +1,7 @@
 import type { Episode } from "../engine";
 import type { LastNight } from "../store";
 
-// A faded night can offer a re-anchor for this long after it ended.
+// A night the timer ended can offer a re-anchor for this long after it ended.
 export const REANCHOR_WINDOW_MS = 6 * 60 * 60 * 1000;
 
 // First pool episode not yet heard this night and not blocked (an episode
@@ -28,12 +28,12 @@ export interface ReanchorInput {
 }
 
 // The episode to re-anchor on, only when the user reopened in the dark, soon
-// after a night that faded, with something left to play; else null.
+// after a night the timer ended, with something left to play; else null.
 // Deliberately conservative — a re-anchor at the wrong moment is worse than
 // none.
 export function reanchorNext({ lastNight, now, localHour, blocked }: ReanchorInput): Episode | null {
   if (!lastNight) return null;
-  if (lastNight.endedVia !== "faded") return null;
+  if (lastNight.endedVia !== "ranOut") return null;
   if (now - lastNight.endedAt >= REANCHOR_WINDOW_MS) return null;
   if (!inNightHours(localHour)) return null;
   return nextInSpread(lastNight.pool, lastNight.playedIds, blocked());

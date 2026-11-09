@@ -12,10 +12,10 @@ export class RestSession {
   /** How far the watch says to move the detector's onset (calibrate.ts). */
   private correction: number;
   /** The detector's verdict, held until the night ends. The detector decides
-   *  on the first tick inside the fade, which is the very moment an awake
-   *  listener hears the volume drop and reaches for the phone: a stretch or a
-   *  hold-to-end in the remaining seconds says they were awake after all. So
-   *  a verdict only stands if no touch follows it and the night fades out. */
+   *  on the first tick inside the last minute, before the night is over: a
+   *  stretch or a hold-to-end in the remaining seconds says they were awake
+   *  after all. So a verdict only stands if no touch follows it and the
+   *  timer runs out. */
   private onset: SleepOnset | null = null;
   private interactions = 0;
   private pendingInteraction = false;
@@ -55,7 +55,7 @@ export class RestSession {
     }
     this.pendingInteraction = true;
     // A touch after the verdict overturns it. The night may go on (a stretch)
-    // and reach another fade, so the evidence starts again from nothing.
+    // and reach another last minute, so the evidence starts again from nothing.
     if (this.onset) {
       this.onset = null;
       this.detector.reset();
@@ -92,7 +92,7 @@ export class RestSession {
       t: s.now - this.startedAt,
       interacted: s.interacted ?? this.pendingInteraction,
       hidden: s.hidden,
-      fadingOrDone: s.fadingOrDone,
+      atEnd: s.atEnd,
     };
     this.pendingInteraction = false;
     const o = this.detector.observe(sig);
@@ -100,9 +100,9 @@ export class RestSession {
   }
 
   finish(endedVia: RestNight["endedVia"], now: number): RestNight {
-    // Only a night that faded out stands as slept: one ended by hand in the
-    // fade was ended by someone awake.
-    const onset = endedVia === "faded" ? this.onset : null;
+    // Only a night the timer ran out on stands as slept: one ended by hand
+    // in its last minute was ended by someone awake.
+    const onset = endedVia === "ranOut" ? this.onset : null;
     const playedMs = Math.max(0, now - this.startedAt);
     // Tuned to the watch, but never before the last touch (you were awake
     // for it) or after the night ended.

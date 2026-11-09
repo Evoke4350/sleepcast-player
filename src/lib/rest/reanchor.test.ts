@@ -16,7 +16,7 @@ const night = (over: Partial<LastNight> = {}): LastNight => ({
   feedTitles: {},
   artworkByFeedId: {},
   skipIntroByFeedId: {},
-  endedVia: "faded",
+  endedVia: "ranOut",
   endedAt: 1_000_000,
   wasVaried: false,
   ...over,
@@ -41,7 +41,7 @@ describe("nextInSpread", () => {
 });
 
 describe("reanchorNext (whether to offer one)", () => {
-  it("true on the happy path (faded, in window, night hours, next exists)", () => {
+  it("true on the happy path (ran out, in window, night hours, next exists)", () => {
     expect(shouldReanchor({ lastNight: night(), now: NOW, localHour: 3 })).toBe(true);
   });
   it("false when there is no last night", () => {
@@ -50,7 +50,7 @@ describe("reanchorNext (whether to offer one)", () => {
   it("false when all that's left in the spread is blocked", () => {
     expect(shouldReanchor({ lastNight: night(), now: NOW, localHour: 3, blocked: () => ["b"] })).toBe(false);
   });
-  it("false when the night was ended or abandoned, not faded", () => {
+  it("false when the night was ended or abandoned, not run out", () => {
     expect(shouldReanchor({ lastNight: night({ endedVia: "ended" }), now: NOW, localHour: 3 })).toBe(false);
     expect(shouldReanchor({ lastNight: night({ endedVia: "abandoned" }), now: NOW, localHour: 3 })).toBe(false);
   });

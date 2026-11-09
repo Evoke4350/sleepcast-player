@@ -34,14 +34,14 @@ export function barPosition(
   return prev && prev.cur === span.pos && prev.dur === span.dur ? prev : { cur: span.pos, dur: span.dur };
 }
 
-/** Time left in a span, for the fade; null while the length is unknown. */
+/** Time left in a span, for the end of the night; null while the length is unknown. */
 export function remainingOf(span: { pos: number; dur: number } | null): number | null {
   return span ? span.dur - span.pos : null;
 }
 
 /** The last known duration of one load, kept through NaN (a reload's
  *  element knows nothing yet). Infinity forgets it: the element says it is
- *  a stream, and a finite estimate kept past that would fade and clamp to
+ *  a stream, and a finite estimate kept past that would end the night at
  *  a phantom end. A finite reading after sets it again. */
 export class DurationLatch {
   private known: number | null = null;

@@ -458,7 +458,7 @@ export function loadLastEpisode(): Episode | null {
 }
 
 // ---------------------------------------------------------------------------
-// Last night — the spread of the night that just faded, kept so the 3am
+// Last night — the spread of the night that just ended, kept so the 3am
 // re-anchor can offer the next episode without a fresh spin. Separate from
 // KEY_LIVE (which is cleared when the night ends) and bounded like it.
 // ---------------------------------------------------------------------------
@@ -471,7 +471,7 @@ export interface LastNight {
   feedTitles: Record<string, string>;
   artworkByFeedId: Record<string, string>;
   skipIntroByFeedId: Record<string, number>;
-  endedVia: "faded" | "ended" | "abandoned";
+  endedVia: "ranOut" | "ended" | "abandoned";
   endedAt: number;
   wasVaried: boolean;
 }
@@ -491,7 +491,8 @@ export function loadLastNight(): LastNight | null {
     if (!raw) return null;
     const n = JSON.parse(raw) as LastNight;
     if (!n || !Array.isArray(n.pool) || typeof n.endedAt !== "number") return null;
-    return n;
+    // Saved while the timer still faded out (see ledger.ts renameFaded).
+    return (n.endedVia as string) === "faded" ? { ...n, endedVia: "ranOut" } : n;
   } catch {
     return null;
   }
@@ -832,7 +833,7 @@ export function getCachedFeedXml(feedId: string): string | null {
 }
 
 // ---------------------------------------------------------------------------
-// 3am re-arm — remember the last natural fade-out so the setup screen can
+// 3am re-arm — remember the last night the timer ended, so the setup screen can
 // offer a quick smaller resume
 // ---------------------------------------------------------------------------
 

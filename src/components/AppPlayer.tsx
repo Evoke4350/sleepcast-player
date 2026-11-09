@@ -148,14 +148,14 @@ export function AppPlayer() {
   // The 3am catch: on mount and whenever the tab comes back to the foreground,
   // ask the gate (pure but for the blocked list, read through loadBlocked
   // only when needed) whether the user reopened in the dark soon after a night
-  // that faded, with something left in the spread. getHours() is read in memory
+  // the timer ended, with something left in the spread. getHours() is read in memory
   // only — never shown, never sent.
   useEffect(() => {
     const check = () => {
       // Resume outranks re-anchor: if a live night is still revivable, let the
-      // resume card win and never show the re-anchor. (A faded night clears
-      // KEY_LIVE, so normally only one of the two is present — this guards the
-      // edge where an older faded night lingers under a still-live one.)
+      // resume card win and never show the re-anchor. (A night that ran out
+      // clears KEY_LIVE, so normally only one of the two is present — this
+      // guards the edge where an older one lingers under a still-live one.)
       const live = loadLive();
       if (isRevivable(live, Date.now())) {
         setReanchor(null);

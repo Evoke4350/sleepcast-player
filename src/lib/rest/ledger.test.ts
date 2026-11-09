@@ -4,7 +4,7 @@ import { DEFAULT_PARAMS, LAMBDA_MAX, quietTicksToDecide, TICK_MS } from "./detec
 import type { RestNight } from "./types";
 
 const night = (over: Partial<RestNight> = {}): RestNight => ({
-  startedAt: 1000, timerMinutes: 60, endedVia: "faded",
+  startedAt: 1000, timerMinutes: 60, endedVia: "ranOut",
   sleptAtMs: 5 * 60_000, timeToSleepMs: 5 * 60_000,
   interactions: 1, detector: "inference", ...over,
 });
@@ -16,6 +16,11 @@ describe("ledger", () => {
     appendNight(night());
     expect(loadNights()).toHaveLength(1);
     expect(loadNights()[0].timeToSleepMs).toBe(300000);
+  });
+
+  it("renames nights saved as \"faded\" to \"ranOut\"", () => {
+    localStorage.setItem("sleepcast2.rest", JSON.stringify([night({ endedVia: "faded" as RestNight["endedVia"] }), night({ endedVia: "ended" })]));
+    expect(loadNights().map((n) => n.endedVia)).toEqual(["ranOut", "ended"]);
   });
 
   it("keeps at most 90 nights, newest last", () => {
@@ -55,7 +60,7 @@ describe("ledger", () => {
 
 describe("rollup ignores pre-fix onset artifacts", () => {
   const n = (over: Partial<RestNight> = {}): RestNight => ({
-    startedAt: 1, timerMinutes: 45, endedVia: "faded",
+    startedAt: 1, timerMinutes: 45, endedVia: "ranOut",
     sleptAtMs: 9 * 60_000, timeToSleepMs: 9 * 60_000,
     interactions: 0, detector: "inference", ...over,
   });

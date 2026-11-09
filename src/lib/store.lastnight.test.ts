@@ -12,7 +12,7 @@ const base: LastNight = {
   feedTitles: { f: "Feed" },
   artworkByFeedId: {},
   skipIntroByFeedId: {},
-  endedVia: "faded",
+  endedVia: "ranOut",
   endedAt: 1000,
   wasVaried: true,
 };
@@ -24,10 +24,15 @@ describe("lastnight persistence", () => {
     expect(loadLastNight()).toBeNull();
   });
 
+  it("renames a night saved as \"faded\" to \"ranOut\"", () => {
+    localStorage.setItem("sleepcast2.lastnight", JSON.stringify({ ...base, endedVia: "faded" }));
+    expect(loadLastNight()?.endedVia).toBe("ranOut");
+  });
+
   it("round-trips a saved night", () => {
     saveLastNight(base);
     const got = loadLastNight();
-    expect(got?.endedVia).toBe("faded");
+    expect(got?.endedVia).toBe("ranOut");
     expect(got?.wasVaried).toBe(true);
     expect(got?.playedIds).toEqual(["a"]);
     expect(got?.pool.map((e) => e.id)).toEqual(["a", "b"]);

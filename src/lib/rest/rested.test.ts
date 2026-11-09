@@ -10,7 +10,7 @@ const st = (from: number, to: number, stage: SleepStretch["stage"]): SleepStretc
 
 function night(startedAt: number, over: Partial<RestNight> = {}): RestNight {
   return {
-    startedAt, timerMinutes: 45, endedVia: "faded", sleptAtMs: 20 * MIN, timeToSleepMs: 20 * MIN, interactions: 0,
+    startedAt, timerMinutes: 45, endedVia: "ranOut", sleptAtMs: 20 * MIN, timeToSleepMs: 20 * MIN, interactions: 0,
     detector: "hr", watchSleptAfterMs: 20 * MIN, playedMs: 45 * MIN,
     watchSleep: [st(0, 20, "awake"), st(20, 200, "core"), st(200, 260, "deep"), st(260, 420, "rem")],
     ...over,

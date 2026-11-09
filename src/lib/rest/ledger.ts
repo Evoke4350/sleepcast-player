@@ -9,10 +9,16 @@ export function loadNights(): RestNight[] {
   try {
     const raw = localStorage.getItem(KEY);
     const arr = raw ? (JSON.parse(raw) as RestNight[]) : [];
-    return Array.isArray(arr) ? arr : [];
+    return Array.isArray(arr) ? arr.map(renameFaded) : [];
   } catch {
     return [];
   }
+}
+
+/** Nights saved while the timer still faded out say "faded"; it's "ranOut"
+ *  now there's no fade. Same meaning: the timer ended the night. */
+function renameFaded(n: RestNight): RestNight {
+  return (n.endedVia as string) === "faded" ? { ...n, endedVia: "ranOut" } : n;
 }
 
 function save(nights: RestNight[]): void {
