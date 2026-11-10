@@ -36,9 +36,9 @@ function remoteOf(key: string): string | null {
   }
 }
 
-/** YouTube episodes play in an embed, never from a file. */
-export function canSave(ep: Pick<Episode, "url" | "youtubeId">): boolean {
-  return !ep.youtubeId && /^https:\/\//i.test(ep.url);
+/** Only an https file can be saved. */
+export function canSave(ep: Pick<Episode, "url">): boolean {
+  return /^https:\/\//i.test(ep.url);
 }
 
 function offline(): boolean {
@@ -95,7 +95,7 @@ export class OfflineAudio {
 
   /** The episodes the night needs saved, in order of need. Anything else
    *  saved goes; a download for something no longer needed stops. */
-  keep(eps: readonly Pick<Episode, "url" | "youtubeId">[]): void {
+  keep(eps: readonly Pick<Episode, "url">[]): void {
     if (!supported()) return;
     const next = eps.filter(canSave).map((e) => e.url);
     if (this.kept && next.length === this.wanted.length && next.every((u, i) => u === this.wanted[i])) return;

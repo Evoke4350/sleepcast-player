@@ -6,10 +6,6 @@ export interface Episode {
   url: string;
   feedId: string;
   date: string;
-  /** Present only for YouTube episodes, where `url` is a watch page rather
-   *  than anything an <audio> element can stream. Its presence is what tells
-   *  the player to use the embedded backend instead. See youtube.ts. */
-  youtubeId?: string;
   /** Its length from the feed (<itunes:duration>), when the feed says. */
   durationSec?: number;
 }
