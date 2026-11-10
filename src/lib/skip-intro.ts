@@ -17,7 +17,7 @@ export const SKIP_STILL_AT_START_SEC = 15;
 export type SkipDecision = "wait" | "skip" | "none";
 
 /** Whether a position is still at the start, for the skip's purposes: the
- *  one rule every player uses. */
+ *  one rule. */
 export function stillAtStart(positionSec: number, skipSec: number): boolean {
   return positionSec <= SKIP_STILL_AT_START_SEC && positionSec < skipSec;
 }
@@ -28,14 +28,6 @@ export function decideSkip(skipSec: number, durationSec: number, currentTime: nu
   if (short === null) return "wait";
   if (short) return "none"; // plays whole
   return stillAtStart(currentTime, skipSec) ? "skip" : "none";
-}
-
-/** Where Night and YouTubeNight start a load, by the same rule: the skip
- * applies at a start near the beginning (a first play, or a revive from a
- * snapshot taken a second in), not to a saved position further along. (They
- * check a too-short episode afterwards, with shouldPlayWhole.) */
-export function startWithSkip(seekTo: number, skipSec: number): number {
-  return stillAtStart(seekTo, skipSec) ? skipSec : seekTo;
 }
 
 /** What the listener is told once the skip lands. */

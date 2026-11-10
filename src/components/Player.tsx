@@ -9,10 +9,9 @@ import { formatTime, feedVolume, secondsToEnd } from "../lib/engine";
 import { getPlays, recordHeardPlay, saveLive, noteSounded, SNAPSHOT_EVERY_TICKS, counterAfterStartSnapshot, rememberPosition, forgetPosition, blockEpisode } from "../lib/store";
 import { NetworkHold, isOffline } from "../lib/network-hold";
 import { SeekEnforcer, type SeekHooks } from "../lib/seek-enforcer";
-import { mediaTransport } from "../lib/media/transport";
+import { mediaTransport, rearmsWatchdogOnTap } from "../lib/media/transport";
 import { barPosition, DurationLatch, remainingOf, shortOfEnd, spanOf } from "../lib/duration";
 import { heardDelta } from "../lib/heard";
-import { rearmsWatchdogOnTap } from "../lib/witness";
 import { clearLockScreen, mediaSession, publishLockScreen, publishLockScreenMetadata, setActionHandlers } from "../lib/lock-screen";
 import { decideSkip, skipMessage, stillAtStart } from "../lib/skip-intro";
 import { pickNextEpisode, HEARD_SEC } from "../lib/plays";
@@ -514,7 +513,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
     if (netHoldRef.current.resumeNow(true)) return;
     // An episode that hasn't played yet gets its watchdog back (a pause of a
     // loading or stalled element, the lock screen's stop, stood it down), by
-    // the tap rule every player uses.
+    // the tap rule (rearmsWatchdogOnTap).
     const src = audio.getAttribute("src");
     if (src && rearmsWatchdogOnTap(epPlayedRef.current, mediaTransport(audio))) watchRef.current = { src, at: Date.now() };
     // A refused play stands the watchdog down again (see playOrWait).

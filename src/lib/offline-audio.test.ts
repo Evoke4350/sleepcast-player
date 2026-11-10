@@ -178,8 +178,7 @@ describe("OfflineAudio", () => {
     expect(o.sourceFor(ep(1))).toBe(ep(1).url);
   });
 
-  it("never YouTube, never plain http", () => {
-    expect(canSave({ url: "https://www.youtube.com/watch?v=x", youtubeId: "x" })).toBe(false);
+  it("never plain http", () => {
     expect(canSave({ url: "http://cdn.example/a.mp3" })).toBe(false);
     expect(canSave(ep(1))).toBe(true);
   });

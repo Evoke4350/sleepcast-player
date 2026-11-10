@@ -15,3 +15,16 @@ export function mediaTransport(el: { paused: boolean; readyState: number; seekin
   if (el.paused) return "paused";
   return isPlayingThrough(el) && !el.seeking ? "playing" : "buffering";
 }
+
+/**
+ * Whether a request for sound re-times the watchdog. An episode that has never
+ * made a sound gets its watchdog timed from this tap rather than from its load
+ * or an earlier refused tap: a refusal sits the episode at paused, and a
+ * working tap minutes later otherwise read as a stall the moment it began
+ * buffering. Not while it is already buffering: repeated taps on a hung
+ * stream would then postpone the watchdog forever. And never once it has
+ * played, or a slow 2am rebuffer after a mid-night resume would condemn it.
+ */
+export function rearmsWatchdogOnTap(played: boolean, transport: ReturnType<typeof mediaTransport>): boolean {
+  return !played && transport !== "buffering";
+}
