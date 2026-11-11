@@ -87,7 +87,7 @@ function Running({ e, nights, titles, favoring, learning, onChange }: { e: Exper
             ))}
           </ul>
           <p className="text-xs text-[var(--ink-3)]">
-            {`Next: ${e.next === 0 ? a : b}, from the moon. Times stay hidden until both have ${e.perArm} nights, so an early lucky streak can't decide it. Nights started any other way don't count.`}
+            {`Next: ${e.next === 0 ? a : b}. Results show once both have ${e.perArm} nights. Only nights started from the moon count.`}
           </p>
         </>
       ) : (
@@ -108,19 +108,19 @@ function Running({ e, nights, titles, favoring, learning, onChange }: { e: Exper
           </ul>
           <p className="text-[13px] text-[var(--ink-2)]">
             {r.winner !== null
-              ? `${r.winner === 0 ? a : b} put you to sleep faster. A difference this clear would come up by chance ${inHundred(r.pValue!)}.`
-              : `No clear difference: one this size comes up by chance ${inHundred(r.pValue!)}. More nights could tell them apart, or they may just be as good as each other.`}
+              ? `${r.winner === 0 ? a : b} put you to sleep faster. Chance of a fluke: ${inHundred(r.pValue!)}.`
+              : `No clear difference. They may be equally good. Chance of a fluke: ${inHundred(r.pValue!)}.`}
           </p>
           {r.winner !== null && e.arms[0].kind === "show" && (
             <p className="text-xs text-[var(--ink-3)]">
               {favoring
-                ? `"Favour what puts me under" now leans your shuffle toward ${r.winner === 0 ? a : b} as strongly as it leans toward any show, and not toward ${r.winner === 0 ? b : a}.`
-                : `Turn on "Favour what puts me under" in Settings and your shuffle will lean toward ${r.winner === 0 ? a : b}.`}
+                ? `"Favour what puts me under" now plays ${r.winner === 0 ? a : b} more, and not ${r.winner === 0 ? b : a}.`
+                : `Turn on "Favour what puts me under" in Settings to play ${r.winner === 0 ? a : b} more.`}
             </p>
           )}
           {r.winner !== null && e.arms[0].kind === "timer" && (
             <p className="text-xs text-[var(--ink-3)]">
-              {`Done saves the ${r.winner === 0 ? a : b} as your timer: the Sleep screen sets it each night${learning ? " in place of the learned one" : ""}, until you change it there.`}
+              {`Done makes the ${r.winner === 0 ? a : b} your timer${learning ? ", in place of the learned one" : ""}.`}
             </p>
           )}
           <div className="flex flex-wrap gap-2">
@@ -175,7 +175,7 @@ function Start({ feeds, onStart }: { feeds: { id: string; title: string; enabled
   return (
     <div className="space-y-3">
       <p className="text-[13px] text-[var(--ink-2)]">
-        Find out which of two shows, or two timers, puts you to sleep faster. Each night you tap the moon gets one of the two at random, so neither gets the easier nights.
+        Find out which of two shows or timers puts you to sleep faster. Each night you tap the moon, one is picked at random.
       </p>
       <div role="radiogroup" aria-label="Compare" className="flex gap-2">
         {(["show", "timer"] as const).map((k) => (
@@ -232,7 +232,7 @@ function Start({ feeds, onStart }: { feeds: { id: string; title: string; enabled
         </select>
       </label>
       <p className="text-xs text-[var(--ink-3)]">
-        {`About ${each * 2} nights in all. Timed by your watch when it has the night, otherwise by Sleepcast's own guess.`}
+        {`About ${each * 2} nights in all.`}
       </p>
       <button
         onClick={start}

@@ -1238,7 +1238,7 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
                 checked={appState.settings.favorWhatWorks}
                 onChange={(on) => setFlag("favorWhatWorks", on)}
               >
-                Shows you&apos;ve fallen asleep to come up a little more often, and ones you skip a little less. Each needs a few nights first, and nothing is ever ruled out.
+                Plays the shows you fall asleep to a bit more often. Nothing is ruled out.
               </SettingRow>
             </Group>
 
@@ -1250,7 +1250,7 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
                 checked={learnOn}
                 onChange={(on) => updateAndSave({ ...appState, settings: { ...appState.settings, learnTimer: on } })}
               >
-                Sets tonight&apos;s timer from how long you&apos;ve taken to fall asleep lately, with room to spare. A timer you pick by hand holds for that night.
+                Sets the timer from how long you usually take to fall asleep.
               </SettingRow>
               {/* A custom timer is the long tail of the timer presets. */}
               <div className="flex items-center gap-3 py-3.5">
@@ -1258,7 +1258,7 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
                 <label htmlFor="custom-minutes" className="flex-1 space-y-0.5">
                   <span className="block font-semibold text-[var(--ink)]">Custom timer</span>
                   <span className="block text-[12.5px] text-[var(--ink-3)]">
-                    {mode.kind === "minutes" ? `Now ${timerMinutes} min.` : "Minutes, between the presets or past them."}
+                    {mode.kind === "minutes" ? `Now ${timerMinutes} min.` : "Any length, in minutes."}
                   </span>
                 </label>
                 <input
@@ -1287,7 +1287,7 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
                 checked={appState.settings.saveAhead !== false}
                 onChange={(on) => updateAndSave({ ...appState, settings: { ...appState.settings, saveAhead: on } })}
               >
-                Saves the episode playing and the next one on this device as they play, so a dropped connection doesn&apos;t stop the night. Each episode downloads whole, so off Wi-Fi it uses more data than streaming.
+                Downloads the current and next episode, so a dropped connection doesn&apos;t stop playback. Uses more data off Wi-Fi.
               </SettingRow>
             </Group>
 
@@ -1296,7 +1296,7 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
                 <RowIcon d={ICONS.appearance} />
                 <span className="flex-1 space-y-0.5">
                   <span className="block font-semibold text-[var(--ink)]">Appearance</span>
-                  <span className="block text-[12.5px] text-[var(--ink-3)]">Light or dark, as your phone is set.</span>
+                  <span className="block text-[12.5px] text-[var(--ink-3)]">Follows your phone.</span>
                 </span>
               </div>
               <a href="/privacy" className="group flex items-center gap-3 py-3.5">
@@ -1313,7 +1313,7 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
             <div className="space-y-6">
             <Group id="watch" title="Sleep from your watch" padded>
               <p className="text-[13px] leading-snug text-[var(--ink-3)]">
-                With sleep tracking on, Apple Watch records when you fell asleep. A Shortcut can bring that here each morning, in place of Sleepcast&apos;s guess from when you stopped touching the screen. It goes straight from your phone to this browser.
+                A Shortcut can bring your Apple Watch sleep here each morning, in place of Sleepcast&apos;s own guess. It never leaves your phone.
               </p>
               <details className="group rounded-xl bg-[var(--raised)] px-3.5 py-3 text-[12.5px] leading-snug text-[var(--ink-2)]">
                 <summary className="flex cursor-pointer list-none items-center justify-between rounded font-semibold text-[var(--ink)] [&::-webkit-details-marker]:hidden">
@@ -1321,7 +1321,7 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4 text-[var(--ink-3)] transition-transform group-open:rotate-90" aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg>
                 </summary>
                 <ol className="mt-2 list-decimal space-y-1.5 pl-5">
-                  <li>In Shortcuts, make a new shortcut and add <b>Find Health Samples</b>. Set Type to Sleep Analysis, and add two filters: Start Date is in the last 1 day, and Value is not In Bed. Sort by Start Date, Latest First, and turn on Limit at 200. With sleep stages, one night alone can be a hundred samples, and more than that makes the Shortcut give up.</li>
+                  <li>In Shortcuts, make a new shortcut and add <b>Find Health Samples</b>. Set Type to Sleep Analysis, and add two filters: Start Date is in the last 1 day, and Value is not In Bed. Sort by Start Date, Latest First, and turn on Limit at 200.</li>
                   <li>If another sleep app also writes to Health, add the filter Source is your Apple Watch, so each night comes through once.</li>
                   <li>Add <b>Repeat with Each</b> on the Health Samples.</li>
                   <li>Inside it, add <b>Text</b>: Repeat Item&apos;s Start Date, then <code>|</code>, then its End Date, then <code>|</code>, then its Value. Set both dates&apos; format to ISO 8601 with the time included.</li>
@@ -1330,7 +1330,7 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
                   <li>Add <b>URL Encode</b> on the combined text, then <b>Open URLs</b> with <code className="break-all">{typeof window !== "undefined" ? window.location.origin : "https://sleepcast.pro"}/#watch=</code> followed by the encoded text.</li>
                   <li>To run it every morning, add an Automation in Shortcuts, such as when your wake-up alarm is stopped.</li>
                 </ol>
-                <p className="mt-2 text-[var(--ink-3)]">Using Sleepcast from your Home Screen? The link opens Safari, which keeps its own copy of your nights, so open Sleepcast after the Shortcut runs and tap Add from clipboard.</p>
+                <p className="mt-2 text-[var(--ink-3)]">Using the Home Screen app? After the Shortcut runs, open Sleepcast and tap Add from clipboard.</p>
               </details>
               <button
                 onClick={() => { void handleWatchPaste(); }}
@@ -1345,11 +1345,11 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
             {/* Everything here lives only in this browser's storage. */}
             <Group id="history" title="Your history" padded>
               <p className="text-[13px] leading-snug text-[var(--ink-3)]">
-                Your feeds, settings and nights are kept only in this browser. Clearing site data or switching phones loses them, so save a backup now and then.
+                Everything is stored only in this browser. Back up now and then so you don&apos;t lose it.
               </p>
               <p className="text-[13px] font-semibold leading-snug text-[var(--ink-2)]">
                 {backedUpAt ? `Last backed up ${fmtBackupDate(backedUpAt)}.` : "Not backed up yet."}
-                {kept ? <span className="font-normal text-[var(--ink-3)]"> This browser has agreed not to clear it on its own.</span> : ""}
+                {kept ? <span className="font-normal text-[var(--ink-3)]"> This browser won&apos;t clear it on its own.</span> : ""}
               </p>
               <div className="flex gap-2">
                 <button
