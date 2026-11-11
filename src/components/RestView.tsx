@@ -197,15 +197,15 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
             <>
               <p className="text-[13px] text-[var(--ink-2)]">
                 {reminder.everBackedUp
-                  ? `${pluralNights(reminder.nights)} since your last backup are kept only in this browser. Save a new backup to keep them if it clears its storage.`
-                  : `Your ${pluralNights(reminder.nights)}, feeds and settings are kept only in this browser. Save a backup to keep them if it clears its storage.`}
+                  ? `${pluralNights(reminder.nights)} since your last backup are stored only in this browser.`
+                  : `Your ${pluralNights(reminder.nights)}, shows and settings are stored only in this browser.`}
               </p>
               <div className="flex gap-2">
                 <button
                   onClick={() => {
                     const { nights: saved } = downloadBackup();
                     void keepStorage();
-                    closeReminder(`Saved ${pluralNights(saved)}. Keep the file somewhere other than this browser.`);
+                    closeReminder(`Saved ${pluralNights(saved)}. Keep the file outside this browser.`);
                   }}
                   className="flex-1 rounded-full bg-[var(--accent)] py-2.5 text-sm font-bold text-[var(--accent-ink)]"
                 >
@@ -214,7 +214,7 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
                 <button
                   onClick={() => {
                     snoozeBackupReminder();
-                    closeReminder("Hidden for a week. You can back up anytime in Settings.");
+                    closeReminder("Hidden for a week. Back up anytime in Settings.");
                   }}
                   className="flex-1 rounded-full bg-[var(--raised)] py-2.5 text-sm font-bold text-[var(--ink-2)] hover:text-[var(--ink)]"
                 >
@@ -240,8 +240,8 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
             </p>
             <p className="text-[13px] text-[var(--ink-2)]">
               {r.nights > 0
-                ? `The middle of the nights it timed. ${pluralNights(r.nights)} since ${new Date(nights[0].startedAt).toLocaleDateString([], { month: "short", day: "numeric" })}${watched.length ? `, ${watched.length} from your watch` : ""}.`
-                : "The middle of the nights it timed. None yet."}
+                ? `Across ${pluralNights(r.nights)} since ${new Date(nights[0].startedAt).toLocaleDateString([], { month: "short", day: "numeric" })}${watched.length ? `, ${watched.length} from your watch` : ""}.`
+                : "No timed nights yet."}
             </p>
           </div>
           {recent.length >= 3 && (
@@ -266,14 +266,12 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
           <div>
             <dt className="text-xs font-semibold text-[var(--ink-3)]">Fastest</dt>
             <dd className="text-2xl font-extrabold tabular-nums tracking-tight text-[var(--ink)]">{r.bestTimeToSleepMs !== null ? fmtDuration(r.bestTimeToSleepMs) : "—"}</dd>
-            <dd className="text-[11px] text-[var(--ink-3)]">Your quickest night so far</dd>
           </div>
           <div>
             <dt className="text-xs font-semibold text-[var(--ink-3)]">Nights you drifted off</dt>
             <dd className="text-2xl font-extrabold tabular-nums tracking-tight text-[var(--ink)]">
               {r.nightsSlept}{r.nights ? <small className="ml-1 text-sm font-semibold text-[var(--ink-3)]">/ {r.nights}</small> : null}
             </dd>
-            <dd className="text-[11px] text-[var(--ink-3)]">Nights it saw you go quiet</dd>
           </div>
         </dl>
       </section>
@@ -310,10 +308,10 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
           <h2 id="chart-empty-title" className="text-lg font-bold tracking-tight text-[var(--ink)]">Your nights, charted</h2>
           <p className="text-[13px] text-[var(--ink-2)]">
             {nights.some((n) => n.detector === "hr")
-              ? "Your watch's sleep came in before Sleepcast kept the stages, so those nights have no chart. Run the watch Shortcut again: it charts the nights it covers."
-              : "With your watch's sleep, each night is charted here: when you fell asleep and woke, REM, Core and Deep, against what played. Set up the Shortcut in Settings, under Sleep from your watch."}
+              ? "These watch nights came in before charts existed. Run the Shortcut again to chart them."
+              : "Add your Apple Watch sleep to chart each night against what played. Set it up in Settings."}
           </p>
-          <p className="text-xs text-[var(--ink-3)]">Using Sleepcast from your Home Screen? Run the Shortcut, then come back here and add what it copied.</p>
+          <p className="text-xs text-[var(--ink-3)]">Using the Home Screen app? Run the Shortcut, then tap Add from clipboard.</p>
           <button
             onClick={() => { void addWatchFromClipboard(); }}
             className="w-full rounded-full bg-[var(--raised)] py-2.5 text-sm font-bold text-[var(--ink-2)] hover:text-[var(--ink)]"
@@ -343,9 +341,9 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
             </div>
           )}
           <p className="mt-4 text-[11px] leading-snug text-[var(--ink-3)]">
-            {`Ranked by what was playing when you went under. Shows with fewer than ${MIN_NIGHTS} nights, that have never led, or that net negative aren't counted yet.`}
+            {`Ranked by what was playing when you fell asleep. A show counts once it has ${MIN_NIGHTS} nights, has put you to sleep at least once, and isn't mostly skipped.`}
             {favorWhatWorks
-              ? ` "Favour what puts me under" is on: a show with ${MIN_NIGHTS} or more nights, counted or not, weighs by its record against the other shows in a night's lineup; a show with fewer nights weighs ×1, and shows that weigh the same lean nothing between them. A weight applies to each fresh episode, so a show with more of them still comes up more. A show that won an experiment weighs ×${WEIGHT_MAX.toFixed(2)}, the most a show can, and the show it beat no more than ×1, whatever their records: an experiment's nights were given at random, so it's the better evidence. Weights other than ×1 are listed for shows that are switched on.`
+              ? ` "Favour what puts me under" is on, so shows with ${MIN_NIGHTS} or more nights play more or less often by the weight shown. An experiment winner gets the most, ×${WEIGHT_MAX.toFixed(2)}.`
               : ""}
           </p>
         </section>
@@ -358,13 +356,13 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
           <h2 id="guess-title" className="text-lg font-bold tracking-tight text-[var(--ink)]">Sleepcast&apos;s own guess</h2>
           <p className="text-[13px] text-[var(--ink-2)]">
             {accuracy.applied
-              ? `Tuned to your watch over ${pluralNights(accuracy.nights)}: you fall asleep about ${fmtDuration(Math.abs(accuracy.correctionMs))} ${accuracy.correctionMs >= 0 ? "after" : "before"} it would have guessed, so its guess now moves ${accuracy.correctionMs >= 0 ? "later" : "earlier"} by that.`
-              : `Checked against your watch over ${pluralNights(accuracy.nights)}: moving its guess wouldn't make it closer, so it's left as it is.`}
+              ? `Tuned to your watch over ${pluralNights(accuracy.nights)}: it now guesses ${fmtDuration(Math.abs(accuracy.correctionMs))} ${accuracy.correctionMs >= 0 ? "later" : "earlier"}.`
+              : `Checked against your watch over ${pluralNights(accuracy.nights)}. No change needed.`}
           </p>
           <p className="text-xs text-[var(--ink-3)]">
             {accuracy.applied
-              ? `It was off by about ${fmtDuration(accuracy.beforeMs)} a night; tuned, about ${fmtDuration(accuracy.afterMs)}. It's what you'll see on nights you don't wear the watch.`
-              : `It's off by about ${fmtDuration(accuracy.beforeMs)} a night.`}
+              ? `Off by about ${fmtDuration(accuracy.beforeMs)} a night before, ${fmtDuration(accuracy.afterMs)} now. Used on nights without the watch.`
+              : `Off by about ${fmtDuration(accuracy.beforeMs)} a night.`}
           </p>
         </section>
       )}
@@ -385,12 +383,10 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
       {last && (last.sleptAtMs !== null || last.restartedAfter) && last.selfLabel === undefined && last.detector !== "hr" && show("nights") && (
         <div className="space-y-2.5 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
           <h2 className="text-lg font-bold tracking-tight text-[var(--ink)]">Did you fall asleep to it last night?</h2>
-          <p className="text-[13px]">Sleepcast guesses from when you stopped touching the screen.</p>
           <div className="flex gap-2">
             <button onClick={() => label("slept")} className="rounded-full bg-[var(--raised)] px-4 py-1.5 text-sm font-semibold text-[var(--ink)]">I fell asleep</button>
             <button onClick={() => label("awake")} className="rounded-full bg-[var(--raised)] px-4 py-1.5 text-sm font-semibold text-[var(--ink)]">I was awake</button>
           </div>
-          <p className="text-xs">Your answer tunes how quickly it decides you&apos;re asleep.</p>
         </div>
       )}
 
@@ -420,14 +416,13 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
       {/* The headline's measure split by lean, so formatted like it (fmtDuration). */}
       {compared && show("shows") && (
         <p className="text-[11px] leading-snug text-[var(--ink-3)]">
-          {`How long you usually take: ${orDash(compared.leaned.medianMs, fmtDuration)} on nights the shuffle leaned (${pluralNights(compared.leaned.timedNights, "timed")}), ${orDash(compared.plain.medianMs, fmtDuration)} on plain-shuffle nights (${pluralNights(compared.plain.timedNights, "timed")}). A rough guide: the two differ in more than the lean (which shows, which weeks).`}
+          {`Usual time to sleep: ${orDash(compared.leaned.medianMs, fmtDuration)} with Favour on (${pluralNights(compared.leaned.timedNights, "timed")}), ${orDash(compared.plain.medianMs, fmtDuration)} without (${pluralNights(compared.plain.timedNights, "timed")}). A rough guide only.`}
         </p>
       )}
       </div>
       </div>
       <p className="text-center text-xs text-[var(--ink-4)]">
-        Counted only on this device. No account, nothing sent anywhere. We're
-        rooting for the nights you don't need us.
+        Counted only on this device. Nothing is sent anywhere.
       </p>
       {onClose && <button onClick={onClose} className="text-xs underline decoration-[var(--line)] underline-offset-4 hover:text-[var(--ink-2)]">Back</button>}
     </div>

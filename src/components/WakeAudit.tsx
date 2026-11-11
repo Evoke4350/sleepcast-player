@@ -42,7 +42,7 @@ export function WakeAudit({ nights }: { nights: RestNight[] }) {
             </div>
             <p className="text-[13px] text-[var(--ink-2)]">
               {`${a.events === 1 ? "Once" : `${a.events} times`} while you slept, and ${a.woke === 0 ? "you never woke within 3 minutes" : `you woke within 3 minutes ${a.woke === 1 ? "once" : `${a.woke} times`}`}. Chance alone: about ${about(a.expected)}.`}
-              {a.events < MIN_EVENTS ? ` ${MIN_EVENTS - a.events} more to say either way.` : ""}
+              {a.events < MIN_EVENTS ? ` ${MIN_EVENTS - a.events} more needed to tell.` : ""}
             </p>
             {a.verdict === "wakes" && <p className="text-[13px] text-[var(--ink-2)]">{WHAT[a.cause].fix}</p>}
           </li>

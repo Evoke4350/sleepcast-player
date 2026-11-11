@@ -29,7 +29,7 @@ export function RateMorning({ night, onRated }: { night: RestNight; onRated: () 
         ))}
       </div>
       <p role="status" className="text-xs text-[var(--ink-3)]">
-        {rested ? `Noted: ${RESTED_LABEL[rested].toLowerCase()}. You can change it this morning.` : "One tap. Over time, Sleepcast shows what your rested mornings have in common."}
+        {rested ? `Noted: ${RESTED_LABEL[rested].toLowerCase()}. You can change it this morning.` : "Over time, this shows what your rested mornings have in common."}
       </p>
     </section>
   );
@@ -67,7 +67,7 @@ export function RestedLinks({ nights }: { nights: RestNight[] }) {
       {!s.links.length ? (
         <p className="text-[13px] text-[var(--ink-3)]">
           {s.rated < MIN_RATED
-            ? `Rate ${plural(MIN_RATED - s.rated)} more to see what your rested ones have in common: how long you slept, Deep and REM, wakings, bedtime.`
+            ? `Rate ${plural(MIN_RATED - s.rated)} more to see what your rested mornings have in common.`
             : "Nothing to compare yet: your ratings, or your nights, have all been the same."}
         </p>
       ) : (
@@ -82,10 +82,10 @@ export function RestedLinks({ nights }: { nights: RestNight[] }) {
           {unclear.length > 0 && (
             <p className="text-xs text-[var(--ink-3)]">
               {`Not clear yet: ${unclear.map((l) => SAYS[l.measure].name).join(", ")}. `}
-              {`With ${plural(s.rated)}, a link has to be strong to stand out, and ${s.links.length} things are checked at once, so one would pass by luck now and then. More mornings firm it up.`}
+              {`More mornings will firm these up.`}
             </p>
           )}
-          <p className="text-xs text-[var(--ink-3)]">A link isn&apos;t a cause: a late night and a tired morning can both come from a busy day.</p>
+          <p className="text-xs text-[var(--ink-3)]">A link isn&apos;t proof of cause.</p>
         </>
       )}
     </section>
@@ -97,7 +97,7 @@ function Link({ l }: { l: RestedLink }) {
   return (
     <>
       <span className="font-semibold text-[var(--ink)]">{`${l.rho > 0 ? says.more : says.less}`}</span>
-      {` ${strength(l.rho)} went with more rested mornings, over ${plural(l.n)}. A link this strong would turn up by chance ${inHundred(l.pValue)}.`}
+      {` ${strength(l.rho)} went with more rested mornings, over ${plural(l.n)}. Chance of a fluke: ${inHundred(l.pValue)}.`}
     </>
   );
 }
