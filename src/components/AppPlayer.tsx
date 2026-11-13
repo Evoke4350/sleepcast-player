@@ -366,7 +366,7 @@ export function AppPlayer() {
           </div>
         )}
         </>)}
-        <SleepSetup key={setupKey} onStart={handleStart} tab={tab === "rest" ? null : tab} />
+        <SleepSetup key={setupKey} onStart={handleStart} tab={tab === "rest" ? null : tab} nightLive={!!session} />
         {tab === "rest" && (
           <>
             <RestView key={restVisit} note={watchNote} />

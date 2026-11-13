@@ -6,13 +6,14 @@ import { useNightExtensions } from "../lib/use-night-extensions";
 
 import type { Episode, PlayMode } from "../lib/engine";
 import { formatTime, feedVolume, secondsToEnd } from "../lib/engine";
-import { getPlays, recordHeardPlay, loadSpeed, saveSpeed, saveLive, noteSounded, SNAPSHOT_EVERY_TICKS, counterAfterStartSnapshot, rememberPosition, forgetPosition, blockEpisode } from "../lib/store";
+import { getPlays, recordHeardPlay, loadBlocked, loadSpeed, saveSpeed, saveLive, noteSounded, SNAPSHOT_EVERY_TICKS, counterAfterStartSnapshot, rememberPosition, forgetPosition, blockEpisode } from "../lib/store";
 import { NetworkHold, isOffline } from "../lib/network-hold";
 import { SeekEnforcer, type SeekHooks } from "../lib/seek-enforcer";
 import { mediaTransport, rearmsWatchdogOnTap } from "../lib/media/transport";
 import { barPosition, DurationLatch, remainingOf, shortOfEnd, spanOf } from "../lib/duration";
 import { heardDelta } from "../lib/heard";
 import { nextSpeed, realSeconds, speedLabel } from "../lib/speed";
+import { loadUpNext, removeUpNext, takeUpNext } from "../lib/upnext";
 import { clearLockScreen, mediaSession, publishLockScreen, publishLockScreenMetadata, setActionHandlers } from "../lib/lock-screen";
 import { decideSkip, skipMessage, stillAtStart } from "../lib/skip-intro";
 import { pickNextEpisode, HEARD_SEC } from "../lib/plays";
@@ -187,6 +188,9 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
   const [nowPlaying, setNowPlaying] = useState<{ id: string; title: string; feedId: string } | null>(null);
   // The show's playback speed: state for the button, ref for the tick.
   const [speed, speedRef, setSpeed] = useStateRef(1);
+  // Episodes asked for by name (upnext.ts), shown above the spread. Read
+  // each tick: the show page adds to it while a night plays.
+  const [upNext, setUpNext] = useState<Episode[]>(loadUpNext);
   // The played set: state for the lineup, ref for same-tick snapshots, one
   // setter for both (the restore and each start).
   const [playedIds, playedIdsRef, setPlayed] = useStateRef<ReadonlySet<string>>(new Set());
@@ -555,6 +559,14 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
   }
 
   function playNext() {
+    // Asked for by name first (upnext.ts): not one blocked since, nor the
+    // one playing.
+    const queued = takeUpNext(new Set([...loadBlocked(), currentEpRef.current?.id ?? ""]));
+    if (queued) {
+      setUpNext(loadUpNext());
+      playEpisode(queued);
+      return;
+    }
     const choices = nextChoices();
     // The one picked ahead (and maybe saved), while it is still a valid pick:
     // not blocked since, nor the one playing.
@@ -764,6 +776,10 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
     audio.volume = feedVolume(feedTrimRef.current[currentFeedRef.current ?? ""] ?? 1.0);
     setCountdown(kind === "minutes" ? remaining : 0);
     setEpPos((prev) => barPosition(prev, span));
+    setUpNext((prev) => {
+      const now = loadUpNext();
+      return now.length === prev.length && now.every((e, i) => e.id === prev[i].id) ? prev : now;
+    });
 
     planAhead();
 
@@ -1467,6 +1483,30 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
                 </div>
                 <p id="hold-end-hint" className="sr-only">Press and hold, or hold Space, for about a second.</p>
               </section>
+
+              {upNext.length > 0 && (
+                <section aria-labelledby="upnext-title" className="rounded-2xl bg-[color-mix(in_srgb,var(--surface)_85%,transparent)] p-4 ring-1 ring-[var(--line)] backdrop-blur">
+                  <h3 id="upnext-title" className="pb-3 text-base font-bold text-[var(--ink)]">Up next</h3>
+                  <ul className="-mx-2 space-y-0.5">
+                    {upNext.map((ep) => (
+                      <li key={ep.id} className="grid grid-cols-[40px_1fr_auto] items-center gap-3 px-2 py-1.5">
+                        <NowArt src={artworkByFeedId[ep.feedId]} small />
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-semibold text-[var(--ink)]">{ep.title}</span>
+                          <span className="block truncate text-xs text-[var(--ink-3)]">{feedTitles[ep.feedId] ?? ep.feedId}</span>
+                        </span>
+                        <button
+                          onClick={() => { restRef.current?.noteInteraction(); setUpNext(removeUpNext(ep.id)); }}
+                          aria-label={`Don't play ${ep.title} next`}
+                          className="grid h-9 w-9 place-items-center rounded-full text-[var(--ink-3)] hover:bg-[var(--raised)] hover:text-[var(--ink)]"
+                        >
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" className="h-4 w-4" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
 
               {/* Tonight's spread: the curated lineup, current episode marked,
                   already-played ones settling back like turned pages. */}

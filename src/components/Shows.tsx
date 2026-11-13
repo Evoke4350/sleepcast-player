@@ -4,6 +4,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { Episode } from "../lib/engine";
 import { formatTime } from "../lib/engine";
+import { addUpNext, isUpNext, removeUpNext } from "../lib/upnext";
+import { blockEpisode, markPlayed, markUnplayed, unblockEpisode } from "../lib/store";
 import { formatLength, orderEpisodes, typicalLength, type EpisodeOrder } from "../lib/feed-details";
 import type { CatalogShow } from "../lib/catalog";
 import { arrangeShows, loadLibraryView, saveLibraryView, type LibraryFilter, type LibrarySort, type LibraryView } from "../lib/library";
@@ -297,6 +299,8 @@ export function ShowPage({
   onRemove,
   onAddSimilar,
   onOpenShow,
+  onChanged,
+  nightLive,
 }: {
   feed: FeedRef;
   status: ShowStatus | undefined;
@@ -309,16 +313,42 @@ export function ShowPage({
   /** Catalog shows of the same kind; none hides "More like this". */
   similar: SimilarShow[];
   onBack: () => void;
-  onPlay: (ep: Episode) => void;
+  /** Play it now; `fromStart` ignores where you went under. */
+  onPlay: (ep: Episode, fromStart?: boolean) => void;
   onShuffle: () => void;
   onToggleShuffle: () => void;
   onRemove?: () => void;
   onAddSimilar: (show: CatalogShow) => void;
   onOpenShow: (feedId: string) => void;
+  /** The sheet changed what's stored (played, queued, blocked): read it again. */
+  onChanged: () => void;
+  /** A night is playing, so "Play next" means next, not first tonight. */
+  nightLive: boolean;
 }) {
   const episodes = status?.episodes ?? [];
   const notes = status?.notes ?? {};
   const [shown, setShown] = useState(40);
+  const [sheet, setSheet] = useState<Episode | null>(null);
+  // "Never again" is one tap at 2am: the episode goes, and an Undo stays
+  // a while (nothing else in the app brings one back).
+  const [hidden, setHidden] = useState<Episode | null>(null);
+  const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (undoTimer.current) clearTimeout(undoTimer.current); }, []);
+  function hide(ep: Episode) {
+    blockEpisode(ep.id);
+    setSheet(null);
+    setHidden(ep);
+    if (undoTimer.current) clearTimeout(undoTimer.current);
+    undoTimer.current = setTimeout(() => setHidden(null), 8000);
+    onChanged();
+  }
+  function unhide() {
+    if (!hidden) return;
+    unblockEpisode(hidden.id);
+    if (undoTimer.current) clearTimeout(undoTimer.current);
+    setHidden(null);
+    onChanged();
+  }
   const [order, setOrder] = useState<EpisodeOrder>("newest");
   const [tab, setTab] = useState<ShowTab>("episodes");
   const [artBroken, setArtBroken] = useState(false);
@@ -545,11 +575,20 @@ export function ShowPage({
               const note = notes[ep.id];
               const facts = [episodeDate(ep.date), lengthOf(ep)].filter(Boolean).join(" · ");
               return (
-                <li key={ep.id}>
+                <li key={ep.id} className="relative">
+                  {/* Beside the title, over the row's own button (not in it). */}
+                  <button
+                    onClick={() => setSheet(ep)}
+                    aria-label={`More about ${ep.title}`}
+                    aria-haspopup="dialog"
+                    className="absolute right-0 top-4 grid h-10 w-10 place-items-center rounded-full text-[var(--ink-3)] hover:bg-[var(--raised)] hover:text-[var(--ink)]"
+                  >
+                    <svg viewBox="0 0 24 24" fill="currentColor" className="h-5 w-5" aria-hidden="true"><circle cx="5" cy="12" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="19" cy="12" r="2" /></svg>
+                  </button>
                   <button
                     onClick={() => onPlay(ep)}
                     aria-label={`Play ${ep.title}${facts ? `, ${facts}` : ""}${at > 0 ? `, you went under at ${formatTime(at)}` : played ? ", played" : ""}`}
-                    className="group grid w-full grid-cols-[56px_1fr] gap-x-3.5 gap-y-2 py-4 text-left"
+                    className="group grid w-full grid-cols-[56px_1fr] gap-x-3.5 gap-y-2 py-4 pr-10 text-left"
                   >
                     <ShowArt feed={feed} artwork={status?.artwork} label={false} className="rounded-md" />
                     <span className="min-w-0 self-center">
@@ -584,6 +623,28 @@ export function ShowPage({
         </section>
 
         <aside className="space-y-10 lg:sticky lg:top-20">
+          {sheet && (
+            <EpisodeSheet
+              ep={sheet}
+              feed={feed}
+              artwork={status?.artwork}
+              note={notes[sheet.id]}
+              facts={[episodeDate(sheet.date), lengthOf(sheet)].filter(Boolean).join(" · ")}
+              at={positions[sheet.id] ?? 0}
+              played={heard.has(sheet.id)}
+              nightLive={nightLive}
+              onClose={() => setSheet(null)}
+              onPlay={(fromStart) => { setSheet(null); onPlay(sheet, fromStart); }}
+              onBlock={() => hide(sheet)}
+              onChanged={onChanged}
+            />
+          )}
+          {hidden && (
+            <div role="status" className="fixed inset-x-4 bottom-24 z-30 mx-auto flex max-w-lg items-center gap-3 rounded-2xl bg-[var(--ink)] px-4 py-3 text-sm text-[var(--ground)] shadow-lg">
+              <span className="min-w-0 flex-1 truncate">Never again: {hidden.title}</span>
+              <button onClick={unhide} className="shrink-0 rounded-full bg-[var(--ground)] px-3 py-1 text-[13px] font-bold text-[var(--ink)]">Undo</button>
+            </div>
+          )}
           <section id="show-panel-about" role="tabpanel" aria-labelledby="show-tab-about" className={`${tab === "about" ? "" : "hidden"} lg:block`}>
             {aboutPanel}
           </section>
@@ -593,6 +654,105 @@ export function ShowPage({
             </section>
           )}
         </aside>
+      </div>
+    </div>
+  );
+}
+
+/** One episode's page, as a sheet: its notes in full, and what you can do
+ *  with it besides play it. */
+function EpisodeSheet({ ep, feed, artwork, note, facts, at, played, nightLive, onClose, onPlay, onBlock, onChanged }: {
+  ep: Episode;
+  feed: FeedRef;
+  artwork?: string;
+  note?: string;
+  facts: string;
+  at: number;
+  played: boolean;
+  nightLive: boolean;
+  onClose: () => void;
+  onPlay: (fromStart: boolean) => void;
+  /** Never again: the page hides it and offers an undo. */
+  onBlock: () => void;
+  onChanged: () => void;
+}) {
+  const [queued, setQueued] = useState(() => isUpNext(ep.id));
+  const [isPlayed, setIsPlayed] = useState(played);
+  const [done, setDone] = useState("");
+  const firstRef = useRef<HTMLButtonElement | null>(null);
+  // Focus lands in the sheet; Escape and the backdrop close it.
+  useEffect(() => {
+    firstRef.current?.focus({ preventScroll: true });
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const action = "flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-[15px] font-semibold text-[var(--ink)] hover:bg-[var(--raised)]";
+  const Icon = ({ d }: { d: string }) => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5 shrink-0 text-[var(--ink-3)]" aria-hidden="true"><path d={d} /></svg>
+  );
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/50 sm:items-center" onClick={onClose}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="episode-sheet-title"
+        onClick={(e) => e.stopPropagation()}
+        className="max-h-[88dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-[var(--surface)] p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] ring-1 ring-[var(--line)] sm:rounded-3xl"
+      >
+        <div className="grid grid-cols-[64px_1fr] gap-x-3.5">
+          <ShowArt feed={feed} artwork={artwork} label={false} className="rounded-lg" />
+          <div className="min-w-0 self-center">
+            <h2 id="episode-sheet-title" className="text-lg font-bold leading-snug tracking-tight text-[var(--ink)]">{ep.title}</h2>
+            <p className="mt-0.5 text-[13px] text-[var(--ink-3)]">{[feed.title, facts].filter(Boolean).join(" · ")}</p>
+          </div>
+        </div>
+        {note && <p className="mt-4 whitespace-pre-line text-sm leading-relaxed text-[var(--ink-2)]">{note}</p>}
+
+        <div className="mt-4 -mx-3 space-y-0.5">
+          <button ref={firstRef} onClick={() => onPlay(false)} className={action}>
+            <Icon d="M7 5v14l11-7z" />
+            {at > 0 ? `Play from ${formatTime(at)}, where you went under` : "Play"}
+          </button>
+          {at > 0 && (
+            <button onClick={() => onPlay(true)} className={action}>
+              <Icon d="M5 5v14M8 12l11-7v14z" />
+              Play from the start
+            </button>
+          )}
+          <button
+            onClick={() => {
+              if (queued) { removeUpNext(ep.id); setQueued(false); setDone("Taken off up next."); }
+              else { addUpNext(ep); setQueued(true); setDone(nightLive ? "Plays next." : "Plays first tonight."); }
+              onChanged();
+            }}
+            className={action}
+          >
+            <Icon d="M4 6h12M4 12h12M4 18h8M18 14v6M15 17h6" />
+            {queued ? "Don't play next" : nightLive ? "Play next" : "Play first tonight"}
+          </button>
+          <button
+            onClick={() => {
+              if (isPlayed) { markUnplayed(ep.id); setIsPlayed(false); setDone("Marked unplayed."); }
+              else { markPlayed(ep); setIsPlayed(true); setDone("Marked played."); }
+              onChanged();
+            }}
+            className={action}
+          >
+            <Icon d={isPlayed ? "M3 12a9 9 0 1 0 9-9M3 3v6h6" : "M5 12.5l4.5 4.5L19 7.5"} />
+            {isPlayed ? "Mark unplayed" : "Mark played"}
+          </button>
+          <button
+            onClick={onBlock}
+            className={`${action} text-[var(--danger)]`}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="h-5 w-5 shrink-0" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M5.6 5.6l12.8 12.8" /></svg>
+            Never again
+          </button>
+        </div>
+        <p role="status" className="mt-2 min-h-5 px-0 text-xs text-[var(--ink-3)]">{done}</p>
       </div>
     </div>
   );
