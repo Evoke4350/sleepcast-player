@@ -24,7 +24,15 @@ export interface SearchDeps {
   cache?: Pick<Cache, "match" | "put">;
   allow: () => Promise<boolean>;
   later: (p: Promise<unknown>) => void;
+  /** A pause before a retry (tests pass none). */
+  wait?: (ms: number) => Promise<void>;
 }
+
+/** Apple limits searches per address, and a Worker's outbound address is
+ *  shared with everyone else on Cloudflare, so a 429 says little about this
+ *  site's own traffic. A retry usually leaves from another address. */
+const RETRY_AFTER_MS = [300, 900];
+const pause = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 /** What the app gets per show. */
 export interface SearchHit {
@@ -89,7 +97,13 @@ export async function search(request: Request, deps: SearchDeps): Promise<Respon
   upstream.searchParams.set("term", q);
   let json: unknown;
   try {
-    const resp = await deps.fetch(upstream.toString(), { headers: UA, signal: AbortSignal.timeout(10000) });
+    let resp: Response | null = null;
+    for (let attempt = 0; ; attempt++) {
+      resp = await deps.fetch(upstream.toString(), { headers: UA, signal: AbortSignal.timeout(10000) });
+      if (resp.status !== 429 || attempt >= RETRY_AFTER_MS.length) break;
+      await (deps.wait ?? pause)(RETRY_AFTER_MS[attempt]);
+    }
+    if (resp.status === 429) return new Response("directory busy", { status: 503, headers: { "Retry-After": "30" } });
     if (!resp.ok) return new Response("directory " + resp.status, { status: 502 });
     json = await resp.json();
   } catch {
