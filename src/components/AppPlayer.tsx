@@ -75,7 +75,7 @@ export function AppPlayer() {
   // apply to the night about to begin.
   const [mode, setMode] = useState<PlayMode>({ kind: "minutes", minutes: 45 });
   const [feedTrim, setFeedTrim] = useState<Record<string, number>>({});
-  const [saveAhead, setSaveAhead] = useState(true);
+  const [saveAhead, setSaveAhead] = useState(false);
 
   const [goodbye] = useState(() => (isQuiet(loadQuietUntil(), Date.now()) ? null : shouldGreetGoodbye(Date.now())));
 
@@ -186,7 +186,7 @@ export function AppPlayer() {
     const settings = loadState().settings;
     setMode(nightMode);
     setFeedTrim(settings.feedTrim);
-    setSaveAhead(settings.saveAhead !== false);
+    setSaveAhead(settings.saveAhead === true);
     setFavorWhatWorks(settings.favorWhatWorks);
   }
 

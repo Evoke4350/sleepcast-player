@@ -771,3 +771,15 @@ describe("the last episode (the exact one again)", () => {
     expect(loadLastEpisode()?.id).toBe("z");
   });
 });
+
+describe("saveAhead is opt-in", () => {
+  beforeEach(() => localStorage.clear());
+  it("is off when nothing was chosen, and kept when turned on", () => {
+    expect(loadState().settings.saveAhead).toBeUndefined();
+    const s = loadState();
+    saveState({ ...s, settings: { ...s.settings, saveAhead: true } });
+    expect(loadState().settings.saveAhead).toBe(true);
+    saveState({ ...s, settings: { ...s.settings, saveAhead: false } });
+    expect(loadState().settings.saveAhead).toBeUndefined();
+  });
+});

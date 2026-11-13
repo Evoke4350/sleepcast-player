@@ -30,16 +30,21 @@ So:
   what puts me under" and it also leans toward shows you've fallen asleep to
   and away from ones you skip, never ruling one out (`shuffleWeights` in
   `src/lib/rest/sleepscore.ts`).
-- **A dropped connection doesn't stop the night.** While an episode plays, it
-  and the one picked to follow it download whole into the browser's cache,
-  and the service worker plays them from there (`src/lib/offline-audio.ts`,
-  `public/sw.js`). The next pick is made early but never shown: still no
-  next-up. Settings → Keep playing without internet turns it off. Episodes
-  over 250 MB (twelve-hour sound machines) stream instead.
-- **A short list, not a search box.** Podcasts → More sleep podcasts offers
-  shows picked by hand and checked for long episodes, recent activity and
-  audio that can be saved offline (`src/lib/catalog.ts`, which records the
-  checks). A directory search mostly turns up generated loops and ten-minute
+- **Nothing downloads unless you ask.** Settings → Keep playing without
+  internet (off by default) downloads tonight's episode and the one picked
+  to follow it whole into the browser's cache, on any connection, and the
+  service worker plays them from there (`src/lib/offline-audio.ts`,
+  `public/sw.js`). A show page's Keep the latest 3 / 5 / 10, and Save to
+  this device on an episode, keep episodes ahead of any night
+  (`src/lib/keep-latest.ts`). Episodes over 250 MB (twelve-hour sound
+  machines) stream instead.
+- **Find any podcast, and a short list to start from.** Podcasts → Find a
+  podcast searches Apple's directory through the worker (`worker/search.ts`:
+  the typed words go to Apple from Cloudflare, not from you, and aren't
+  logged). More sleep podcasts offers shows picked by hand and checked for
+  long episodes, recent activity and audio that can be saved offline
+  (`src/lib/catalog.ts`, which records the checks). A directory search
+  mostly turns up generated loops and ten-minute
   clips.
 - **Your history is yours to carry.** Settings → Your history saves one JSON
   file with the feeds, settings, play ledger and every night the rest engine
