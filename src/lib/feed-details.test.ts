@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseItunesDuration, plainText, formatLength, typicalLength, orderEpisodes } from "./feed-details";
+import { parseItunesDuration, plainText, formatLength, typicalLength, orderEpisodes, searchEpisodes } from "./feed-details";
 
 describe("parseItunesDuration", () => {
   it("reads h:mm:ss, mm:ss and plain seconds", () => {
@@ -64,5 +64,16 @@ describe("orderEpisodes", () => {
   });
   it("leaves out heard and started episodes for unplayed", () => {
     expect(orderEpisodes(eps, "unplayed", new Set(["a"]), { c: 30 }).map((e) => e.id)).toEqual(["b", "d"]);
+  });
+});
+
+describe("searchEpisodes", () => {
+  const eps = [{ id: "a", title: "The Lighthouse Keeper" }, { id: "b", title: "Rain on a Tin Roof" }, { id: "c", title: "Episode 3" }];
+  const notes = { c: "A story about a lighthouse and the rain." };
+  it("matches title or notes, every word, any case", () => {
+    expect(searchEpisodes(eps, notes, "lighthouse").map((e) => e.id)).toEqual(["a", "c"]);
+    expect(searchEpisodes(eps, notes, "RAIN roof").map((e) => e.id)).toEqual(["b"]);
+    expect(searchEpisodes(eps, notes, "  ")).toBe(eps);
+    expect(searchEpisodes(eps, notes, "nothing")).toEqual([]);
   });
 });
