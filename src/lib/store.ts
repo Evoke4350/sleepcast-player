@@ -1,6 +1,7 @@
 import type { Episode, PlayMode } from "./engine";
 import { recordHeard, migrateLegacyHistory, type Play } from "./plays";
 import { shouldRemember, putPosition, type Positions } from "./positions";
+import { sanitizeSpeeds } from "./speed";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -32,6 +33,8 @@ export interface Settings {
    *  under (rest/sleepscore shuffleWeights). Off is a plain shuffle. */
   favorWhatWorks: boolean;
   feedTrim: Record<string, number>; // feedId -> 0.5..1.5; absent = 1.0
+  /** feedId -> playback speed (speed.ts SPEEDS); absent = 1. */
+  feedSpeed?: Record<string, number>;
   noise: NoiseSettings;
   mode: PlayMode;
   lastSession: LastSession | null;
@@ -253,6 +256,8 @@ export function loadState(): AppState {
   };
   if (rawSettings.learnTimer === false) settings.learnTimer = false;
   if (rawSettings.saveAhead === false) settings.saveAhead = false;
+  const feedSpeed = sanitizeSpeeds(rawSettings.feedSpeed);
+  if (Object.keys(feedSpeed).length) settings.feedSpeed = feedSpeed;
   if (typeof rawSettings.timerPickedAt === "number" && Number.isFinite(rawSettings.timerPickedAt)) {
     settings.timerPickedAt = rawSettings.timerPickedAt;
   }
@@ -262,6 +267,28 @@ export function loadState(): AppState {
 
 export function saveState(s: AppState): void {
   writeMakingRoom(KEY_STATE, JSON.stringify(s));
+}
+
+/** A show's playback speed; 1 unless one was picked for it. */
+export function loadSpeed(feedId: string): number {
+  try {
+    return loadState().settings.feedSpeed?.[feedId] ?? 1;
+  } catch {
+    return 1;
+  }
+}
+
+/** Keep `rate` as the show's speed from now on (1 forgets it). */
+export function saveSpeed(feedId: string, rate: number): void {
+  try {
+    const s = loadState();
+    const feedSpeed = { ...s.settings.feedSpeed };
+    if (rate === 1) delete feedSpeed[feedId];
+    else feedSpeed[feedId] = rate;
+    saveState({ ...s, settings: { ...s.settings, feedSpeed } });
+  } catch {
+    /* quota / private mode: tonight's speed still applies */
+  }
 }
 
 // ---------------------------------------------------------------------------
