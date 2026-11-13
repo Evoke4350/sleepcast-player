@@ -61,6 +61,8 @@ export type SetupTab = "sleep" | "podcasts" | "settings";
 export interface SleepSetupProps {
   /** null: kept mounted (its state, the open show) but not shown. */
   tab: SetupTab | null;
+  /** A night is playing (the show page's "Play next" says so). */
+  nightLive?: boolean;
   onStart: (
     pool: Episode[],
     timerMinutes: number,
@@ -153,7 +155,7 @@ function Pill({ on, onClick, label, children }: { on: boolean; onClick: () => vo
   );
 }
 
-export function SleepSetup({ onStart, tab }: SleepSetupProps) {
+export function SleepSetup({ onStart, tab, nightLive = false }: SleepSetupProps) {
   const [appState, setAppState] = useState<AppState>(() => loadState());
   const [opmlNote, setOpmlNote] = useState<string | null>(null);
   const [backupNote, setBackupNote] = useState<string | null>(null);
@@ -217,6 +219,9 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
   // experiment ends on Rest). Tonight's is your timer, else the learned one
   // if learning is on, unless a timer was picked by hand for tonight.
   const [keptRead, rereadKept] = useReducer((n: number) => n + 1, 0);
+  // The show page reads played, positions and blocked fresh each render;
+  // its sheet changes them, then asks for another.
+  const [, redrawShows] = useReducer((n: number) => n + 1, 0);
   const [learned, timedSoFar] = useMemo(() => {
     const nights = loadNights();
     return [learnedTimer(nights), timedNights(nights)] as const;
@@ -1040,7 +1045,9 @@ export function SleepSetup({ onStart, tab }: SleepSetupProps) {
               heard={heard}
               positions={positions}
               onBack={() => { returnToShowRef.current = feed.id; setOpenShow(null); }}
-              onPlay={(ep) => beginNight(ep, positions[ep.id] ?? 0)}
+              onPlay={(ep, fromStart) => beginNight(ep, fromStart ? 0 : positions[ep.id] ?? 0)}
+              onChanged={redrawShows}
+              nightLive={nightLive}
               onShuffle={() => { scopeRef.current = feed.id; beginNight(null); }}
               onToggleShuffle={() => toggleFeed(feed.id)}
               onRemove={feed.builtin ? undefined : () => { handleRemoveFeed(feed.id); setOpenShow(null); }}

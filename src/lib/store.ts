@@ -1,5 +1,5 @@
 import type { Episode, PlayMode } from "./engine";
-import { recordHeard, migrateLegacyHistory, type Play } from "./plays";
+import { recordHeard, migrateLegacyHistory, HEARD_SEC, type Play } from "./plays";
 import { shouldRemember, putPosition, type Positions } from "./positions";
 import { sanitizeSpeeds } from "./speed";
 
@@ -640,6 +640,19 @@ function savePlays(plays: Play[]): void {
 
 export function recordHeardPlay(p: Play): void {
   savePlays(recordHeard(getPlays(), p));
+}
+
+/** Mark an episode played by hand. Dated 0, like the legacy history: heard,
+ *  but not at any moment a night could be matched to, and the first to be
+ *  recycled. */
+export function markPlayed(ep: Pick<Episode, "id" | "title" | "feedId">): void {
+  savePlays(recordHeard(getPlays(), { id: ep.id, title: ep.title, feedId: ep.feedId, startedAt: 0, heardSec: HEARD_SEC }));
+}
+
+/** Mark an episode unplayed: out of the ledger, its saved position forgotten. */
+export function markUnplayed(id: string): void {
+  savePlays(getPlays().filter((p) => p.id !== id));
+  forgetPosition(id);
 }
 
 // ---------------------------------------------------------------------------

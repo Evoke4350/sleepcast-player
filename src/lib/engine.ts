@@ -79,7 +79,7 @@ export function parseFeedXml(xmlText: string, feedId: string): Feed {
       date: item.querySelector("pubDate")?.textContent ?? "",
       ...(durationSec ? { durationSec } : {}),
     });
-    const note = plainText(childText(item, "description") || childText(item, "summary"), 280);
+    const note = plainText(childText(item, "description") || childText(item, "summary"), 1500);
     if (note) notes[id] = note;
   }
   const channel = doc.querySelector("channel");
