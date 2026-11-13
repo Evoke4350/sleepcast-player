@@ -5,14 +5,9 @@ import { useEffect, useRef, useState } from "react";
 import type { Episode } from "../lib/engine";
 import { formatTime } from "../lib/engine";
 import { addUpNext, isUpNext, removeUpNext } from "../lib/upnext";
-<<<<<<< HEAD
-import { blockEpisode, markPlayed, markUnplayed } from "../lib/store";
+import { blockEpisode, markPlayed, markUnplayed, unblockEpisode } from "../lib/store";
 import { formatLength, orderEpisodes, searchEpisodes, typicalLength, type EpisodeOrder } from "../lib/feed-details";
 import { isNew, loadSeen, markSeen, newCount, seedSeen } from "../lib/new-episodes";
-=======
-import { blockEpisode, markPlayed, markUnplayed, unblockEpisode } from "../lib/store";
-import { formatLength, orderEpisodes, typicalLength, type EpisodeOrder } from "../lib/feed-details";
->>>>>>> episode-actions
 import type { CatalogShow } from "../lib/catalog";
 import { arrangeShows, loadLibraryView, saveLibraryView, type LibraryFilter, type LibrarySort, type LibraryView } from "../lib/library";
 import type { FeedRef } from "../lib/store";
@@ -351,13 +346,11 @@ export function ShowPage({
   const notes = status?.notes ?? {};
   const [shown, setShown] = useState(40);
   const [sheet, setSheet] = useState<Episode | null>(null);
-<<<<<<< HEAD
   const [query, setQuery] = useState("");
   // The mark as it stood when the page opened: those episodes read "New"
   // until you leave. Opening the show moves the mark to its newest.
   const [markAtOpen] = useState(() => loadSeen()[feed.id]);
   useEffect(() => { markSeen(feed.id, episodes); }, [feed.id, episodes]);
-=======
   // "Never again" is one tap at 2am: the episode goes, and an Undo stays
   // a while (nothing else in the app brings one back).
   const [hidden, setHidden] = useState<Episode | null>(null);
@@ -378,7 +371,6 @@ export function ShowPage({
     setHidden(null);
     onChanged();
   }
->>>>>>> episode-actions
   const [order, setOrder] = useState<EpisodeOrder>("newest");
   const [tab, setTab] = useState<ShowTab>("episodes");
   const [artBroken, setArtBroken] = useState(false);
