@@ -45,7 +45,8 @@ export interface Settings {
   /** The timer learns from the nights (rest/learned-timer). Absent = on. */
   learnTimer?: boolean;
   /** Save tonight's episodes on the device as they play (offline-audio).
-   *  Absent = on. */
+   *  Absent = off: nothing downloads unless asked for, here or per show
+   *  (feedKeep) or by hand. */
   saveAhead?: boolean;
   /** When the timer was last picked by hand: that pick holds for the night
    *  (handPickHolds), then the learned timer is back. */
@@ -259,7 +260,7 @@ export function loadState(): AppState {
     favorWhatWorks: rawSettings.favorWhatWorks === true,
   };
   if (rawSettings.learnTimer === false) settings.learnTimer = false;
-  if (rawSettings.saveAhead === false) settings.saveAhead = false;
+  if (rawSettings.saveAhead === true) settings.saveAhead = true;
   const feedSpeed = sanitizeSpeeds(rawSettings.feedSpeed);
   if (Object.keys(feedSpeed).length) settings.feedSpeed = feedSpeed;
   const feedKeep = sanitizeKeep(rawSettings.feedKeep);

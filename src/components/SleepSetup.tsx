@@ -1338,15 +1338,13 @@ export function SleepSetup({ onStart, tab, nightLive = false }: SleepSetupProps)
                 id="save-ahead"
                 icon={ICONS.saveAhead}
                 title="Keep playing without internet"
-                checked={appState.settings.saveAhead !== false}
+                checked={appState.settings.saveAhead === true}
                 onChange={(on) => updateAndSave({ ...appState, settings: { ...appState.settings, saveAhead: on } })}
               >
-                Downloads the current and next episode, so a dropped connection doesn&apos;t stop playback. Uses more data off Wi-Fi.
+                Downloads tonight&apos;s current and next episode in full, on Wi-Fi or cellular, so a dropped connection doesn&apos;t stop playback.
               </SettingRow>
               <p className="py-3 text-[12.5px] text-[var(--ink-3)]">
-                {storageUsed === null
-                  ? "To keep a show's latest episodes on the device, open it in Podcasts."
-                  : `Sleepcast is using ${storageUsed} on this device. To keep a show's latest episodes, open it in Podcasts.`}
+                {`Nothing downloads unless this is on, a show keeps its latest episodes (open it in Podcasts), or you save an episode by hand.${storageUsed === null ? "" : ` Sleepcast is using ${storageUsed} on this device.`}`}
               </p>
             </Group>
 

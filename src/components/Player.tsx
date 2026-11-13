@@ -43,7 +43,7 @@ export interface PlayerProps {
   /** feedId → 0.5..1.5 gain trim; absent means 1.0. */
   feedTrim: Record<string, number>;
   /** Save the episode playing and the next one on the device, so a dropped
-   *  network doesn't stop the night (lib/offline-audio). */
+   *  network doesn't stop the night (lib/offline-audio). Off unless asked. */
   saveAhead?: boolean;
   skipIntroByFeedId: Record<string, number>;
   feedTitles: Record<string, string>;
@@ -100,7 +100,7 @@ function NowArt({ src, big = false, small = false }: { src?: string; big?: boole
     : <div aria-hidden="true" className={`${cls} grid place-items-center bg-[var(--raised)] text-[var(--accent)]`}><span className={big ? "text-6xl" : "text-lg"}>☾</span></div>;
 }
 
-export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, skipIntroByFeedId, feedTitles, artworkByFeedId, onEnd, resume = null, leadEpisode = null, leadPosition = 0, wasVaried = false, favorWhatWorks = false, expanded, onExpand, onCollapse, endRef, activityRef }: PlayerProps) {
+export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = false, skipIntroByFeedId, feedTitles, artworkByFeedId, onEnd, resume = null, leadEpisode = null, leadPosition = 0, wasVaried = false, favorWhatWorks = false, expanded, onExpand, onCollapse, endRef, activityRef }: PlayerProps) {
   const shuffle = useNightShuffle(favorWhatWorks, pool, resume);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
