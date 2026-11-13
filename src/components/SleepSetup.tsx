@@ -40,6 +40,8 @@ import { pickNextEpisode, HEARD_SEC } from "../lib/plays";
 import { JumpBackIn, Library, ShowArt, ShowPage } from "./Shows";
 import { jumpBackIn, lastPlayedByFeed } from "../lib/library";
 import { ShowCatalog } from "./Catalog";
+import { FindShow } from "./FindShow";
+import type { FoundShow } from "../lib/podcast-search";
 import { CATALOG, CATALOG_STYLES, isAdded, type CatalogShow } from "../lib/catalog";
 
 
@@ -180,6 +182,7 @@ export function SleepSetup({ onStart, tab, nightLive = false }: SleepSetupProps)
   const [customTitle, setCustomTitle] = useState("");
   const [customError, setCustomError] = useState<string | null>(null);
   const addUrlRef = useRef<HTMLInputElement | null>(null);
+  const findRef = useRef<HTMLInputElement | null>(null);
   // Back from a show, focus goes to its tile rather than the top of the page.
   const returnToShowRef = useRef<string | null>(null);
   // A pasted @handle needs a server round trip before it is a feed.
@@ -474,6 +477,10 @@ export function SleepSetup({ onStart, tab, nightLive = false }: SleepSetupProps)
 
   function addFromCatalog(show: CatalogShow) {
     updateAndSave(addCustomFeed(appState, show.url, show.title));
+  }
+
+  function addFound(show: FoundShow) {
+    updateAndSave(addCustomFeed(appState, show.feedUrl, show.title));
   }
 
   function handleRemoveFeed(id: string) {
@@ -1108,11 +1115,11 @@ export function SleepSetup({ onStart, tab, nightLive = false }: SleepSetupProps)
           <h1 className="text-3xl font-extrabold tracking-tight text-[var(--ink)]">Podcasts</h1>
           <button
             onClick={() => {
-              addShowRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-              addUrlRef.current?.focus({ preventScroll: true });
+              findRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+              findRef.current?.focus({ preventScroll: true });
             }}
-            aria-label="Add a show by its link"
-            title="Add a show by its link"
+            aria-label="Find a podcast"
+            title="Find a podcast"
             className="grid h-10 w-10 place-items-center rounded-full text-[var(--ink)] hover:bg-[var(--raised)]"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" className="h-6 w-6" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
@@ -1136,11 +1143,13 @@ export function SleepSetup({ onStart, tab, nightLive = false }: SleepSetupProps)
             lastPlayed={lastPlayedByFeed(plays)}
             onOpen={openShowPage}
             onAdd={() => {
-              catalogRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-              catalogRef.current?.focus({ preventScroll: true });
+              findRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+              findRef.current?.focus({ preventScroll: true });
             }}
           />
         </section>
+
+        <FindShow feeds={appState.feeds} onAdd={addFound} onOpen={openShowPage} inputRef={findRef} />
 
         <ShowCatalog feeds={appState.feeds} onAdd={addFromCatalog} onOpen={openShowPage} headingRef={catalogRef} />
 
