@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Episode } from "../lib/engine";
 import { formatTime } from "../lib/engine";
 import { addUpNext, isUpNext, removeUpNext } from "../lib/upnext";
-import { blockEpisode, markPlayed, markUnplayed } from "../lib/store";
+import { blockEpisode, markPlayed, markUnplayed, unblockEpisode } from "../lib/store";
 import { formatLength, orderEpisodes, typicalLength, type EpisodeOrder } from "../lib/feed-details";
 import type { CatalogShow } from "../lib/catalog";
 import { arrangeShows, loadLibraryView, saveLibraryView, type LibraryFilter, type LibrarySort, type LibraryView } from "../lib/library";
@@ -329,6 +329,26 @@ export function ShowPage({
   const notes = status?.notes ?? {};
   const [shown, setShown] = useState(40);
   const [sheet, setSheet] = useState<Episode | null>(null);
+  // "Never again" is one tap at 2am: the episode goes, and an Undo stays
+  // a while (nothing else in the app brings one back).
+  const [hidden, setHidden] = useState<Episode | null>(null);
+  const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (undoTimer.current) clearTimeout(undoTimer.current); }, []);
+  function hide(ep: Episode) {
+    blockEpisode(ep.id);
+    setSheet(null);
+    setHidden(ep);
+    if (undoTimer.current) clearTimeout(undoTimer.current);
+    undoTimer.current = setTimeout(() => setHidden(null), 8000);
+    onChanged();
+  }
+  function unhide() {
+    if (!hidden) return;
+    unblockEpisode(hidden.id);
+    if (undoTimer.current) clearTimeout(undoTimer.current);
+    setHidden(null);
+    onChanged();
+  }
   const [order, setOrder] = useState<EpisodeOrder>("newest");
   const [tab, setTab] = useState<ShowTab>("episodes");
   const [artBroken, setArtBroken] = useState(false);
@@ -615,8 +635,15 @@ export function ShowPage({
               nightLive={nightLive}
               onClose={() => setSheet(null)}
               onPlay={(fromStart) => { setSheet(null); onPlay(sheet, fromStart); }}
+              onBlock={() => hide(sheet)}
               onChanged={onChanged}
             />
+          )}
+          {hidden && (
+            <div role="status" className="fixed inset-x-4 bottom-24 z-30 mx-auto flex max-w-lg items-center gap-3 rounded-2xl bg-[var(--ink)] px-4 py-3 text-sm text-[var(--ground)] shadow-lg">
+              <span className="min-w-0 flex-1 truncate">Never again: {hidden.title}</span>
+              <button onClick={unhide} className="shrink-0 rounded-full bg-[var(--ground)] px-3 py-1 text-[13px] font-bold text-[var(--ink)]">Undo</button>
+            </div>
           )}
           <section id="show-panel-about" role="tabpanel" aria-labelledby="show-tab-about" className={`${tab === "about" ? "" : "hidden"} lg:block`}>
             {aboutPanel}
@@ -634,7 +661,7 @@ export function ShowPage({
 
 /** One episode's page, as a sheet: its notes in full, and what you can do
  *  with it besides play it. */
-function EpisodeSheet({ ep, feed, artwork, note, facts, at, played, nightLive, onClose, onPlay, onChanged }: {
+function EpisodeSheet({ ep, feed, artwork, note, facts, at, played, nightLive, onClose, onPlay, onBlock, onChanged }: {
   ep: Episode;
   feed: FeedRef;
   artwork?: string;
@@ -645,6 +672,8 @@ function EpisodeSheet({ ep, feed, artwork, note, facts, at, played, nightLive, o
   nightLive: boolean;
   onClose: () => void;
   onPlay: (fromStart: boolean) => void;
+  /** Never again: the page hides it and offers an undo. */
+  onBlock: () => void;
   onChanged: () => void;
 }) {
   const [queued, setQueued] = useState(() => isUpNext(ep.id));
@@ -716,7 +745,7 @@ function EpisodeSheet({ ep, feed, artwork, note, facts, at, played, nightLive, o
             {isPlayed ? "Mark unplayed" : "Mark played"}
           </button>
           <button
-            onClick={() => { blockEpisode(ep.id); onChanged(); onClose(); }}
+            onClick={onBlock}
             className={`${action} text-[var(--danger)]`}
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="h-5 w-5 shrink-0" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M5.6 5.6l12.8 12.8" /></svg>
