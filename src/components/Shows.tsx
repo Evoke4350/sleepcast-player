@@ -113,7 +113,7 @@ export function Library({
   const addLabel = (
     <>
       <span className="text-[15px] font-semibold leading-tight text-[var(--ink)]">Add a show</span>
-      <span className="text-[13px] text-[var(--ink-3)]">Browse below or paste a link</span>
+      <span className="text-[13px] text-[var(--ink-3)]">Search, browse, or paste a link</span>
     </>
   );
 
