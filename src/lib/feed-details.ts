@@ -73,3 +73,18 @@ export function orderEpisodes<T extends { id: string; durationSec?: number }>(
   if (order === "unplayed") return episodes.filter((ep) => !heard.has(ep.id) && !(positions[ep.id] > 0));
   return episodes;
 }
+
+/** The episodes whose title or notes contain every word of `query`, in any
+ *  case; all of them for a blank query. */
+export function searchEpisodes<T extends { id: string; title: string }>(
+  episodes: T[],
+  notes: Record<string, string>,
+  query: string,
+): T[] {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return episodes;
+  return episodes.filter((ep) => {
+    const hay = `${ep.title}\n${notes[ep.id] ?? ""}`.toLowerCase();
+    return words.every((w) => hay.includes(w));
+  });
+}

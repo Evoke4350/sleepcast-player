@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { AppState, FeedRef } from "../lib/store";
-import { loadBlocked, loadPositions, clampTimerMinutes, TIMER_MIN, TIMER_MAX } from "../lib/store";
+import { loadBlocked, loadPositions, loadKeepLatest, saveKeepLatest, clampTimerMinutes, TIMER_MIN, TIMER_MAX } from "../lib/store";
+import { OfflineAudio } from "../lib/offline-audio";
+import { latestToKeep, loadManualSaves, pinnedUrls, toggleManualSave } from "../lib/keep-latest";
+import { useLazyRef } from "../lib/use-lazy-ref";
 import { parseOpml, buildOpml } from "../lib/opml";
 import { downloadBackup, parseBackup, restoreBackup, summarizeStored } from "../lib/backup";
 import { downloadFile } from "../lib/download";
@@ -37,6 +40,8 @@ import { pickNextEpisode, HEARD_SEC } from "../lib/plays";
 import { JumpBackIn, Library, ShowArt, ShowPage } from "./Shows";
 import { jumpBackIn, lastPlayedByFeed } from "../lib/library";
 import { ShowCatalog } from "./Catalog";
+import { FindShow } from "./FindShow";
+import type { FoundShow } from "../lib/podcast-search";
 import { CATALOG, CATALOG_STYLES, isAdded, type CatalogShow } from "../lib/catalog";
 
 
@@ -177,6 +182,7 @@ export function SleepSetup({ onStart, tab, nightLive = false }: SleepSetupProps)
   const [customTitle, setCustomTitle] = useState("");
   const [customError, setCustomError] = useState<string | null>(null);
   const addUrlRef = useRef<HTMLInputElement | null>(null);
+  const findRef = useRef<HTMLInputElement | null>(null);
   // Back from a show, focus goes to its tile rather than the top of the page.
   const returnToShowRef = useRef<string | null>(null);
   // A pasted @handle needs a server round trip before it is a feed.
@@ -222,6 +228,36 @@ export function SleepSetup({ onStart, tab, nightLive = false }: SleepSetupProps)
   // The show page reads played, positions and blocked fresh each render;
   // its sheet changes them, then asks for another.
   const [, redrawShows] = useReducer((n: number) => n + 1, 0);
+  // Episodes kept on the device ahead of any night (keep-latest.ts): each
+  // show's latest few, and any saved by hand. The keeper pins them whenever
+  // the feeds or the settings change; the night's own player leaves pins be.
+  const [savedUrls, setSavedUrls] = useState<ReadonlySet<string>>(new Set());
+  const keeper = useLazyRef(() => new OfflineAudio(() => setSavedUrls(keeper.current.savedUrls())));
+  const [keepRead, rereadKeep] = useReducer((n: number) => n + 1, 0);
+  // What this site holds on the device (saved audio is most of it), when
+  // Settings is open; the estimate is the browser's, so a round figure.
+  const [storageUsed, setStorageUsed] = useState<string | null>(null);
+  useEffect(() => {
+    if (tab !== "settings") return;
+    let gone = false;
+    navigator.storage?.estimate?.().then((e) => {
+      if (gone || !e.usage) return;
+      const mb = e.usage / (1024 * 1024);
+      setStorageUsed(mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`);
+    }).catch(() => {});
+    return () => { gone = true; };
+  }, [tab, savedUrls]);
+  const keepLatest = useMemo(() => loadKeepLatest(), [keepRead]);
+  const autoKept = useMemo(() => {
+    const urls = new Set<string>();
+    for (const [feedId, n] of Object.entries(keepLatest)) for (const ep of latestToKeep(feedStatuses[feedId]?.episodes ?? [], n)) urls.add(ep.url);
+    return urls;
+  }, [keepLatest, feedStatuses]);
+  useEffect(() => {
+    const byFeed = Object.fromEntries(Object.entries(feedStatuses).map(([id, st]) => [id, st.episodes]));
+    keeper.current.pin(pinnedUrls(keepLatest, byFeed, loadManualSaves()));
+    setSavedUrls(keeper.current.savedUrls());
+  }, [keepLatest, feedStatuses, keepRead]);
   const [learned, timedSoFar] = useMemo(() => {
     const nights = loadNights();
     return [learnedTimer(nights), timedNights(nights)] as const;
@@ -441,6 +477,10 @@ export function SleepSetup({ onStart, tab, nightLive = false }: SleepSetupProps)
 
   function addFromCatalog(show: CatalogShow) {
     updateAndSave(addCustomFeed(appState, show.url, show.title));
+  }
+
+  function addFound(show: FoundShow) {
+    updateAndSave(addCustomFeed(appState, show.feedUrl, show.title));
   }
 
   function handleRemoveFeed(id: string) {
@@ -1048,6 +1088,11 @@ export function SleepSetup({ onStart, tab, nightLive = false }: SleepSetupProps)
               onPlay={(ep, fromStart) => beginNight(ep, fromStart ? 0 : positions[ep.id] ?? 0)}
               onChanged={redrawShows}
               nightLive={nightLive}
+              keepLatest={keepLatest[feed.id] ?? 0}
+              onKeepLatest={(n) => { saveKeepLatest(feed.id, n); rereadKeep(); }}
+              saved={savedUrls}
+              autoKept={autoKept}
+              onToggleSaved={(ep) => { toggleManualSave(ep.url); rereadKeep(); }}
               onShuffle={() => { scopeRef.current = feed.id; beginNight(null); }}
               onToggleShuffle={() => toggleFeed(feed.id)}
               onRemove={feed.builtin ? undefined : () => { handleRemoveFeed(feed.id); setOpenShow(null); }}
@@ -1070,11 +1115,11 @@ export function SleepSetup({ onStart, tab, nightLive = false }: SleepSetupProps)
           <h1 className="text-3xl font-extrabold tracking-tight text-[var(--ink)]">Podcasts</h1>
           <button
             onClick={() => {
-              addShowRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-              addUrlRef.current?.focus({ preventScroll: true });
+              findRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+              findRef.current?.focus({ preventScroll: true });
             }}
-            aria-label="Add a show by its link"
-            title="Add a show by its link"
+            aria-label="Find a podcast"
+            title="Find a podcast"
             className="grid h-10 w-10 place-items-center rounded-full text-[var(--ink)] hover:bg-[var(--raised)]"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" className="h-6 w-6" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
@@ -1098,11 +1143,13 @@ export function SleepSetup({ onStart, tab, nightLive = false }: SleepSetupProps)
             lastPlayed={lastPlayedByFeed(plays)}
             onOpen={openShowPage}
             onAdd={() => {
-              catalogRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-              catalogRef.current?.focus({ preventScroll: true });
+              findRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+              findRef.current?.focus({ preventScroll: true });
             }}
           />
         </section>
+
+        <FindShow feeds={appState.feeds} onAdd={addFound} onOpen={openShowPage} inputRef={findRef} />
 
         <ShowCatalog feeds={appState.feeds} onAdd={addFromCatalog} onOpen={openShowPage} headingRef={catalogRef} />
 
@@ -1296,6 +1343,11 @@ export function SleepSetup({ onStart, tab, nightLive = false }: SleepSetupProps)
               >
                 Downloads the current and next episode, so a dropped connection doesn&apos;t stop playback. Uses more data off Wi-Fi.
               </SettingRow>
+              <p className="py-3 text-[12.5px] text-[var(--ink-3)]">
+                {storageUsed === null
+                  ? "To keep a show's latest episodes on the device, open it in Podcasts."
+                  : `Sleepcast is using ${storageUsed} on this device. To keep a show's latest episodes, open it in Podcasts.`}
+              </p>
             </Group>
 
             <Group id="about" title="About">

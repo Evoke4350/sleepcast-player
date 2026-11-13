@@ -6,7 +6,9 @@ import type { Episode } from "../lib/engine";
 import { formatTime } from "../lib/engine";
 import { addUpNext, isUpNext, removeUpNext } from "../lib/upnext";
 import { blockEpisode, markPlayed, markUnplayed, unblockEpisode } from "../lib/store";
-import { formatLength, orderEpisodes, typicalLength, type EpisodeOrder } from "../lib/feed-details";
+import { formatLength, orderEpisodes, searchEpisodes, typicalLength, type EpisodeOrder } from "../lib/feed-details";
+import { isNew, loadSeen, markSeen, newCount, seedSeen } from "../lib/new-episodes";
+import { KEEP_CHOICES, latestToKeep } from "../lib/keep-latest";
 import type { CatalogShow } from "../lib/catalog";
 import { arrangeShows, loadLibraryView, saveLibraryView, type LibraryFilter, type LibrarySort, type LibraryView } from "../lib/library";
 import type { FeedRef } from "../lib/store";
@@ -64,6 +66,11 @@ function showNote(st: ShowStatus | undefined): string {
   return st.author ? `${st.author} · ${count}` : count;
 }
 
+/** "2 new", on a show's row or over its art. */
+function NewBadge({ n }: { n: number }) {
+  return <span className="shrink-0 rounded-full bg-[var(--accent)] px-2 py-0.5 text-[11px] font-bold text-[var(--accent-ink)]">{n} new</span>;
+}
+
 function CheckIcon({ className }: { className: string }) {
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>;
 }
@@ -95,11 +102,18 @@ export function Library({
   const [view, setView] = useState<LibraryView>(loadLibraryView);
   const shows = arrangeShows(feeds, filter, sort, lastPlayed);
   const offCount = feeds.filter((f) => !f.enabled).length;
+  // What's new since each show was last opened (new-episodes.ts). A show
+  // seen for the first time is marked as loaded, so nothing is new yet.
+  const [seen, setSeen] = useState(loadSeen);
+  useEffect(() => {
+    if (seedSeen(Object.fromEntries(feeds.map((f) => [f.id, statuses[f.id]?.episodes])))) setSeen(loadSeen());
+  }, [feeds, statuses]);
+  const fresh = (id: string) => newCount(id, statuses[id]?.episodes ?? [], seen);
 
   const addLabel = (
     <>
       <span className="text-[15px] font-semibold leading-tight text-[var(--ink)]">Add a show</span>
-      <span className="text-[13px] text-[var(--ink-3)]">Browse below or paste a link</span>
+      <span className="text-[13px] text-[var(--ink-3)]">Search, browse, or paste a link</span>
     </>
   );
 
@@ -165,6 +179,7 @@ export function Library({
                       <span className="truncate">{showNote(st)}</span>
                     </span>
                   </span>
+                  {fresh(feed.id) > 0 && <NewBadge n={fresh(feed.id)} />}
                 </button>
               </li>
             );
@@ -182,7 +197,10 @@ export function Library({
             const st = statuses[feed.id];
             return (
               <button key={feed.id} data-show-id={feed.id} onClick={() => onOpen(feed.id)} className="grid content-start gap-1.5 rounded-[10px] text-left">
-                <ShowArt feed={feed} artwork={st?.artwork} className={feed.enabled ? "" : "opacity-45"} />
+                <span className="relative block">
+                  <ShowArt feed={feed} artwork={st?.artwork} className={feed.enabled ? "" : "opacity-45"} />
+                  {fresh(feed.id) > 0 && <span className="absolute right-1.5 top-1.5"><NewBadge n={fresh(feed.id)} /></span>}
+                </span>
                 <span className="truncate text-[13px] font-semibold leading-tight text-[var(--ink)]">{feed.title}</span>
                 <span className={`flex items-center gap-1 text-xs ${st?.error && feed.enabled ? "text-[var(--danger)]" : "text-[var(--ink-3)]"}`}>
                   {feed.enabled ? <CheckIcon className="h-3 w-3 shrink-0 text-[var(--accent-text)]" /> : null}
@@ -301,6 +319,11 @@ export function ShowPage({
   onOpenShow,
   onChanged,
   nightLive,
+  keepLatest,
+  onKeepLatest,
+  saved,
+  autoKept,
+  onToggleSaved,
 }: {
   feed: FeedRef;
   status: ShowStatus | undefined;
@@ -324,11 +347,25 @@ export function ShowPage({
   onChanged: () => void;
   /** A night is playing, so "Play next" means next, not first tonight. */
   nightLive: boolean;
+  /** How many of its newest episodes are kept on the device (0: none). */
+  keepLatest: number;
+  onKeepLatest: (n: number) => void;
+  /** Episode URLs saved on the device in full. */
+  saved: ReadonlySet<string>;
+  /** Of those, the ones a show's keep-latest setting holds (not by hand). */
+  autoKept: ReadonlySet<string>;
+  /** Save one episode by hand, or stop keeping it. */
+  onToggleSaved: (ep: Episode) => void;
 }) {
   const episodes = status?.episodes ?? [];
   const notes = status?.notes ?? {};
   const [shown, setShown] = useState(40);
   const [sheet, setSheet] = useState<Episode | null>(null);
+  const [query, setQuery] = useState("");
+  // The mark as it stood when the page opened: those episodes read "New"
+  // until you leave. Opening the show moves the mark to its newest.
+  const [markAtOpen] = useState(() => loadSeen()[feed.id]);
+  useEffect(() => { markSeen(feed.id, episodes); }, [feed.id, episodes]);
   // "Never again" is one tap at 2am: the episode goes, and an Undo stays
   // a while (nothing else in the app brings one back).
   const [hidden, setHidden] = useState<Episode | null>(null);
@@ -356,7 +393,7 @@ export function ShowPage({
   const titleRef = useRef<HTMLHeadingElement | null>(null);
   useEffect(() => { titleRef.current?.focus({ preventScroll: true }); }, []);
 
-  const listed = orderEpisodes(episodes, order, heard, positions);
+  const listed = searchEpisodes(orderEpisodes(episodes, order, heard, positions), notes, query);
   const usual = typicalLength(episodes.map((e) => e.durationSec));
   // The newest episode you went under in: where Spotify puts a trailer, the
   // one you're most likely to want back.
@@ -504,6 +541,31 @@ export function ShowPage({
         </div>
       </header>
 
+      {/* Kept on the device ahead of any night: this show's newest few.
+          Shown once there's something to keep. */}
+      {episodes.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm md:max-w-xl">
+          <span className="font-semibold text-[var(--ink)]">Keep the latest</span>
+          <div role="group" aria-label="Keep the latest episodes on this device" className="flex gap-1.5">
+            {KEEP_CHOICES.map((n) => (
+              <button
+                key={n}
+                aria-pressed={keepLatest === n}
+                onClick={() => onKeepLatest(n)}
+                className={`rounded-full px-3 py-1.5 text-[13px] font-semibold ${keepLatest === n ? "bg-[var(--ink)] text-[var(--ground)]" : "bg-[var(--raised)] text-[var(--ink-2)] hover:text-[var(--ink)]"}`}
+              >
+                {n === 0 ? "Off" : n}
+              </button>
+            ))}
+          </div>
+          <span className="text-[13px] text-[var(--ink-3)]">
+            {keepLatest === 0
+              ? "on this device"
+              : (() => { const want = latestToKeep(episodes, keepLatest); const have = want.filter((e) => saved.has(e.url)).length; return have === want.length ? `${have} saved` : `${have} of ${want.length} saved`; })()}
+          </span>
+        </div>
+      )}
+
       {resume && (
         <button
           onClick={() => onPlay(resume)}
@@ -546,6 +608,20 @@ export function ShowPage({
 
       <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_300px] lg:items-start lg:gap-12">
         <section id="show-panel-episodes" role="tabpanel" aria-labelledby="show-tab-episodes" className={`space-y-2 ${tab === "episodes" ? "" : "hidden"} lg:block`}>
+          {episodes.length > 8 && (
+            <label className="relative block">
+              <span className="sr-only">Search episodes</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--ink-3)]" aria-hidden="true"><circle cx="11" cy="11" r="6.5" /><path d="M20 20l-4-4" /></svg>
+              <input
+                id={`search-${feed.id}`}
+                type="search"
+                value={query}
+                onChange={(e) => { setQuery(e.target.value); setShown(40); }}
+                placeholder={`Search ${episodes.length} episodes`}
+                className="w-full rounded-full bg-[var(--raised)] py-2.5 pl-10 pr-4 text-[15px] text-[var(--ink)] placeholder:text-[var(--ink-3)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
+              />
+            </label>
+          )}
           <div className="flex items-center gap-2 overflow-x-auto pb-1" role="group" aria-label="Order episodes">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="h-5 w-5 shrink-0 text-[var(--ink-3)]" aria-hidden="true">
               <path d="M4 7h9M17 7h3M4 17h3M11 17h9" /><circle cx="15" cy="7" r="2" /><circle cx="9" cy="17" r="2" />
@@ -564,7 +640,10 @@ export function ShowPage({
             ))}
           </div>
 
-          {order === "unplayed" && !listed.length && episodes.length > 0 && (
+          {query.trim() && !listed.length && (
+            <p className="py-6 text-sm text-[var(--ink-3)]">No episodes match “{query.trim()}”.</p>
+          )}
+          {!query.trim() && order === "unplayed" && !listed.length && episodes.length > 0 && (
             <p className="py-6 text-sm text-[var(--ink-3)]">You've played every episode of this show.</p>
           )}
 
@@ -595,6 +674,8 @@ export function ShowPage({
                       <span className="line-clamp-2 font-semibold leading-snug text-[var(--ink)] group-hover:underline group-hover:decoration-[var(--line)] group-hover:underline-offset-4">{ep.title}</span>
                       {at > 0 ? (
                         <span className="mt-0.5 block text-[13px] font-semibold text-[var(--accent-text)]">You went under at {formatTime(at)}</span>
+                      ) : !played && isNew(ep, markAtOpen) ? (
+                        <span className="mt-0.5 block text-[13px] font-semibold text-[var(--accent-text)]">New</span>
                       ) : played ? (
                         <span className="mt-0.5 flex items-center gap-1 text-[13px] text-[var(--ink-4)]">
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
@@ -605,6 +686,12 @@ export function ShowPage({
                     {note && <span className="col-span-2 line-clamp-2 text-sm leading-relaxed text-[var(--ink-3)]">{note}</span>}
                     <span className="col-span-2 flex items-center gap-3">
                       <span className="text-[13px] tabular-nums text-[var(--ink-2)]">{facts}</span>
+                      {saved.has(ep.url) && (
+                        <span className="inline-flex items-center gap-1 text-[12px] font-semibold text-[var(--ink-3)]">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14" /></svg>
+                          Saved
+                        </span>
+                      )}
                       <UnderBar at={at} of={ep.durationSec} />
                       <span className="ml-auto grid h-10 w-10 place-items-center rounded-full bg-[var(--ink)] text-[var(--ground)] transition-transform group-hover:scale-105">
                         <PlayIcon className="ml-0.5 h-4.5 w-4.5" />
@@ -633,6 +720,8 @@ export function ShowPage({
               at={positions[sheet.id] ?? 0}
               played={heard.has(sheet.id)}
               nightLive={nightLive}
+              savedState={saved.has(sheet.url) ? (autoKept.has(sheet.url) ? "kept" : "saved") : "none"}
+              onToggleSaved={() => onToggleSaved(sheet)}
               onClose={() => setSheet(null)}
               onPlay={(fromStart) => { setSheet(null); onPlay(sheet, fromStart); }}
               onBlock={() => hide(sheet)}
@@ -661,7 +750,7 @@ export function ShowPage({
 
 /** One episode's page, as a sheet: its notes in full, and what you can do
  *  with it besides play it. */
-function EpisodeSheet({ ep, feed, artwork, note, facts, at, played, nightLive, onClose, onPlay, onBlock, onChanged }: {
+function EpisodeSheet({ ep, feed, artwork, note, facts, at, played, nightLive, savedState, onToggleSaved, onClose, onPlay, onBlock, onChanged }: {
   ep: Episode;
   feed: FeedRef;
   artwork?: string;
@@ -670,6 +759,9 @@ function EpisodeSheet({ ep, feed, artwork, note, facts, at, played, nightLive, o
   at: number;
   played: boolean;
   nightLive: boolean;
+  /** "kept": saved by the show's keep-latest setting; "saved": by hand. */
+  savedState: "none" | "saved" | "kept";
+  onToggleSaved: () => void;
   onClose: () => void;
   onPlay: (fromStart: boolean) => void;
   /** Never again: the page hides it and offers an undo. */
@@ -744,6 +836,20 @@ function EpisodeSheet({ ep, feed, artwork, note, facts, at, played, nightLive, o
             <Icon d={isPlayed ? "M3 12a9 9 0 1 0 9-9M3 3v6h6" : "M5 12.5l4.5 4.5L19 7.5"} />
             {isPlayed ? "Mark unplayed" : "Mark played"}
           </button>
+          {savedState === "kept" ? (
+            <p className={`${action} cursor-default text-[var(--ink-3)]`}>
+              <Icon d="M12 4v11M7 10l5 5 5-5M5 20h14" />
+              Saved: this show keeps its latest episodes
+            </p>
+          ) : (
+            <button
+              onClick={() => { onToggleSaved(); setDone(savedState === "saved" ? "Removed from this device." : "Saving to this device…"); }}
+              className={action}
+            >
+              <Icon d={savedState === "saved" ? "M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" : "M12 4v11M7 10l5 5 5-5M5 20h14"} />
+              {savedState === "saved" ? "Remove from this device" : "Save to this device"}
+            </button>
+          )}
           <button
             onClick={onBlock}
             className={`${action} text-[var(--danger)]`}
@@ -752,7 +858,7 @@ function EpisodeSheet({ ep, feed, artwork, note, facts, at, played, nightLive, o
             Never again
           </button>
         </div>
-        <p role="status" className="mt-2 min-h-5 px-0 text-xs text-[var(--ink-3)]">{done}</p>
+        <p role="status" className="mt-2 min-h-5 px-0 text-xs text-[var(--ink-3)]">{done === "Saving to this device…" && savedState === "saved" ? "Saved to this device." : done}</p>
       </div>
     </div>
   );
