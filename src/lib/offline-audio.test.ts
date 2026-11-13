@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { OfflineAudio, offlineUrl, AUDIO_CACHE, canSave, MAX_SAVE_BYTES } from "./offline-audio";
+import { OfflineAudio, offlineUrl, AUDIO_CACHE, canSave, MAX_SAVE_BYTES, forgetSavedForTests } from "./offline-audio";
 
 /** The Cache API, in memory: enough of it for the manager. */
 function fakeCaches() {
@@ -35,6 +35,9 @@ let fetchMock: ReturnType<typeof vi.fn>;
 const saved = () => [...(c.stores.get(AUDIO_CACHE)?.keys() ?? [])].map((k) => decodeURIComponent(k.split("u=")[1]));
 
 beforeEach(() => {
+  forgetSavedForTests();
+  const mem = new Map<string, string>();
+  vi.stubGlobal("localStorage", { getItem: (k: string) => mem.get(k) ?? null, setItem: (k: string, v: string) => void mem.set(k, v), removeItem: (k: string) => void mem.delete(k) });
   c = fakeCaches();
   vi.stubGlobal("caches", c);
   vi.stubGlobal("navigator", { serviceWorker: { controller: {} }, onLine: true });
@@ -181,5 +184,42 @@ describe("OfflineAudio", () => {
   it("never plain http", () => {
     expect(canSave({ url: "http://cdn.example/a.mp3" })).toBe(false);
     expect(canSave(ep(1))).toBe(true);
+  });
+});
+
+describe("OfflineAudio pins", () => {
+  it("pins download after the night's, and the night's prune leaves them", async () => {
+    const keeper = new OfflineAudio();
+    keeper.pin([ep(7).url, ep(8).url]);
+    const night = new OfflineAudio();
+    night.keep([ep(1)]);
+    await settle();
+    expect(saved().sort()).toEqual([ep(1).url, ep(7).url, ep(8).url]);
+    night.keep([ep(2)]); // the night moves on: ep1 goes, the pins stay
+    await settle();
+    expect(saved().sort()).toEqual([ep(2).url, ep(7).url, ep(8).url]);
+    expect(night.has(ep(7))).toBe(true); // one page, one idea of what's saved
+  });
+
+  it("a pin dropped goes, unless the night needs it", async () => {
+    const keeper = new OfflineAudio();
+    const night = new OfflineAudio();
+    keeper.pin([ep(7).url, ep(8).url]);
+    night.keep([ep(8)]);
+    await settle();
+    keeper.pin([]);
+    await settle();
+    expect(saved()).toEqual([ep(8).url]);
+    expect(keeper.savedUrls().has(ep(7).url)).toBe(false);
+  });
+
+  it("pins are remembered across pages", async () => {
+    new OfflineAudio().pin([ep(7).url]);
+    await settle();
+    forgetSavedForTests();
+    const night = new OfflineAudio();
+    night.keep([ep(1)]);
+    await settle();
+    expect(saved().sort()).toEqual([ep(1).url, ep(7).url]);
   });
 });

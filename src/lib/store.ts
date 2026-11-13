@@ -2,6 +2,7 @@ import type { Episode, PlayMode } from "./engine";
 import { recordHeard, migrateLegacyHistory, HEARD_SEC, type Play } from "./plays";
 import { shouldRemember, putPosition, type Positions } from "./positions";
 import { sanitizeSpeeds } from "./speed";
+import { sanitizeKeep } from "./keep-latest";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -35,6 +36,9 @@ export interface Settings {
   feedTrim: Record<string, number>; // feedId -> 0.5..1.5; absent = 1.0
   /** feedId -> playback speed (speed.ts SPEEDS); absent = 1. */
   feedSpeed?: Record<string, number>;
+  /** feedId -> how many of its newest episodes to keep on the device
+   *  (keep-latest.ts KEEP_CHOICES); absent = none. */
+  feedKeep?: Record<string, number>;
   noise: NoiseSettings;
   mode: PlayMode;
   lastSession: LastSession | null;
@@ -258,6 +262,8 @@ export function loadState(): AppState {
   if (rawSettings.saveAhead === false) settings.saveAhead = false;
   const feedSpeed = sanitizeSpeeds(rawSettings.feedSpeed);
   if (Object.keys(feedSpeed).length) settings.feedSpeed = feedSpeed;
+  const feedKeep = sanitizeKeep(rawSettings.feedKeep);
+  if (Object.keys(feedKeep).length) settings.feedKeep = feedKeep;
   if (typeof rawSettings.timerPickedAt === "number" && Number.isFinite(rawSettings.timerPickedAt)) {
     settings.timerPickedAt = rawSettings.timerPickedAt;
   }
@@ -275,6 +281,28 @@ export function loadSpeed(feedId: string): number {
     return loadState().settings.feedSpeed?.[feedId] ?? 1;
   } catch {
     return 1;
+  }
+}
+
+/** How many of each show's newest episodes to keep on the device. */
+export function loadKeepLatest(): Record<string, number> {
+  try {
+    return loadState().settings.feedKeep ?? {};
+  } catch {
+    return {};
+  }
+}
+
+/** Keep the show's newest `n` on the device from now on (0 stops). */
+export function saveKeepLatest(feedId: string, n: number): void {
+  try {
+    const s = loadState();
+    const feedKeep = { ...s.settings.feedKeep };
+    if (n === 0) delete feedKeep[feedId];
+    else feedKeep[feedId] = n;
+    saveState({ ...s, settings: { ...s.settings, feedKeep } });
+  } catch {
+    /* quota / private mode */
   }
 }
 

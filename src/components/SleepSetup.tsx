@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { AppState, FeedRef } from "../lib/store";
-import { loadBlocked, loadPositions, clampTimerMinutes, TIMER_MIN, TIMER_MAX } from "../lib/store";
+import { loadBlocked, loadPositions, loadKeepLatest, saveKeepLatest, clampTimerMinutes, TIMER_MIN, TIMER_MAX } from "../lib/store";
+import { OfflineAudio } from "../lib/offline-audio";
+import { latestToKeep, loadManualSaves, pinnedUrls, toggleManualSave } from "../lib/keep-latest";
+import { useLazyRef } from "../lib/use-lazy-ref";
 import { parseOpml, buildOpml } from "../lib/opml";
 import { downloadBackup, parseBackup, restoreBackup, summarizeStored } from "../lib/backup";
 import { downloadFile } from "../lib/download";
@@ -222,6 +225,36 @@ export function SleepSetup({ onStart, tab, nightLive = false }: SleepSetupProps)
   // The show page reads played, positions and blocked fresh each render;
   // its sheet changes them, then asks for another.
   const [, redrawShows] = useReducer((n: number) => n + 1, 0);
+  // Episodes kept on the device ahead of any night (keep-latest.ts): each
+  // show's latest few, and any saved by hand. The keeper pins them whenever
+  // the feeds or the settings change; the night's own player leaves pins be.
+  const [savedUrls, setSavedUrls] = useState<ReadonlySet<string>>(new Set());
+  const keeper = useLazyRef(() => new OfflineAudio(() => setSavedUrls(keeper.current.savedUrls())));
+  const [keepRead, rereadKeep] = useReducer((n: number) => n + 1, 0);
+  // What this site holds on the device (saved audio is most of it), when
+  // Settings is open; the estimate is the browser's, so a round figure.
+  const [storageUsed, setStorageUsed] = useState<string | null>(null);
+  useEffect(() => {
+    if (tab !== "settings") return;
+    let gone = false;
+    navigator.storage?.estimate?.().then((e) => {
+      if (gone || !e.usage) return;
+      const mb = e.usage / (1024 * 1024);
+      setStorageUsed(mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`);
+    }).catch(() => {});
+    return () => { gone = true; };
+  }, [tab, savedUrls]);
+  const keepLatest = useMemo(() => loadKeepLatest(), [keepRead]);
+  const autoKept = useMemo(() => {
+    const urls = new Set<string>();
+    for (const [feedId, n] of Object.entries(keepLatest)) for (const ep of latestToKeep(feedStatuses[feedId]?.episodes ?? [], n)) urls.add(ep.url);
+    return urls;
+  }, [keepLatest, feedStatuses]);
+  useEffect(() => {
+    const byFeed = Object.fromEntries(Object.entries(feedStatuses).map(([id, st]) => [id, st.episodes]));
+    keeper.current.pin(pinnedUrls(keepLatest, byFeed, loadManualSaves()));
+    setSavedUrls(keeper.current.savedUrls());
+  }, [keepLatest, feedStatuses, keepRead]);
   const [learned, timedSoFar] = useMemo(() => {
     const nights = loadNights();
     return [learnedTimer(nights), timedNights(nights)] as const;
@@ -1048,6 +1081,11 @@ export function SleepSetup({ onStart, tab, nightLive = false }: SleepSetupProps)
               onPlay={(ep, fromStart) => beginNight(ep, fromStart ? 0 : positions[ep.id] ?? 0)}
               onChanged={redrawShows}
               nightLive={nightLive}
+              keepLatest={keepLatest[feed.id] ?? 0}
+              onKeepLatest={(n) => { saveKeepLatest(feed.id, n); rereadKeep(); }}
+              saved={savedUrls}
+              autoKept={autoKept}
+              onToggleSaved={(ep) => { toggleManualSave(ep.url); rereadKeep(); }}
               onShuffle={() => { scopeRef.current = feed.id; beginNight(null); }}
               onToggleShuffle={() => toggleFeed(feed.id)}
               onRemove={feed.builtin ? undefined : () => { handleRemoveFeed(feed.id); setOpenShow(null); }}
@@ -1296,6 +1334,11 @@ export function SleepSetup({ onStart, tab, nightLive = false }: SleepSetupProps)
               >
                 Downloads the current and next episode, so a dropped connection doesn&apos;t stop playback. Uses more data off Wi-Fi.
               </SettingRow>
+              <p className="py-3 text-[12.5px] text-[var(--ink-3)]">
+                {storageUsed === null
+                  ? "To keep a show's latest episodes on the device, open it in Podcasts."
+                  : `Sleepcast is using ${storageUsed} on this device. To keep a show's latest episodes, open it in Podcasts.`}
+              </p>
             </Group>
 
             <Group id="about" title="About">
