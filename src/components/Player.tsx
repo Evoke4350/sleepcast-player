@@ -6,12 +6,13 @@ import { useNightExtensions } from "../lib/use-night-extensions";
 
 import type { Episode, PlayMode } from "../lib/engine";
 import { formatTime, feedVolume, secondsToEnd } from "../lib/engine";
-import { getPlays, recordHeardPlay, saveLive, noteSounded, SNAPSHOT_EVERY_TICKS, counterAfterStartSnapshot, rememberPosition, forgetPosition, blockEpisode } from "../lib/store";
+import { getPlays, recordHeardPlay, loadSpeed, saveSpeed, saveLive, noteSounded, SNAPSHOT_EVERY_TICKS, counterAfterStartSnapshot, rememberPosition, forgetPosition, blockEpisode } from "../lib/store";
 import { NetworkHold, isOffline } from "../lib/network-hold";
 import { SeekEnforcer, type SeekHooks } from "../lib/seek-enforcer";
 import { mediaTransport, rearmsWatchdogOnTap } from "../lib/media/transport";
 import { barPosition, DurationLatch, remainingOf, shortOfEnd, spanOf } from "../lib/duration";
 import { heardDelta } from "../lib/heard";
+import { nextSpeed, realSeconds, speedLabel } from "../lib/speed";
 import { clearLockScreen, mediaSession, publishLockScreen, publishLockScreenMetadata, setActionHandlers } from "../lib/lock-screen";
 import { decideSkip, skipMessage, stillAtStart } from "../lib/skip-intro";
 import { pickNextEpisode, HEARD_SEC } from "../lib/plays";
@@ -184,6 +185,8 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
   const feedTrimRef = useRef<Record<string, number>>(feedTrim);
 
   const [nowPlaying, setNowPlaying] = useState<{ id: string; title: string; feedId: string } | null>(null);
+  // The show's playback speed: state for the button, ref for the tick.
+  const [speed, speedRef, setSpeed] = useStateRef(1);
   // The played set: state for the lineup, ref for same-tick snapshots, one
   // setter for both (the restore and each start).
   const [playedIds, playedIdsRef, setPlayed] = useStateRef<ReadonlySet<string>>(new Set());
@@ -233,6 +236,10 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
     // but the most recent.
     restRef.current?.noteEpisode(ep.feedId, ep.id);
     audio.src = offlineRef.current.sourceFor(ep);
+    // Each show keeps its own speed (speed.ts).
+    const rate = loadSpeed(ep.feedId);
+    setSpeed(rate);
+    applySpeed(audio, rate);
     currentEpRef.current = ep;
     // A new episode: the last one's length means nothing now (before the
     // start seek below reads it).
@@ -277,7 +284,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
     const kind = modeRef.current.kind;
     let next: Episode | null = null;
     if (kind !== "one-episode") {
-      const epLeft = remainingOf(episodeSpan(audio));
+      const epLeft = realSeconds(remainingOf(episodeSpan(audio)), speedRef.current);
       const timerLeft = kind === "minutes" ? (pausedRemainingMsRef.current ?? (endTimeRef.current ?? 0) - Date.now()) / 1000 : Infinity;
       if (epLeft !== null && timerLeft > epLeft) {
         const choices = nextChoices();
@@ -477,6 +484,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
     epPlayedRef.current = false;
     const at = resumePosition();
     audio.src = offlineRef.current.sourceFor(ep);
+    applySpeed(audio, speedRef.current);
     // A fresh enforcer (the old one's state belongs to the load that failed),
     // with the skip's announcement if it is the skip's seek being reloaded:
     // skipSeekRef is set only while that seek is the pending one.
@@ -704,7 +712,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
       kind === "minutes" && endTimeRef.current !== null
         ? (endTimeRef.current - Date.now()) / 1000
         : Infinity;
-    const epRemaining = audio ? remainingOf(episodeSpan(audio)) : null;
+    const epRemaining = audio ? realSeconds(remainingOf(episodeSpan(audio)), speedRef.current) : null;
     const toEnd = secondsToEnd(kind, timerRemaining, epRemaining);
     r.tick({
       now: Date.now(),
@@ -1026,6 +1034,26 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /** Set on the element and as its default, which a new load starts from
+   *  (Safari resets playbackRate on a new src). */
+  function applySpeed(audio: HTMLAudioElement, rate: number) {
+    audio.defaultPlaybackRate = rate;
+    audio.playbackRate = rate;
+  }
+
+  /** The speed button: the next speed, kept for this show. */
+  function handleSpeed() {
+    restRef.current?.noteInteraction(); // a tap is a touch
+    const audio = audioRef.current;
+    const ep = currentEpRef.current;
+    if (!audio || !ep) return;
+    const rate = nextSpeed(speedRef.current);
+    setSpeed(rate);
+    applySpeed(audio, rate);
+    saveSpeed(ep.feedId, rate);
+    syncLockScreen();
+  }
+
   function skipBy(seconds: number) {
     // From where the episode is, not the element's reading: a failed element
     // (in a network hold), one still being put on its start, or one without
@@ -1346,9 +1374,17 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = true, s
                   <div className="ep-progress"><span style={{ width: `${epPct}%` }} /></div>
                   <span aria-hidden="true" className="ep-knob" style={{ left: `${epPct}%` }} />
                 </div>
-                <div className="mt-0.5 flex justify-between text-xs tabular-nums text-[var(--ink-3)]">
-                  <span>{epPos ? formatTime(epPos.cur) : "0:00"}</span>
-                  <span>{epPos ? `-${formatTime(Math.max(0, epPos.dur - epPos.cur))}` : ""}</span>
+                <div className="mt-0.5 flex items-center justify-between text-xs tabular-nums text-[var(--ink-3)]">
+                  <span className="w-16">{epPos ? formatTime(epPos.cur) : "0:00"}</span>
+                  {/* Time left is real time, at this speed. */}
+                  <button
+                    onClick={handleSpeed}
+                    aria-label={`Playback speed ${speedLabel(speed)}. Change speed`}
+                    className={`rounded-full px-3 py-1 text-xs font-bold ${speed === 1 ? "bg-[var(--raised)] text-[var(--ink-2)]" : "bg-[var(--accent)] text-[var(--accent-ink)]"}`}
+                  >
+                    {speedLabel(speed)}
+                  </button>
+                  <span className="w-16 text-right">{epPos ? `-${formatTime(Math.max(0, epPos.dur - epPos.cur) / speed)}` : ""}</span>
                 </div>
               </div>
 
