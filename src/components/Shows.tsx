@@ -6,7 +6,8 @@ import type { Episode } from "../lib/engine";
 import { formatTime } from "../lib/engine";
 import { addUpNext, isUpNext, removeUpNext } from "../lib/upnext";
 import { blockEpisode, markPlayed, markUnplayed } from "../lib/store";
-import { formatLength, orderEpisodes, typicalLength, type EpisodeOrder } from "../lib/feed-details";
+import { formatLength, orderEpisodes, searchEpisodes, typicalLength, type EpisodeOrder } from "../lib/feed-details";
+import { isNew, loadSeen, markSeen, newCount, seedSeen } from "../lib/new-episodes";
 import type { CatalogShow } from "../lib/catalog";
 import { arrangeShows, loadLibraryView, saveLibraryView, type LibraryFilter, type LibrarySort, type LibraryView } from "../lib/library";
 import type { FeedRef } from "../lib/store";
@@ -64,6 +65,11 @@ function showNote(st: ShowStatus | undefined): string {
   return st.author ? `${st.author} · ${count}` : count;
 }
 
+/** "2 new", on a show's row or over its art. */
+function NewBadge({ n }: { n: number }) {
+  return <span className="shrink-0 rounded-full bg-[var(--accent)] px-2 py-0.5 text-[11px] font-bold text-[var(--accent-ink)]">{n} new</span>;
+}
+
 function CheckIcon({ className }: { className: string }) {
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>;
 }
@@ -95,6 +101,13 @@ export function Library({
   const [view, setView] = useState<LibraryView>(loadLibraryView);
   const shows = arrangeShows(feeds, filter, sort, lastPlayed);
   const offCount = feeds.filter((f) => !f.enabled).length;
+  // What's new since each show was last opened (new-episodes.ts). A show
+  // seen for the first time is marked as loaded, so nothing is new yet.
+  const [seen, setSeen] = useState(loadSeen);
+  useEffect(() => {
+    if (seedSeen(Object.fromEntries(feeds.map((f) => [f.id, statuses[f.id]?.episodes])))) setSeen(loadSeen());
+  }, [feeds, statuses]);
+  const fresh = (id: string) => newCount(id, statuses[id]?.episodes ?? [], seen);
 
   const addLabel = (
     <>
@@ -165,6 +178,7 @@ export function Library({
                       <span className="truncate">{showNote(st)}</span>
                     </span>
                   </span>
+                  {fresh(feed.id) > 0 && <NewBadge n={fresh(feed.id)} />}
                 </button>
               </li>
             );
@@ -182,7 +196,10 @@ export function Library({
             const st = statuses[feed.id];
             return (
               <button key={feed.id} data-show-id={feed.id} onClick={() => onOpen(feed.id)} className="grid content-start gap-1.5 rounded-[10px] text-left">
-                <ShowArt feed={feed} artwork={st?.artwork} className={feed.enabled ? "" : "opacity-45"} />
+                <span className="relative block">
+                  <ShowArt feed={feed} artwork={st?.artwork} className={feed.enabled ? "" : "opacity-45"} />
+                  {fresh(feed.id) > 0 && <span className="absolute right-1.5 top-1.5"><NewBadge n={fresh(feed.id)} /></span>}
+                </span>
                 <span className="truncate text-[13px] font-semibold leading-tight text-[var(--ink)]">{feed.title}</span>
                 <span className={`flex items-center gap-1 text-xs ${st?.error && feed.enabled ? "text-[var(--danger)]" : "text-[var(--ink-3)]"}`}>
                   {feed.enabled ? <CheckIcon className="h-3 w-3 shrink-0 text-[var(--accent-text)]" /> : null}
@@ -329,6 +346,11 @@ export function ShowPage({
   const notes = status?.notes ?? {};
   const [shown, setShown] = useState(40);
   const [sheet, setSheet] = useState<Episode | null>(null);
+  const [query, setQuery] = useState("");
+  // The mark as it stood when the page opened: those episodes read "New"
+  // until you leave. Opening the show moves the mark to its newest.
+  const [markAtOpen] = useState(() => loadSeen()[feed.id]);
+  useEffect(() => { markSeen(feed.id, episodes); }, [feed.id, episodes]);
   const [order, setOrder] = useState<EpisodeOrder>("newest");
   const [tab, setTab] = useState<ShowTab>("episodes");
   const [artBroken, setArtBroken] = useState(false);
@@ -336,7 +358,7 @@ export function ShowPage({
   const titleRef = useRef<HTMLHeadingElement | null>(null);
   useEffect(() => { titleRef.current?.focus({ preventScroll: true }); }, []);
 
-  const listed = orderEpisodes(episodes, order, heard, positions);
+  const listed = searchEpisodes(orderEpisodes(episodes, order, heard, positions), notes, query);
   const usual = typicalLength(episodes.map((e) => e.durationSec));
   // The newest episode you went under in: where Spotify puts a trailer, the
   // one you're most likely to want back.
@@ -526,6 +548,20 @@ export function ShowPage({
 
       <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_300px] lg:items-start lg:gap-12">
         <section id="show-panel-episodes" role="tabpanel" aria-labelledby="show-tab-episodes" className={`space-y-2 ${tab === "episodes" ? "" : "hidden"} lg:block`}>
+          {episodes.length > 8 && (
+            <label className="relative block">
+              <span className="sr-only">Search episodes</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--ink-3)]" aria-hidden="true"><circle cx="11" cy="11" r="6.5" /><path d="M20 20l-4-4" /></svg>
+              <input
+                id={`search-${feed.id}`}
+                type="search"
+                value={query}
+                onChange={(e) => { setQuery(e.target.value); setShown(40); }}
+                placeholder={`Search ${episodes.length} episodes`}
+                className="w-full rounded-full bg-[var(--raised)] py-2.5 pl-10 pr-4 text-[15px] text-[var(--ink)] placeholder:text-[var(--ink-3)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
+              />
+            </label>
+          )}
           <div className="flex items-center gap-2 overflow-x-auto pb-1" role="group" aria-label="Order episodes">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="h-5 w-5 shrink-0 text-[var(--ink-3)]" aria-hidden="true">
               <path d="M4 7h9M17 7h3M4 17h3M11 17h9" /><circle cx="15" cy="7" r="2" /><circle cx="9" cy="17" r="2" />
@@ -544,7 +580,10 @@ export function ShowPage({
             ))}
           </div>
 
-          {order === "unplayed" && !listed.length && episodes.length > 0 && (
+          {query.trim() && !listed.length && (
+            <p className="py-6 text-sm text-[var(--ink-3)]">No episodes match “{query.trim()}”.</p>
+          )}
+          {!query.trim() && order === "unplayed" && !listed.length && episodes.length > 0 && (
             <p className="py-6 text-sm text-[var(--ink-3)]">You've played every episode of this show.</p>
           )}
 
@@ -575,6 +614,8 @@ export function ShowPage({
                       <span className="line-clamp-2 font-semibold leading-snug text-[var(--ink)] group-hover:underline group-hover:decoration-[var(--line)] group-hover:underline-offset-4">{ep.title}</span>
                       {at > 0 ? (
                         <span className="mt-0.5 block text-[13px] font-semibold text-[var(--accent-text)]">You went under at {formatTime(at)}</span>
+                      ) : !played && isNew(ep, markAtOpen) ? (
+                        <span className="mt-0.5 block text-[13px] font-semibold text-[var(--accent-text)]">New</span>
                       ) : played ? (
                         <span className="mt-0.5 flex items-center gap-1 text-[13px] text-[var(--ink-4)]">
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
