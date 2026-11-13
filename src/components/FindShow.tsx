@@ -6,7 +6,7 @@ import { searchPodcasts, SEARCH_MIN_CHARS, type FoundShow } from "../lib/podcast
 import type { FeedRef } from "../lib/store";
 
 /** How long after the last keystroke the search goes. */
-const DEBOUNCE_MS = 400;
+const DEBOUNCE_MS = 500;
 
 export function FindShow({
   feeds,

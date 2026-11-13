@@ -72,6 +72,20 @@ describe("search", () => {
     expect((await search(ask("rain"), deps({ fetch: vi.fn(async () => { throw new Error("net"); }) as unknown as typeof fetch }))).status).toBe(502);
   });
 
+  it("retries when Apple says 429, and says busy when it keeps saying so", async () => {
+    const ok = () => new Response(JSON.stringify(APPLE), { headers: { "content-type": "application/json" } });
+    const busy = () => new Response("", { status: 429 });
+    const waits: number[] = [];
+    const once = deps({ fetch: vi.fn().mockResolvedValueOnce(busy()).mockResolvedValueOnce(ok()) as unknown as typeof fetch, wait: async (ms) => { waits.push(ms); } });
+    expect((await search(ask("rain"), once)).status).toBe(200);
+    expect(waits).toEqual([300]);
+    const always = deps({ fetch: vi.fn(async () => busy()) as unknown as typeof fetch, wait: async () => {} });
+    const res = await search(ask("rain"), always);
+    expect(res.status).toBe(503);
+    expect(res.headers.get("Retry-After")).toBe("30");
+    expect((always.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(3);
+  });
+
   it("trimResults survives junk", () => {
     expect(trimResults(null)).toEqual([]);
     expect(trimResults({ results: "no" })).toEqual([]);
