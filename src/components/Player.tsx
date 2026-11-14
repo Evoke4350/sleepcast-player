@@ -643,7 +643,7 @@ export function Player({ pool, timerMinutes, mode, feedTrim, saveAhead = false, 
   function handleBlock() {
     const ep = currentEpRef.current;
     if (!ep) return;
-    blockEpisode(ep.id);
+    blockEpisode(ep.id, { title: ep.title, show: feedTitlesRef.current[ep.feedId] ?? "" });
     restRef.current?.noteSkip(ep.feedId);
     forgetPosition(ep.id);
     poolRef.current = poolRef.current.filter((e) => e.id !== ep.id);
