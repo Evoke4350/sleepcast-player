@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { AppState, FeedRef } from "../lib/store";
-import { loadBlocked, loadPositions, loadKeepLatest, saveKeepLatest, clampTimerMinutes, TIMER_MIN, TIMER_MAX } from "../lib/store";
+import { loadBlocked, unblockEpisode, loadPositions, loadKeepLatest, saveKeepLatest, clampTimerMinutes, TIMER_MIN, TIMER_MAX } from "../lib/store";
+import { loadHidden } from "../lib/hidden";
 import { OfflineAudio } from "../lib/offline-audio";
 import { latestToKeep, loadManualSaves, pinnedUrls, toggleManualSave } from "../lib/keep-latest";
 import { useLazyRef } from "../lib/use-lazy-ref";
@@ -103,11 +104,15 @@ function RowIcon({ d }: { d: string }) {
   );
 }
 
+/** Hidden episodes listed before "Show all". */
+const HIDDEN_SHOWN = 6;
+
 const ICONS = {
   favor: "M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5",
   learn: "M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1",
   custom: "M6 3h12M6 21h12M7 3c0 5 10 5 10 9s-10 4-10 9M17 3c0 5-10 5-10 9",
   saveAhead: "M12 4v11M7 10l5 5 5-5M5 20h14",
+  hidden: "M3 3l18 18M10.6 10.6a2 2 0 0 0 2.8 2.8M9.9 5.2A10.4 10.4 0 0 1 21 12a11 11 0 0 1-2.7 3.5M6.6 6.6A11 11 0 0 0 3 12a10.4 10.4 0 0 0 14.1 4.6",
   appearance: "M12 3a9 9 0 1 0 0 18 9 9 0 1 0 0-18zM12 3v18M12 7h4M12 11h5M12 15h4",
   privacy: "M6 11h12v9H6zM8.5 11V8a3.5 3.5 0 0 1 7 0v3",
 };
@@ -227,7 +232,9 @@ export function SleepSetup({ onStart, tab, nightLive = false }: SleepSetupProps)
   const [keptRead, rereadKept] = useReducer((n: number) => n + 1, 0);
   // The show page reads played, positions and blocked fresh each render;
   // its sheet changes them, then asks for another.
-  const [, redrawShows] = useReducer((n: number) => n + 1, 0);
+  const [redraws, redrawShows] = useReducer((n: number) => n + 1, 0);
+  // The hidden-episodes list in Settings shows a few; the rest on request.
+  const [allHidden, setAllHidden] = useState(false);
   // Episodes kept on the device ahead of any night (keep-latest.ts): each
   // show's latest few, and any saved by hand. The keeper pins them whenever
   // the feeds or the settings change; the night's own player leaves pins be.
@@ -288,7 +295,8 @@ export function SleepSetup({ onStart, tab, nightLive = false }: SleepSetupProps)
   // Pool = all episodes from enabled feeds that have loaded successfully
   // Blocked episodes are removed at the source, so they are absent from the
   // shuffle and the spread list alike.
-  const blockedIds = useMemo(() => new Set(loadBlocked()), []);
+  // Re-read when the show page or Settings hides or unhides one (redraws).
+  const blockedIds = useMemo(() => new Set(loadBlocked()), [redraws]);
   const pool: Episode[] = enabledFeeds
     .flatMap((f) => {
       const status = feedStatuses[f.id];
@@ -1294,6 +1302,54 @@ export function SleepSetup({ onStart, tab, nightLive = false }: SleepSetupProps)
               >
                 Plays the shows you fall asleep to a bit more often. Nothing is ruled out.
               </SettingRow>
+              {/* "Never again" from the show page or the player: the only
+                  place an episode comes back once the undo has gone. */}
+              {(() => {
+                const showTitles: Record<string, string> = {};
+                for (const f of appState.feeds) showTitles[f.id] = f.title;
+                const hidden = loadHidden(Object.values(feedStatuses).flatMap((s) => s.episodes), showTitles);
+                const shown = allHidden ? hidden : hidden.slice(0, HIDDEN_SHOWN);
+                return (
+                  <div className="py-3.5">
+                    <div className="flex items-start gap-3">
+                      <RowIcon d={ICONS.hidden} />
+                      <div className="flex-1 space-y-0.5">
+                        <span className="block font-semibold text-[var(--ink)]">Hidden episodes</span>
+                        <span className="block text-[12.5px] leading-snug text-[var(--ink-3)]">
+                          {hidden.length === 0
+                            ? "None. “Never again” on an episode puts it here."
+                            : `${hidden.length === 1 ? "One episode" : `${hidden.length} episodes`} never play. Unhide one to let it back in.`}
+                        </span>
+                      </div>
+                    </div>
+                    {hidden.length > 0 && (
+                      <ul className="mt-2 divide-y divide-[var(--line)] pl-11">
+                        {shown.map((h) => (
+                          <li key={h.id} className="flex items-center gap-3 py-2">
+                            <span className="min-w-0 flex-1">
+                              <span className={`block truncate text-sm ${h.unknown ? "italic text-[var(--ink-3)]" : "text-[var(--ink)]"}`}>{h.title}</span>
+                              {h.show && <span className="block truncate text-[12px] text-[var(--ink-3)]">{h.show}</span>}
+                            </span>
+                            <button
+                              onClick={() => { unblockEpisode(h.id); redrawShows(); }}
+                              className="shrink-0 rounded-full bg-[var(--raised)] px-3 py-1 text-[13px] font-bold text-[var(--ink)] hover:bg-[var(--line)]"
+                            >
+                              Unhide
+                            </button>
+                          </li>
+                        ))}
+                        {hidden.length > HIDDEN_SHOWN && (
+                          <li className="py-2">
+                            <button onClick={() => setAllHidden((v) => !v)} className="text-[13px] font-semibold text-[var(--accent-text)] hover:underline">
+                              {allHidden ? "Show fewer" : `Show all ${hidden.length}`}
+                            </button>
+                          </li>
+                        )}
+                      </ul>
+                    )}
+                  </div>
+                );
+              })()}
             </Group>
 
             <Group id="timer" title="Sleep timer">
