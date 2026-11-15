@@ -372,7 +372,7 @@ export function ShowPage({
   const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (undoTimer.current) clearTimeout(undoTimer.current); }, []);
   function hide(ep: Episode) {
-    blockEpisode(ep.id);
+    blockEpisode(ep.id, { title: ep.title, show: feed.title });
     setSheet(null);
     setHidden(ep);
     if (undoTimer.current) clearTimeout(undoTimer.current);

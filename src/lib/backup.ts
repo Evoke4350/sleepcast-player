@@ -20,6 +20,7 @@ export const BACKUP_KEYS = [
   "sleepcast2.plays",
   "sleepcast2.positions",
   "sleepcast2.blocked",
+  "sleepcast2.blocked.names",
   "sleepcast2.rest",
   "sleepcast2.rest.params",
   "sleepcast2.rest.quiet",

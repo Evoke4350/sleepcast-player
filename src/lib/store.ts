@@ -729,7 +729,13 @@ export function forgetPosition(id: string): void {
 // ---------------------------------------------------------------------------
 
 const KEY_BLOCKED = "sleepcast2.blocked";
+/** What each blocked episode was called, so Settings can list them (hidden.ts):
+ *  the id alone says nothing once the episode has left its feed or the show
+ *  is gone. Kept only for ids that are still blocked. */
+const KEY_BLOCKED_NAMES = "sleepcast2.blocked.names";
 const BLOCKED_CAP = 500;
+
+export interface BlockedName { title: string; show: string }
 
 export function loadBlocked(): string[] {
   try {
@@ -742,22 +748,45 @@ export function loadBlocked(): string[] {
   }
 }
 
+export function loadBlockedNames(): Record<string, BlockedName> {
+  try {
+    const raw = localStorage.getItem(KEY_BLOCKED_NAMES);
+    const n = raw ? JSON.parse(raw) : null;
+    return n && typeof n === "object" && !Array.isArray(n) ? (n as Record<string, BlockedName>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveBlockedNames(names: Record<string, BlockedName>, blocked: readonly string[]): void {
+  const kept: Record<string, BlockedName> = {};
+  for (const id of blocked) if (names[id]) kept[id] = names[id];
+  if (Object.keys(kept).length) writeMakingRoom(KEY_BLOCKED_NAMES, JSON.stringify(kept));
+  else localStorage.removeItem(KEY_BLOCKED_NAMES);
+}
+
 export function isBlocked(id: string): boolean {
   return loadBlocked().includes(id);
 }
 
-export function blockEpisode(id: string): void {
+/** Never again. `name` is what the Settings list shows for it; without one
+ *  (older callers) the list falls back to the feed, then to "no longer listed". */
+export function blockEpisode(id: string, name?: BlockedName): void {
   try {
     const b = loadBlocked();
-    if (b.includes(id)) return;
-    b.push(id);
-    writeMakingRoom(KEY_BLOCKED, JSON.stringify(b.slice(-BLOCKED_CAP)));
+    if (!b.includes(id)) {
+      b.push(id);
+      writeMakingRoom(KEY_BLOCKED, JSON.stringify(b.slice(-BLOCKED_CAP)));
+    }
+    if (name) saveBlockedNames({ ...loadBlockedNames(), [id]: name }, b.slice(-BLOCKED_CAP));
   } catch { /* ignore */ }
 }
 
 export function unblockEpisode(id: string): void {
   try {
-    writeMakingRoom(KEY_BLOCKED, JSON.stringify(loadBlocked().filter((x) => x !== id)));
+    const b = loadBlocked().filter((x) => x !== id);
+    writeMakingRoom(KEY_BLOCKED, JSON.stringify(b));
+    saveBlockedNames(loadBlockedNames(), b);
   } catch { /* ignore */ }
 }
 
