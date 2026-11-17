@@ -5,8 +5,9 @@ import { useEffect, useRef, useState } from "react";
 import { searchPodcasts, SEARCH_MIN_CHARS, type FoundShow } from "../lib/podcast-search";
 import type { FeedRef } from "../lib/store";
 
-/** How long after the last keystroke the search goes. */
-const DEBOUNCE_MS = 500;
+/** How long after the last keystroke the search goes: short enough to
+ *  feel immediate, long enough that a word typed through sends once. */
+const DEBOUNCE_MS = 350;
 
 export function FindShow({
   feeds,
