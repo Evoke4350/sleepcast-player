@@ -2,21 +2,23 @@
 // the browser, through this site, so the directory sees Cloudflare and not
 // the listener.
 //
-// The directory is Apple's free search (itunes.apple.com/search). What goes
-// to it is the typed words, nothing else: no identity, no cookies, and the
-// query isn't logged here. Results come back trimmed to what the app shows,
-// and their artwork is rewritten to /api/art, which fetches it from Apple's
-// image hosts the same way, so showing the results reaches Apple no more
-// than the search did.
+// Two directories. What goes to either is the typed words, nothing else:
+// no identity, no cookies, and the query isn't logged here. Results come
+// back trimmed to what the app shows, with their artwork rewritten to
+// /api/art, which fetches it the same way, so showing the results reaches
+// the directory no more than the search did.
 //
-// Apple limits searches per address, and a Worker's outbound address is
-// shared with everyone on Cloudflare, so Apple often says 429 to a first
-// try. When it keeps saying so, the same words go to Podcast Index
-// (podcastindex.org), an open directory, when the worker has a key for it:
-// again only the words, signed with the key. Its artwork sits on the shows'
-// own hosts, so each of those image links is signed with a worker-side key
-// (ART_KEY) and /api/art fetches it only with a valid signature: results
-// get their pictures without /api/art becoming an image proxy for anyone.
+// Podcast Index (podcastindex.org), an open directory, answers first when
+// the worker has a key for it (the request is signed with the key). Its
+// artwork sits on the shows' own hosts, so each image link is signed with
+// a worker-side key (ART_KEY) and /api/art fetches it only with a valid
+// signature: pictures without /api/art becoming an image proxy for anyone.
+//
+// Apple's free search (itunes.apple.com/search) is the fallback: with no
+// key, when Podcast Index is down, or when it finds nothing. It used to be
+// first, but Apple limits searches per address and a Worker's outbound
+// address is shared with everyone on Cloudflare, so it refused nearly every
+// first try and each search waited through the retries for nothing.
 //
 // Both are cached at the edge: a search for an hour, artwork for a week.
 
@@ -211,13 +213,16 @@ export async function search(request: Request, deps: SearchDeps): Promise<Respon
   const cached = await deps.cache?.match(key).catch(() => undefined);
   if (cached) return cached;
 
-  const apple = await fromApple(q, deps);
+  // Podcast Index first; Apple when it has no key, is down, or finds
+  // nothing. Nothing from either: Index's empty answer if it gave one, else
+  // Apple's reason.
+  const index = await fromIndex(q, deps);
   let hits: SearchHit[];
-  if ("hits" in apple) hits = apple.hits;
+  if (index && index.length) hits = index;
   else {
-    // Apple busy or down: the other directory, if there is one; else say so.
-    const index = await fromIndex(q, deps);
-    if (index) hits = index;
+    const apple = await fromApple(q, deps);
+    if ("hits" in apple) hits = apple.hits;
+    else if (index) hits = index;
     else if ("busy" in apple) return new Response("directory busy", { status: 503, headers: { "Retry-After": "30" } });
     else return new Response("directory failed", { status: 502 });
   }
