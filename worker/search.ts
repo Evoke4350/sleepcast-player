@@ -13,8 +13,10 @@
 // shared with everyone on Cloudflare, so Apple often says 429 to a first
 // try. When it keeps saying so, the same words go to Podcast Index
 // (podcastindex.org), an open directory, when the worker has a key for it:
-// again only the words, signed with the key. Its results carry no artwork
-// here (/api/art fetches from Apple's image hosts only).
+// again only the words, signed with the key. Its artwork sits on the shows'
+// own hosts, so each of those image links is signed with a worker-side key
+// (ART_KEY) and /api/art fetches it only with a valid signature: results
+// get their pictures without /api/art becoming an image proxy for anyone.
 //
 // Both are cached at the edge: a search for an hour, artwork for a week.
 
@@ -22,8 +24,9 @@ export const SEARCH_MAX_CHARS = 100;
 export const SEARCH_LIMIT = 25;
 const SEARCH_FRESH_S = 60 * 60;
 const ART_FRESH_S = 7 * 24 * 60 * 60;
-/** Artwork is a thumbnail; anything bigger isn't one. */
-const ART_MAX_BYTES = 1024 * 1024;
+/** Apple sends thumbnails; a show's own artwork is full size (often a
+ *  3000-pixel square), so the cap allows those but not a stray video. */
+const ART_MAX_BYTES = 4 * 1024 * 1024;
 const UA = { "User-Agent": "sleepcast/2.0" };
 
 export interface SearchDeps {
@@ -38,6 +41,9 @@ export interface SearchDeps {
   podcastIndex?: { key: string; secret: string };
   /** The clock, in ms (Podcast Index signs each request with the time). */
   now?: () => number;
+  /** Signs artwork links from hosts other than Apple's (a worker secret);
+   *  without it, those results show no artwork. */
+  artKey?: string;
 }
 
 /** Apple limits searches per address, and a Worker's outbound address is
@@ -92,10 +98,42 @@ export function trimResults(json: unknown): SearchHit[] {
   return out;
 }
 
+/** An https image URL on any host, the only kind a signature covers. */
+export function isHttpsUrl(raw: string): boolean {
+  try {
+    return new URL(raw).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+const SIG_HEX = 32; // 128 bits of the HMAC: enough that no one guesses one
+
+async function hmacHex(key: string, text: string): Promise<string> {
+  const k = await crypto.subtle.importKey("raw", new TextEncoder().encode(key), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig = await crypto.subtle.sign("HMAC", k, new TextEncoder().encode(text));
+  return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, SIG_HEX);
+}
+
+/** The /api/art link for an image on a show's own host, signed. */
+export async function signArt(url: string, key: string): Promise<string> {
+  return `/api/art?u=${encodeURIComponent(url)}&s=${await hmacHex(key, url)}`;
+}
+
+/** Whether `sig` is this worker's signature for `url` (compared in full,
+ *  whatever the first differing character). */
+export async function verifyArt(url: string, sig: string, key: string): Promise<boolean> {
+  const want = await hmacHex(key, url);
+  if (sig.length !== want.length) return false;
+  let diff = 0;
+  for (let i = 0; i < want.length; i++) diff |= sig.charCodeAt(i) ^ want.charCodeAt(i);
+  return diff === 0;
+}
+
 /** Podcast Index's rows (search/byterm → feeds[]), trimmed the same way.
- *  No artwork: its images come from the shows' own hosts, which /api/art
- *  doesn't fetch from. */
-export function trimIndexResults(json: unknown): SearchHit[] {
+ *  Artwork comes from the shows' own hosts, so each link is signed; with
+ *  no key to sign with, the rows carry none. */
+export async function trimIndexResults(json: unknown, artKey?: string): Promise<SearchHit[]> {
   const rows = (json as { feeds?: unknown[] })?.feeds;
   if (!Array.isArray(rows)) return [];
   const out: SearchHit[] = [];
@@ -105,6 +143,8 @@ export function trimIndexResults(json: unknown): SearchHit[] {
     const title = typeof r.title === "string" ? r.title : "";
     if (!title) continue;
     const hit: SearchHit = { title, author: typeof r.author === "string" ? r.author : "", feedUrl };
+    const image = typeof r.image === "string" ? r.image : typeof r.artwork === "string" ? r.artwork : "";
+    if (artKey && isHttpsUrl(image)) hit.art = await signArt(image, artKey);
     if (typeof r.episodeCount === "number" && r.episodeCount > 0) hit.episodes = r.episodeCount;
     out.push(hit);
   }
@@ -155,7 +195,7 @@ async function fromIndex(q: string, deps: SearchDeps): Promise<SearchHit[] | nul
     const headers = await podcastIndexHeaders(deps.podcastIndex, (deps.now ?? Date.now)());
     const resp = await deps.fetch(upstream.toString(), { headers, signal: AbortSignal.timeout(10000) });
     if (!resp.ok) return null;
-    return trimIndexResults(await resp.json());
+    return await trimIndexResults(await resp.json(), deps.artKey);
   } catch {
     return null;
   }
@@ -189,8 +229,13 @@ export async function search(request: Request, deps: SearchDeps): Promise<Respon
 
 export async function art(request: Request, deps: SearchDeps): Promise<Response> {
   if (!(await deps.allow())) return new Response("slow down", { status: 429, headers: { "Retry-After": "60" } });
-  const target = new URL(request.url).searchParams.get("u") ?? "";
-  if (!isAppleArtUrl(target)) return new Response("bad url", { status: 400 });
+  const params = new URL(request.url).searchParams;
+  const target = params.get("u") ?? "";
+  // Apple's hosts on their own; any other host only with this worker's
+  // signature, given out with a search result.
+  const sig = params.get("s");
+  const allowed = isAppleArtUrl(target) || (!!sig && !!deps.artKey && isHttpsUrl(target) && (await verifyArt(target, sig, deps.artKey)));
+  if (!allowed) return new Response("bad url", { status: 400 });
 
   const key = new Request(new URL(`/api/art-cache?u=${encodeURIComponent(target)}`, request.url));
   const cached = await deps.cache?.match(key).catch(() => undefined);
