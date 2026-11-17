@@ -18,6 +18,10 @@ interface Env {
   ASSETS: { fetch: (r: Request) => Promise<Response> };
   /** Workers rate limiting: per address, for the relay. */
   RELAY_LIMIT?: { limit: (o: { key: string }) => Promise<{ success: boolean }> };
+  /** Podcast Index credentials (wrangler secrets): the search fallback
+   *  when Apple is busy. Absent, there is no fallback. */
+  PODCASTINDEX_KEY?: string;
+  PODCASTINDEX_SECRET?: string;
 }
 
 export default {
@@ -30,6 +34,7 @@ export default {
       cache: caches.default,
       allow: async () => (env.RELAY_LIMIT ? (await env.RELAY_LIMIT.limit({ key: ip })).success : true),
       later: (p: Promise<unknown>) => ctx.waitUntil(p),
+      ...(env.PODCASTINDEX_KEY && env.PODCASTINDEX_SECRET ? { podcastIndex: { key: env.PODCASTINDEX_KEY, secret: env.PODCASTINDEX_SECRET } } : {}),
     };
     if (request.method === "GET") {
       if (pathname === "/api/relay") return relay(request, deps);

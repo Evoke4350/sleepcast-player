@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect, vi } from "vitest";
-import { art, isAppleArtUrl, normalizeQuery, search, trimResults, type SearchDeps } from "./search";
+import { art, isAppleArtUrl, normalizeQuery, podcastIndexHeaders, search, trimIndexResults, trimResults, type SearchDeps } from "./search";
 
 const APPLE = {
   resultCount: 3,
@@ -84,6 +84,79 @@ describe("search", () => {
     expect(res.status).toBe(503);
     expect(res.headers.get("Retry-After")).toBe("30");
     expect((always.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(3);
+  });
+
+  describe("Podcast Index fallback", () => {
+    const INDEX = { feeds: [
+      { title: "Sleep With Me", author: "Drew", url: "https://feeds.example/swm", image: "https://cdn.example/a.jpg", episodeCount: 1200 },
+      { title: "Plain Http", url: "http://feeds.example/plain" },
+      { url: "https://feeds.example/untitled" },
+      { title: "No count", author: "", url: "https://feeds.example/nc", episodeCount: 0 },
+    ] };
+    const busy = () => new Response("", { status: 429 });
+    const indexOk = () => new Response(JSON.stringify(INDEX), { headers: { "content-type": "application/json" } });
+    const creds = { key: "k", secret: "s" };
+
+    it("signs the request the way Podcast Index wants", async () => {
+      const h = await podcastIndexHeaders(creds, 1_700_000_000_500);
+      expect(h["X-Auth-Key"]).toBe("k");
+      expect(h["X-Auth-Date"]).toBe("1700000000");
+      const want = [...new Uint8Array(await crypto.subtle.digest("SHA-1", new TextEncoder().encode("ks1700000000")))].map((b) => b.toString(16).padStart(2, "0")).join("");
+      expect(h.Authorization).toBe(want);
+      expect(h["User-Agent"]).toBe("sleepcast/2.0");
+    });
+
+    it("asks Podcast Index when Apple stays busy, sending only the words", async () => {
+      const fetch = vi.fn().mockResolvedValueOnce(busy()).mockResolvedValueOnce(busy()).mockResolvedValueOnce(busy()).mockResolvedValueOnce(indexOk());
+      const d = deps({ fetch: fetch as unknown as typeof fetch, wait: async () => {}, podcastIndex: creds, now: () => 1_700_000_000_000 });
+      const res = await search(ask("sleep with me"), d);
+      expect(res.status).toBe(200);
+      expect(fetch.mock.calls).toHaveLength(4);
+      const sent = new URL(fetch.mock.calls[3][0] as string);
+      expect(sent.origin + sent.pathname).toBe("https://api.podcastindex.org/api/1.0/search/byterm");
+      expect(sent.searchParams.get("q")).toBe("sleep with me");
+      expect([...sent.searchParams.keys()].sort()).toEqual(["max", "q"]);
+      const headers = (fetch.mock.calls[3][1] as RequestInit).headers as Record<string, string>;
+      expect(headers["X-Auth-Key"]).toBe("k");
+      expect(headers.Authorization).toMatch(/^[0-9a-f]{40}$/);
+      expect(await res.json()).toEqual([
+        { title: "Sleep With Me", author: "Drew", feedUrl: "https://feeds.example/swm", episodes: 1200 },
+        { title: "No count", author: "", feedUrl: "https://feeds.example/nc" },
+      ]);
+    });
+
+    it("also steps in when Apple fails outright", async () => {
+      const fetch = vi.fn().mockResolvedValueOnce(new Response("", { status: 500 })).mockResolvedValueOnce(indexOk());
+      const res = await search(ask("rain"), deps({ fetch: fetch as unknown as typeof fetch, podcastIndex: creds }));
+      expect(res.status).toBe(200);
+      expect(fetch.mock.calls).toHaveLength(2);
+    });
+
+    it("without a key, or when it fails too, Apple's answer stands", async () => {
+      const noKey = deps({ fetch: vi.fn(async () => busy()) as unknown as typeof fetch, wait: async () => {} });
+      expect((await search(ask("rain"), noKey)).status).toBe(503);
+      expect((noKey.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(3);
+      const bothDown = deps({ fetch: vi.fn(async () => busy()) as unknown as typeof fetch, wait: async () => {}, podcastIndex: creds });
+      expect((await search(ask("rain"), bothDown)).status).toBe(503);
+      expect((bothDown.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(4);
+      const appleDown = deps({ fetch: vi.fn(async () => { throw new Error("net"); }) as unknown as typeof fetch, podcastIndex: creds });
+      expect((await search(ask("rain"), appleDown)).status).toBe(502);
+    });
+
+    it("caches an Index answer like Apple's", async () => {
+      const cache = memCache();
+      const fetch = vi.fn().mockResolvedValueOnce(busy()).mockResolvedValueOnce(busy()).mockResolvedValueOnce(busy()).mockResolvedValueOnce(indexOk());
+      const d = deps({ cache, fetch: fetch as unknown as typeof fetch, wait: async () => {}, podcastIndex: creds });
+      await search(ask("rain"), d);
+      await d.settle();
+      expect((await search(ask("Rain"), d)).status).toBe(200);
+      expect(fetch.mock.calls).toHaveLength(4);
+    });
+
+    it("trimIndexResults survives junk", () => {
+      expect(trimIndexResults(null)).toEqual([]);
+      expect(trimIndexResults({ feeds: "no" })).toEqual([]);
+    });
   });
 
   it("trimResults survives junk", () => {

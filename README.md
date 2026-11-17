@@ -41,7 +41,9 @@ So:
 - **Find any podcast, and a short list to start from.** Podcasts → Find a
   podcast searches Apple's directory through the worker (`worker/search.ts`:
   the typed words go to Apple from Cloudflare, not from you, and aren't
-  logged). More sleep podcasts offers shows picked by hand and checked for
+  logged; when Apple is busy, the same words go to Podcast Index instead,
+  signed with the `PODCASTINDEX_KEY` / `PODCASTINDEX_SECRET` worker
+  secrets). More sleep podcasts offers shows picked by hand and checked for
   long episodes, recent activity and audio that can be saved offline
   (`src/lib/catalog.ts`, which records the checks). A directory search
   mostly turns up generated loops and ten-minute
