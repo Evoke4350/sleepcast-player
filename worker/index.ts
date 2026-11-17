@@ -22,6 +22,8 @@ interface Env {
    *  when Apple is busy. Absent, there is no fallback. */
   PODCASTINDEX_KEY?: string;
   PODCASTINDEX_SECRET?: string;
+  /** Signs artwork links from hosts other than Apple's (search.ts). */
+  ART_KEY?: string;
 }
 
 export default {
@@ -35,6 +37,7 @@ export default {
       allow: async () => (env.RELAY_LIMIT ? (await env.RELAY_LIMIT.limit({ key: ip })).success : true),
       later: (p: Promise<unknown>) => ctx.waitUntil(p),
       ...(env.PODCASTINDEX_KEY && env.PODCASTINDEX_SECRET ? { podcastIndex: { key: env.PODCASTINDEX_KEY, secret: env.PODCASTINDEX_SECRET } } : {}),
+      ...(env.ART_KEY ? { artKey: env.ART_KEY } : {}),
     };
     if (request.method === "GET") {
       if (pathname === "/api/relay") return relay(request, deps);

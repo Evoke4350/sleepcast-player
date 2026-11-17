@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect, vi } from "vitest";
-import { art, isAppleArtUrl, normalizeQuery, podcastIndexHeaders, search, trimIndexResults, trimResults, type SearchDeps } from "./search";
+import { art, isAppleArtUrl, normalizeQuery, podcastIndexHeaders, search, signArt, trimIndexResults, trimResults, verifyArt, type SearchDeps } from "./search";
 
 const APPLE = {
   resultCount: 3,
@@ -125,6 +125,33 @@ describe("search", () => {
       ]);
     });
 
+    it("with an art key, Index artwork comes as a signed /api/art link", async () => {
+      const hits = await trimIndexResults({ feeds: [
+        ...INDEX.feeds,
+        { title: "Plain image", url: "https://feeds.example/pi", image: "http://cdn.example/plain.jpg" },
+        { title: "Artwork field", url: "https://feeds.example/af", artwork: "https://cdn.example/b.png" },
+      ] }, "art-secret");
+      const a = new URL(hits[0].art!, "https://sleepcast.pro");
+      expect(a.pathname).toBe("/api/art");
+      expect(a.searchParams.get("u")).toBe("https://cdn.example/a.jpg");
+      expect(a.searchParams.get("s")).toMatch(/^[0-9a-f]{32}$/);
+      expect(await verifyArt("https://cdn.example/a.jpg", a.searchParams.get("s")!, "art-secret")).toBe(true);
+      expect(hits.find((h) => h.title === "Plain image")!.art).toBeUndefined();
+      expect(hits.find((h) => h.title === "Artwork field")!.art).toContain(encodeURIComponent("https://cdn.example/b.png"));
+      const fetch = vi.fn().mockResolvedValueOnce(busy()).mockResolvedValueOnce(busy()).mockResolvedValueOnce(busy()).mockResolvedValueOnce(indexOk());
+      const res = await search(ask("rain"), deps({ fetch: fetch as unknown as typeof fetch, wait: async () => {}, podcastIndex: creds, artKey: "art-secret" }));
+      expect(((await res.json()) as { art?: string }[])[0].art).toBe(await signArt("https://cdn.example/a.jpg", "art-secret"));
+    });
+
+    it("signatures are per url and per key", async () => {
+      const s = new URL(await signArt("https://cdn.example/a.jpg", "k1"), "https://x").searchParams.get("s")!;
+      expect(await verifyArt("https://cdn.example/a.jpg", s, "k1")).toBe(true);
+      expect(await verifyArt("https://cdn.example/b.jpg", s, "k1")).toBe(false);
+      expect(await verifyArt("https://cdn.example/a.jpg", s, "k2")).toBe(false);
+      expect(await verifyArt("https://cdn.example/a.jpg", s.slice(0, 31), "k1")).toBe(false);
+      expect(await verifyArt("https://cdn.example/a.jpg", "", "k1")).toBe(false);
+    });
+
     it("also steps in when Apple fails outright", async () => {
       const fetch = vi.fn().mockResolvedValueOnce(new Response("", { status: 500 })).mockResolvedValueOnce(indexOk());
       const res = await search(ask("rain"), deps({ fetch: fetch as unknown as typeof fetch, podcastIndex: creds }));
@@ -153,9 +180,9 @@ describe("search", () => {
       expect(fetch.mock.calls).toHaveLength(4);
     });
 
-    it("trimIndexResults survives junk", () => {
-      expect(trimIndexResults(null)).toEqual([]);
-      expect(trimIndexResults({ feeds: "no" })).toEqual([]);
+    it("trimIndexResults survives junk", async () => {
+      expect(await trimIndexResults(null)).toEqual([]);
+      expect(await trimIndexResults({ feeds: "no" })).toEqual([]);
     });
   });
 
@@ -175,6 +202,19 @@ describe("art", () => {
     expect(isAppleArtUrl("https://notmzstatic.com/x.jpg")).toBe(false);
     expect(isAppleArtUrl("http://is1-ssl.mzstatic.com/x.jpg")).toBe(false);
     expect((await art(askArt("https://evil.example/a.jpg"), deps())).status).toBe(400);
+  });
+
+  it("fetches another host only with this worker's signature", async () => {
+    const d = deps({ fetch: vi.fn(async () => png()) as unknown as typeof fetch, artKey: "art-secret" });
+    const signed = await signArt("https://cdn.example/a.jpg", "art-secret");
+    expect((await art(new Request("https://sleepcast.pro" + signed), d)).status).toBe(200);
+    expect((await art(askArt("https://cdn.example/a.jpg"), d)).status).toBe(400);
+    expect((await art(new Request("https://sleepcast.pro" + signed.replace(/s=./, "s=0")), d)).status).toBe(400);
+    expect((await art(new Request("https://sleepcast.pro" + signed.replace("u=https", "u=http")), d)).status).toBe(400);
+    const noKey = deps({ fetch: vi.fn(async () => png()) as unknown as typeof fetch });
+    expect((await art(new Request("https://sleepcast.pro" + signed), noKey)).status).toBe(400);
+    const other = await signArt("https://cdn.example/a.jpg", "other-key");
+    expect((await art(new Request("https://sleepcast.pro" + other), d)).status).toBe(400);
   });
 
   it("passes an image through, cached, and refuses anything else", async () => {

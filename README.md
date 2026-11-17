@@ -43,7 +43,8 @@ So:
   the typed words go to Apple from Cloudflare, not from you, and aren't
   logged; when Apple is busy, the same words go to Podcast Index instead,
   signed with the `PODCASTINDEX_KEY` / `PODCASTINDEX_SECRET` worker
-  secrets). More sleep podcasts offers shows picked by hand and checked for
+  secrets, and its artwork links are signed with the `ART_KEY` secret so
+  `/api/art` fetches only images a search handed out). More sleep podcasts offers shows picked by hand and checked for
   long episodes, recent activity and audio that can be saved offline
   (`src/lib/catalog.ts`, which records the checks). A directory search
   mostly turns up generated loops and ten-minute
