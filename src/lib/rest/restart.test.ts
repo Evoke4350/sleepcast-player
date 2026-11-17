@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { overturnOnRestart, noteNightStart, undecided, RESTART_WITHIN_MS } from "./restart";
+import { overturnOnRestart, noteNightStart, undecided, restartTally, describeRestarts, RESTART_WITHIN_MS } from "./restart";
 import { appendNight, loadNights, setSelfLabel, isSlept } from "./ledger";
 import type { RestNight } from "./types";
 
@@ -74,5 +74,37 @@ describe("a night set aside, then answered", () => {
     expect(n.sleptAtMs).toBeNull();
     expect(isSlept(n)).toBe(false);
     expect(undecided(n)).toBe(false);
+  });
+});
+
+describe("restartTally", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("counts the nights set aside, by how you answered", () => {
+    const nights = [
+      night(),
+      night({ startedAt: 1, restartedAfter: true, sleptAtMs: null, detector: "none" }),
+      night({ startedAt: 2, restartedAfter: true, selfLabel: "slept" }),
+      night({ startedAt: 3, restartedAfter: true, selfLabel: "slept" }),
+      night({ startedAt: 4, restartedAfter: true, sleptAtMs: null, detector: "none", selfLabel: "awake" }),
+      night({ startedAt: 5, selfLabel: "awake" }),
+    ];
+    expect(restartTally(nights)).toEqual({ total: 4, slept: 2, awake: 1, open: 1 });
+    expect(restartTally([night()])).toEqual({ total: 0, slept: 0, awake: 0, open: 0 });
+  });
+
+  it("describes the tally in one line, or not at all", () => {
+    expect(describeRestarts({ total: 0, slept: 0, awake: 0, open: 0 })).toBeNull();
+    expect(describeRestarts({ total: 4, slept: 2, awake: 1, open: 1 })).toBe("4 nights set aside after a quick restart: you said you slept on 2, were awake on 1, 1 unanswered.");
+    expect(describeRestarts({ total: 1, slept: 0, awake: 1, open: 0 })).toBe("1 night set aside after a quick restart: you were awake on 1.");
+    expect(describeRestarts({ total: 2, slept: 0, awake: 0, open: 2 })).toBe("2 nights set aside after a quick restart: 2 unanswered.");
+  });
+
+  it("the tally survives answering: a restored guess still counts as set aside", () => {
+    appendNight(night({ startedAt: -1 }));
+    appendNight(night());
+    noteNightStart(END + MIN);
+    setSelfLabel(0, "slept");
+    expect(restartTally(loadNights())).toEqual({ total: 1, slept: 1, awake: 0, open: 0 });
   });
 });

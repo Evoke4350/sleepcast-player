@@ -56,3 +56,31 @@ export function noteNightStart(now: number = Date.now()): void {
 export function undecided(n: RestNight): boolean {
   return n.restartedAfter === true && n.selfLabel === undefined;
 }
+
+/** How the nights set aside by a restart turned out, for the Rest tab: if
+ *  most were slept after all, the cutoff is catching sleepers woken by the
+ *  stop; if most were awake, it's doing its job. */
+export interface RestartTally { total: number; slept: number; awake: number; open: number }
+
+export function restartTally(nights: readonly RestNight[]): RestartTally {
+  const t: RestartTally = { total: 0, slept: 0, awake: 0, open: 0 };
+  for (const n of nights) {
+    if (n.restartedAfter !== true) continue;
+    t.total++;
+    if (n.selfLabel === "slept") t.slept++;
+    else if (n.selfLabel === "awake") t.awake++;
+    else t.open++;
+  }
+  return t;
+}
+
+/** One line for the tally; null when no night was set aside. */
+export function describeRestarts(t: RestartTally): string | null {
+  if (t.total === 0) return null;
+  const head = t.total === 1 ? "1 night set aside after a quick restart" : `${t.total} nights set aside after a quick restart`;
+  const parts: string[] = [];
+  if (t.slept) parts.push(`you said you slept on ${t.slept}`);
+  if (t.awake) parts.push(`${t.slept ? "were" : "you were"} awake on ${t.awake}`);
+  if (t.open) parts.push(`${t.open} unanswered`);
+  return `${head}: ${parts.join(", ")}.`;
+}

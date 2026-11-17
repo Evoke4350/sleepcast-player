@@ -3,6 +3,7 @@ import { loadNights, rollup, setSelfLabel, leanComparison } from "../lib/rest/le
 import { recordFalsePositive, guessAccuracy } from "../lib/rest/calibrate";
 import { scoreFeeds, medianTimeToSleep, meetsSuggestionGate, shuffleWeights, pluralNights, fmtOnsetMinutes, MIN_NIGHTS, WEIGHT_MAX } from "../lib/rest/sleepscore";
 import { fmtDuration, lastNight } from "../lib/rest/surface";
+import { describeRestarts, restartTally } from "../lib/rest/restart";
 import { describeImport, describeWatchNight, importWatchSleep } from "../lib/rest/watch";
 import { NightChart } from "./NightChart";
 import { NightsTrend } from "./NightsTrend";
@@ -35,6 +36,7 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
   // Read again after the watch's sleep is added from here.
   const [imports, reloadNights] = useReducer((n: number) => n + 1, 0);
   const nights = useMemo(() => loadNights(), [imports]);
+  const restartLine = describeRestarts(restartTally(nights));
   const r = useMemo(() => rollup(nights), [nights]);
   const watched = useMemo(() => nights.filter((n) => n.watchSleep?.length), [nights]);
   const accuracy = useMemo(() => guessAccuracy(nights), [nights]);
@@ -274,6 +276,9 @@ export function RestView({ onClose, note = null }: { onClose?: () => void; note?
             </dd>
           </div>
         </dl>
+        {/* Nights a quick restart set aside (restart.ts), and how they
+            turned out: a check on the cutoff, in one line. */}
+        {restartLine && <p className="mt-3 text-[11px] leading-snug text-[var(--ink-3)]">{restartLine}</p>}
       </section>
 
       {/* Chips, as in Podcasts: the whole tab, or one part of it. */}
